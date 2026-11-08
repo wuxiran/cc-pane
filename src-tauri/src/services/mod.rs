@@ -5,6 +5,7 @@ pub use cc_panes_core::services::*;
 mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
+pub mod bot_service;
 mod browser_service;
 pub mod bundled_skills;
 pub mod heavy_command_recorder;
@@ -45,9 +46,10 @@ mod web_access_lifecycle;
 pub use acp_chat_service::edits::UndoAcpFileEdit;
 pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};
 pub use acp_chat_service::{
-    AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
+    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
 };
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
+pub use bot_service::{Bot, BotService, BotSummary};
 pub use browser_service::{
     BrowserBounds, BrowserDomSnapshot, BrowserElement, BrowserHostState, BrowserOpenTabEvent,
     BrowserSpikeReport, BrowserTabInfo, BrowserTabManager, BrowserViewport, BrowserViewportRequest,

@@ -628,5 +628,8 @@
     "title": "新标签页"
   },
   "reviewChanges": "审阅更改",
-  "agentChatCompactPlaceholder": "随心输入"
+  "agentChatCompactPlaceholder": "随心输入",
+  "agentChatFromIm": "来自 IM",
+  "botChatStarting": "正在唤醒 {{name}}…",
+  "botChatRetry": "重试"
 }

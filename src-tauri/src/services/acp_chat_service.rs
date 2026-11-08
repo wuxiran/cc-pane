@@ -250,6 +250,8 @@ struct AcpChatSession {
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
     active_run: std::sync::Mutex<Option<runtime::ActiveRun>>,
     client_writes: Arc<RwLock<()>>,
+    /// 进程内事件旁路（服务级共享）：Bot 运行时据此收集回复，不依赖 webview。
+    event_tap: tokio::sync::broadcast::Sender<AcpChatEvent>,
 }
 
 impl AcpChatSession {
@@ -442,14 +444,15 @@ impl AcpChatSession {
     }
 
     fn emit_live(&self, kind: &str, payload: Value) {
-        if !crate::webview_reliability::webview_emits_allowed() {
-            return;
-        }
         let event = AcpChatEvent {
             chat_id: self.chat_id.clone(),
             kind: kind.to_string(),
             payload,
         };
+        tap_event(&self.event_tap, &event);
+        if !crate::webview_reliability::webview_emits_allowed() {
+            return;
+        }
         if let Err(error) = self.app.emit(ACP_CHAT_EVENT, &event) {
             debug!(chat_id = %self.chat_id, error = %error, "ACP chat event emit failed");
         }
@@ -475,6 +478,16 @@ pub struct AcpTurnNotice {
 
 pub type AcpTurnNotifier = Box<dyn Fn(AcpTurnNotice) + Send + Sync>;
 
+/// 旁路容量：订阅方（Bot 运行时）只关心 chunk 与回合边界，滞后时丢旧的即可。
+const EVENT_TAP_CAPACITY: usize = 2048;
+
+/// 没有订阅者时不克隆载荷（token 流是热路径）。
+fn tap_event(tap: &tokio::sync::broadcast::Sender<AcpChatEvent>, event: &AcpChatEvent) {
+    if tap.receiver_count() > 0 {
+        let _ = tap.send(event.clone());
+    }
+}
+
 pub struct AcpChatService {
     lifecycles: std::sync::Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
     native_sessions: RwLock<HashMap<String, Arc<native::Session>>>,
@@ -489,6 +502,10 @@ pub struct AcpChatService {
     sidecar_resource_dir: std::sync::RwLock<Option<PathBuf>>,
     journal: journal::RunJournal,
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
+    event_tap: tokio::sync::broadcast::Sender<AcpChatEvent>,
+    /// chatId → 下一条 prompt 的隐藏前言（Bot 人设在项目 cwd 模式下的注入口；
+    /// ACP 没有 system prompt 字段）。取用即清。
+    preambles: std::sync::Mutex<HashMap<String, String>>,
 }
 
 impl AcpChatService {
@@ -506,6 +523,80 @@ impl AcpChatService {
             sidecar_resource_dir: std::sync::RwLock::new(None),
             journal,
             checkpoints,
+            event_tap: tokio::sync::broadcast::channel(EVENT_TAP_CAPACITY).0,
+            preambles: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// 订阅所有会话的事件（与 `acp-chat-event` 同载荷，但不经 webview）。
+    pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<AcpChatEvent> {
+        self.event_tap.subscribe()
+    }
+
+    pub(super) fn event_tap(&self) -> tokio::sync::broadcast::Sender<AcpChatEvent> {
+        self.event_tap.clone()
+    }
+
+    /// 设置（或清除）该 chat 下一条 prompt 的隐藏前言。
+    pub fn set_next_prompt_preamble(&self, chat_id: &str, preamble: Option<String>) {
+        let mut map = self
+            .preambles
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match preamble.filter(|text| !text.trim().is_empty()) {
+            Some(text) => {
+                map.insert(chat_id.trim().to_string(), text);
+            }
+            None => {
+                map.remove(chat_id.trim());
+            }
+        }
+    }
+
+    fn apply_preamble(&self, chat_id: &str, blocks: &mut [Value]) {
+        let preamble = self
+            .preambles
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(chat_id.trim());
+        let Some(preamble) = preamble else { return };
+        if let Some(block) = blocks
+            .iter_mut()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        {
+            let text = block
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            block["text"] = Value::String(format!("{preamble}\n\n---\n\n{text}"));
+        }
+    }
+
+    /// 以某个 chat 的身份发一条事件（进 journal + webview + 旁路）。会话不在时
+    /// 只走 webview 与旁路。Bot 运行时用它让界面显示 IM 送来的用户消息。
+    pub async fn emit_chat_event(
+        &self,
+        app: &AppHandle,
+        chat_id: &str,
+        kind: &str,
+        payload: Value,
+    ) {
+        if let Some(session) = self.sessions.read().await.get(chat_id.trim()).cloned() {
+            session.emit(kind, payload);
+            return;
+        }
+        if let Some(session) = self.native_session(chat_id).await {
+            session.emit_external(kind, payload);
+            return;
+        }
+        let event = AcpChatEvent {
+            chat_id: chat_id.trim().to_string(),
+            kind: kind.to_string(),
+            payload,
+        };
+        tap_event(&self.event_tap, &event);
+        if crate::webview_reliability::webview_emits_allowed() {
+            let _ = app.emit(ACP_CHAT_EVENT, &event);
         }
     }
 
@@ -685,6 +776,7 @@ impl AcpChatService {
             checkpoints: self.checkpoints.clone(),
             active_run: std::sync::Mutex::new(None),
             client_writes: Arc::new(RwLock::new(())),
+            event_tap: self.event_tap.clone(),
         });
         self.sessions
             .write()
@@ -908,7 +1000,8 @@ impl AcpChatService {
     /// Submit a prompt as ACP ContentBlock array (text / image / resource_link).
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
-    pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+    pub async fn prompt(self: &Arc<Self>, chat_id: &str, mut blocks: Vec<Value>) -> AppResult<()> {
+        self.apply_preamble(chat_id, &mut blocks);
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
@@ -955,8 +1048,9 @@ impl AcpChatService {
     pub async fn prompt_and_wait(
         self: &Arc<Self>,
         chat_id: &str,
-        blocks: Vec<Value>,
+        mut blocks: Vec<Value>,
     ) -> AppResult<String> {
+        self.apply_preamble(chat_id, &mut blocks);
         if let Some(session) = self.native_session(chat_id).await {
             return tokio::spawn(async move {
                 session

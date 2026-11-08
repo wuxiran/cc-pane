@@ -54,7 +54,9 @@ impl AcpChatService {
         chat_id: &str,
         spec: AcpLaunchSpec,
     ) -> AppResult<AcpChatSnapshot> {
+        let tap = self.event_tap();
         let sink: EventSink = Arc::new(move |event| {
+            tap_event(&tap, &event);
             if crate::webview_reliability::webview_emits_allowed() {
                 if let Err(error) = app.emit(ACP_CHAT_EVENT, event) {
                     tracing::debug!(%error, "Native Agent event delivery failed");
@@ -220,6 +222,9 @@ impl Session {
             kind: kind.into(),
             payload,
         });
+    }
+    pub(in crate::services::acp_chat_service) fn emit_external(&self, kind: &str, payload: Value) {
+        self.emit(kind, payload);
     }
     async fn emit_state(&self) {
         self.emit(

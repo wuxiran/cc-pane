@@ -150,6 +150,14 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "state":
       store.setSnapshot(chatId, payload as AcpChatSnapshot);
       return;
+    // Bot 经 IM 收到的消息：后端代发 prompt 前先广播，界面补一个用户气泡。
+    case "external_prompt": {
+      const data = payload as { text?: string; origin?: string } | null;
+      if (typeof data?.text === "string" && data.text) {
+        store.addUserMessage(chatId, data.text, undefined, undefined, "im");
+      }
+      return;
+    }
     case "permission_request":
       store.enqueuePermission(chatId, payload as AcpPermissionRequest);
       return;

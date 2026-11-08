@@ -13,6 +13,8 @@ const DIRECT_COLOR_RE =
 const EXEMPT_DIRS = new Set(["dev", "mobile", "ui"]);
 
 const ALLOWLIST: Record<string, string[]> = {
+  // Bot 头像底色是用户选的身份色（存进 bot.json），属于类别编码，不随主题变化。
+  "bots/BotEditorDialog.tsx": ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#64748b"],
   // 导出的批注 PNG 使用固定的红色编号及白底深字，不属于应用 chrome，
   // 不能随切换主题改变已导出证据的配色和可读性。
   "browser/annotations/annotationCanvas.ts": ["#e5484d", "#ffffff", "#202124"],
