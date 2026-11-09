@@ -8,6 +8,7 @@
 import { useEffect } from "react";
 import { usePanesStore } from "@/stores";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useSessionCostStore } from "@/stores/useSessionCostStore";
 import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
 import { listenIfTauri } from "@/services/runtime";
 import { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
@@ -68,12 +69,44 @@ function replayPendingResumeBindings(): void {
   }
 }
 
+// /clear 先撤旧身份、再由 SessionStart 回填新身份（issue #64 第 9 条）。被撤销的
+// 会话记在这里，新身份一到立即重查用量/费用，不用等下一轮 10 秒轮询。
+const MAX_AWAITING_IDENTITY_REFRESH = 256;
+
+function invalidateUsageForIdentity(
+  ptySessionId: string,
+  resumeSessionId: string | null | undefined,
+  awaitingRefresh: Set<string>,
+): void {
+  const usage = useContextUsageStore.getState();
+  const entry = usage.sessions.get(ptySessionId);
+  const cost = useSessionCostStore.getState();
+  const costTracked = cost.sessions.has(ptySessionId);
+  const tracked = Boolean(entry) || costTracked || usage.sessionId === ptySessionId
+    || awaitingRefresh.has(ptySessionId);
+  if (entry && (!resumeSessionId || entry.snapshot?.agentSessionId !== resumeSessionId)) {
+    usage.dropSession(ptySessionId);
+  }
+  // 费用是按 agent 会话累计的：换了身份，旧会话的数不能再挂在新会话上。
+  if (costTracked) cost.dropSession(ptySessionId);
+  if (!tracked) return;
+  if (!resumeSessionId) {
+    if (awaitingRefresh.size >= MAX_AWAITING_IDENTITY_REFRESH) awaitingRefresh.clear();
+    awaitingRefresh.add(ptySessionId);
+    return;
+  }
+  awaitingRefresh.delete(ptySessionId);
+  void useContextUsageStore.getState().loadSession(ptySessionId);
+  if (costTracked) void useSessionCostStore.getState().loadSession(ptySessionId);
+}
+
 // 统一桥接后端发来的 history-updated 事件，保持现有页面订阅方式不变。
 export function useTerminalResumeIdBridge(): void {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     const identityVersions = new Map<string, number>();
+    const awaitingRefresh = new Set<string>();
     listenIfTauri<ResumeIdentityEvent>("history-updated", (event) => {
       if (cancelled) return;
       const payload = event.payload ?? {};
@@ -82,12 +115,7 @@ export function useTerminalResumeIdBridge(): void {
       if (payload.ptySessionId && "resumeSessionId" in payload) {
         identityVersions.set(payload.ptySessionId, (identityVersions.get(payload.ptySessionId) ?? 0) + 1);
         pendingResumeBindings.delete(payload.ptySessionId);
-        const usage = useContextUsageStore.getState();
-        const entry = usage.sessions.get(payload.ptySessionId);
-        if (entry && (!payload.resumeSessionId
-          || entry.snapshot?.agentSessionId !== payload.resumeSessionId)) {
-          usage.dropSession(payload.ptySessionId);
-        }
+        invalidateUsageForIdentity(payload.ptySessionId, payload.resumeSessionId, awaitingRefresh);
       }
       if (payload.ptySessionId && payload.resumeSessionId === null) {
         // 清绑定并立墓碑：撤回的 id 不允许被迟到的 issued 事件写回。
