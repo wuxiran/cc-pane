@@ -888,5 +888,8 @@
   "rightDock.historyChats": "对话",
   "rightDock.historyTerminals": "终端会话",
   "rightDock.searchChats": "搜索对话",
-  "rightDock.noMatchingChats": "没有匹配的对话"
+  "rightDock.noMatchingChats": "没有匹配的对话",
+  "rightDock.reviewWithChat": "让对话审阅",
+  "rightDock.reviewWithChatHint": "在对话里审阅「{{name}}」的未提交改动",
+  "rightDock.reviewDiffPrompt": "请审阅项目「{{name}}」当前未提交的改动（用 git status 和 git diff 查看，包括未跟踪的新文件）。按严重程度列出潜在的 bug、风险和可改进之处，并给出具体位置。先不要修改代码。"
 }
