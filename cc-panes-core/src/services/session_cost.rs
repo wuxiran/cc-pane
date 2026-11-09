@@ -7,7 +7,7 @@
 //! - Claude: <https://platform.claude.com/docs/en/about-claude/pricing>
 //! - OpenAI: <https://developers.openai.com/api/docs/pricing>
 
-use crate::models::SessionCostModelEntry;
+use crate::models::{RateLimitSnapshot, SessionCostModelEntry};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
@@ -320,6 +320,8 @@ pub(crate) struct CostLedger {
     codex_model: Option<String>,
     codex_last_total: Option<CodexTotals>,
     codex_events: u64,
+    /// 日志里最后一次出现的订阅额度（Codex 才有）。
+    rate_limits: Option<RateLimitSnapshot>,
 }
 
 impl CostLedger {
@@ -442,6 +444,12 @@ impl CostLedger {
         if !is_token_count {
             return;
         }
+        // 只更新额度的 token_count（info 为 null 或累计值不变）也要先取额度再判重。
+        if let Some(limits) =
+            crate::services::rate_limit_snapshot::codex_rate_limits_from_event(json)
+        {
+            self.rate_limits = Some(limits);
+        }
         let Some(total) = json
             .pointer("/payload/info/total_token_usage")
             .map(CodexTotals::from_usage)
@@ -468,6 +476,10 @@ impl CostLedger {
                 tokens: call.to_call(),
             },
         );
+    }
+
+    pub(crate) fn rate_limits(&self) -> Option<&RateLimitSnapshot> {
+        self.rate_limits.as_ref()
     }
 
     pub(crate) fn totals(&self) -> CostTotals {
@@ -963,5 +975,55 @@ mod tests {
         let mut ledger = CostLedger::default();
         ledger.refresh("codex", &path, &[]).unwrap();
         assert_eq!(ledger.totals().calls, 0);
+    }
+
+    #[test]
+    fn codex_rate_limits_follow_the_latest_token_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout.jsonl");
+        let limits = |used: f64| {
+            format!(
+                "{}\n",
+                json!({
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": null,
+                        "rate_limits": {"primary": {"used_percent": used, "window_minutes": 300, "resets_at": 1_900_000_000}},
+                    },
+                })
+            )
+        };
+        let mut ledger = CostLedger::default();
+        append(&path, &limits(10.0));
+        ledger.refresh("codex", &path, &[]).unwrap();
+        assert_eq!(ledger.rate_limits().unwrap().windows[0].used_percent, 10.0);
+        append(&path, &limits(55.0));
+        ledger.refresh("codex", &path, &[]).unwrap();
+        let latest = ledger.rate_limits().unwrap();
+        assert_eq!(latest.windows[0].used_percent, 55.0);
+        assert_eq!(latest.windows[0].resets_at, Some(1_900_000_000_000));
+        assert_eq!(
+            ledger.totals().calls,
+            0,
+            "limit-only events are not requests"
+        );
+    }
+
+    #[test]
+    fn claude_transcripts_carry_no_rate_limits() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        append(
+            &path,
+            &claude_line(
+                "msg_1",
+                "claude-sonnet-4-5",
+                json!({"input_tokens": 10, "output_tokens": 5}),
+            ),
+        );
+        let mut ledger = CostLedger::default();
+        ledger.refresh("claude", &path, &[]).unwrap();
+        assert!(ledger.rate_limits().is_none());
     }
 }
