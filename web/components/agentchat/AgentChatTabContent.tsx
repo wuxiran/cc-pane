@@ -40,6 +40,8 @@ import ChatQuestionQueue from "./ChatQuestionQueue";
 import { startConfiguredChat } from "./startConfiguredChat";
 import { residentAgentChatCwd } from "./chatPaths";
 import { useChatFileActions } from "./useChatFileActions";
+import { botIdOfChat } from "@/types/bot";
+import { useBotChatBootstrap } from "@/components/bots/useBotChatBootstrap";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
@@ -58,6 +60,9 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   const runtimeTools = useChatRuntimeTools();
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
+  // Bot 标签（id = bot-{botId}）：跳过引擎选择页，按 Bot 记住的线程拉起。
+  const botId = botIdOfChat(tab.id);
+  const botBootstrap = useBotChatBootstrap(tab.id, botId);
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -223,6 +228,11 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
 
   const restart = useCallback(() => {
     const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
+    if (botId) {
+      useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
+      botBootstrap.start();
+      return;
+    }
     if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
     const setup = useAgentChatStore.getState().chats[tab.id]?.setup;
@@ -235,7 +245,29 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
       firstPrompt: setup?.firstPrompt,
       preamble: setup?.preamble,
     }).catch((error) => handleErrorSilent(error, "restart acp chat"));
-  }, [tab.id, effectiveCwd, t]);
+  }, [tab.id, effectiveCwd, t, botId, botBootstrap.start]);
+
+  // Bot 还没拉起：显示唤醒中 / 失败重试，而不是引擎选择页。
+  if (botId && !snapshot) {
+    return (
+      <div className="agent-chat-shell flex h-full min-w-0 flex-col items-center justify-center gap-3 px-6 text-center text-[length:var(--text-small)] text-[var(--app-text-secondary)]" data-testid="bot-chat-starting">
+        {botBootstrap.error ? (
+          <>
+            <span className="max-w-md break-words text-[var(--app-status-danger)]">{botBootstrap.error}</span>
+            <button
+              type="button"
+              className="rounded-md border border-[var(--app-border)] px-3 py-1 hover:bg-[var(--app-hover)]"
+              onClick={botBootstrap.start}
+            >
+              {t("botChatRetry")}
+            </button>
+          </>
+        ) : (
+          <span>{t("botChatStarting", { name: tab.title })}</span>
+        )}
+      </div>
+    );
+  }
 
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
   if (!snapshot && (!items || items.length === 0)) {

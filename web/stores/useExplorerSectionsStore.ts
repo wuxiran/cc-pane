@@ -5,11 +5,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ExplorerSectionId = "workspaces" | "sessions" | "agentChats";
+export type ExplorerSectionId = "workspaces" | "sessions" | "agentChats" | "bots";
 export type WorkspaceTreeMode = "projects" | "terminals";
 export type ExplorerMode = "full" | "simple";
 
-const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions", "agentChats"];
+const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions", "agentChats", "bots"];
 const TREE_MODES: readonly WorkspaceTreeMode[] = ["projects", "terminals"];
 const EXPLORER_MODES: readonly ExplorerMode[] = ["full", "simple"];
 

@@ -114,3 +114,15 @@ describe("history replay event transaction", () => {
     expect(chat.terminals.terminal.output).toBe("output");
   });
 });
+
+describe("external prompt event (bot via IM)", () => {
+  it("adds a user bubble tagged with the IM origin and ignores empty payloads", () => {
+    emit("external_prompt", { text: "from phone", origin: "im" });
+    emit("external_prompt", { text: "" });
+    emit("external_prompt", null);
+    const items = useAgentChatStore.getState().chats[CHAT].items;
+    const last = items[items.length - 1];
+    expect(messages()).toEqual(["question-a", "answer-a", "from phone"]);
+    expect(last).toMatchObject({ type: "user", text: "from phone", origin: "im" });
+  });
+});

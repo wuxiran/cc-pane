@@ -628,5 +628,8 @@
     "title": "New tab"
   },
   "reviewChanges": "Review changes",
-  "agentChatCompactPlaceholder": "Ask anything"
+  "agentChatCompactPlaceholder": "Ask anything",
+  "agentChatFromIm": "via IM",
+  "botChatStarting": "Waking up {{name}}…",
+  "botChatRetry": "Retry"
 }

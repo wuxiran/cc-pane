@@ -6,11 +6,12 @@
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
 import { useRowTypeAhead } from "@/hooks/useTypeAhead";
-import { History, LayoutGrid, MessagesSquare, Plus, Rocket } from "lucide-react";
+import { Contact, History, LayoutGrid, MessagesSquare, Plus, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
 import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
+import BotContactsView from "@/components/bots/BotContactsView";
 import ExplorerModeMenu from "@/components/sidebar/ExplorerModeMenu";
 import SimpleExplorerView from "@/components/sidebar/simple/SimpleExplorerView";
 import {
@@ -30,6 +31,8 @@ const SECTIONS = [
   // 「最近启动」原为 ActivityBar 竖排项，复用已有的 recentLaunches key（不新增 i18n）
   { id: "sessions", labelKey: "recentLaunches", Icon: History },
   { id: "agentChats", labelKey: "agentChatsTitle", Icon: MessagesSquare },
+  // Bot 联系人：常驻、有人设、长期记得对话的 Agent（可经 IM 收发）
+  { id: "bots", labelKey: "bots.tab", Icon: Contact },
 ] as const satisfies ReadonlyArray<{
   id: ExplorerSectionId;
   labelKey: string;
@@ -170,6 +173,14 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         style={!simpleMode && activeSection === "agentChats" ? undefined : { display: "none" }}
       >
         <AgentChatSessionsView />
+      </div>
+
+      {/* 联系人：keep-alive——挂着才能收到 Bot 经 IM 产生的对话事件 */}
+      <div
+        className="min-h-0 flex-1"
+        style={!simpleMode && activeSection === "bots" ? undefined : { display: "none" }}
+      >
+        <BotContactsView />
       </div>
     </div>
   );
