@@ -198,6 +198,13 @@ pub struct AcpChatEvent {
     pub payload: Value,
 }
 
+/// 一个仍在等待的权限请求的身份：会话进程实例 + toolCallId。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionBinding {
+    pub instance_id: String,
+    pub tool_call_id: Option<String>,
+}
+
 /// Launch details resolved in Rust. Never accept an executable path from the
 /// WebView; the command layer resolves a trusted engine registry entry.
 #[derive(Debug, Clone)]
@@ -259,6 +266,9 @@ struct AcpChatSession {
     client_writes: Arc<RwLock<()>>,
     /// 进程内事件旁路（服务级共享）：Bot 运行时据此收集回复，不依赖 webview。
     event_tap: EventTap,
+    /// 本进程实例的身份。ACP 的 requestKey 是 JSON-RPC id（`n7`），换进程会重来，
+    /// 外部审批（IM 按钮）必须同时核对实例。
+    instance_id: String,
 }
 
 impl AcpChatSession {
@@ -535,6 +545,27 @@ impl AcpChatService {
         self.event_tap.clone()
     }
 
+    /// 某个权限请求此刻仍在等待时，返回它属于哪个会话实例、哪个 toolCall。
+    /// 外部审批（IM 按钮）点按时据此核对，避免批准一个同 key 的新请求。
+    pub async fn permission_binding(
+        &self,
+        chat_id: &str,
+        request_key: &str,
+    ) -> Option<PermissionBinding> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.permission_binding(request_key).await;
+        }
+        let session = self.sessions.read().await.get(chat_id.trim()).cloned()?;
+        let tool_call_id = session
+            .pending_permissions
+            .pending_tool_call(request_key)
+            .await?;
+        Some(PermissionBinding {
+            instance_id: session.instance_id.clone(),
+            tool_call_id,
+        })
+    }
+
     /// 设置（或清除）该 chat 下一条 prompt 的隐藏前言。
     pub fn set_next_prompt_preamble(&self, chat_id: &str, preamble: Option<String>) {
         self.preambles.set(chat_id, preamble);
@@ -721,6 +752,7 @@ impl AcpChatService {
             active_run: std::sync::Mutex::new(None),
             client_writes: Arc::new(RwLock::new(())),
             event_tap: self.event_tap.clone(),
+            instance_id: uuid::Uuid::new_v4().to_string(),
         });
         self.sessions
             .write()
@@ -1238,9 +1270,10 @@ impl AcpChatService {
                     outcome
                 };
                 session_ref.respond(&id, Ok(outcome.clone())).await?;
-                session_ref.record_event(
+                // 实时也发：在 IM 里批准时桌面卡片要消失，反之 IM 按钮要撤下。
+                session_ref.emit(
                     "permission_resolved",
-                    &json!({"requestKey":recorded_key,"result":outcome}),
+                    json!({"requestKey":recorded_key,"result":outcome}),
                 );
                 Ok(())
             })
@@ -1628,9 +1661,13 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                     )
                     .await;
                 match resolution {
-                    Ok(PermissionResolution::Pending) => session.emit(
-                        "permission_request", json!({"requestKey": request_key, "params": params}),
-                    ),
+                    Ok(PermissionResolution::Pending) => {
+                        let tool_call_id = params["toolCall"]["toolCallId"].as_str().map(str::to_string);
+                        session.pending_permissions.bind_tool_call(&request_key, tool_call_id).await;
+                        session.emit(
+                            "permission_request", json!({"requestKey": request_key, "params": params}),
+                        )
+                    }
                     Ok(PermissionResolution::Approved) => session.emit(
                         "notification", json!({
                             "method": "ccpanes/auto-approved", "params": params, "resolvedKind": tool_kind,

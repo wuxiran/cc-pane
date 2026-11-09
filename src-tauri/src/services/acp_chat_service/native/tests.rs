@@ -587,3 +587,38 @@ async fn announced_prompt_is_atomic_and_preamble_survives_rejection() {
         "{text}"
     );
 }
+
+/// IM 审批按钮点按时核对的身份：仍在等待时有（实例 + toolCall），处理后即无；
+/// 换一个进程实例后，同样的请求身份不会相等。
+#[tokio::test]
+async fn permission_binding_tracks_the_live_request_only() {
+    let f = Fixture::new().await;
+    f.start("chat", f.spec.clone()).await.unwrap();
+    assert!(f.service.permission_binding("chat", "nope").await.is_none());
+    f.service
+        .prompt("chat", vec![json!({"type":"text","text":"permission"})])
+        .await
+        .unwrap();
+    let permission = f.event("permission_request").await;
+    let key = permission["requestKey"].as_str().unwrap().to_string();
+    let first = f.service.permission_binding("chat", &key).await.unwrap();
+    assert_eq!(first.tool_call_id.as_deref(), Some("cmd"));
+    f.service
+        .respond_permission("chat", key.clone(), Some("accept".into()))
+        .await
+        .unwrap();
+    assert!(f.service.permission_binding("chat", &key).await.is_none());
+    f.event("turn_ended").await;
+    f.service.stop("chat").await.unwrap();
+    f.events.lock().unwrap().clear();
+    f.start("chat", f.spec.clone()).await.unwrap();
+    f.service
+        .prompt("chat", vec![json!({"type":"text","text":"permission"})])
+        .await
+        .unwrap();
+    let permission = f.event("permission_request").await;
+    let key = permission["requestKey"].as_str().unwrap();
+    let second = f.service.permission_binding("chat", key).await.unwrap();
+    assert_ne!(first.instance_id, second.instance_id);
+    f.service.cancel("chat").await.unwrap();
+}

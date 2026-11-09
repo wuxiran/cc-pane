@@ -1435,5 +1435,13 @@
   "terminalColorHint": "留空使用主题颜色。低对比度颜色会自动调整，保证光标和选区可见、文字可读。若仍不可见，可将渲染器切换为 DOM。",
   "autoCloseCompletedTasks": "允许完成任务自动收窗",
   "autoCloseCompletedTasksHint": "默认关闭。还需在每个任务菜单中单独选择；任务完成、进程退出且有结果摘要后保留 30 秒再收窗。结果可在任务详情回看。",
-  "mcpArgsHelp": "用空格分隔参数，含空格的值加引号；空参数写成 \"\"。单引号内原样保留 Windows 反斜杠；双引号内的引号和反斜杠需用反斜杠转义。不会展开变量或执行命令。"
+  "mcpArgsHelp": "用空格分隔参数，含空格的值加引号；空参数写成 \"\"。单引号内原样保留 Windows 反斜杠；双引号内的引号和反斜杠需用反斜杠转义。不会展开变量或执行命令。",
+  "imInboundEnabled": "接收消息，交给 Bot 回复",
+  "imInboundHint": "手机上给这个 Telegram Bot 发消息，就会交给桌面端「联系人」里的 Bot，回复再发回来。只接受上面数字 Chat ID 里、下面允许的用户发来的消息；发 /help 查看命令。",
+  "imInboundConfirm": "打开后，被允许的发送者可以让 Bot 在本机读写文件、执行命令（受 Bot 的自动批准设置约束）。默认只接受私聊里的你本人；如果 Chat ID 是群，只有你在「允许的用户 ID」里列出的人可以。确定打开？",
+  "imInboundDefaultBot": "默认 Bot",
+  "imInboundAllowedUsers": "允许的用户 ID",
+  "imInboundAllowedUsersHint": "Telegram 数字用户 id，逗号分隔。留空 = 只接受私聊里的本人（Chat ID 就是你的用户 id）；群聊必须在这里列出。",
+  "imInboundNeedsNumericChatId": "接收消息需要数字 Chat ID（例如 123456789 或 -100…），@用户名 可被改名抢注，不会被接收。",
+  "imInboundDefaultBotFirst": "第一个 Bot"
 }
