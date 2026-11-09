@@ -705,7 +705,7 @@ mod tests {
 
     #[test]
     fn reply_empty_without_chunks() {
-        let events = vec![
+        let events = [
             event(
                 "bot-a",
                 EXTERNAL_PROMPT_EVENT_KIND,
@@ -715,7 +715,7 @@ mod tests {
         ];
         assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
         // 没见到本条公告（例如被拒绝）就什么都不收。
-        let events = vec![chunk("bot-a", "other turn")];
+        let events = [chunk("bot-a", "other turn")];
         assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
     }
 

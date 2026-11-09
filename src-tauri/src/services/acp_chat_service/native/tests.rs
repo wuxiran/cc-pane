@@ -579,8 +579,7 @@ async fn announced_prompt_is_atomic_and_preamble_survives_rejection() {
     let sent = trace
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|line| line["method"] == "turn/start")
-        .last()
+        .rfind(|line| line["method"] == "turn/start")
         .unwrap();
     let text = sent["params"]["input"][0]["text"].as_str().unwrap();
     assert!(
