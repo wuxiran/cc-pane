@@ -628,5 +628,9 @@
     "title": "New tab"
   },
   "reviewChanges": "Review changes",
-  "agentChatCompactPlaceholder": "Ask anything"
+  "agentChatCompactPlaceholder": "Ask anything",
+  "agentChatChangesBarFiles": "{{count}} file(s) changed",
+  "agentChatChangesBarShow": "Show changes",
+  "agentChatChangesBarHide": "Hide changes",
+  "agentChatChangesBarReview": "Review"
 }

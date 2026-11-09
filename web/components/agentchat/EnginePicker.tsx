@@ -33,6 +33,7 @@ import StartRecentSessions from "./StartRecentSessions";
 import CompactStartPage, { START_SUGGESTIONS } from "./CompactStartPage";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
+import { usePendingDraft } from "./pendingDraft";
 import { startConfiguredChat } from "./startConfiguredChat";
 import "@/i18n/codexIntegrationResources";
 import { CODEX_APP_SERVER_ENGINE, codexEngineLabel } from "@/lib/codexIntegration";
@@ -76,6 +77,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   const [autoApproveKinds, setAutoApproveKinds] = useState<string[]>([]);
   const [worktree, setWorktree] = useState<LocalWorktreeDraft | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  usePendingDraft(chatId, setDraft, textareaRef);
   const pickCwd = useCallback((nextCwd: string) => {
     if (useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
     onPickCwd(nextCwd);

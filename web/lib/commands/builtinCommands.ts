@@ -45,6 +45,7 @@ import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/components/CommandPalette";
 import { CLOSE_ACTIVE_TAB_EVENT } from "@/components/panes/useTabClosing";
 import { findPaneFocusTarget, readPaneFocusRects, type PaneFocusDirection } from "@/utils/paneFocus";
 import { buildDeepFeatureCommands } from "./deepFeatureCommands";
+import { buildDockCommands } from "./dockCommands";
 import { resolvePaneTab } from "./resolveTarget";
 import i18n from "@/i18n";
 import type { TerminalPaneLeaf, TerminalPaneNode } from "@/types";
@@ -438,5 +439,6 @@ export function buildBuiltinCommands(): CommandDescriptor[] {
   // 深埋功能命令（截图/本地历史/worktree/Git 时间线/会话清理/速查表）在
   // deepFeatureCommands.ts（行数棘轮约束），与内置命令同一注册通道。
   commands.push(...buildDeepFeatureCommands());
+  commands.push(...buildDockCommands());
   return commands;
 }

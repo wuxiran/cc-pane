@@ -888,5 +888,8 @@
   "rightDock.historyChats": "Chats",
   "rightDock.historyTerminals": "Terminal sessions",
   "rightDock.searchChats": "Search chats",
-  "rightDock.noMatchingChats": "No matching chats"
+  "rightDock.noMatchingChats": "No matching chats",
+  "rightDock.reviewWithChat": "Review in chat",
+  "rightDock.reviewWithChatHint": "Ask the agent to review uncommitted changes in “{{name}}”",
+  "rightDock.reviewDiffPrompt": "Please review the uncommitted changes in the project “{{name}}” (use git status and git diff, including untracked files). List potential bugs, risks and improvements ordered by severity, with concrete locations. Don't modify any code yet."
 }
