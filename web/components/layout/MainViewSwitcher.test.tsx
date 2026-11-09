@@ -246,6 +246,21 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     ];
   });
 
+  it("多布局启动时只挂当前布局的分屏树，其余布局与星标页未访问不挂载（issue #43）", () => {
+    setMode("panes");
+    panesState.layouts = [
+      { id: "l1", kind: "normal", rootPane: panesState.rootPane },
+      { id: "l2", kind: "normal", rootPane: { type: "panel", id: "p2", tabs: [], activeTabId: null } },
+      { id: "l3", kind: "starred", rootPane: panesState.rootPane },
+    ];
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getAllByTestId("pane-container")).toHaveLength(1);
+    expect(screen.queryByTestId("starred-panel")).toBeNull();
+    panesState.layouts = [
+      { id: "l1", kind: "normal", rootPane: panesState.rootPane },
+    ];
+  });
+
   it("布局切换器双模式：corner 不渲染布局条，topbar 在 panes 区渲染 LayoutTopBar", () => {
     setMode("panes");
     layoutUiState.switcherMode = "corner";

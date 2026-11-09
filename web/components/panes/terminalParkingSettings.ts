@@ -34,3 +34,14 @@ export function getParkDelayMs(): number {
     PARK_DELAY_RANGE_SECS,
   ) * 1000;
 }
+
+/**
+ * 久未访问布局的卸载延迟（issue #43）：复用停泊延迟，取其 10 倍（默认 30 s → 5 min）。
+ * 停泊释放 xterm，这一档再把整棵布局视图（Panel / TabBar / 分屏树 / 休眠订阅）卸掉；
+ * 两者共用一个旋钮，不另开设置项。
+ */
+export const LAYOUT_UNMOUNT_PARK_MULTIPLIER = 10;
+
+export function getLayoutUnmountDelayMs(): number {
+  return getParkDelayMs() * LAYOUT_UNMOUNT_PARK_MULTIPLIER;
+}

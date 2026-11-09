@@ -575,6 +575,32 @@ describe("TerminalView", () => {
     expect(onSessionCreated).not.toHaveBeenCalled();
   });
 
+  it("布局视图卸载再挂载（issue #43）：不杀 daemon 会话，重挂走 attach + snapshot 重放", async () => {
+    getRecoverySnapshot.mockResolvedValue({
+      checkpoint: null,
+      delta: "replayed",
+      bufferMode: "normal",
+      endSeq: 0,
+      checkpointEpoch: "0",
+    });
+    const first = renderTerminalView({ sessionId: "live-1" });
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith("live-1", expect.any(Function)));
+    const firstTerm = await lastTerm();
+
+    first.unmount();
+    expect(firstTerm.disposed).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(killSession).not.toHaveBeenCalled();
+
+    registerOutput.mockClear();
+    getRecoverySnapshot.mockClear();
+    renderTerminalView({ sessionId: "live-1" });
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith("live-1", expect.any(Function)));
+    expect(getRecoverySnapshot).toHaveBeenCalledWith("live-1");
+    expect(createSession).not.toHaveBeenCalled();
+    expect(killSession).not.toHaveBeenCalled();
+  });
+
   it("removes serialized Codex composer backgrounds without requiring a wallpaper", async () => {
     getRecoverySnapshot.mockResolvedValue({
       checkpoint: {

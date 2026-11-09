@@ -7,8 +7,6 @@ import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import SidebarTransition from "@/components/layout/SidebarTransition";
 import SidebarFlyout from "@/components/layout/SidebarFlyout";
-import { PaneContainer } from "@/components/panes";
-import StarredPanel from "@/components/panes/StarredPanel";
 import DndPaneProvider from "@/components/panes/DndPaneProvider";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import TodoManager from "@/components/todo/TodoManager";
@@ -16,7 +14,7 @@ import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
 import PaneFlowOverlay from "@/components/canvas/PaneFlowOverlay";
-import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
+import LayoutStage from "@/components/layout/LayoutStage";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
 import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
 import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, useThemeStore, type AppViewMode } from "@/stores";
@@ -319,23 +317,12 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
                 data-terminal-layout-view
               >
                 <LayoutAutoFitObserver />
-                {layouts.map((layout) => {
-                  const isCurrent = layout.id === currentLayoutId;
-                  return (
-                    <LayoutVisibilityContext.Provider key={layout.id} value={isCurrent && isActive("panes") && canvasDisplayMode === "panel"}>
-                      <div
-                        className="h-full w-full"
-                        style={{ display: isCurrent ? "block" : "none" }}
-                      >
-                        {layout.kind === "starred" ? (
-                          <StarredPanel />
-                        ) : (
-                          <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
-                        )}
-                      </div>
-                    </LayoutVisibilityContext.Provider>
-                  );
-                })}
+                <LayoutStage
+                  layouts={layouts}
+                  currentLayoutId={currentLayoutId}
+                  rootPane={rootPane}
+                  stageVisible={isActive("panes") && canvasDisplayMode === "panel"}
+                />
               </div>
               <div
                 className="h-full w-full"
