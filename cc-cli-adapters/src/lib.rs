@@ -1367,6 +1367,15 @@ pub fn ccpanes_enabled_tools_override() -> String {
     )
 }
 
+/// Codex `-c` override that auto-approves CC-Panes' own MCP tools (issue #64-#4).
+/// Only for YOLO launches: `--dangerously-bypass-approvals-and-sandbox` has been
+/// observed not to cover MCP tool approval overlays; a worker blocked 85 min on
+/// `Allow the ccpanes MCP server to run tool "update_task_binding"?`.
+/// Must only be pushed together with a ccpanes url/command override, otherwise
+/// Codex sees a server entry without a transport.
+pub const CCPANES_TOOLS_AUTO_APPROVE_OVERRIDE: &str =
+    "mcp_servers.ccpanes.default_tools_approval_mode=\"approve\"";
+
 #[cfg(test)]
 mod core_mcp_tools_tests {
     use super::{ccpanes_enabled_tools_override, CORE_MCP_TOOLS};
