@@ -1,4 +1,5 @@
 import type { ContextUsageStatus } from "./contextUsage";
+import type { RateLimitSnapshot } from "./rateLimit";
 
 export interface SessionCostModelEntry {
   model: string;
@@ -20,4 +21,6 @@ export interface SessionCostSnapshot {
   agentSessionId: string | null;
   observedAt: number;
   diagnosticCode: string | null;
+  /** Latest subscription usage limits seen in this session's log (Codex only). */
+  rateLimits?: RateLimitSnapshot | null;
 }
