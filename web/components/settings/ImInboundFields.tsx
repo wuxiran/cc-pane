@@ -1,13 +1,25 @@
-// IM 渠道的「入站」字段（目前仅 Telegram）：接收消息开关 + 默认 Bot。
-// 打开前必须确认：能往这个 chat 发消息的人，就能让 Bot 在本机读写文件、执行命令。
+// IM 渠道的「入站」字段（目前仅 Telegram）：接收消息开关 + 默认 Bot + 允许的发送者。
+// 打开前必须确认：被允许发消息的人，就能让 Bot 在本机读写文件、执行命令。
+// 后端只认数字 Chat ID；发送者默认只有私聊里的本人，群里必须列出用户 id。
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
 import { botService } from "@/services/botService";
 import { nativeConfirm } from "@/services/nativeDialog";
 import type { ImChannelConfig } from "@/types";
 import type { BotSummary } from "@/types/bot";
 import { handleErrorSilent } from "@/utils/errorHandler";
+
+const NUMERIC_ID = /^-?\d+$/;
+
+/** 「11, 22 33」→ ["11","22","33"]；非数字项丢掉（后端同样忽略）。 */
+export function parseUserIds(raw: string): string[] {
+  return raw
+    .split(/[\s,，]+/)
+    .map((part) => part.trim())
+    .filter((part) => NUMERIC_ID.test(part));
+}
 
 interface ImInboundFieldsProps {
   channel: ImChannelConfig;
@@ -18,6 +30,11 @@ export default function ImInboundFields({ channel, onChange }: ImInboundFieldsPr
   const { t } = useTranslation("settings");
   const [bots, setBots] = useState<BotSummary[]>([]);
   const inbound = Boolean(channel.inboundEnabled);
+  const savedIds = (channel.inboundAllowedUserIds ?? []).join(", ");
+  const [idsDraft, setIdsDraft] = useState(savedIds);
+  const numericChat = NUMERIC_ID.test((channel.chatId ?? "").trim());
+
+  useEffect(() => setIdsDraft(savedIds), [savedIds]);
 
   useEffect(() => {
     if (!inbound) return;
@@ -50,6 +67,41 @@ export default function ImInboundFields({ channel, onChange }: ImInboundFieldsPr
       <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("imInboundHint")}
       </span>
+      {inbound && !numericChat && (
+        <span
+          role="alert"
+          className="text-[length:var(--text-caption)]"
+          style={{ color: "var(--app-status-warning)" }}
+        >
+          {t("imInboundNeedsNumericChatId")}
+        </span>
+      )}
+      {inbound && (
+        <FormField
+          label={t("imInboundAllowedUsers")}
+          hint={t("imInboundAllowedUsersHint")}
+          className="flex flex-col gap-1"
+          hintClassName="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]"
+        >
+          {({ id, hintId }) => (
+            <Input
+              id={id}
+              aria-describedby={hintId}
+              value={idsDraft}
+              placeholder="123456789"
+              className="h-8"
+              onChange={(event) => setIdsDraft(event.target.value)}
+              onBlur={() => {
+                const next = parseUserIds(idsDraft);
+                setIdsDraft(next.join(", "));
+                if (next.join(",") !== (channel.inboundAllowedUserIds ?? []).join(",")) {
+                  onChange({ inboundAllowedUserIds: next });
+                }
+              }}
+            />
+          )}
+        </FormField>
+      )}
       {inbound && (
         <FormField label={t("imInboundDefaultBot")} className="flex flex-col gap-1">
           {({ id }) => (

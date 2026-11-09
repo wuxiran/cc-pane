@@ -2857,6 +2857,7 @@ pub fn run() {
                     tb_svc.inner().clone(),
                 ));
                 app.manage(im_bridge.clone());
+                let im_inbound_status = im_bridge.inbound_status();
                 services::im_bridge::spawn_im_transition_consumer(
                     im_bridge,
                     turn_notify_registry_state.inner().clone(),
@@ -2869,6 +2870,7 @@ pub fn run() {
                     app.state::<Arc<services::BotService>>().inner().clone(),
                     app.state::<Arc<services::AcpChatService>>().inner().clone(),
                     app.state::<Arc<AppPaths>>().data_dir().join("im-inbound"),
+                    im_inbound_status,
                 );
             }
             info!(

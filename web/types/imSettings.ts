@@ -30,6 +30,8 @@ export interface ImChannelConfig {
   inboundEnabled?: boolean;
   /** 入站消息默认交给的 Bot；空 = 第一个。 */
   defaultBotId?: string | null;
+  /** 入站：允许发消息的 Telegram 用户 id（数字）。空 = 只接受私聊里的本人。 */
+  inboundAllowedUserIds?: string[];
 }
 
 /** IM 外推通知设置（镜像 cc-panes-core ImSettings）。与桌面通知分离：默认聚焦时也推。 */

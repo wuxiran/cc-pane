@@ -60,6 +60,10 @@ pub struct ChannelConfig {
     /// 入站消息默认交给哪个 Bot（空 = 第一个 Bot）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_bot_id: Option<String>,
+    /// 入站：允许发消息的 Telegram 用户 id（数字，`from.id`）。空 = 只接受私聊里
+    /// 的本人（私聊 chat id 就是用户 id）；群里必须显式列出。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inbound_allowed_user_ids: Vec<String>,
 }
 
 impl ChannelConfig {
@@ -96,6 +100,7 @@ mod tests {
             enabled: true,
             inbound_enabled: false,
             default_bot_id: None,
+            inbound_allowed_user_ids: vec![],
         };
         assert!(cfg.subscribes("turn_end"));
         assert!(cfg.subscribes("anything"));
@@ -115,6 +120,7 @@ mod tests {
             enabled: true,
             inbound_enabled: false,
             default_bot_id: None,
+            inbound_allowed_user_ids: vec![],
         };
         assert!(cfg.subscribes("error"));
         assert!(!cfg.subscribes("turn_end"));

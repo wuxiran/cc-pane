@@ -3,7 +3,7 @@
 //! 与桌面通知（NotificationService）刻意分离——IM 推送在用户不在电脑前时
 //! 才最有价值，因此默认聚焦时也推（`ImSettings.push_when_focused`）。
 //! 协议构造在 cc-notify（纯函数），本模块只负责闸门判定与 reqwest 传输。
-//! 批次1 出站单向；批次2 入站先做 Telegram（`inbound.rs`，getUpdates 长轮询交给 Bot）。
+//! 批次1 出站单向；批次2 入站先做 Telegram（`inbound/`，getUpdates 长轮询交给 Bot）。
 //! 钉钉 Stream / 飞书长连接需要企业应用凭据，留到后续批次。
 
 mod inbound;
@@ -153,6 +153,14 @@ impl ImBridgeService {
         list
     }
 
+    /// 入站轮询的状态落账口（渠道被拒绝接收时，Settings 里能看到原因）。
+    pub fn inbound_status(&self) -> InboundStatusSink {
+        InboundStatusSink(ResultsHandle {
+            app: self.app.clone(),
+            store: self.last_results.clone(),
+        })
+    }
+
     /// 当前 im 设置快照（供 outbound 消费者做轻量预判）
     pub fn im_settings(&self) -> ImSettings {
         self.settings.get_settings().im
@@ -228,6 +236,7 @@ impl ImBridgeService {
 }
 
 /// 发送结果落账 + 广播（异步任务里持有的最小句柄）
+#[derive(Clone)]
 struct ResultsHandle {
     app: AppHandle,
     store: Arc<Mutex<HashMap<String, ImChannelStatus>>>,
@@ -254,6 +263,16 @@ impl ResultsHandle {
             map.insert(status.channel_id.clone(), status.clone());
         }
         let _ = self.app.emit("im-channel-result", &status);
+    }
+}
+
+/// 入站状态落账：复用渠道状态表（kind = `inbound`）。
+#[derive(Clone)]
+pub struct InboundStatusSink(ResultsHandle);
+
+impl InboundStatusSink {
+    fn refused(&self, channel: &cc_notify::ChannelConfig, reason: String) {
+        self.0.record(channel, "inbound", Err(reason));
     }
 }
 
