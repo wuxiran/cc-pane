@@ -377,7 +377,10 @@ impl HeldLease {
             let client = client.clone();
             let lease_id = lease_id.clone();
             let stop = stop.clone();
-            thread::spawn(move || {
+            // 线程创建失败（提交内存耗尽，issue #64）只降级为不发心跳，命令照跑。
+            thread::Builder::new()
+                .name("ctl-heavy-heartbeat".into())
+                .spawn(move || {
                 let mut last_beat = Instant::now();
                 while !stop.load(Ordering::Relaxed) {
                     thread::sleep(Duration::from_millis(250));
@@ -397,12 +400,14 @@ impl HeldLease {
                     }
                 }
             })
+            .map_err(|error| eprintln!("cc-panes-ctl: heartbeat thread unavailable: {error}"))
+            .ok()
         };
         Self {
             client,
             lease_id,
             stop,
-            heartbeat: Some(heartbeat),
+            heartbeat,
         }
     }
 
