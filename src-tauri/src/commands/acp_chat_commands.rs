@@ -336,6 +336,21 @@ pub async fn delete_acp_chat_history(
     service.delete_chat_history(&acp_session_id)
 }
 
+/// 保存会话的渲染层转写（非 loadSession 引擎续接时的只读兜底，docs/94 §8）。
+#[tauri::command]
+pub async fn save_acp_chat_transcript(
+    service: State<'_, Arc<AcpChatService>>,
+    acp_session_id: String,
+    items: Vec<Value>,
+) -> AppResult<()> {
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service.save_chat_transcript(&acp_session_id, items)
+    })
+    .await
+    .map_err(|error| AppError::from(error.to_string()))?
+}
+
 #[tauri::command]
 pub async fn prompt_acp_chat(
     service: State<'_, Arc<AcpChatService>>,

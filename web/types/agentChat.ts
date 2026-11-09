@@ -243,7 +243,8 @@ export type AgentChatItem =
   | { type: "image"; id: string; at: number; mimeType: string; data: string; parentToolCallId?: string }
   | { type: "tool_call"; id: string; at: number; call: AcpToolCall; parentToolCallId?: string }
   | { type: "plan"; id: string; at: number; entries: AcpPlanEntry[] }
-  | { type: "notice"; id: string; at: number; text: string };
+  /** divider：恢复的本地转写与新会话之间的分隔线（只读前缀的边界）。 */
+  | { type: "notice"; id: string; at: number; text: string; divider?: boolean };
 
 /** 从 session/update 的 `_meta` 里取子 agent 归属（仅 claude-agent-acp 提供）。 */
 export function parentToolCallIdOf(update: AcpSessionUpdate["update"]): string | undefined {
