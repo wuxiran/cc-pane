@@ -19,7 +19,7 @@ pub async fn save_bot(
     service: State<'_, Arc<BotService>>,
     bot: Bot,
 ) -> AppResult<Bot> {
-    let saved = service.save(bot)?;
+    let saved = service.save(bot).await?;
     emit_changed(&app);
     Ok(saved)
 }

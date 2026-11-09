@@ -3,9 +3,10 @@ use super::*;
 impl Session {
     pub(in crate::services::acp_chat_service) async fn admit(
         self: &Arc<Self>,
-        blocks: Vec<Value>,
+        mut blocks: Vec<Value>,
+        mut admission: Admission,
     ) -> AppResult<oneshot::Receiver<AppResult<String>>> {
-        let input = protocol::input(&blocks)?;
+        protocol::input(&blocks)?;
         let _control = self.control.lock().await;
         if self.snapshot.read().await.phase != AcpChatPhase::Ready {
             return Err(AppError::coded(
@@ -13,9 +14,16 @@ impl Session {
                 "Codex is not ready for another turn",
             ));
         }
+        // 占到回合之后才取前言；下面任何一步失败，admission drop 时放回。
+        admission.apply(&mut blocks);
+        let input = protocol::input(&blocks)?;
         let thread = self.thread_id().await?;
         let receiver = self.begin_run(&thread, &blocks).await?;
         let params = self.turn_params(&thread, input).await?;
+        if let Some(announce) = admission.take_announcement() {
+            self.emit_live(&announce.kind, announce.payload);
+        }
+        admission.commit();
         self.accept_started_turn(self.client.request("turn/start", params).await)
             .await;
         Ok(receiver)

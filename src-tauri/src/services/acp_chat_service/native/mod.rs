@@ -56,7 +56,7 @@ impl AcpChatService {
     ) -> AppResult<AcpChatSnapshot> {
         let tap = self.event_tap();
         let sink: EventSink = Arc::new(move |event| {
-            tap_event(&tap, &event);
+            tap.send(&event);
             if crate::webview_reliability::webview_emits_allowed() {
                 if let Err(error) = app.emit(ACP_CHAT_EVENT, event) {
                     tracing::debug!(%error, "Native Agent event delivery failed");
@@ -223,8 +223,13 @@ impl Session {
             payload,
         });
     }
-    pub(in crate::services::acp_chat_service) fn emit_external(&self, kind: &str, payload: Value) {
-        self.emit(kind, payload);
+    /// 只发实时（webview + 旁路），不进 journal：外部提交的公告事件用。
+    fn emit_live(&self, kind: &str, payload: Value) {
+        (self.sink)(AcpChatEvent {
+            chat_id: self.chat_id.clone(),
+            kind: kind.into(),
+            payload,
+        });
     }
     async fn emit_state(&self) {
         self.emit(

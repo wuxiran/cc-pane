@@ -46,7 +46,8 @@ mod web_access_lifecycle;
 pub use acp_chat_service::edits::UndoAcpFileEdit;
 pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};
 pub use acp_chat_service::{
-    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
+    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, ChatEventStream,
+    PromptAnnouncement, AUTO_APPROVE_ALL,
 };
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use bot_service::{Bot, BotService, BotSummary};

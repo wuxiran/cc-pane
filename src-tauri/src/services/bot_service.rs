@@ -22,11 +22,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::commands::{ccpanes_mcp_servers, engine_spec, resolve_engine_launch};
-use crate::services::{AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot};
+use crate::services::{
+    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, PromptAnnouncement,
+};
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::AppPaths;
 
@@ -135,15 +137,29 @@ fn persona_preamble(bot: &Bot) -> Option<String> {
     ))
 }
 
+/// 本条外部消息的公告事件（`external_prompt` 且 `promptId` 相同）。
+pub fn is_own_external_prompt(event: &AcpChatEvent, chat_id: &str, prompt_id: &str) -> bool {
+    event.chat_id == chat_id
+        && event.kind == EXTERNAL_PROMPT_EVENT_KIND
+        && event.payload["promptId"].as_str() == Some(prompt_id)
+}
+
 /// 从事件流里拼出一轮的助手文本（只取主 agent 的 `agent_message_chunk`，
-/// 子 agent 的输出不发回 IM）。遇到 `turn_ended` 即止。
+/// 子 agent 的输出不发回 IM）。从本条消息的 `external_prompt` 开始（之前的
+/// 是排队期间界面里那一轮的输出），遇到 `turn_ended` 即止。
 pub fn collect_reply_text<'a>(
     chat_id: &str,
+    prompt_id: &str,
     events: impl IntoIterator<Item = &'a AcpChatEvent>,
 ) -> String {
     let mut text = String::new();
+    let mut started = false;
     for event in events {
         if event.chat_id != chat_id {
+            continue;
+        }
+        if !started {
+            started = is_own_external_prompt(event, chat_id, prompt_id);
             continue;
         }
         if event.kind == "turn_ended" {
@@ -176,8 +192,12 @@ pub struct BotService {
     dir: PathBuf,
     acp: Arc<AcpChatService>,
     app_paths: Arc<AppPaths>,
-    /// 每个 Bot 一把锁：启动、换线程、外部提交互斥（IM 消息按到达顺序串行）。
-    locks: std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// 生命周期锁（每个 Bot 一把）：启动 / 换线程 / 改配置 / 删除互斥，
+    /// 只在这些短动作期间持有，**不**跨回合。
+    lifecycle_locks: std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// IM 提交队列锁（每个 Bot 一把）：外部消息按到达顺序串行，持有整轮；
+    /// 与生命周期锁分开，长回合不挡开新话题 / 删除 / 界面启动。
+    queue_locks: std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl BotService {
@@ -186,7 +206,8 @@ impl BotService {
             dir,
             acp,
             app_paths,
-            locks: std::sync::Mutex::new(HashMap::new()),
+            lifecycle_locks: std::sync::Mutex::new(HashMap::new()),
+            queue_locks: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -214,13 +235,25 @@ impl BotService {
         }
     }
 
-    fn lock_for(&self, bot_id: &str) -> Arc<Mutex<()>> {
-        self.locks
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry(bot_id.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
+    fn lifecycle_lock(&self, bot_id: &str) -> Arc<Mutex<()>> {
+        lock_in(&self.lifecycle_locks, bot_id)
+    }
+
+    fn queue_lock(&self, bot_id: &str) -> Arc<Mutex<()>> {
+        lock_in(&self.queue_locks, bot_id)
+    }
+
+    async fn chat_phase(&self, chat_id: &str) -> Option<AcpChatPhase> {
+        self.acp
+            .snapshot(chat_id)
+            .await
+            .map(|snapshot| snapshot.phase)
+    }
+
+    /// 停掉 Bot 的会话：先取消进行中的回合（IM 那边会收到「已取消」），再停进程。
+    async fn stop_chat(&self, chat_id: &str) {
+        let _ = self.acp.cancel(chat_id).await;
+        let _ = self.acp.stop(chat_id).await;
     }
 
     pub fn list_bots(&self) -> Vec<Bot> {
@@ -306,7 +339,9 @@ impl BotService {
     }
 
     /// 新建（id 为空）或更新。只接受用户可编辑字段；线程 id 与时间戳以磁盘为准。
-    pub fn save(&self, draft: Bot) -> AppResult<Bot> {
+    /// 改了引擎或工作目录时，旧线程属于别的引擎 / 目录，不能再续接：忘掉线程 id
+    /// 并停掉正在跑的会话，下次启动是全新会话。
+    pub async fn save(&self, draft: Bot) -> AppResult<Bot> {
         let name = draft.name.trim();
         if name.is_empty() {
             return Err(AppError::coded(
@@ -338,8 +373,15 @@ impl BotService {
             }
         }
         engine_spec(&self.app_paths, &draft.engine_id)?;
+        let is_new = draft.id.trim().is_empty();
+        let lock = (!is_new).then(|| self.lifecycle_lock(draft.id.trim()));
+        let _guard = match &lock {
+            Some(lock) => Some(lock.lock().await),
+            None => None,
+        };
         let now = Utc::now().timestamp_millis();
-        let mut bot = if draft.id.trim().is_empty() {
+        let mut reset_thread = false;
+        let mut bot = if is_new {
             Bot {
                 id: Uuid::new_v4().to_string(),
                 created_at: now,
@@ -348,6 +390,7 @@ impl BotService {
             }
         } else {
             let existing = self.get(&draft.id)?;
+            reset_thread = thread_identity_changed(&existing, &draft);
             Bot {
                 id: existing.id.clone(),
                 created_at: existing.created_at,
@@ -361,6 +404,11 @@ impl BotService {
             .map(|cwd| cwd.trim().to_string())
             .filter(|cwd| !cwd.is_empty());
         bot.updated_at = now;
+        if reset_thread {
+            bot.acp_session_id = None;
+            self.stop_chat(&bot_chat_id(&bot.id)).await;
+            info!(bot = %bot.id, "bot engine or cwd changed; thread reset");
+        }
         self.write(&bot)?;
         // 家目录总是建好（换回家目录模式时人设立刻生效）。
         self.write_home(&bot)?;
@@ -369,9 +417,12 @@ impl BotService {
 
     pub async fn delete(&self, bot_id: &str) -> AppResult<()> {
         let dir = self.bot_dir(bot_id)?;
-        let lock = self.lock_for(bot_id);
+        let chat_id = bot_chat_id(bot_id);
+        // 先取消进行中的回合，再拿生命周期锁（锁不跨回合，不会被长回合挡住）。
+        let _ = self.acp.cancel(&chat_id).await;
+        let lock = self.lifecycle_lock(bot_id);
         let _guard = lock.lock().await;
-        let _ = self.acp.stop(&bot_chat_id(bot_id)).await;
+        self.stop_chat(&chat_id).await;
         if dir.exists() {
             std::fs::remove_dir_all(&dir)
                 .map_err(|error| AppError::from(format!("Unable to delete bot: {error}")))?;
@@ -381,10 +432,13 @@ impl BotService {
 
     /// 开新话题：停掉当前进程并忘掉线程 id，下次启动是全新会话。
     pub async fn new_thread(&self, bot_id: &str) -> AppResult<Bot> {
-        let lock = self.lock_for(bot_id);
+        let chat_id = bot_chat_id(bot_id);
+        self.get(bot_id)?;
+        let _ = self.acp.cancel(&chat_id).await;
+        let lock = self.lifecycle_lock(bot_id);
         let _guard = lock.lock().await;
         let mut bot = self.get(bot_id)?;
-        let _ = self.acp.stop(&bot_chat_id(bot_id)).await;
+        self.stop_chat(&chat_id).await;
         bot.acp_session_id = None;
         bot.updated_at = Utc::now().timestamp_millis();
         self.write(&bot)?;
@@ -397,9 +451,22 @@ impl BotService {
         app: &AppHandle,
         bot_id: &str,
     ) -> AppResult<AcpChatSnapshot> {
-        let lock = self.lock_for(bot_id);
+        // 已在跑（含回合进行中）直接返回，不排任何锁。
+        if let Some(snapshot) = self.live_snapshot(bot_id).await {
+            return Ok(snapshot);
+        }
+        let lock = self.lifecycle_lock(bot_id);
         let _guard = lock.lock().await;
         self.ensure_started_locked(app, bot_id).await
+    }
+
+    async fn live_snapshot(&self, bot_id: &str) -> Option<AcpChatSnapshot> {
+        self.acp
+            .snapshot(&bot_chat_id(bot_id))
+            .await
+            .filter(|snapshot| {
+                !matches!(snapshot.phase, AcpChatPhase::Exited | AcpChatPhase::Failed)
+            })
     }
 
     async fn ensure_started_locked(
@@ -408,10 +475,8 @@ impl BotService {
         bot_id: &str,
     ) -> AppResult<AcpChatSnapshot> {
         let chat_id = bot_chat_id(bot_id);
-        if let Some(snapshot) = self.acp.snapshot(&chat_id).await {
-            if !matches!(snapshot.phase, AcpChatPhase::Exited | AcpChatPhase::Failed) {
-                return Ok(snapshot);
-            }
+        if let Some(snapshot) = self.live_snapshot(bot_id).await {
+            return Ok(snapshot);
         }
         let mut bot = self.get(bot_id)?;
         let cwd = self.effective_cwd(&bot)?;
@@ -451,10 +516,14 @@ impl BotService {
     }
 
     /// 外部提交（IM）：排队等前一轮结束，发出后等回合结束，返回助手回复文本。
+    ///
+    /// `prompt_id` 进 `external_prompt` 公告的载荷，调用方（IM 入站）据此认出
+    /// 「本条消息这一轮」的事件。
     pub async fn submit_external(
         self: &Arc<Self>,
         app: &AppHandle,
         bot_id: &str,
+        prompt_id: &str,
         text: &str,
         origin: BotMessageOrigin,
     ) -> AppResult<String> {
@@ -465,63 +534,53 @@ impl BotService {
                 "Message cannot be empty",
             ));
         }
-        let lock = self.lock_for(bot_id);
-        let _guard = lock.lock().await;
-        self.ensure_started_locked(app, bot_id).await?;
+        let queue = self.queue_lock(bot_id);
+        let _queued = queue.lock().await;
+        self.ensure_started(app, bot_id).await?;
         let chat_id = bot_chat_id(bot_id);
-        self.wait_ready(&chat_id).await?;
-
-        let mut events = self.acp.subscribe_events();
-        self.acp
-            .emit_chat_event(
-                app,
-                &chat_id,
-                EXTERNAL_PROMPT_EVENT_KIND,
-                json!({"text": text, "origin": origin}),
-            )
-            .await;
-        let blocks = vec![json!({"type": "text", "text": text})];
-        let turn =
-            tokio::time::timeout(TURN_TIMEOUT, self.acp.prompt_and_wait(&chat_id, blocks)).await;
-        let stop_reason = match turn {
-            Ok(result) => result?,
-            Err(_) => {
-                let _ = self.acp.cancel(&chat_id).await;
-                return Err(AppError::coded("BOT_TURN_TIMEOUT", "Bot reply timed out"));
-            }
+        // 先订阅再提交：按 chat 的无界队列，整轮事件一个不丢。
+        let mut events = self.acp.subscribe_chat(&chat_id);
+        let announce = PromptAnnouncement {
+            kind: EXTERNAL_PROMPT_EVENT_KIND.to_string(),
+            payload: json!({"text": text, "origin": origin, "promptId": prompt_id}),
         };
+        let stop_reason = self.run_external_turn(&chat_id, text, announce).await?;
         let mut collected = Vec::new();
-        loop {
-            match events.try_recv() {
-                Ok(event) => collected.push(event),
-                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                    warn!(bot = %bot_id, skipped, "bot reply collector lagged");
-                }
-                Err(_) => break,
-            }
+        while let Ok(event) = events.try_recv() {
+            collected.push(event);
         }
-        // 订阅在本轮开始前，旁路里只会有本轮（及 external_prompt）事件。
-        let reply = collect_reply_text(&chat_id, collected.iter());
+        let reply = collect_reply_text(&chat_id, prompt_id, collected.iter());
         if reply.is_empty() && stop_reason == "cancelled" {
             return Ok("（已取消）".to_string());
         }
         Ok(reply)
     }
 
-    pub async fn cancel(&self, bot_id: &str) -> AppResult<()> {
-        self.acp.cancel(&bot_chat_id(bot_id)).await
-    }
-
-    async fn wait_ready(&self, chat_id: &str) -> AppResult<()> {
+    /// 等会话空闲并原子地占到回合（界面里抢先发的那条先跑，这条继续等），
+    /// 占到后再计回合超时。
+    async fn run_external_turn(
+        self: &Arc<Self>,
+        chat_id: &str,
+        text: &str,
+        announce: PromptAnnouncement,
+    ) -> AppResult<String> {
         let deadline = tokio::time::Instant::now() + WAIT_READY_TIMEOUT;
         loop {
-            match self
-                .acp
-                .snapshot(chat_id)
-                .await
-                .map(|snapshot| snapshot.phase)
-            {
-                Some(AcpChatPhase::Ready) => return Ok(()),
+            match self.chat_phase(chat_id).await {
+                Some(AcpChatPhase::Ready) => {
+                    let blocks = vec![json!({"type": "text", "text": text})];
+                    let turn =
+                        self.acp
+                            .prompt_and_wait_announced(chat_id, blocks, Some(announce.clone()));
+                    match tokio::time::timeout(TURN_TIMEOUT, turn).await {
+                        Ok(Err(error)) if error.code() == Some("ACP_TURN_IN_PROGRESS") => {}
+                        Ok(result) => return result,
+                        Err(_) => {
+                            let _ = self.acp.cancel(chat_id).await;
+                            return Err(AppError::coded("BOT_TURN_TIMEOUT", "Bot reply timed out"));
+                        }
+                    }
+                }
                 Some(AcpChatPhase::Starting | AcpChatPhase::Generating) => {}
                 _ => {
                     return Err(AppError::coded(
@@ -539,6 +598,32 @@ impl BotService {
             tokio::time::sleep(WAIT_READY_POLL).await;
         }
     }
+
+    pub async fn cancel(&self, bot_id: &str) -> AppResult<()> {
+        self.acp.cancel(&bot_chat_id(bot_id)).await
+    }
+}
+
+fn lock_in(
+    locks: &std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    bot_id: &str,
+) -> Arc<Mutex<()>> {
+    locks
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(bot_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+fn normalized_cwd(cwd: Option<&str>) -> Option<&str> {
+    cwd.map(str::trim).filter(|cwd| !cwd.is_empty())
+}
+
+/// 引擎或工作目录变了 = 线程身份变了（旧线程不能在新引擎 / 新目录下续接）。
+fn thread_identity_changed(existing: &Bot, draft: &Bot) -> bool {
+    existing.engine_id.trim() != draft.engine_id.trim()
+        || normalized_cwd(existing.cwd.as_deref()) != normalized_cwd(draft.cwd.as_deref())
 }
 
 pub fn emit_changed(app: &AppHandle) {
@@ -586,7 +671,19 @@ mod tests {
     #[test]
     fn reply_joins_main_agent_chunks_until_turn_end() {
         let events = vec![
-            event("bot-a", EXTERNAL_PROMPT_EVENT_KIND, json!({"text": "hi"})),
+            // 排队期间界面里那一轮的输出，以及别的 IM 消息的公告：都不算。
+            chunk("bot-a", "desktop turn"),
+            event("bot-a", "turn_ended", json!({"stopReason": "end_turn"})),
+            event(
+                "bot-a",
+                EXTERNAL_PROMPT_EVENT_KIND,
+                json!({"text": "x", "promptId": "p0"}),
+            ),
+            event(
+                "bot-a",
+                EXTERNAL_PROMPT_EVENT_KIND,
+                json!({"text": "hi", "promptId": "p1"}),
+            ),
             chunk("bot-a", "Hel"),
             chunk("bot-other", "noise"),
             event(
@@ -603,13 +700,41 @@ mod tests {
             event("bot-a", "turn_ended", json!({"stopReason": "end_turn"})),
             chunk("bot-a", "next turn"),
         ];
-        assert_eq!(collect_reply_text("bot-a", events.iter()), "Hello");
+        assert_eq!(collect_reply_text("bot-a", "p1", events.iter()), "Hello");
     }
 
     #[test]
     fn reply_empty_without_chunks() {
-        let events = vec![event("bot-a", "turn_ended", json!({}))];
-        assert_eq!(collect_reply_text("bot-a", events.iter()), "");
+        let events = vec![
+            event(
+                "bot-a",
+                EXTERNAL_PROMPT_EVENT_KIND,
+                json!({"promptId": "p"}),
+            ),
+            event("bot-a", "turn_ended", json!({})),
+        ];
+        assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
+        // 没见到本条公告（例如被拒绝）就什么都不收。
+        let events = vec![chunk("bot-a", "other turn")];
+        assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
+    }
+
+    #[test]
+    fn engine_or_cwd_change_resets_the_thread() {
+        let base = bot("a", "");
+        let mut same = base.clone();
+        same.persona = "new persona".into();
+        same.cwd = Some("  ".into());
+        assert!(!thread_identity_changed(&base, &same));
+        let mut engine = base.clone();
+        engine.engine_id = "codex".into();
+        assert!(thread_identity_changed(&base, &engine));
+        let mut cwd = base.clone();
+        cwd.cwd = Some("/repo".into());
+        assert!(thread_identity_changed(&base, &cwd));
+        let mut trimmed = cwd.clone();
+        trimmed.cwd = Some(" /repo ".into());
+        assert!(!thread_identity_changed(&cwd, &trimmed));
     }
 
     #[test]
@@ -634,6 +759,40 @@ mod tests {
         assert!(!valid_bot_id("../etc"));
         assert!(!valid_bot_id(""));
         assert_eq!(bot_chat_id("x"), "bot-x");
+    }
+
+    fn service() -> (tempfile::TempDir, BotService) {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().to_string_lossy().into_owned();
+        let acp = Arc::new(AcpChatService::new(temp.path().join("agent-chats")));
+        let service = BotService::new(
+            temp.path().join("bots"),
+            acp,
+            Arc::new(AppPaths::new(Some(data))),
+        );
+        (temp, service)
+    }
+
+    /// IM 长回合持有的是队列锁；开新话题 / 删除只要生命周期锁，不被挡住。
+    #[tokio::test]
+    async fn long_im_turn_does_not_block_new_thread_or_delete() {
+        let (_temp, service) = service();
+        let mut b = bot("a", "");
+        b.id = "b1".into();
+        b.acp_session_id = Some("old-thread".into());
+        service.write(&b).unwrap();
+        let queue = service.queue_lock("b1");
+        let _turn = queue.lock().await;
+        let fresh = tokio::time::timeout(Duration::from_secs(5), service.new_thread("b1"))
+            .await
+            .expect("new_thread must not wait for the IM queue")
+            .unwrap();
+        assert!(fresh.acp_session_id.is_none());
+        tokio::time::timeout(Duration::from_secs(5), service.delete("b1"))
+            .await
+            .expect("delete must not wait for the IM queue")
+            .unwrap();
+        assert!(service.get("b1").is_err());
     }
 
     #[test]

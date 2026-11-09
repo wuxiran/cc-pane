@@ -9,9 +9,11 @@
 //!
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
+mod admission;
 mod auth;
 pub(crate) mod edits;
 mod elicitation;
+mod event_tap;
 mod fork;
 pub(crate) mod journal;
 mod native;
@@ -31,6 +33,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tracing::{debug, warn};
+
+pub use admission::PromptAnnouncement;
+use admission::{Admission, Preambles};
+pub use event_tap::ChatEventStream;
+use event_tap::EventTap;
 
 use crate::services::process_guard::{self, ProcessGuard};
 use crate::utils::{AppError, AppResult};
@@ -251,7 +258,7 @@ struct AcpChatSession {
     active_run: std::sync::Mutex<Option<runtime::ActiveRun>>,
     client_writes: Arc<RwLock<()>>,
     /// 进程内事件旁路（服务级共享）：Bot 运行时据此收集回复，不依赖 webview。
-    event_tap: tokio::sync::broadcast::Sender<AcpChatEvent>,
+    event_tap: EventTap,
 }
 
 impl AcpChatSession {
@@ -449,7 +456,7 @@ impl AcpChatSession {
             kind: kind.to_string(),
             payload,
         };
-        tap_event(&self.event_tap, &event);
+        self.event_tap.send(&event);
         if !crate::webview_reliability::webview_emits_allowed() {
             return;
         }
@@ -478,16 +485,6 @@ pub struct AcpTurnNotice {
 
 pub type AcpTurnNotifier = Box<dyn Fn(AcpTurnNotice) + Send + Sync>;
 
-/// 旁路容量：订阅方（Bot 运行时）只关心 chunk 与回合边界，滞后时丢旧的即可。
-const EVENT_TAP_CAPACITY: usize = 2048;
-
-/// 没有订阅者时不克隆载荷（token 流是热路径）。
-fn tap_event(tap: &tokio::sync::broadcast::Sender<AcpChatEvent>, event: &AcpChatEvent) {
-    if tap.receiver_count() > 0 {
-        let _ = tap.send(event.clone());
-    }
-}
-
 pub struct AcpChatService {
     lifecycles: std::sync::Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
     native_sessions: RwLock<HashMap<String, Arc<native::Session>>>,
@@ -502,10 +499,10 @@ pub struct AcpChatService {
     sidecar_resource_dir: std::sync::RwLock<Option<PathBuf>>,
     journal: journal::RunJournal,
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
-    event_tap: tokio::sync::broadcast::Sender<AcpChatEvent>,
+    event_tap: EventTap,
     /// chatId → 下一条 prompt 的隐藏前言（Bot 人设在项目 cwd 模式下的注入口；
-    /// ACP 没有 system prompt 字段）。取用即清。
-    preambles: std::sync::Mutex<HashMap<String, String>>,
+    /// ACP 没有 system prompt 字段）。回合被接纳时才取走。
+    preambles: Arc<Preambles>,
 }
 
 impl AcpChatService {
@@ -523,81 +520,28 @@ impl AcpChatService {
             sidecar_resource_dir: std::sync::RwLock::new(None),
             journal,
             checkpoints,
-            event_tap: tokio::sync::broadcast::channel(EVENT_TAP_CAPACITY).0,
-            preambles: std::sync::Mutex::new(HashMap::new()),
+            event_tap: EventTap::default(),
+            preambles: Arc::new(Preambles::default()),
         }
     }
 
-    /// 订阅所有会话的事件（与 `acp-chat-event` 同载荷，但不经 webview）。
-    pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<AcpChatEvent> {
-        self.event_tap.subscribe()
+    /// 订阅某个 chat 的事件（与 `acp-chat-event` 同载荷，但不经 webview）。
+    /// 无界、按 chat 分发：别的会话再吵、这一轮再长也不丢事件。
+    pub fn subscribe_chat(&self, chat_id: &str) -> ChatEventStream {
+        self.event_tap.subscribe(chat_id)
     }
 
-    pub(super) fn event_tap(&self) -> tokio::sync::broadcast::Sender<AcpChatEvent> {
+    pub(super) fn event_tap(&self) -> EventTap {
         self.event_tap.clone()
     }
 
     /// 设置（或清除）该 chat 下一条 prompt 的隐藏前言。
     pub fn set_next_prompt_preamble(&self, chat_id: &str, preamble: Option<String>) {
-        let mut map = self
-            .preambles
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match preamble.filter(|text| !text.trim().is_empty()) {
-            Some(text) => {
-                map.insert(chat_id.trim().to_string(), text);
-            }
-            None => {
-                map.remove(chat_id.trim());
-            }
-        }
+        self.preambles.set(chat_id, preamble);
     }
 
-    fn apply_preamble(&self, chat_id: &str, blocks: &mut [Value]) {
-        let preamble = self
-            .preambles
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(chat_id.trim());
-        let Some(preamble) = preamble else { return };
-        if let Some(block) = blocks
-            .iter_mut()
-            .find(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-        {
-            let text = block
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            block["text"] = Value::String(format!("{preamble}\n\n---\n\n{text}"));
-        }
-    }
-
-    /// 以某个 chat 的身份发一条事件（进 journal + webview + 旁路）。会话不在时
-    /// 只走 webview 与旁路。Bot 运行时用它让界面显示 IM 送来的用户消息。
-    pub async fn emit_chat_event(
-        &self,
-        app: &AppHandle,
-        chat_id: &str,
-        kind: &str,
-        payload: Value,
-    ) {
-        if let Some(session) = self.sessions.read().await.get(chat_id.trim()).cloned() {
-            session.emit(kind, payload);
-            return;
-        }
-        if let Some(session) = self.native_session(chat_id).await {
-            session.emit_external(kind, payload);
-            return;
-        }
-        let event = AcpChatEvent {
-            chat_id: chat_id.trim().to_string(),
-            kind: kind.to_string(),
-            payload,
-        };
-        tap_event(&self.event_tap, &event);
-        if crate::webview_reliability::webview_emits_allowed() {
-            let _ = app.emit(ACP_CHAT_EVENT, &event);
-        }
+    fn admission(&self, chat_id: &str, announce: Option<PromptAnnouncement>) -> Admission {
+        Admission::new(self.preambles.clone(), chat_id, announce)
     }
 
     async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1000,8 +944,8 @@ impl AcpChatService {
     /// Submit a prompt as ACP ContentBlock array (text / image / resource_link).
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
-    pub async fn prompt(self: &Arc<Self>, chat_id: &str, mut blocks: Vec<Value>) -> AppResult<()> {
-        self.apply_preamble(chat_id, &mut blocks);
+    pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+        let admission = self.admission(chat_id, None);
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
@@ -1011,7 +955,7 @@ impl AcpChatService {
             }
             let (ack, accepted) = oneshot::channel();
             tokio::spawn(async move {
-                match session.admit(blocks).await {
+                match session.admit(blocks, admission).await {
                     Ok(done) => {
                         let _ = ack.send(Ok(()));
                         let _ = done.await;
@@ -1029,7 +973,7 @@ impl AcpChatService {
         let session = self.session(chat_id).await?;
         let (ack, accepted) = oneshot::channel();
         tokio::spawn(async move {
-            match service.prepare_turn(session, blocks).await {
+            match service.prepare_turn(session, blocks, admission).await {
                 Ok((session, response)) => {
                     let _ = ack.send(Ok(()));
                     let _ = run_turn(&session, response).await;
@@ -1048,13 +992,25 @@ impl AcpChatService {
     pub async fn prompt_and_wait(
         self: &Arc<Self>,
         chat_id: &str,
-        mut blocks: Vec<Value>,
+        blocks: Vec<Value>,
     ) -> AppResult<String> {
-        self.apply_preamble(chat_id, &mut blocks);
+        self.prompt_and_wait_announced(chat_id, blocks, None).await
+    }
+
+    /// 同 `prompt_and_wait`，但「检查就绪 → 占回合 → 广播公告」是一个原子动作：
+    /// 回合进行中（例如界面里刚发了一条）直接拒绝 `ACP_TURN_IN_PROGRESS`，
+    /// 不会先广播再失败。外部提交（Bot / IM）走这里。
+    pub async fn prompt_and_wait_announced(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        announce: Option<PromptAnnouncement>,
+    ) -> AppResult<String> {
+        let admission = self.admission(chat_id, announce);
         if let Some(session) = self.native_session(chat_id).await {
             return tokio::spawn(async move {
                 session
-                    .admit(blocks)
+                    .admit(blocks, admission)
                     .await?
                     .await
                     .map_err(|error| AppError::from(error.to_string()))?
@@ -1065,7 +1021,7 @@ impl AcpChatService {
         let service = self.clone();
         let session = self.session(chat_id).await?;
         tokio::spawn(async move {
-            let (session, response) = service.prepare_turn(session, blocks).await?;
+            let (session, response) = service.prepare_turn(session, blocks, admission).await?;
             run_turn(&session, response).await
         })
         .await

@@ -516,3 +516,75 @@ async fn native_symlink_cwd_cannot_bypass_the_background_restore_guard() {
     );
     f.service.cleanup_all().await;
 }
+
+/// 外部提交的接纳是原子的：回合进行中被拒绝时，不广播公告、不消耗前言；
+/// 占到回合后公告先于回复事件，前言并进 prompt 后才算用掉。
+#[tokio::test]
+async fn announced_prompt_is_atomic_and_preamble_survives_rejection() {
+    let f = Fixture::new().await;
+    f.start("chat", f.spec.clone()).await.unwrap();
+    f.service
+        .prompt("chat", vec![json!({"type":"text","text":"wait"})])
+        .await
+        .unwrap();
+    f.service
+        .set_next_prompt_preamble("chat", Some("PERSONA".into()));
+    let announce = PromptAnnouncement {
+        kind: "external_prompt".into(),
+        payload: json!({"text":"from im","promptId":"p1"}),
+    };
+    let rejected = f
+        .service
+        .prompt_and_wait_announced(
+            "chat",
+            vec![json!({"type":"text","text":"from im"})],
+            Some(announce.clone()),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(rejected.code(), Some("ACP_TURN_IN_PROGRESS"));
+    assert!(!f
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == "external_prompt"));
+    assert_eq!(f.service.preambles.peek("chat").as_deref(), Some("PERSONA"));
+    f.service.cancel("chat").await.unwrap();
+    f.event("turn_ended").await;
+    f.events.lock().unwrap().clear();
+    assert_eq!(
+        f.service
+            .prompt_and_wait_announced(
+                "chat",
+                vec![json!({"type":"text","text":"from im"})],
+                Some(announce),
+            )
+            .await
+            .unwrap(),
+        "end_turn"
+    );
+    let kinds: Vec<String> = f
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|event| event.kind.clone())
+        .collect();
+    let announced = kinds.iter().position(|kind| kind == "external_prompt");
+    let first_update = kinds.iter().position(|kind| kind == "update");
+    assert!(announced.is_some() && announced < first_update, "{kinds:?}");
+    assert!(f.service.preambles.peek("chat").is_none());
+    let trace = std::fs::read_to_string(f.cwd.join("rpc-trace.jsonl")).unwrap();
+    let sent = trace
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["method"] == "turn/start")
+        .last()
+        .unwrap();
+    let text = sent["params"]["input"][0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("PERSONA") && text.ends_with("from im"),
+        "{text}"
+    );
+}
