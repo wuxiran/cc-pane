@@ -44,5 +44,7 @@
   "commandPalettePlaceholder": "输入命令、工作空间或布局名…",
   "commandPaletteEmpty": "没有匹配的命令",
   "commandGroupWorkspaces": "工作空间",
-  "commandGroupLayouts": "布局"
+  "commandGroupLayouts": "布局",
+  "toggle-right-dock": "显示/隐藏右侧面板",
+  "focus-dock-view": "切到右侧面板第 {{index}} 个视图"
 }

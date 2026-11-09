@@ -44,5 +44,7 @@
   "commandPalettePlaceholder": "Type a command, workspace, or layout name...",
   "commandPaletteEmpty": "No matching commands",
   "commandGroupWorkspaces": "Workspaces",
-  "commandGroupLayouts": "Layouts"
+  "commandGroupLayouts": "Layouts",
+  "toggle-right-dock": "Toggle Right Panel",
+  "focus-dock-view": "Right Panel: View {{index}}"
 }
