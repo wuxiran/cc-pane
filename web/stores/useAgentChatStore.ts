@@ -100,7 +100,7 @@ interface AgentChatStoreState extends PromptSubmissionActions, ElicitationAction
   dropChat: (chatId: string) => void;
 }
 
-function emptySession(): AgentChatSessionState {
+export function emptySession(): AgentChatSessionState {
   return {
     ...emptyPromptSubmission(),
     snapshot: null,
@@ -315,7 +315,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           case "tool_call_update": {
             const toolCallId = update.toolCallId;
             if (!toolCallId) return;
-            for (let index = items.length - 1; index >= 0; index -= 1) {
+            for (let index = items.length - 1; index >= (chat.replay ? 0 : chat.transcriptStart); index -= 1) {
               const item = items[index];
               if (item.type === "tool_call" && item.call.toolCallId === toolCallId) {
                 mergeToolCall(item.call, update);
@@ -337,7 +337,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           }
           case "plan": {
             const entries = (update.entries ?? []) as AcpPlanEntry[];
-            for (let index = items.length - 1; index >= 0; index -= 1) {
+            for (let index = items.length - 1; index >= (chat.replay ? 0 : chat.transcriptStart); index -= 1) {
               const item = items[index];
               if (item.type === "plan") {
                 item.entries = entries;

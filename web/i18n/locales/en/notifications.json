@@ -125,7 +125,11 @@
   "agentChat": {
     "autoApprovedWith": "Auto-approved · {{title}} ({{kind}})",
     "autoApproved": "Auto-approved ({{kind}})",
-    "resumeFallbackNotice": "Could not resume the previous conversation; a new session was started"
+    "resumeFallbackNotice": "Could not resume the previous conversation; a new session was started",
+    "restoredTranscriptHeader": "Earlier conversation (saved locally, read-only; the engine did not resume its context)",
+    "restoredTranscriptHeaderTruncated": "Earlier conversation (saved locally, read-only; older parts were trimmed)",
+    "restoredTranscriptFooter": "New session starts below",
+    "transcriptImageOmitted": "[Image not kept in the local transcript]"
   },
   "errors": {
     "notificationMissing": "Notification not found",

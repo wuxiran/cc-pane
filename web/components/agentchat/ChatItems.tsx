@@ -148,6 +148,19 @@ export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps
         </div>
       );
     case "notice":
+      if (item.divider) {
+        return (
+          <div
+            role="separator"
+            data-testid="chat-transcript-divider"
+            className="flex items-center gap-3 text-[length:var(--text-caption)] text-[var(--app-icon-inactive)]"
+          >
+            <span className="h-px flex-1 bg-[var(--app-border)]" aria-hidden="true" />
+            <span className="shrink-0">{item.text}</span>
+            <span className="h-px flex-1 bg-[var(--app-border)]" aria-hidden="true" />
+          </div>
+        );
+      }
       return (
         <div className="text-center text-[length:var(--text-caption)] text-[var(--app-icon-inactive)] break-all">
           {item.text}

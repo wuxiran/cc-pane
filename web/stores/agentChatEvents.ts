@@ -16,6 +16,7 @@ import type {
   AcpTerminalOutput,
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
+import { applyRestoredTranscript, persistAgentChatTranscript } from "./agentChatTranscript";
 import { contentText, useAgentChatStore } from "./useAgentChatStore";
 
 const FLUSH_INTERVAL_MS = 16;
@@ -147,8 +148,15 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
       }
       return;
     }
-    case "state":
-      store.setSnapshot(chatId, payload as AcpChatSnapshot);
+    case "state": {
+      const snapshot = payload as AcpChatSnapshot;
+      store.setSnapshot(chatId, snapshot);
+      if (snapshot.phase === "exited" || snapshot.phase === "failed") persistAgentChatTranscript(chatId);
+      return;
+    }
+    // 非 loadSession 引擎降级开新会话：本地转写以只读前缀恢复（docs/94 §8）。
+    case "transcript_restore":
+      applyRestoredTranscript(chatId, payload);
       return;
     case "permission_request":
       store.enqueuePermission(chatId, payload as AcpPermissionRequest);
@@ -168,6 +176,7 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "turn_ended": {
       const data = payload as { stopReason?: string; error?: string };
       store.turnEnded(chatId, data.stopReason ?? "end_turn", data.error);
+      persistAgentChatTranscript(chatId);
       return;
     }
     // 客户端 terminal 能力的实时输出（后端已去抖），工具卡里的 terminal 块据此渲染。
@@ -205,7 +214,9 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
  * 由 tabLifecycle 的 agent-chat onClosed 调用（进程停止另走 agentChatService.stop）。
  */
 export function dropAgentChatState(chatId: string): void {
-  chunkBuffers.delete(chatId);
+  // 关标签前把未 flush 的正文并进来再落盘：生成中途关闭也留下已到达的部分。
+  flushChat(chatId);
+  persistAgentChatTranscript(chatId);
   useAgentChatStore.getState().dropChat(chatId);
 }
 

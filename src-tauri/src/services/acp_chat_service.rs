@@ -16,6 +16,7 @@ mod fork;
 pub(crate) mod journal;
 mod native;
 mod runtime;
+mod transcript;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -780,6 +781,8 @@ impl AcpChatService {
         // 新会话（旧会话可能已被 agent 侧清理），降级必须对用户可见。
         let mut resumed_session_id: Option<String> = None;
         let mut session_response: Option<Value> = None;
+        // 降级成新会话时记下原会话 id：本地转写据此以只读前缀恢复（§8）。
+        let mut fallback_from: Option<String> = None;
         if let Some(source) = spec.fork_acp_session_id.as_deref() {
             let (child, response) =
                 fork::fork_session(session, source, capabilities.as_ref(), cwd, &mcp_servers)
@@ -839,6 +842,7 @@ impl AcpChatService {
                     }
                     Err(error) => {
                         warn!(chat_id = %session.chat_id, error = %error, "ACP session/load failed; starting a fresh session");
+                        fallback_from = Some(resume_id.to_string());
                         session.emit(
                             "notification",
                             json!({
@@ -849,6 +853,7 @@ impl AcpChatService {
                     }
                 }
             } else {
+                fallback_from = Some(resume_id.to_string());
                 session.emit(
                     "notification",
                     json!({
@@ -901,6 +906,13 @@ impl AcpChatService {
             snapshot.phase = AcpChatPhase::Ready;
         }
         self.write_chat_meta(&acp_session_id, &spec.engine_id, cwd, None);
+        if let Some(from) = fallback_from.as_deref() {
+            // 先于 ready 状态推送：前端据此把旧转写放进只读前缀而非新会话正文。
+            // 不进运行日志（emit_live）——这是本地回显，不是 agent 产出。
+            if let Some(payload) = transcript::inherit(&self.chats_dir, from, &acp_session_id) {
+                session.emit_live("transcript_restore", payload);
+            }
+        }
         session.emit_state().await;
         Ok(session.snapshot().await)
     }
@@ -1385,17 +1397,31 @@ impl AcpChatService {
             .map_err(|error| AppError::from(format!("Unable to write ACP chat meta: {error}")))
     }
 
-    /// 删除历史会话记录（只删 meta；agent 侧对话数据不动，仍可凭 id 手动续接）。
+    /// 删除历史会话记录（meta + 本地转写；agent 侧对话数据不动，仍可凭 id 手动续接）。
     pub fn delete_chat_history(&self, acp_session_id: &str) -> AppResult<()> {
         let path = self
             .meta_path(acp_session_id)
             .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
+        transcript::delete(&self.chats_dir, acp_session_id)?;
         if path.exists() {
             std::fs::remove_file(&path).map_err(|error| {
                 AppError::from(format!("Unable to delete ACP chat meta: {error}"))
             })?;
         }
         Ok(())
+    }
+
+    /// 保存会话的渲染层转写（前端回合结束/退出时整段替换）。只给有 meta 的
+    /// 会话落盘：没有历史条目就无从续接，也无从随删除一起回收。
+    pub fn save_chat_transcript(&self, acp_session_id: &str, items: Vec<Value>) -> AppResult<()> {
+        let path = self
+            .meta_path(acp_session_id)
+            .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
+        if !path.exists() {
+            debug!(acp_session_id, "skip transcript save: no chat meta");
+            return Ok(());
+        }
+        transcript::save(&self.chats_dir, acp_session_id, items)
     }
 
     /// 历史会话元数据（updatedAt 倒序，最多 100 条）。
