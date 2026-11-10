@@ -39,7 +39,8 @@
     "voice": "语音 录音 转写 麦克风 whisper 自定义",
     "ccchan": "cc酱 宠物 伙伴 浮窗",
     "experimental": "实验 预览 测试 beta feature flag",
-    "about": "版本 更新 日志 卸载 清理"
+    "about": "版本 更新 日志 卸载 清理",
+    "island": "灵动岛 刘海 dynamic island 置顶 胶囊 状态 审批 额度"
   },
   "groups": {
     "application": "应用",
@@ -1435,5 +1436,7 @@
   "terminalColorHint": "留空使用主题颜色。低对比度颜色会自动调整，保证光标和选区可见、文字可读。若仍不可见，可将渲染器切换为 DOM。",
   "autoCloseCompletedTasks": "允许完成任务自动收窗",
   "autoCloseCompletedTasksHint": "默认关闭。还需在每个任务菜单中单独选择；任务完成、进程退出且有结果摘要后保留 30 秒再收窗。结果可在任务详情回看。",
-  "mcpArgsHelp": "用空格分隔参数，含空格的值加引号；空参数写成 \"\"。单引号内原样保留 Windows 反斜杠；双引号内的引号和反斜杠需用反斜杠转义。不会展开变量或执行命令。"
+  "mcpArgsHelp": "用空格分隔参数，含空格的值加引号；空参数写成 \"\"。单引号内原样保留 Windows 反斜杠；双引号内的引号和反斜杠需用反斜杠转义。不会展开变量或执行命令。",
+  "islandTitle": "灵动岛",
+  "islandDesc": "屏幕顶部的会话状态胶囊：谁在跑、谁在等你、额度还剩多少。"
 }

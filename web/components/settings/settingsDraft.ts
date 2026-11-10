@@ -5,6 +5,7 @@ import {
   DEFAULT_PERFORMANCE_SETTINGS,
 } from "@/stores/useSettingsStore";
 import type { AppSettings } from "@/types";
+import { DEFAULT_ISLAND_SETTINGS } from "@/types/island";
 import type { SettingsPaneId } from "./settingsRegistry";
 
 export type SettingsDraft = AppSettings & { ccchan: CCChanSettings };
@@ -15,6 +16,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   theme: ["theme"],
   general: ["general", "localHistory", "update", "tips"],
   notification: ["notification"],
+  island: ["island"],
   "im-bridge": ["im"],
   "web-access": ["webAccess", "orchestrator"],
   "cli-launchers": ["cliLaunchers"],
@@ -60,6 +62,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     performance: {
       ...DEFAULT_PERFORMANCE_SETTINGS,
       ...maybeWithCCChan.performance,
+    },
+    island: {
+      ...DEFAULT_ISLAND_SETTINGS,
+      ...maybeWithCCChan.island,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
