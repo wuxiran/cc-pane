@@ -14,7 +14,7 @@ mod dispatch_retry;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
 mod open_terminal_tab;
 #[path = "orchestrator_service/pending_approval.rs"]
-mod pending_approval;
+pub(crate) mod pending_approval;
 #[path = "orchestrator_service/report_delivery_cache.rs"]
 mod report_delivery_cache;
 #[path = "orchestrator_service/worker_report_requests.rs"]

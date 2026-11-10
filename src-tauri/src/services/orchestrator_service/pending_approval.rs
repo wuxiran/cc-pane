@@ -14,7 +14,7 @@
 use cc_panes_core::services::terminal_service::SessionStatus;
 
 /// Rendered rows inspected from the bottom of the screen.
-pub(super) const APPROVAL_SCAN_LINES: usize = 40;
+pub(crate) const APPROVAL_SCAN_LINES: usize = 40;
 const MAX_PROMPT_CHARS: usize = 200;
 
 const QUESTION_MARKERS: &[&str] = &[
@@ -41,7 +41,7 @@ fn strip_frame(line: &str) -> &str {
 
 /// Returns the visible approval question, if the bottom of the rendered screen
 /// currently shows an approval dialog.
-pub(super) fn detect_pending_approval(lines: &[String]) -> Option<String> {
+pub(crate) fn detect_pending_approval(lines: &[String]) -> Option<String> {
     let start = lines.len().saturating_sub(APPROVAL_SCAN_LINES);
     let window = &lines[start..];
     let lowered: Vec<String> = window.iter().map(|line| line.to_lowercase()).collect();

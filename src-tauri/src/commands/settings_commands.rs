@@ -42,7 +42,18 @@ pub fn update_settings(
     let scrollback = settings.terminal.scrollback;
     let skill_gate_changed =
         crate::services::bundled_skills::skill_gate_changed(&previous_settings, &settings);
+    let island_changed = previous_settings.island != settings.island;
     service.update_settings(settings)?;
+    if island_changed {
+        let island_settings = service.get_settings().island;
+        // 建 / 销毁窗口不能在同步命令线程里做（Windows 会与主线程互等），丢到 async 运行时。
+        let island = Arc::clone(
+            app.state::<Arc<crate::services::island_window::IslandWindowManager>>()
+                .inner(),
+        );
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move { island.sync(&app_handle, island_settings) });
+    }
     // 门控 skill（heavy-run）随「重负载门禁」开关出现 / 消失，无需重启：重物化 managed 目录。
     // 失败只记日志——设置本身已保存，skill 目录下次启动还会再物化一遍。
     if skill_gate_changed {
