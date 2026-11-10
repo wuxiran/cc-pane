@@ -3,6 +3,7 @@ import { settingsService } from "@/services";
 import { broadcastSettingsChanged } from "@/services/settingsWindowService";
 import type { AppSettings } from "@/types";
 import { DEFAULT_PERFORMANCE_SETTINGS } from "@/types/performanceSettings";
+import { DEFAULT_ISLAND_SETTINGS } from "@/types/island";
 import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
@@ -465,6 +466,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     im: DEFAULT_IM_SETTINGS,
     experimental: DEFAULT_EXPERIMENTAL_SETTINGS,
     performance: DEFAULT_PERFORMANCE_SETTINGS,
+    island: DEFAULT_ISLAND_SETTINGS,
   }),
 }));
 

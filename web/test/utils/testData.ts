@@ -7,6 +7,7 @@ import type {
   Memory,
   SkillInfo,
 } from "@/types";
+import { DEFAULT_ISLAND_SETTINGS } from "@/types/island";
 
 let counter = 0;
 
@@ -274,6 +275,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       parkedTerminalLimit: 6,
       parkDelaySecs: 30,
     },
+    island: { ...DEFAULT_ISLAND_SETTINGS },
     ...overrides,
   };
 }
