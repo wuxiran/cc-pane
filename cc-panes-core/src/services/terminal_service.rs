@@ -6676,6 +6676,10 @@ fn cursor_agent_waiting_input(tail_lower: &str) -> bool {
         "press a to trust",
         "waiting for input",
         "type a message",
+        // Codex approval overlays (issue #64-#4): no hook reports these.
+        "mcp server to run tool",
+        "would you like to run the following command",
+        "would you like to make the following edits",
     ];
     MARKERS.iter().any(|m| tail_lower.contains(m))
 }
@@ -9019,6 +9023,13 @@ mod tests {
         assert!(inferred_waiting_is_strong("Waiting for input..."));
         assert!(inferred_waiting_is_strong(
             "This command needs your approval"
+        ));
+        // Codex approval overlays (issue #64-#4).
+        assert!(inferred_waiting_is_strong(
+            "Allow the ccpanes MCP server to run tool \"update_task_binding\"?\n› 1. Yes"
+        ));
+        assert!(inferred_waiting_is_strong(
+            "Would you like to run the following command?\n$ rm -rf build"
         ));
     }
 

@@ -1,6 +1,7 @@
 import type { ThemeSystemPrefs } from "./themeSystemPrefs";
 import type { ThemeShape } from "@/theme/themeShapes";
 import type { PerformanceSettings } from "./performanceSettings";
+import type { IslandSettings } from "./island";
 
 export type { PerformanceSettings } from "./performanceSettings";
 export { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "./performanceSettings";
@@ -31,10 +32,10 @@ export interface AppSettings {
   experimental: ExperimentalSettings;
   /** 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊 */
   performance: PerformanceSettings;
+  island: IslandSettings;
 }
 
-/** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；
- * 入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
+/** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
 export interface ExperimentalSettings {
   /** 短剧制作台（DramaStudio + 批量转绘）；独立开关便于单独下线重构。 */
   dramaStudio: boolean;
@@ -44,8 +45,7 @@ export interface ExperimentalSettings {
 
 export type ExperimentalFeatureId = keyof ExperimentalSettings;
 
-/** F1 全局快捷终端设置（镜像 cc-panes-core QuickTerminalSettings）。
- * Quake 式下拉终端：全局热键 toggle，单例置顶窗口，hide 不销毁（PTY 保留）。 */
+/** F1 全局快捷终端设置（镜像 cc-panes-core QuickTerminalSettings）。Quake 式下拉终端：全局热键 toggle，单例置顶窗口，hide 不销毁（PTY 保留）。 */
 export interface QuickTerminalSettings {
   /** 是否启用全局热键 toggle 快捷终端 */
   enabled: boolean;

@@ -39,7 +39,8 @@
     "voice": "voice recording transcription microphone whisper custom",
     "ccchan": "cc-chan pet companion window",
     "experimental": "experimental preview beta feature flag",
-    "about": "version update logs uninstall cleanup"
+    "about": "version update logs uninstall cleanup",
+    "island": "dynamic island notch always on top capsule status approval quota"
   },
   "groups": {
     "application": "Application",
@@ -1435,5 +1436,7 @@
   "terminalColorHint": "Leave empty to follow the theme. Low contrast colors are adjusted for visible marks and readable text. Try the DOM renderer if the cursor or selection is still missing.",
   "autoCloseCompletedTasks": "Allow completed tasks to close automatically",
   "autoCloseCompletedTasksHint": "Off by default. Opt in separately from each task menu. Tabs close after the task completes, the process exits, and a result summary is saved, with a 30-second grace period. Results remain in task details.",
-  "mcpArgsHelp": "Separate arguments with spaces. Quote values containing spaces; use \"\" for an empty argument. Single quotes preserve Windows backslashes. Inside double quotes, escape quotes and backslashes with a backslash. Variables and commands are never expanded."
+  "mcpArgsHelp": "Separate arguments with spaces. Quote values containing spaces; use \"\" for an empty argument. Single quotes preserve Windows backslashes. Inside double quotes, escape quotes and backslashes with a backslash. Variables and commands are never expanded.",
+  "islandTitle": "Dynamic Island",
+  "islandDesc": "A session status capsule at the top of the screen: what is running, who needs you, quota left."
 }

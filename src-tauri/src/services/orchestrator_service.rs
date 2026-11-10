@@ -13,6 +13,8 @@
 mod dispatch_retry;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
 mod open_terminal_tab;
+#[path = "orchestrator_service/pending_approval.rs"]
+pub(crate) mod pending_approval;
 #[path = "orchestrator_service/report_delivery_cache.rs"]
 mod report_delivery_cache;
 #[path = "orchestrator_service/worker_report_requests.rs"]
@@ -22,8 +24,8 @@ use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCach
 
 use crate::ccchan_service::CCChanService;
 use crate::models::task_binding::{
-    CreateTaskBindingRequest, TaskBinding, TaskBindingRole, TaskBindingStatus,
-    UpdateTaskBindingRequest,
+    CreateTaskBindingRequest, TaskBinding, TaskBindingQueryResult, TaskBindingRole,
+    TaskBindingStatus, UpdateTaskBindingRequest,
 };
 use crate::models::todo::{
     CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
@@ -1177,6 +1179,30 @@ fn resolve_caller_session_id_for(
         })
 }
 
+/// Status as reported to MCP callers, plus the visible approval question when a
+/// hook-less CLI is blocked on an approval dialog (issue #64-#4).
+struct QueriedSessionStatus {
+    info: SessionStatusInfo,
+    pending_approval: Option<String>,
+}
+
+/// Upgrades a live status to `waitingInput` when the rendered screen currently
+/// shows an approval dialog. Output read failures keep the original status.
+async fn probe_pending_approval(state: &AppState, info: &mut SessionStatusInfo) -> Option<String> {
+    if !pending_approval::status_may_hide_approval(info.status) {
+        return None;
+    }
+    let sid = info.session_id.clone();
+    let output = backend_call(state, move |backend| {
+        backend.get_session_output(&sid, pending_approval::APPROVAL_SCAN_LINES)
+    })
+    .await
+    .ok()?;
+    let prompt = pending_approval::detect_pending_approval(&output.lines)?;
+    info.status = SessionStatus::WaitingInput;
+    Some(prompt)
+}
+
 async fn query_all_session_statuses(
     state: &AppState,
 ) -> std::result::Result<Vec<SessionStatusInfo>, String> {
@@ -1187,16 +1213,70 @@ async fn query_all_session_statuses(
     Ok(statuses)
 }
 
+async fn query_all_session_statuses_detailed(
+    state: &AppState,
+) -> std::result::Result<Vec<QueriedSessionStatus>, String> {
+    let statuses = backend_call(state, |backend| backend.get_all_status()).await?;
+    let mut result = Vec::with_capacity(statuses.len());
+    for mut info in statuses {
+        adjust_session_status_info_for_query(&state.session_state_machine, &mut info);
+        let pending_approval = probe_pending_approval(state, &mut info).await;
+        result.push(QueriedSessionStatus {
+            info,
+            pending_approval,
+        });
+    }
+    Ok(result)
+}
+
+async fn query_session_status_detailed(
+    state: &AppState,
+    session_id: &str,
+) -> std::result::Result<Option<QueriedSessionStatus>, String> {
+    let sid = session_id.to_string();
+    let status = backend_call(state, move |backend| backend.get_session_status(&sid)).await?;
+    let Some(mut info) = status else {
+        return Ok(None);
+    };
+    adjust_session_status_info_for_query(&state.session_state_machine, &mut info);
+    let pending_approval = probe_pending_approval(state, &mut info).await;
+    Ok(Some(QueriedSessionStatus {
+        info,
+        pending_approval,
+    }))
+}
+
 async fn query_session_status(
     state: &AppState,
     session_id: &str,
 ) -> std::result::Result<Option<SessionStatusInfo>, String> {
-    let sid = session_id.to_string();
-    let mut status = backend_call(state, move |backend| backend.get_session_status(&sid)).await?;
-    if let Some(status) = status.as_mut() {
-        adjust_session_status_info_for_query(&state.session_state_machine, status);
+    Ok(query_session_status_detailed(state, session_id)
+        .await?
+        .map(|status| status.info))
+}
+
+/// MCP JSON for one session. Tool fields are only present while a tool is
+/// running / awaiting permission, so callers can tell what a blocked worker wants.
+fn session_status_json(status: &QueriedSessionStatus) -> serde_json::Value {
+    let info = &status.info;
+    let mut value = serde_json::json!({
+        "sessionId": info.session_id,
+        "status": info.status,
+        "lastOutputAt": info.last_output_at,
+    });
+    for (key, field) in [
+        ("currentToolName", &info.current_tool_name),
+        ("currentToolSummary", &info.current_tool_summary),
+        ("pendingApproval", &status.pending_approval),
+    ] {
+        if let Some(field) = field {
+            value[key] = serde_json::Value::String(field.clone());
+        }
     }
-    Ok(status)
+    if let Some(exit_code) = info.exit_code {
+        value["exitCode"] = serde_json::json!(exit_code);
+    }
+    value
 }
 
 const WAIT_FOR_SESSION_DEFAULT_TIMEOUT_MS: u64 = 180_000;
@@ -3714,6 +3794,42 @@ struct McpQueryTaskBindingsParams {
     /// 紧凑模式：prompt 截断为前 200 字符并丢弃 metadata（issue #64-#2，默认 false）
     #[serde(default)]
     compact: Option<bool>,
+    /// 字段投影：只返回这些 camelCase 字段（id 恒保留），如 ["title","status","cliTool","updatedAt"]
+    #[serde(default)]
+    fields: Option<Vec<String>>,
+}
+
+/// Serializes a query page, optionally keeping only the requested item fields
+/// (issue #64-#2). Unknown names are ignored; `id` is always kept so callers can
+/// follow up with get_task_status.
+fn task_binding_query_json(
+    result: &TaskBindingQueryResult,
+    fields: Option<&[String]>,
+) -> std::result::Result<String, serde_json::Error> {
+    let fields: Option<Vec<&str>> = fields
+        .map(|fields| {
+            fields
+                .iter()
+                .map(|field| field.trim())
+                .filter(|field| !field.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|fields| !fields.is_empty());
+    let Some(fields) = fields else {
+        return serde_json::to_string(result);
+    };
+    let mut value = serde_json::to_value(result)?;
+    if let Some(items) = value
+        .get_mut("items")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for item in items {
+            if let Some(object) = item.as_object_mut() {
+                object.retain(|key, _| key == "id" || fields.contains(&key.as_str()));
+            }
+        }
+    }
+    serde_json::to_string(&value)
 }
 
 fn compact_task_bindings(items: &mut [TaskBinding]) {
@@ -8349,20 +8465,15 @@ impl McpToolHandler {
         }
     }
 
-    /// 查会话当前状态与最近输出时间。
+    /// 查会话当前状态与最近输出时间；卡在审批框时 status=waitingInput 并带 pendingApproval。
     #[tool]
     async fn get_session_status(
         &self,
         Parameters(params): Parameters<McpGetSessionStatusParams>,
     ) -> String {
         debug!(session_id = %params.session_id, "mcp::get_session_status");
-        match query_session_status(&self.state, &params.session_id).await {
-            Ok(Some(status)) => serde_json::json!({
-                "sessionId": status.session_id,
-                "status": status.status,
-                "lastOutputAt": status.last_output_at,
-            })
-            .to_string(),
+        match query_session_status_detailed(&self.state, &params.session_id).await {
+            Ok(Some(status)) => session_status_json(&status).to_string(),
             Ok(None) => format!("错误: 会话 '{}' 不存在", params.session_id),
             Err(e) => format!("错误: 获取会话状态失败: {}", e),
         }
@@ -8423,22 +8534,14 @@ impl McpToolHandler {
         }
     }
 
-    /// 列出所有活跃的终端会话及其状态，返回 sessionId、status、lastOutputAt。
+    /// 列出所有活跃的终端会话及其状态，返回 sessionId、status、lastOutputAt（卡审批框时带 pendingApproval）。
     #[tool]
     async fn list_sessions(&self) -> String {
         debug!("mcp::list_sessions");
-        match query_all_session_statuses(&self.state).await {
+        match query_all_session_statuses_detailed(&self.state).await {
             Ok(statuses) => {
-                let sessions: Vec<serde_json::Value> = statuses
-                    .iter()
-                    .map(|s| {
-                        serde_json::json!({
-                            "sessionId": s.session_id,
-                            "status": s.status,
-                            "lastOutputAt": s.last_output_at,
-                        })
-                    })
-                    .collect();
+                let sessions: Vec<serde_json::Value> =
+                    statuses.iter().map(session_status_json).collect();
                 serde_json::json!({ "sessions": sessions }).to_string()
             }
             Err(e) => format!("错误: 获取会话列表失败: {}", e),
@@ -9031,7 +9134,7 @@ impl McpToolHandler {
             .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
     }
 
-    /// 查询编排任务列表（按状态、项目路径过滤）
+    /// 查询编排任务列表（按状态、项目路径过滤）；fields 投影 / compact 截断 prompt 控制返回体积
     #[tool]
     async fn query_task_bindings(
         &self,
@@ -9065,7 +9168,7 @@ impl McpToolHandler {
                 if params.compact.unwrap_or(false) {
                     compact_task_bindings(&mut result.items);
                 }
-                serde_json::to_string(&result)
+                task_binding_query_json(&result, params.fields.as_deref())
                     .unwrap_or_else(|error| format!("错误: 序列化失败: {error}"))
             }
             Err(e) => format!("错误: 查询 TaskBindings 失败: {}", e),
@@ -17271,6 +17374,79 @@ mod tests {
             metadata: None,
             created_at: "2026-07-04T00:00:00Z".to_string(),
             updated_at: "2026-07-04T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn session_status_json_reports_pending_approval_and_tool_fields() {
+        let mut info = wait_test_status("pty-1", SessionStatus::WaitingInput);
+        info.current_tool_name = Some("mcp__ccpanes__update_task_binding".to_string());
+        let status = QueriedSessionStatus {
+            info,
+            pending_approval: Some("Allow the ccpanes MCP server to run tool \"x\"?".to_string()),
+        };
+        let value = session_status_json(&status);
+        assert_eq!(value["status"], "waitingInput");
+        assert_eq!(
+            value["currentToolName"],
+            "mcp__ccpanes__update_task_binding"
+        );
+        assert_eq!(
+            value["pendingApproval"],
+            "Allow the ccpanes MCP server to run tool \"x\"?"
+        );
+        assert!(value.get("currentToolSummary").is_none());
+
+        let plain = QueriedSessionStatus {
+            info: wait_test_status("pty-2", SessionStatus::Idle),
+            pending_approval: None,
+        };
+        let value = session_status_json(&plain);
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["lastOutputAt", "sessionId", "status"]);
+    }
+
+    #[test]
+    fn task_binding_query_fields_projection_keeps_only_requested_fields_and_id() {
+        let mut item = test_pending_report_worker("projected");
+        item.prompt = Some("x".repeat(5000));
+        item.metadata = Some(serde_json::json!({ "large": "payload" }));
+        let result = TaskBindingQueryResult {
+            items: vec![item],
+            total: 1,
+            has_more: false,
+            revision: Some("rev".to_string()),
+        };
+        let fields = vec![
+            "title".to_string(),
+            "status".to_string(),
+            " updatedAt ".to_string(),
+            "noSuchField".to_string(),
+        ];
+
+        let projected: serde_json::Value =
+            serde_json::from_str(&task_binding_query_json(&result, Some(&fields)).unwrap())
+                .unwrap();
+        let object = projected["items"][0].as_object().unwrap();
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["id", "status", "title", "updatedAt"]);
+        assert_eq!(projected["total"], 1);
+        assert_eq!(projected["hasMore"], false);
+        assert_eq!(projected["revision"], "rev");
+
+        // No / empty projection keeps the full legacy shape.
+        for fields in [None, Some(&[][..]), Some(&[" ".to_string()][..])] {
+            let full: serde_json::Value =
+                serde_json::from_str(&task_binding_query_json(&result, fields).unwrap()).unwrap();
+            assert!(full["items"][0]["prompt"].as_str().unwrap().len() == 5000);
+            assert!(full["items"][0]["metadata"].is_object());
         }
     }
 

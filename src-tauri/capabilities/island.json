@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "island",
+  "description": "Dynamic island window: only event bridge access (listen / emit to main). Window geometry and focus go through app commands.",
+  "windows": ["island"],
+  "permissions": [
+    "core:event:default"
+  ]
+}

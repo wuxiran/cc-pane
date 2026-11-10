@@ -9,6 +9,7 @@ import type newTabPage from "./locales/zh-CN/newTabPage.json";
 import type sessionBind from "./locales/zh-CN/sessionBind.json";
 import type tabContextMenu from "./locales/zh-CN/tabContextMenu.json";
 import type codexIntegration from "./locales/zh-CN/codexIntegration.json";
+import type island from "./locales/zh-CN/island.json";
 
 type BaseResources = (typeof resources)["zh-CN"];
 
@@ -23,6 +24,7 @@ declare module "i18next" {
       workbenchTabs: typeof workbenchTabs;
       browserAnnotations: typeof browserAnnotations;
       codexIntegration: typeof codexIntegration;
+      island: typeof island;
     };
   }
 }

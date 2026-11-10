@@ -108,7 +108,7 @@
 | N1 | Orca 插件系统+marketplace v0 | 🗑️（完整）/📋（降维） | 108 文件 7203 行 kernel+能力闭集+consent+kill-list，renderer 全接线——但真正不可降维的只有供应链信任段，且 Orca 自己把 skills 从 contributes 里 deferred 了。**暴露的是 CCP 侧真缺口：skill market 是裸 HTTPS 拉 raw JSON，无签名/内容哈希/吊销** | skill market 供应链加固 3-5d / P1.5 |
 | N2 | speech/dictation 本地 STT | 📋 | Orca 10+ 本地模型（sherpa-onnx+HF 不可变 revision+逐文件 SHA-256）；CCP 纯云端（dashscope/mimo）。差的是隐私边界不是功能（55 H2 ✅ 仍成立） | 本地单模型 4-6d / P2；麦克风选择等体验补丁 0.5d |
 | N3a | 用量计价口径 | ✅ | CCP docs/82 上下文窗口溯源反超（Orca shared 层 contextWindow 零命中）；仅价格表数值滞后 | 0.5d / P2 |
-| N3b | 多 CLI 账号+额度 | 📋 | Orca accounts+rate-limits 共 1.8 万行；CCP 只做只读额度展示堵侧翼，不碰凭据管理 | 2-3d / P2（55 G2 维持） |
+| N3b | 多 CLI 账号+额度 | 🚧 | Orca accounts+rate-limits 共 1.8 万行；CCP 只做只读额度展示堵侧翼，不碰凭据管理。**v0.12.23**：终端状态栏显示 Codex 订阅额度（读本会话 rollout `token_count.rate_limits`，与会话费用同一次增量读取，零额外 IO/网络）；Claude Code transcript 不含额度，唯一本地来源是 statusline stdin 的 `rate_limits`，需包装用户 statusLine，暂缓 | Claude 剩 1-1.5d / P2（55 G2 维持） |
 | N4 | updater 多渠道 | 🗑️ | hourly/adhoc 独立仓+本地 feed server 8897 行——解决的是 20 人团队的内部研发流程，单人维护做三渠道是自残 | — |
 | N5 | diagnostics/crash 遥测 | 📋 | OOM 字节归因+hang watchdog（worker thread）+suspend 区分+observability redactor/bundle；只取本地脱敏包，不取 upload（G4 🗑️ 沿袭）。与 T13 同源 | 2-3d+2-3d / P1.5（G5 升级） |
 | N6 | Orca skills 更新收敛 | 📋 | Orca 把 skill 当受管资产（版本收敛/失败可诊断/缓存上限）；CCP 的 skill 服务无更新收敛与失败告知——**护城河上的真实薄弱点** | 1.5-2.5d / P2 |

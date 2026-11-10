@@ -255,6 +255,13 @@ impl CodexAdapter {
         args.push(crate::ccpanes_enabled_tools_override());
     }
 
+    fn push_ccpanes_auto_approve_override(args: &mut Vec<String>, yolo_mode: bool) {
+        if yolo_mode {
+            args.push("-c".to_string());
+            args.push(crate::CCPANES_TOOLS_AUTO_APPROVE_OVERRIDE.to_string());
+        }
+    }
+
     fn push_developer_instructions_override(args: &mut Vec<String>, prompt: &str) {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -429,6 +436,7 @@ impl CodexAdapter {
             Self::push_mcp_stdio_override(args, "ccpanes", invocation);
             Self::push_mcp_enabled_override(args, "ccpanes", true);
             Self::push_ccpanes_enabled_tools_override(args);
+            Self::push_ccpanes_auto_approve_override(args, ctx.yolo_mode);
         } else if let (Some(port), Some(token)) =
             (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
         {
@@ -444,6 +452,7 @@ impl CodexAdapter {
             Self::push_mcp_url_override(args, "ccpanes", &url);
             Self::push_mcp_enabled_override(args, "ccpanes", true);
             Self::push_ccpanes_enabled_tools_override(args);
+            Self::push_ccpanes_auto_approve_override(args, ctx.yolo_mode);
         }
 
         // 工作空间层 + 项目覆盖层（docs/98）先于 shared 写入：同名时 shared 的 URL 后写覆盖。
@@ -2433,6 +2442,35 @@ mod tests {
             .any(|arg| arg.contains("\"dispatch_task\"") && arg.contains("enabled_tools=")));
         assert!(!args.iter().any(|arg| arg.contains("\"create_workspace\"")));
         assert!(!args.iter().any(|arg| arg.contains("bearer_token_env_var")));
+    }
+
+    #[test]
+    fn yolo_launch_auto_approves_ccpanes_mcp_tools_only_when_ccpanes_is_configured() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex"));
+        ctx.skip_mcp = false;
+        ctx.resume_id = None;
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("secret-token".to_string());
+        let approve = "mcp_servers.ccpanes.default_tools_approval_mode=\"approve\"";
+
+        let mut default_args = Vec::new();
+        adapter.push_mcp_overrides(&mut default_args, &ctx);
+        assert!(!default_args.iter().any(|arg| arg == approve));
+
+        ctx.yolo_mode = true;
+        let mut yolo_args = Vec::new();
+        adapter.push_mcp_overrides(&mut yolo_args, &ctx);
+        let index = yolo_args.iter().position(|arg| arg == approve).unwrap();
+        assert_eq!(yolo_args[index - 1], "-c");
+
+        // Without a ccpanes transport, a lone approval key would be an invalid server entry.
+        ctx.orchestrator_port = None;
+        let mut no_server = Vec::new();
+        adapter.push_mcp_overrides(&mut no_server, &ctx);
+        assert!(!no_server
+            .iter()
+            .any(|arg| arg.contains("mcp_servers.ccpanes.")));
     }
 
     #[test]
