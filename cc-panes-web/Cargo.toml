@@ -3,7 +3,7 @@ name = "cc-panes-web"
 version = "0.1.0"
 description = "CC-Panes Web terminal server for Docker deployment"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 edition = "2021"
 
 [features]

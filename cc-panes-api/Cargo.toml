@@ -3,7 +3,7 @@ name = "cc-panes-api"
 version = "0.9.17"
 description = "CC-Panes HTTP/WebSocket API adapter - framework-independent"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 edition = "2021"
 
 [dependencies]

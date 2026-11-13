@@ -3,7 +3,7 @@ name = "cc-panes-core"
 version = "0.9.17"
 description = "CC-Panes core business logic - framework-independent"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 edition = "2021"
 
 [dependencies]
