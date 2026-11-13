@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/wuxiran/cc-pane/releases/latest"><img src="https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&amp;sort=semver" alt="最新リリース" /></a>
   <a href="https://github.com/wuxiran/cc-pane/releases"><img src="https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&amp;color=success" alt="ダウンロード数" /></a>
-  <img src="https://img.shields.io/badge/license-GPL--3.0-08C?style=flat" alt="GPL-3.0 ライセンス" />
+  <img src="https://img.shields.io/badge/license-MIT-08C?style=flat" alt="MIT ライセンス" />
   <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-4493F8?style=flat-square" alt="Windows、macOS、Linux" />
 </p>
 
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## ライセンス
 
-CC-Panes は [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) で公開されている無料のオープンソースです。
+CC-Panes は [MIT](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) で公開されている無料のオープンソースです。
 
 ## 謝辞
 

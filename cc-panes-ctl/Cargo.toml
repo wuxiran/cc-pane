@@ -3,7 +3,7 @@ name = "cc-panes-ctl"
 version = "0.1.0"
 description = "CC-Panes control-plane CLI and MCP proxy"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 edition = "2021"
 
 [lib]

@@ -81,7 +81,7 @@ GitHub: https://github.com/wuxiran/cc-pane
 
 ## License
 
-GPL-3.0
+MIT
 
 ---
 
