@@ -1,6 +1,6 @@
 import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { TFunction } from "i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 import { terminalPathLinkService } from "@/services/terminalPathLinkService";
 import { translateError } from "@/utils";

@@ -90,7 +90,6 @@
     "recharts": "^3.8.1",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.11"
   },

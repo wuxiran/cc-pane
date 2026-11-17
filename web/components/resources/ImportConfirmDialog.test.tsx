@@ -7,7 +7,7 @@ import { useProvidersStore } from "@/stores/useProvidersStore";
 import { useSharedMcpStore } from "@/stores";
 import ImportConfirmDialog from "./ImportConfirmDialog";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
@@ -33,7 +33,7 @@ vi.mock("@/services/importService", () => ({
   },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 const providerReq: ImportRequest = {
   resource: "provider",

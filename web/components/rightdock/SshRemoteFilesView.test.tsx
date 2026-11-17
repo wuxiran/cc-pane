@@ -38,7 +38,7 @@ vi.mock("@/services", async (importOriginal) => ({
   sshFileService: serviceMocks,
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

@@ -9,7 +9,7 @@ import {
 import { useThemeStore } from "@/stores/useThemeStore";
 import ThemeSection from "./ThemeSection";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn() },
 }));
 

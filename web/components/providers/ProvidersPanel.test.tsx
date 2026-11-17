@@ -80,11 +80,11 @@ vi.mock("@/hooks/useCliTools", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 // 卡片内的 CRUD 图标走统一 IconTooltipButton，需要 TooltipProvider 祖先（生产环境由 AppShell 提供）
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);

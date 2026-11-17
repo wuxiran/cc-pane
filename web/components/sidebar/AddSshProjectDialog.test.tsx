@@ -6,14 +6,14 @@ import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { SshMachine } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
   },
 }));
 
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 function createMachine(overrides: Partial<SshMachine> = {}): SshMachine {
   return {

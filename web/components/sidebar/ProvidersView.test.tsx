@@ -14,7 +14,7 @@ import ProvidersView from "./ProvidersView";
 // CLI chips 的未安装点改用 Tooltip（替代原生 title=），测试需要 Provider 环境
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

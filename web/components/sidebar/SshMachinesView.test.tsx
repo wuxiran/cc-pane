@@ -22,7 +22,7 @@ vi.mock("@/services", async (importOriginal) => ({
   sshFileService: sshFileMocks,
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -56,7 +56,7 @@ vi.mock("@/utils", async () => {
   };
 });
 
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { checkSshConnectivity } from "@/services/sshMachineService";
 
 const mockCheck = vi.mocked(checkSshConnectivity);

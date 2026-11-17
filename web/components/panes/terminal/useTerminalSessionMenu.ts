@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { agentTranscriptService } from "@/services/agentTranscriptService";

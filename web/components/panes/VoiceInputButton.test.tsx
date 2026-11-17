@@ -3,13 +3,13 @@ import i18n from "i18next";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { terminalService, voiceService } from "@/services";
 import VoiceInputButton from "./VoiceInputButton";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 

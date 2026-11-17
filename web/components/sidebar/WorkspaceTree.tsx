@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";

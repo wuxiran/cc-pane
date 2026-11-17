@@ -8,7 +8,7 @@ import { useActivityBarStore, useLayoutUiStore, usePanesStore, useTerminalStatus
 import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import LayoutTopBar from "./LayoutTopBar";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock("@tauri-apps/api/webviewWindow", () => ({ WebviewWindow: { getByLabel: vi.fn() } }));
 
 describe("LayoutTopBar overflow integration", () => {

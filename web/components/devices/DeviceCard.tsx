@@ -1,7 +1,7 @@
 // 单台设备：状态、CLI 安装情况、工作空间与运行中的会话。docs/111-multi-device.md
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   ChevronDown,
   ChevronRight,

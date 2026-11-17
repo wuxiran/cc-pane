@@ -16,7 +16,7 @@ vi.mock("@/services/runtime", () => ({
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "0.12.21") }));
 vi.mock("@/services/nativeDialog", () => ({ nativeConfirm: vi.fn(async () => true) }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("./openRemoteSession", () => ({
   openRemoteSession: vi.fn(async () => "tab-1"),
   startRemoteSession: vi.fn(async () => "tab-2"),

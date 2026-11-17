@@ -18,7 +18,7 @@ vi.mock("@/utils/devLogger", () => ({
   devDebugLog: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

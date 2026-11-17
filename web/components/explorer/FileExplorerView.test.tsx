@@ -8,11 +8,11 @@ import FileExplorerView from "./FileExplorerView";
 const tt = (k: string, opts?: Record<string, unknown>) =>
   String(i18n.t(k as never, opts as never));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { handleError, handleErrorSilent, isTauriRuntime } from "@/utils";
 import {
   FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair, Home, Link, Link2Off,

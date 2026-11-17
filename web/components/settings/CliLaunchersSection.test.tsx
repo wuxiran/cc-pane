@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { settingsService } from "@/services";
 import { useCliTools } from "@/hooks/useCliTools";
 import type { CliLauncherSettings, CliToolInfo } from "@/types";
@@ -18,7 +18,7 @@ vi.mock("@/services/settingsService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

@@ -13,7 +13,7 @@ import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 // LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     success: vi.fn(),
     info: vi.fn(),

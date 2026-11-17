@@ -3,7 +3,7 @@ import "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { useDialogStore, useEnvironmentStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import * as workspaceService from "@/services/workspaceService";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
@@ -19,7 +19,7 @@ vi.mock("@/services/sshMachineService", () => ({
   discoverWslDistros: vi.fn(async () => []),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

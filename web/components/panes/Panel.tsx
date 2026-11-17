@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useCallback, useRef, memo, useContext } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { Panel as PanelType, Tab } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import {

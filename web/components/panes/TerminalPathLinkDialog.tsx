@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Code2, Copy, ExternalLink, FileText, FolderOpen, Loader2, Maximize2, Minimize2, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 import { Button } from "@/components/ui/button";
 import {

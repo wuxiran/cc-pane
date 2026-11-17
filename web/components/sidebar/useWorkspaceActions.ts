@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { useWorkspacesStore, usePanesStore, useDialogStore } from "@/stores";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { worktreeService, type WorktreeInfo } from "@/services";

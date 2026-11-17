@@ -13,11 +13,11 @@ vi.mock("@/services/providerService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 function createRecord(overrides: Partial<LaunchRecord> = {}): LaunchRecord {
   return {

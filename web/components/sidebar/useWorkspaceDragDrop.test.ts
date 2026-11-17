@@ -1,11 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { useWorkspacesStore } from "@/stores";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 import { useWorkspaceDragDrop } from "./useWorkspaceDragDrop";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 

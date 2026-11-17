@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 /**
  * 会话被另一个 CC-Panes 实例持有写权限时提示用户（docs/61 阶段 2）。

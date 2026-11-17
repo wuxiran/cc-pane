@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Toaster } from "sonner";
+import { AppToaster } from "@/components/ui/toast";
 import { getCurrentWindowIfTauri } from "@/services/runtime";
 import { browserService, type BrowserHostState } from "@/services/browserService";
 import type { Tab } from "@/types";
@@ -41,6 +41,6 @@ export default function BrowserPopupWindow() {
   useEffect(() => { if (tab?.title) void getCurrentWindowIfTauri()?.setTitle(`${tab.title} · CC-Panes`).catch(console.error); }, [tab?.title]);
   return <TooltipProvider><div className="h-screen w-screen overflow-hidden bg-[var(--app-content)] text-[var(--app-text-primary)]">
     {error ? <p role="alert" className="p-6 text-sm">{error}</p> : tab ? <BrowserTabContent tab={tab} popup popupMode={mode} popupVisible={visibility.visible} popupActive={visibility.active} /> : <p className="p-6">Loading…</p>}
-    <Toaster />
+    <AppToaster />
   </div></TooltipProvider>;
 }

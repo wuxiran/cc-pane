@@ -6,7 +6,7 @@ import WorktreeManager from "./WorktreeManager";
 import { worktreeService, type WorktreeInfo } from "@/services";
 import { providerService } from "@/services/providerService";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 

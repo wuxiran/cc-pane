@@ -2,7 +2,7 @@ import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { screenshotService } from "@/services";
 import type { ScreenshotSettings } from "@/types";
 import ScreenshotSection from "./ScreenshotSection";
@@ -13,7 +13,7 @@ vi.mock("@/services/screenshotService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

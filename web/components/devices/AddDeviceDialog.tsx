@@ -1,7 +1,7 @@
 // 添加设备：SSH 服务器（可立即部署）或直连另一台 CC-Panes。docs/111-multi-device.md
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,

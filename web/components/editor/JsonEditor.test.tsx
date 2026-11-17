@@ -4,11 +4,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import JsonEditor from "./JsonEditor";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 beforeAll(() => {
   // CodeMirror 6 需要 jsdom 缺失的测量 API

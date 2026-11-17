@@ -26,7 +26,7 @@ vi.mock("../agentChatResume", () => ({
   resumeAgentChat: (...args: unknown[]) => resumeAgentChat(...args),
   openNewAgentChat: (...args: unknown[]) => openNewAgentChat(...args),
 }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 function ws(partial: Partial<Workspace> & { name: string }): Workspace {
   return { id: partial.name, createdAt: "", projects: [], ...partial } as Workspace;

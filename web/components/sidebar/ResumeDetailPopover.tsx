@@ -4,7 +4,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { formatFullTime, isTauriRuntime } from "@/utils";
 import type { LaunchRecord } from "@/services";
 import { providerService } from "@/services/providerService";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 interface ResumeDetailPopoverProps {
   record: LaunchRecord;

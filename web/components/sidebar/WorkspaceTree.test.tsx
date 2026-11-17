@@ -41,7 +41,7 @@ vi.mock("@dnd-kit/sortable", () => ({
 vi.mock("@dnd-kit/utilities", () => ({ CSS: { Transform: { toString: () => "" } } }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 // WorkspaceTree 只负责把可用 CLI 集合传给菜单子树；CLI 探测本身由 hook
 // 单测覆盖，这里避免每个渲染用例都触发真实的 /api/cli-tools 请求。

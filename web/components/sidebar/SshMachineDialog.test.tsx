@@ -7,7 +7,7 @@ import { useSshMachinesStore } from "@/stores";
 import type { SshMachine } from "@/types";
 import SshMachineDialog from "./SshMachineDialog";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("@/services/sshMachineService", () => ({
   })),
 }));
 
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { checkSshConnectivity } from "@/services/sshMachineService";
 
 const mockCheck = vi.mocked(checkSshConnectivity);

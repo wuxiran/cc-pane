@@ -12,7 +12,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

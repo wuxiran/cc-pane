@@ -15,7 +15,7 @@ vi.mock("@/services/runtime", () => ({
   logInfoSafe: vi.fn(),
 }));
 vi.mock("@/services/nativeDialog", () => ({ nativeConfirm: vi.fn(async () => true) }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/services/deviceService", () => ({
   pairDevice: vi.fn(),
   addDevice: vi.fn(),

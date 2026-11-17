@@ -10,7 +10,7 @@ vi.mock("../terminalClipboard", () => ({
   resolveTerminalPastePayload: resolveMock,
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { info: toastInfoMock, error: toastErrorMock },
 }));
 

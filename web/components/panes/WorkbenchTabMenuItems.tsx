@@ -1,7 +1,7 @@
 import "@/i18n/workbenchTabsResources";
 import { ArrowLeft, ArrowRight, Copy, CopyPlus, ExternalLink, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { externalBrowserUrl } from "@/lib/browserTabPresentation";
 import { horizontalPaneNeighbors } from "@/lib/paneNeighbors";

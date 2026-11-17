@@ -2,7 +2,7 @@
 // 项目下混排终端会话与 Agent 对话），最近。系统的默认工作空间和 Agent Chat 工作空间不露出。
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   Check, ChevronRight, Folder, FolderOpen, FolderPlus, MessagesSquare, Rocket, TerminalSquare,
 } from "lucide-react";

@@ -2,7 +2,7 @@ import "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { open } from "@tauri-apps/plugin-dialog";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
@@ -38,7 +38,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(async (message: string) => Boolean(window.confirm(message))),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

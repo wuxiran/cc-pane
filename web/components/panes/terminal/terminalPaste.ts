@@ -1,7 +1,7 @@
 // 粘贴处理（右键菜单/快捷键/拖放共用的负载解析与写入）。
 // 从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
 import type { Terminal } from "@xterm/xterm";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/utils";
 import { resolveTerminalPastePayload } from "../terminalClipboard";
 import {

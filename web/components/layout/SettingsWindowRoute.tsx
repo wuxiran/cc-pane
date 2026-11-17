@@ -1,6 +1,6 @@
 // 独立设置窗口：两个窗口的 store 互不相通，靠 settings-changed 事件和 localStorage 同步。
 import { useEffect, useState } from "react";
-import { Toaster } from "sonner";
+import { AppToaster } from "@/components/ui/toast";
 import SettingsPanel from "@/components/SettingsPanel";
 import { SETTINGS_NAVIGATE_EVENT } from "@/components/settings/settingsNavigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,7 +24,6 @@ function dispatchNavigate(target: SettingsWindowTarget) {
 
 export default function SettingsWindowRoute() {
   const [ready, setReady] = useState(false);
-  const isDark = useThemeStore((state) => state.isDark);
   const themeMode = useSettingsStore((state) => state.settings?.theme.mode);
   const themeShape = useSettingsStore((state) => state.settings?.theme.shape);
   useSystemAppearance();
@@ -76,7 +75,7 @@ export default function SettingsWindowRoute() {
   if (!ready) return null;
   return (
     <TooltipProvider delayDuration={300}>
-      <Toaster position="bottom-center" theme={isDark ? "dark" : "light"} richColors />
+      <AppToaster />
       <SettingsPanel
         open
         presentation="window"

@@ -2,7 +2,7 @@
 // 无可见快捷命令时渲染 null，由调用方无条件挂载。
 import { Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   ContextMenuItem,
   ContextMenuSub,
