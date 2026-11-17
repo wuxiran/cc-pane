@@ -88,6 +88,19 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     order: 22,
   },
 
+  {
+    id: "teapotrouter_claude",
+    nameKey: "presetTeaPotRouterName",
+    descKey: "presetTeaPotRouterDesc",
+    category: "proxy_intl",
+    providerType: "proxy",
+    defaults: { baseUrl: "https://api.teapotrouter.com" },
+    userFields: ["apiKey"],
+    website: "https://teapotrouter.com",
+    accentColor: "#B45309",
+    order: 23,
+  },
+
   // --- domestic ---
   {
     id: "deepseek_claude",
@@ -142,6 +155,19 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     website: "https://openrouter.ai/keys",
     accentColor: "#6366F1",
     order: 41,
+  },
+
+  {
+    id: "teapotrouter_codex",
+    nameKey: "presetTeaPotRouterCodexName",
+    descKey: "presetTeaPotRouterCodexDesc",
+    category: "proxy_intl",
+    providerType: "open_ai",
+    defaults: { baseUrl: "https://api.teapotrouter.com/v1" },
+    userFields: ["apiKey"],
+    website: "https://teapotrouter.com",
+    accentColor: "#B45309",
+    order: 42,
   },
 
   // ========== Gemini Tab ==========
