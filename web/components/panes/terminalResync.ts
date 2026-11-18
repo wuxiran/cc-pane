@@ -178,6 +178,11 @@ interface CreateTerminalDesyncHandlerOptions {
    * ——真丢失，而非可自愈的重复。
    */
   setResyncActive: (active: boolean) => void;
+  /**
+   * 一轮重同步开始、发快照请求之前：丢弃此前暂存的闸门期输出（快照会包含它们），
+   * 并让渲染变换丢掉实时流扣留的半截序列。
+   */
+  onResyncStart?: () => void;
   /** 重同步结束（无论成败）后的收尾：flush 闸门期积压 + 补排版。 */
   onResyncSettled: (resynced: boolean) => unknown | Promise<unknown>;
   debugLog: ResyncLogger;
@@ -189,8 +194,8 @@ interface CreateTerminalDesyncHandlerOptions {
  * （比带缺口继续增量写的必然花屏严格更好）。
  *
  * 时序契约：先落闸门再发快照请求，闸门期新输出全部积压；快照写入完成后由
- * `onResyncSettled` 统一放行。闸门期积压与快照尾部可能重叠（一次性视觉重复，
- * TUI 全屏重绘自愈），但绝不丢失。
+ * `onResyncSettled` 统一放行。闸门期积压与快照尾部会重叠；调用方按快照 endSeq
+ * 去掉已包含的部分再补写（terminalSnapshotOverlap.ts），既不丢失也不重复。
  *
  * 返回值 = 本轮是否成功用快照重建了画面。desync 订阅方忽略它；手动「重置
  * 终端缓冲区」路径靠它决定要不要回退成裸 reset——inline CLI（如 grok）收到
@@ -206,6 +211,7 @@ export function createTerminalDesyncHandler({
   writeCheckpointData,
   syncTrackedBufferType,
   setResyncActive,
+  onResyncStart,
   onResyncSettled,
   debugLog,
 }: CreateTerminalDesyncHandlerOptions): (() => Promise<boolean>) & { dispose: () => void } {
@@ -229,6 +235,7 @@ export function createTerminalDesyncHandler({
       // Keep output behind the recovery gate until the visible-edge flusher calls us.
       setResyncActive(true);
       hiddenWriteBufferRef.current?.reset();
+      onResyncStart?.();
       return Promise.resolve(false);
     }
     const canWrite = () => !disposed && terminalRef.current === term;
@@ -240,6 +247,7 @@ export function createTerminalDesyncHandler({
     const run = async (): Promise<boolean> => {
       // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
       hiddenWriteBufferRef.current?.reset();
+      onResyncStart?.();
       const resynced = await resyncFromReplaySnapshot({
         canWrite,
         term,

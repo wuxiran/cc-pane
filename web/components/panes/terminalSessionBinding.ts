@@ -10,6 +10,10 @@ import {
   flushHiddenOutputBeforeExit,
 } from "./terminalOutputHandler";
 import { createTerminalDesyncHandler } from "./terminalResync";
+import { takeCurrentTerminalDeliveryCredit } from "./terminalDeliveryCredit";
+import { invalidateSeq, noteBacklogReplayed } from "./terminalOutputSeqTracker";
+import { createResyncGateBacklog, dropOutputCoveredBySnapshot } from "./terminalSnapshotOverlap";
+import type { TerminalRecoverySnapshot } from "@/types";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import type { TerminalLayoutScheduler } from "./terminalLayoutScheduler";
 
@@ -91,7 +95,7 @@ export interface BindTerminalSessionCallbacksOptions {
   /** 可见性判定；输出直写门槛由此与重同步闸门共同组成。 */
   isRenderVisible: () => boolean;
   keepCliOutputInNormalBuffer: boolean;
-  renderTerminalData: (data: string) => string;
+  renderTerminalData: (data: string, options?: { discontinuity?: boolean }) => string;
   /** photo 管道渲染：只剥 SGR 背景色，不做 alt-screen 剥离（见 stripSgrBackgroundColors）。 */
   renderCheckpointData: (data: string) => string;
   writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
@@ -236,12 +240,15 @@ export async function bindTerminalSessionCallbacks(
 ): Promise<void> {
   debugLog("session.bind-callbacks.begin", { bindSessionId: sessionId });
   unbindSessionCallbacks();
+  const gateBacklog = createResyncGateBacklog();
+  let lastRecoverySnapshot: TerminalRecoverySnapshot | null = null;
   const outputHandler = createTerminalOutputHandler({
     sessionId,
     terminalRef: terminalInstanceRef,
     hiddenWriteBufferRef,
     // 输出直写门槛 = 可见 且 无重同步在途：闸门期实时输出必须进积压，
     // 否则会赶在快照 reset 前落地随后被抹掉（真丢失）。
+    // 闸门期的输出不到这里（下面的订阅回调直接收进 gateBacklog），这条判断是兜底。
     isRenderVisible: () => isRenderVisible() && !resyncActiveRef.current,
     keepCliOutputInNormalBuffer,
     renderTerminalData,
@@ -253,6 +260,16 @@ export async function bindTerminalSessionCallbacks(
     sessionId,
     (data: string, endSeq?: number) => {
       if (lastOutputReceivedAtRef) lastOutputReceivedAtRef.current = Date.now();
+      if (resyncActiveRef.current) {
+        // 重同步闸门期：存原始数据 + endSeq，不过渲染变换。快照写完后按它的 endSeq
+        // 去掉已包含的部分再补写——先渲染再积压会丢掉 seq，重叠段只能整段重复写入。
+        const releaseCredit = takeCurrentTerminalDeliveryCredit() ?? (() => {});
+        gateBacklog.push(data, endSeq);
+        invalidateSeq(sessionId);
+        // 流控信用照常归还：字节已进前端自有的有界暂存（见 terminalOutputHandler）。
+        releaseCredit();
+        return;
+      }
       outputHandler(data, endSeq);
     },
   );
@@ -271,7 +288,11 @@ export async function bindTerminalSessionCallbacks(
       sessionId,
       terminalRef: terminalInstanceRef,
       hiddenWriteBufferRef,
-      getRecoverySnapshot: (id) => getRecoverySnapshot(id),
+      getRecoverySnapshot: async (id) => {
+        lastRecoverySnapshot = null;
+        lastRecoverySnapshot = await getRecoverySnapshot(id);
+        return lastRecoverySnapshot;
+      },
       // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT，
       // 只过 renderCheckpointData（剥背景色，不剥 alt-screen）。
       writeData: (data) => writeTerminalData(renderTerminalData(data)),
@@ -280,7 +301,36 @@ export async function bindTerminalSessionCallbacks(
       setResyncActive: (active) => {
         resyncActiveRef.current = active;
       },
+      onResyncStart: () => {
+        gateBacklog.reset();
+        renderTerminalData("", { discontinuity: true });
+      },
       onResyncSettled: async (resynced) => {
+        // 同步取出并补写：这段在 setResyncActive(false) 之后同一拍执行，新的实时
+        // chunk 插不到它前面，字节顺序不乱。
+        const { chunks, overflowed } = gateBacklog.take();
+        if (overflowed) {
+          // 闸门期输出超过暂存上限，中段已缺：再用一份新快照重建。
+          debugLog("output.gate.overflow-resync", { bindSessionId: sessionId });
+          void overflowResyncRef.current?.();
+          return;
+        }
+        const snapshot = lastRecoverySnapshot;
+        // epoch "0" = 旧后端无 seq 记账，endSeq 不可用；恢复失败时画面没被快照替换。
+        const floorSeq = resynced && snapshot && snapshot.checkpointEpoch !== "0" ? snapshot.endSeq : null;
+        const fresh = dropOutputCoveredBySnapshot(chunks, floorSeq);
+        if (chunks.length > 0) {
+          debugLog("output.gate.replay", {
+            bindSessionId: sessionId,
+            received: chunks.length,
+            written: fresh.length,
+            floorSeq,
+          });
+        }
+        for (const chunk of fresh) {
+          if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
+          outputHandler(chunk.data, chunk.endSeq);
+        }
         const flushOutcome = await flushHiddenWrites("resync.settled");
         if (flushOutcome === "resync") return;
         // resync 期间挂起的 exit 在快照落地后补执行（此刻积压已 flush，

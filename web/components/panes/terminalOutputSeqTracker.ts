@@ -27,6 +27,22 @@ interface SeqTrackerEntry {
 
 const entries = new Map<string, SeqTrackerEntry>();
 
+/**
+ * 最近一次快照恢复覆盖到的 endSeq。只给「订阅前暂存的输出」补投时去重用：
+ * 先回放快照、后注册输出回调的路径上，暂存的 chunk 可能已在快照里。
+ * 取一次即清，且只在短时间内有效——daemon / PTY 重建后 seq 会从头计，
+ * 陈旧的下限会把新流的开头误判成「已包含」。
+ */
+const RECOVERY_FLOOR_TTL_MS = 10_000;
+const recoveryFloors = new Map<string, { endSeq: number; at: number }>();
+
+export function takeRecoveryFloor(sessionId: string, now: number = Date.now()): number | null {
+  const floor = recoveryFloors.get(sessionId);
+  if (!floor) return null;
+  recoveryFloors.delete(sessionId);
+  return now - floor.at <= RECOVERY_FLOOR_TTL_MS ? floor.endSeq : null;
+}
+
 function entryOf(sessionId: string): SeqTrackerEntry {
   let entry = entries.get(sessionId);
   if (!entry) {
@@ -70,6 +86,18 @@ export function noteWritten(sessionId: string, endSeq: number): void {
   entry.lastWrittenEndSeq = endSeq;
 }
 
+/**
+ * 重同步闸门期暂存的 chunk 在快照之后补写：把「已收到」推进到它，不做非单调判定。
+ * 这批 chunk 当初分发时已经记过一次 received，随后被 reanchor 拉回了快照 endSeq；
+ * 多视图各补写一遍时也会重复到同一个 seq——都不是缺口。
+ */
+export function noteBacklogReplayed(sessionId: string, endSeq: number): void {
+  const entry = entryOf(sessionId);
+  if (entry.lastReceivedEndSeq === null || endSeq > entry.lastReceivedEndSeq) {
+    entry.lastReceivedEndSeq = endSeq;
+  }
+}
+
 /** desync 开始 / 积压溢出：中段缺失，禁拍直到 reanchor。 */
 export function invalidateSeq(sessionId: string): void {
   const entry = entries.get(sessionId);
@@ -79,6 +107,7 @@ export function invalidateSeq(sessionId: string): void {
 
 /** 统一恢复完成：用恢复响应的 endSeq/epoch 重锚，恢复可拍。 */
 export function reanchorSeq(sessionId: string, endSeq: number, checkpointEpoch: string): void {
+  recoveryFloors.set(sessionId, { endSeq, at: Date.now() });
   entries.set(sessionId, {
     lastReceivedEndSeq: endSeq,
     lastWrittenEndSeq: endSeq,
@@ -94,6 +123,7 @@ export function noteEpoch(sessionId: string, checkpointEpoch: string): void {
     entry.valid = false;
     entry.lastReceivedEndSeq = null;
     entry.lastWrittenEndSeq = null;
+    recoveryFloors.delete(sessionId);
   }
   entry.checkpointEpoch = checkpointEpoch;
 }
@@ -113,9 +143,11 @@ export function anchorCandidate(sessionId: string): SeqAnchorCandidate | null {
 /** 会话销毁清理（会话键卫星态：registry 的 terminal onClosed 统一调）。 */
 export function clearSeqTracker(sessionId: string): void {
   entries.delete(sessionId);
+  recoveryFloors.delete(sessionId);
 }
 
 /** 测试用。 */
 export function _resetSeqTrackersForTest(): void {
   entries.clear();
+  recoveryFloors.clear();
 }

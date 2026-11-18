@@ -93,3 +93,40 @@ describe("失效与重锚", () => {
     expect(anchorCandidate("s1")).toBeNull();
   });
 });
+
+describe("recovery floor and backlog replay", () => {
+  it("hands out the last recovery endSeq once, and only while fresh", async () => {
+    const tracker = await import("./terminalOutputSeqTracker");
+    tracker._resetSeqTrackersForTest();
+    expect(tracker.takeRecoveryFloor("s")).toBeNull();
+
+    tracker.reanchorSeq("s", 120, "e1");
+    expect(tracker.takeRecoveryFloor("s")).toBe(120);
+    expect(tracker.takeRecoveryFloor("s")).toBeNull();
+
+    tracker.reanchorSeq("s", 200, "e1");
+    expect(tracker.takeRecoveryFloor("s", Date.now() + 60_000)).toBeNull();
+  });
+
+  it("drops the floor when the epoch changes or the session is cleared", async () => {
+    const tracker = await import("./terminalOutputSeqTracker");
+    tracker._resetSeqTrackersForTest();
+    tracker.reanchorSeq("s", 120, "e1");
+    tracker.noteEpoch("s", "e2");
+    expect(tracker.takeRecoveryFloor("s")).toBeNull();
+
+    tracker.reanchorSeq("s", 120, "e2");
+    tracker.clearSeqTracker("s");
+    expect(tracker.takeRecoveryFloor("s")).toBeNull();
+  });
+
+  it("advances received for replayed backlog without invalidating the anchor", async () => {
+    const tracker = await import("./terminalOutputSeqTracker");
+    tracker._resetSeqTrackersForTest();
+    tracker.reanchorSeq("s", 100, "e1");
+    tracker.noteBacklogReplayed("s", 108);
+    tracker.noteBacklogReplayed("s", 108); // 第二个视图补写同一块
+    tracker.noteWritten("s", 108);
+    expect(tracker.anchorCandidate("s")).toEqual({ anchorSeq: 108, checkpointEpoch: "e1" });
+  });
+});

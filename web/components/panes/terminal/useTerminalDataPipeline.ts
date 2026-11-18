@@ -79,7 +79,10 @@ export function useTerminalDataPipeline({
       resyncActive: resyncInProgressRef.current, contextLosses: renderer?.contextLossCount ?? 0,
       atlasClears: renderer?.atlasClearCount ?? 0, scrollbackLines: term.buffer.active.length };
   }), [currentSessionIdRef, hiddenWriteBufferRef, rendererControllerRef, resyncInProgressRef, terminalInstanceRef, writeFlowControlRef]);
-  const renderTerminalData = useCallback((data: string) => {
+  const renderTerminalData = useCallback((data: string, options?: { discontinuity?: boolean }) => {
+    // 快照重放前的流断点：丢掉实时流扣留的半截序列，见 TerminalDataRenderer.discardPending。
+    if (options?.discontinuity) terminalDataRendererRef.current?.discardPending();
+    if (!data) return "";
     terminalDataRendererRef.current ??= createTerminalDataRenderer({
       // 常规运行中观测跨 chunk 重组后的真实 1049 命中；事件仅在切换时产生。
       // 不走受 TERMINAL_DEBUG 门控的 debugLog。
