@@ -2279,7 +2279,17 @@ textarea,
 }
 
 /* Pane tab strip: keep the horizontal overflow discoverable. */
-.cc-tabbar-scroll {
+/* 非 macOS 的滚动条占布局高度，而标签栏是按固定高度让位的浮层：一旦溢出，滚动条
+   会把标签栏撑高，压住终端首行。这些平台隐藏滚动条，靠两侧箭头和滚轮滚动；
+   macOS 的 overlay 滚动条不占空间，保留。 */
+:where(:root:not([data-platform="macos"])) .cc-tabbar-scroll {
+  scrollbar-width: none;
+}
+:where(:root:not([data-platform="macos"])) .cc-tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+:where(:root[data-platform="macos"]) .cc-tabbar-scroll {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--app-border) 75%, transparent) transparent;
 }

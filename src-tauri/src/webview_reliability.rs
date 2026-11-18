@@ -80,10 +80,20 @@ enum BrowserRecoveryState {
 #[cfg(any(windows, test))]
 const UNRESPONSIVE_RELOAD_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// 渲染进程崩溃后自动 reload 的预算：窗口期内最多几次。
+/// 页面一加载就崩（显卡驱动、OOM、恢复超大会话）时，无条件 reload 会让整个窗口
+/// 不停闪烁重载、永远进不去；用完预算就停手，把崩溃页留给用户。
+#[cfg(any(windows, test))]
+const CRASH_RELOAD_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+#[cfg(any(windows, test))]
+const CRASH_RELOAD_BUDGET: usize = 3;
+
 #[cfg(any(windows, test))]
 #[derive(Debug, Default)]
 struct WebviewRecoveryState {
     browser: BrowserRecoveryState,
+    /// 窗口期内因 RenderProcessExited 触发 reload 的时刻。
+    recent_crash_reloads: Vec<std::time::Instant>,
     /// 上一次因 RenderProcessUnresponsive 触发 reload 的时刻。
     last_unresponsive_reload: Option<std::time::Instant>,
 }
@@ -110,7 +120,16 @@ impl WebviewRecoveryState {
                     RecoveryAction::ExitApplication
                 }
             },
-            ProcessFailureKind::RenderProcessExited => RecoveryAction::ReloadRenderer,
+            ProcessFailureKind::RenderProcessExited => {
+                self.recent_crash_reloads
+                    .retain(|at| now.duration_since(*at) < CRASH_RELOAD_WINDOW);
+                if self.recent_crash_reloads.len() < CRASH_RELOAD_BUDGET {
+                    self.recent_crash_reloads.push(now);
+                    RecoveryAction::ReloadRenderer
+                } else {
+                    RecoveryAction::Ignore
+                }
+            }
             // 页面卡死到 WebView2 都判定无响应，用户唯一能做的就是手动刷新；
             // 这里替他做，但限频——连续上报只处理第一次。
             ProcessFailureKind::RenderProcessUnresponsive => {
@@ -586,6 +605,40 @@ mod tests {
         assert_eq!(
             state.process_failed(ProcessFailureKind::BrowserProcessExited),
             RecoveryAction::RebuildMainWindow
+        );
+    }
+
+    #[test]
+    fn crashing_renderer_stops_reloading_after_the_budget() {
+        let mut state = WebviewRecoveryState::default();
+        let t0 = std::time::Instant::now();
+        let step = std::time::Duration::from_secs(2);
+
+        for attempt in 0..CRASH_RELOAD_BUDGET {
+            assert_eq!(
+                state.process_failed_at(
+                    ProcessFailureKind::RenderProcessExited,
+                    t0 + step * attempt as u32
+                ),
+                RecoveryAction::ReloadRenderer,
+                "预算内的崩溃仍然自动重载"
+            );
+        }
+        assert_eq!(
+            state.process_failed_at(
+                ProcessFailureKind::RenderProcessExited,
+                t0 + step * CRASH_RELOAD_BUDGET as u32
+            ),
+            RecoveryAction::Ignore,
+            "一加载就崩的页面不能无限重载"
+        );
+        assert_eq!(
+            state.process_failed_at(
+                ProcessFailureKind::RenderProcessExited,
+                t0 + CRASH_RELOAD_WINDOW + step * CRASH_RELOAD_BUDGET as u32
+            ),
+            RecoveryAction::ReloadRenderer,
+            "窗口期过后恢复自动重载"
         );
     }
 

@@ -68,6 +68,7 @@ import { useTerminalInstanceInit } from "./terminal/useTerminalInstanceInit";
 // 的动态 import 与 xterm JS 同 chunk 取回，在构造 Terminal 前就绪，加载完成后样式一致。
 
 import type { TerminalRendererMode, TerminalThemeMode } from "@/types";
+import { bindTerminalFontLoadingDone, remeasureTerminalCharSize } from "./terminalCharSize";
 import { bindTerminalWindowRecovery } from "./terminalWindowRecovery";
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 
@@ -667,21 +668,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       cursorBlink: terminalCursorBlink,
       scrollback: terminalScrollback,
     });
-    // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端会用
-    // fallback 字体度量 cell 并 fit；主字体随后加载完成时没有任何触发点，
-    // cols/rows 误差会被放大成好几列空白。首次 loadingdone 时清图集并强制重排。
+    // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端按回退字体
+    // 量格宽。目标字体到达后必须重测格宽，只清图集会让新字形挤在旧格子里。
     useEffect(() => {
       const fonts = typeof document === "undefined" ? undefined : document.fonts;
       if (!fonts?.addEventListener) return;
-
-      const handleLoadingDone = () => {
-        fonts.removeEventListener("loadingdone", handleLoadingDone);
-        if (!terminalInstanceRef.current) return;
+      return bindTerminalFontLoadingDone(fonts, () => terminalInstanceRef.current, (term) => {
+        remeasureTerminalCharSize(term);
         rendererControllerRef.current?.clearTextureAtlas("fonts.loadingdone");
         layoutSchedulerRef.current?.schedule("fonts.loadingdone", { force: true });
-      };
-      fonts.addEventListener("loadingdone", handleLoadingDone);
-      return () => fonts.removeEventListener("loadingdone", handleLoadingDone);
+      });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

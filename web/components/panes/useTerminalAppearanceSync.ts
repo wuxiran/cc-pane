@@ -1,3 +1,4 @@
+import { remeasureTerminalCharSize } from "./terminalCharSize";
 import { useEffect } from "react";
 import type { Terminal } from "@xterm/xterm";
 
@@ -76,6 +77,8 @@ export function useTerminalAppearanceSync({
       void waitForTerminalFont(fontSize, fontFamily)
         .then(() => {
           if (terminalInstanceRef.current !== term) return;
+          // 选项赋值时字体可能还没加载完，那次量到的是回退字体的格宽。
+          remeasureTerminalCharSize(term);
           rendererControllerRef.current?.clearTextureAtlas("settings.font-change");
           layoutSchedulerRef.current?.schedule("settings.font-change", { force: true });
         })

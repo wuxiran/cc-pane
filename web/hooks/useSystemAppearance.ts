@@ -5,6 +5,7 @@ import { systemAppearanceService } from "@/services/systemAppearanceService";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { applyThemeOverrides, useThemeStore } from "@/stores/useThemeStore";
 import { applySystemAccent, clearSystemAccent, isHexColor } from "@/theme/systemAccent";
+import { resolveWindowBackgroundColor } from "@/theme/windowBackground";
 import { handleErrorSilent } from "@/utils";
 
 /** 跟随系统强调色（回到窗口时刷新），并标记主窗口的系统材质是否生效。 */
@@ -47,6 +48,24 @@ export function useSystemAppearance(): void {
       getCurrentWindowIfTauri()?.setTheme(followSystem ? null : isDark ? "dark" : "light"),
     ).catch((error) => handleErrorSilent(error, "sync window theme"));
   }, [preference, isDark]);
+  // 窗口底色跟随主题：WebView 还没重绘的区域（拖边缘、最大化/还原）露出的是窗口底色。
+  // tauri.conf.json 里写死的是深色，浅色主题下会闪黑条。系统材质生效时窗口是透明的，不设。
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    const apply = (materialActive: boolean) => {
+      if (disposed || materialActive) return;
+      const color = resolveWindowBackgroundColor(
+        getComputedStyle(document.documentElement).getPropertyValue("--background"),
+        isDark,
+      );
+      Promise.resolve(getCurrentWindowIfTauri()?.setBackgroundColor(color))
+        .catch((error) => handleErrorSilent(error, "sync window background"));
+    };
+    if (isSettingsWindow()) apply(false);
+    else systemAppearanceService.isMaterialActive().then((active) => apply(active === true)).catch(() => apply(false));
+    return () => { disposed = true; };
+  }, [isDark, themeId]);
   useEffect(() => {
     if (preference !== "system" || typeof window.matchMedia !== "function") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");

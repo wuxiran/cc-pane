@@ -26,6 +26,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-title",
     "core:window:allow-set-theme",
+    "core:window:allow-set-background-color",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:event:default",
