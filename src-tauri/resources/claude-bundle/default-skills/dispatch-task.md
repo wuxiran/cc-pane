@@ -5,7 +5,7 @@ description: "Dispatch a durable task to any registered CC-Panes CLI. Use for cr
 
 # dispatch-task - 跨 CLI 通用派发
 
-使用 `mcp__ccpanes__dispatch_task` 派发新任务或恢复任务。它不假设发起者和目标的组合：Claude、Codex、Gemini、Kimi、GLM、OpenCode、Cursor、Grok 等已注册 CLI 都走同一个协议。
+使用 `mcp__ccpanes__dispatch_task` 派发新任务、恢复任务或分叉已有会话。它不假设发起者和目标的组合：Claude、Codex、Gemini、Kimi、GLM、OpenCode、Cursor、Grok 等已注册 CLI 都走同一个协议。
 
 `launch_task` 只保留给旧流程兼容。只要任务需要跨会话追踪、父子关系或收尾状态，优先 `dispatch_task`。
 
@@ -15,6 +15,7 @@ description: "Dispatch a durable task to any registered CC-Panes CLI. Use for cr
 2. 未指定时，优先采用当前项目已绑定、且启动配置兼容的 CLI；无明确偏好时默认 `claude`。
 3. 目标 CLI 不支持 MCP 也可以接收首段 prompt，但不能假定它能自行回写状态或给 leader 发报告。此类任务必须通过 PTY 输出和会话状态验收。
 4. `resumeId` 仅能用于目标适配器声明支持恢复的 CLI；不支持时 `dispatch_task` 会直接拒绝，改为新 prompt 派发。
+5. `forkSessionId` 让新会话继承某个已有会话的完整历史并另起一条分支，可同时带 `prompt`；仅 claude / codex，不支持 ssh，与 `resumeId` 互斥。
 
 不要把"评审一定用 Codex"、"实现一定用 Claude"当作规则。评审优先选择与当前实例不同、且用户可用的 CLI；实现优先选择对项目规则、权限模式和验证命令匹配的 CLI。
 

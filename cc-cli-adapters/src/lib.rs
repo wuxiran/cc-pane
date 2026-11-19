@@ -7,7 +7,10 @@
 //! ```
 
 mod session_fork;
-pub use session_fork::{fork_source, push_claude_session_args, push_codex_session_args};
+pub use session_fork::{
+    fork_source, is_valid_fork_session_id, push_claude_session_args, push_codex_session_args,
+    supports_session_fork,
+};
 
 mod atomic_file;
 mod claude;

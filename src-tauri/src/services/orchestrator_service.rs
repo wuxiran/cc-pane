@@ -2670,6 +2670,10 @@ struct McpLaunchTaskParams {
     /// 要恢复的会话 ID（list_resume_sessions / list_launch_history）
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
+    /// 要分叉的会话 ID：新会话继承它的完整历史、拿到自己的会话 ID，原会话不受影响。
+    /// 可同时传 prompt 作为分支的第一条消息；与 resumeId 互斥。仅 claude / codex，不支持 ssh。
+    #[serde(rename = "forkSessionId")]
+    fork_session_id: Option<String>,
     /// 目标面板 ID（list_panes）
     #[serde(rename = "paneId")]
     pane_id: Option<String>,
@@ -5329,6 +5333,7 @@ impl McpToolHandler {
             runtime_kind: launch.runtime_kind.clone(),
             prompt: launch.prompt.clone(),
             resume_id: launch.resume_id.clone(),
+            fork_session_id: launch.fork_session_id.clone(),
             parent_binding_id,
             parent_session_id,
         })?;
@@ -5349,7 +5354,11 @@ impl McpToolHandler {
             project_context.workspace_name.as_deref(),
             Some(&plan.envelope.resolved_cli_tool),
             launch.runtime_kind.as_deref(),
-            launch.resume_id.as_deref(),
+            // A fork runs where its source lives, so the source ID picks the runtime too.
+            launch
+                .resume_id
+                .as_deref()
+                .or(launch.fork_session_id.as_deref()),
             &self.state,
         )?;
         let launch_profile_id = resolve_orchestrator_launch_profile(
@@ -6016,6 +6025,7 @@ impl McpToolHandler {
             plan.effort.as_deref(),
         );
         let launch = McpLaunchTaskParams {
+            fork_session_id: None,
             project_path: plan.workspace.clone(),
             prompt: Some(plan.prompt.clone()),
             provider_id: None,
@@ -6281,7 +6291,7 @@ async fn ensure_browser_webview(
 
 #[tool_router]
 impl McpToolHandler {
-    /// 派任务给任意已注册 CLI：新建会话（prompt）或恢复（resumeId），总是建 TaskBinding 便于跟踪；
+    /// 派任务给任意已注册 CLI：新建会话（prompt）、恢复（resumeId）或分叉（forkSessionId），总是建 TaskBinding 便于跟踪；
     /// 传 parentBindingId / parentSessionId 则成为子任务，worker 可 report_to_leader。
     #[tool]
     async fn dispatch_task(
@@ -6311,6 +6321,7 @@ impl McpToolHandler {
             cli_tool = ?launch.cli_tool,
             prompt_len,
             is_resume = launch.resume_id.is_some(),
+            is_fork = launch.fork_session_id.is_some(),
             "mcp::dispatch_task"
         );
 
@@ -6322,6 +6333,7 @@ impl McpToolHandler {
         // TaskDispatchService normalizes resume IDs for the durable envelope. Keep the
         // launcher input in lockstep so the PTY receives the same canonical session ID.
         launch.resume_id = plan.envelope.resume_id.clone();
+        launch.fork_session_id = plan.envelope.fork_session_id.clone();
         let binding = match self.create_dispatch_binding(&mut plan, &launch) {
             Ok(binding) => binding,
             Err(error) => return format!("错误: {}", error),
@@ -6470,8 +6482,18 @@ impl McpToolHandler {
         {
             return "错误: prompt 和 resumeId 互斥，不能同时提供".to_string();
         }
-        if params.prompt.is_none() && params.resume_id.is_none() {
-            return "错误: 必须提供 prompt 或 resumeId 其中之一".to_string();
+        if params.resume_id.is_some() && params.fork_session_id.is_some() {
+            return "错误: resumeId 和 forkSessionId 互斥，不能同时提供".to_string();
+        }
+        if params.prompt.is_none() && params.resume_id.is_none() && params.fork_session_id.is_none()
+        {
+            return "错误: 必须提供 prompt、resumeId 或 forkSessionId 其中之一".to_string();
+        }
+        if let Some(fork_session_id) = params.fork_session_id.as_mut() {
+            *fork_session_id = fork_session_id.trim().to_string();
+            if !cc_cli_adapters::is_valid_fork_session_id(fork_session_id) {
+                return "错误: forkSessionId 不是合法的会话 ID".to_string();
+            }
         }
         if params
             .prompt
@@ -6558,7 +6580,10 @@ impl McpToolHandler {
             ws_name.as_deref(),
             Some(cli_tool.as_id()),
             params.runtime_kind.as_deref(),
-            params.resume_id.as_deref(),
+            params
+                .resume_id
+                .as_deref()
+                .or(params.fork_session_id.as_deref()),
             &self.state,
         ) {
             Ok(runtime) => runtime,
@@ -6571,6 +6596,29 @@ impl McpToolHandler {
                 Ok(cwd) => cwd,
                 Err(error) => return format!("错误: {}", error),
             };
+
+        // 分叉：适配器按 forkSessionId 生成原生分叉启动（claude `--resume <id> --fork-session`、
+        // codex `fork <id>`）。不设 resume_id——子会话有自己的 ID，重启时恢复的是子会话。
+        if let Some(fork_session_id) = params.fork_session_id.clone() {
+            if !cc_cli_adapters::supports_session_fork(cli_tool.as_id()) {
+                return format!(
+                    "错误: CLI '{}' 不支持分叉（目前支持 claude、codex）",
+                    cli_tool.as_id()
+                );
+            }
+            if matches!(runtime.kind, LaunchRuntimeKind::Ssh) {
+                return "错误: 暂不支持分叉 SSH 上的会话".to_string();
+            }
+            let options = params.adapter_options.get_or_insert_with(HashMap::new);
+            options.insert(
+                "forkSessionId".to_string(),
+                serde_json::Value::String(fork_session_id),
+            );
+            options.insert(
+                "forkCwd".to_string(),
+                serde_json::Value::String(launch_cwd.clone()),
+            );
+        }
 
         let launch_profile_id = match resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
@@ -18388,6 +18436,7 @@ mod tests {
                 runtime_kind: Some("local".to_string()),
                 prompt: Some("implement the task".to_string()),
                 resume_id: None,
+                fork_session_id: None,
                 parent_binding_id: Some("leader-a".to_string()),
                 parent_session_id: Some("leader-session".to_string()),
             })

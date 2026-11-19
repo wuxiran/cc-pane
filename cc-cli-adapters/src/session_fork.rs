@@ -3,6 +3,17 @@ use anyhow::{ensure, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// CLIs whose adapters translate `forkSessionId` into a native fork launch.
+/// Keep in sync with the `push_*_session_args` helpers below.
+pub fn supports_session_fork(cli_tool_id: &str) -> bool {
+    matches!(cli_tool_id, "claude" | "codex")
+}
+
+/// A fork source must be a plain session ID: never empty, never an option, never multi-line.
+pub fn is_valid_fork_session_id(id: &str) -> bool {
+    !id.is_empty() && !id.starts_with('-') && !id.chars().any(char::is_control)
+}
+
 pub fn fork_source<'a>(
     options: &'a HashMap<String, Value>,
     resume: Option<&str>,
@@ -15,10 +26,7 @@ pub fn fork_source<'a>(
         return Ok(None);
     };
     let id = value.as_str().unwrap_or_default().trim();
-    ensure!(
-        !id.is_empty() && !id.starts_with('-') && !id.chars().any(char::is_control),
-        "Invalid fork session ID"
-    );
+    ensure!(is_valid_fork_session_id(id), "Invalid fork session ID");
     Ok(Some(id))
 }
 
@@ -83,6 +91,23 @@ mod tests {
         args.clear();
         push_claude_session_args(&mut args, &options(), Some("child-id"), None).unwrap();
         assert_eq!(args, ["--resume", "child-id"]);
+    }
+    #[test]
+    fn only_adapters_with_a_native_fork_launch_report_support() {
+        assert!(supports_session_fork("claude"));
+        assert!(supports_session_fork("codex"));
+        for other in ["grok", "gemini", "opencode", "cursor", "none", ""] {
+            assert!(!supports_session_fork(other), "{other}");
+        }
+    }
+    #[test]
+    fn fork_ids_must_be_plain_session_ids() {
+        assert!(is_valid_fork_session_id(
+            "0199a1b2-aaaa-bbbb-cccc-000000000000"
+        ));
+        for bad in ["", "--last", "-r", "a\nb", "a\u{7}"] {
+            assert!(!is_valid_fork_session_id(bad), "{bad:?}");
+        }
     }
     #[test]
     fn invalid_fork_never_silently_starts_an_empty_session() {

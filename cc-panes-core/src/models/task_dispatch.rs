@@ -6,12 +6,14 @@ use crate::models::terminal::CliTool;
 /// Schema version for task dispatch envelopes persisted in TaskBinding metadata.
 pub const TASK_DISPATCH_ENVELOPE_VERSION: u32 = 1;
 
-/// A task starts either from a new prompt or by resuming an existing CLI session.
+/// A task starts from a new prompt, by resuming an existing CLI session, or by
+/// forking one (a new session that inherits the source's full history).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TaskDispatchMode {
     Prompt,
     Resume,
+    Fork,
 }
 
 /// Capability of the dispatched CLI to participate in CC-Panes orchestration.
@@ -62,6 +64,9 @@ pub struct TaskDispatchEnvelope {
     pub mode: TaskDispatchMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_id: Option<String>,
+    /// Source session of a fork dispatch. The child gets its own session ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_session_id: Option<String>,
     #[serde(default)]
     pub skill_delivery_modes: Vec<SkillDeliveryMode>,
     pub mcp: TaskDispatchMcpCapability,
@@ -86,6 +91,7 @@ pub struct TaskDispatchRequest {
     pub provider_selection: Option<String>,
     pub prompt: Option<String>,
     pub resume_id: Option<String>,
+    pub fork_session_id: Option<String>,
     pub parent_binding_id: Option<String>,
     pub parent_session_id: Option<String>,
 }

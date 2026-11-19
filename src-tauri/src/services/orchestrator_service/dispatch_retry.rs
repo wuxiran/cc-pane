@@ -194,16 +194,23 @@ fn retry_params(binding: &TaskBinding) -> Result<McpLaunchTaskParams, String> {
         return Err("Only failed tasks can be retried".into());
     }
     let envelope = dispatch_envelope_from_binding(binding)?;
-    let (prompt, resume_id) = match envelope.mode {
-        TaskDispatchMode::Prompt => (binding.prompt.clone(), None),
-        TaskDispatchMode::Resume => (None, envelope.resume_id.clone()),
+    let (prompt, resume_id, fork_session_id) = match envelope.mode {
+        TaskDispatchMode::Prompt => (binding.prompt.clone(), None, None),
+        TaskDispatchMode::Resume => (None, envelope.resume_id.clone(), None),
+        // A failed fork never produced a usable child: fork the same source again.
+        TaskDispatchMode::Fork => (
+            binding.prompt.clone(),
+            None,
+            envelope.fork_session_id.clone(),
+        ),
     };
     if prompt
         .as_deref()
         .or(resume_id.as_deref())
+        .or(fork_session_id.as_deref())
         .is_none_or(|value| value.trim().is_empty())
     {
-        return Err("The original task has no prompt or resume identity".into());
+        return Err("The original task has no prompt, resume or fork identity".into());
     }
     if envelope.binding_id.as_deref() != Some(binding.id.as_str()) {
         return Err("The original dispatch envelope does not match this task".into());
@@ -218,6 +225,7 @@ fn retry_params(binding: &TaskBinding) -> Result<McpLaunchTaskParams, String> {
         // Parent binding is stable; resolve its current session instead of replaying a stale PTY id.
         "parentSessionId":if envelope.parent_binding_id.is_none() { envelope.parent_session_id } else { None },
         "title":binding.title, "prompt":prompt, "resumeId":resume_id,
+        "forkSessionId":fork_session_id,
         "placement":"beside"
     })).map_err(|e| e.to_string())
 }
@@ -280,6 +288,30 @@ mod tests {
         assert!(retry.prompt.is_none());
         binding.status = TaskBindingStatus::Running;
         assert!(retry_params(&binding).is_err());
+    }
+
+    #[test]
+    fn retry_fork_forks_the_same_source_again_with_its_opening_prompt() {
+        let mut binding = failed_binding();
+        let envelope = &mut binding.metadata.as_mut().unwrap()["dispatchEnvelope"];
+        envelope["mode"] = json!("fork");
+        envelope["forkSessionId"] = json!("source-conversation");
+        let retry = retry_params(&binding).unwrap();
+        assert_eq!(
+            retry.fork_session_id.as_deref(),
+            Some("source-conversation")
+        );
+        assert_eq!(retry.prompt.as_deref(), Some("original task"));
+        assert!(retry.resume_id.is_none());
+
+        // 没带 prompt 的分叉同样可重试：分叉来源本身就是任务身份。
+        binding.prompt = None;
+        let retry = retry_params(&binding).unwrap();
+        assert_eq!(
+            retry.fork_session_id.as_deref(),
+            Some("source-conversation")
+        );
+        assert!(retry.prompt.is_none());
     }
 
     #[test]
