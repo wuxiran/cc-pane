@@ -63,24 +63,45 @@ describe("SimpleExplorerView", () => {
     useDialogStore.setState({ launcherOpen: false, launcherContext: null, newWorkspaceRequested: false });
   });
 
-  it("lists projects of user workspaces only, sessions nested under their project, plus recent", async () => {
+  it("lists one row per user workspace with its sessions underneath, plus recent", async () => {
     await renderView();
-    const projectRows = screen.getAllByTestId("simple-project-row");
-    expect(projectRows.map((row) => row.getAttribute("data-project-path"))).toEqual(["/repos/demo", "/repos/empty"]);
-    // 系统工作空间不露出；单工作空间时不显示工作空间小标题
+    const rows = screen.getAllByTestId("simple-workspace-row");
+    expect(rows.map((row) => row.getAttribute("data-workspace-name"))).toEqual(["cc-pane"]);
+    // 系统工作空间不露出；没有落在工作空间外的会话时不出现「其他」
     expect(screen.queryByText("default")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("simple-workspace-caption")).not.toBeInTheDocument();
     expect(screen.queryByText("simple.other")).not.toBeInTheDocument();
-    // 项目区两条（对话更新时间更晚排前）+ 最近区两条
-    const rows = screen.getAllByTestId("simple-session-row");
-    expect(rows.map((row) => row.getAttribute("data-session-key"))).toEqual(["chat:chat-1", "launch:1", "chat:chat-1", "launch:1"]);
-    expect(within(rows[1]).getByText("fix the build")).toBeInTheDocument();
+    // 工作空间下两条（两个项目文件夹的会话并成一列，对话更新时间更晚排前）+ 最近区两条
+    const sessions = screen.getAllByTestId("simple-session-row");
+    expect(sessions.map((row) => row.getAttribute("data-session-key"))).toEqual(["chat:chat-1", "launch:1", "chat:chat-1", "launch:1"]);
+    expect(within(sessions[1]).getByText("fix the build")).toBeInTheDocument();
   });
 
-  it("shows workspace captions when there is more than one user workspace", async () => {
-    useWorkspacesStore.setState({ workspaces: [...workspaces, ws({ name: "beta", projects: [{ id: "c", path: "/beta" }] })] });
+  it("lists every user workspace in order, and sessions outside any workspace under Other", async () => {
+    useWorkspacesStore.setState({ workspaces: [...workspaces, ws({ name: "beta", alias: "Beta", projects: [{ id: "c", path: "/beta" }] })] });
+    listChats.mockResolvedValue([chatEntry, { ...chatEntry, acpSessionId: "chat-stray", cwd: "/elsewhere" }]);
     await renderView();
-    expect(screen.getAllByTestId("simple-workspace-caption").map((el) => el.textContent)).toEqual(["cc-pane", "beta"]);
+    const rows = screen.getAllByTestId("simple-workspace-row");
+    expect(rows.map((row) => row.textContent)).toEqual(["cc-pane", "Beta", "simple.other"]);
+  });
+
+  it("shows only the first few sessions until Show more is clicked", async () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      ...chatEntry, acpSessionId: `chat-${index}`, title: `chat ${index}`, updatedAt: 1_000 + index,
+    }));
+    listChats.mockResolvedValue(many);
+    listHistory.mockResolvedValue([]);
+    await renderView();
+    const projects = screen.getByRole("region", { name: "simple.projects" });
+    expect(within(projects).getAllByTestId("simple-session-row")).toHaveLength(5);
+    fireEvent.click(within(projects).getByText("simple.showMore"));
+    expect(within(projects).getAllByTestId("simple-session-row")).toHaveLength(8);
+    fireEvent.click(within(projects).getByText("simple.showLess"));
+    expect(within(projects).getAllByTestId("simple-session-row")).toHaveLength(5);
+  });
+
+  it("offers no Show more when everything already fits", async () => {
+    await renderView();
+    expect(screen.queryByTestId("simple-workspace-show-more")).not.toBeInTheDocument();
   });
 
   it("opens a terminal session via onOpenTerminal and a chat via resumeAgentChat", async () => {
@@ -115,12 +136,18 @@ describe("SimpleExplorerView", () => {
     expect(useDialogStore.getState().launcherContext).toEqual({ workspaceName: "beta" });
   });
 
-  it("collapses a project and persists the choice in the store", async () => {
+  it("collapses a workspace and persists the choice in the store", async () => {
     await renderView();
-    fireEvent.click(screen.getAllByTestId("simple-project-row")[0]);
-    expect(useExplorerSectionsStore.getState().collapsedSimpleProjects).toEqual(["/repos/demo"]);
-    // 折叠后项目下不再列会话，只剩最近区的两条
+    fireEvent.click(within(screen.getByTestId("simple-workspace-row")).getByRole("button", { name: "cc-pane" }));
+    expect(useExplorerSectionsStore.getState().collapsedSimpleProjects).toEqual(["ws:cc-pane"]);
+    // 折叠后工作空间下不再列会话，只剩最近区的两条
     expect(screen.getAllByTestId("simple-session-row")).toHaveLength(2);
+  });
+
+  it("starts a chat in the workspace from the row's quick action", async () => {
+    await renderView();
+    fireEvent.click(within(screen.getByTestId("simple-workspace-row")).getByRole("button", { name: "simple.newChatHere" }));
+    expect(openNewAgentChat).toHaveBeenCalledWith("/repos");
   });
 
   it("shows the pinned section for pinned keys", async () => {

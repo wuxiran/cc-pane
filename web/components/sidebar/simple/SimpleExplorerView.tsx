@@ -1,17 +1,11 @@
-// 资源管理器「简洁模式」：Codex 式单列表——新聊天 / 启动终端，置顶，项目（按工作空间顺序，
-// 项目下混排终端会话与 Agent 对话），最近。系统的默认工作空间和 Agent Chat 工作空间不露出。
-import { useCallback, useMemo } from "react";
+// 资源管理器「简洁模式」：Codex 式单列表——新聊天 / 启动终端，置顶，项目，最近。
+// 「项目」区一个工作空间一行：点开列出它下面所有项目文件夹的会话（终端会话与 Agent 对话
+// 混排，先露出几条，其余收在「展开显示」后面）；悬停出卡片看文件夹、进编辑。
+// 系统的默认工作空间和 Agent Chat 工作空间不露出。
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
-import {
-  Check, ChevronRight, Folder, FolderOpen, FolderPlus, MessagesSquare, Rocket, TerminalSquare,
-} from "lucide-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { FolderPlus, MessagesSquare, Rocket } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useRowTypeAhead } from "@/hooks/useTypeAhead";
 import { historyService } from "@/services/historyService";
@@ -25,18 +19,22 @@ import {
   useWorkspacesStore,
 } from "@/stores";
 import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
-import type { OpenTerminalOptions, Workspace, WorkspaceProject } from "@/types";
-import { buildLaunchRecordTerminalOptions, getProjectName } from "@/utils";
+import type { OpenTerminalOptions, Workspace } from "@/types";
+import { buildLaunchRecordTerminalOptions } from "@/utils";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { openNewAgentChat, resumeAgentChat } from "../agentChatResume";
-import { sidebarEntityCountClass, sidebarSectionTitleClass } from "../sidebarStyles";
+import { sidebarSectionTitleClass } from "../sidebarStyles";
 import SimpleSessionRow from "./SimpleSessionRow";
+import SimpleWorkspaceEditDialog from "./SimpleWorkspaceEditDialog";
+import SimpleWorkspaceRow from "./SimpleWorkspaceRow";
 import {
+  WORKSPACE_SESSION_PREVIEW,
   defaultContextWorkspace,
-  groupByProject,
+  groupByWorkspace,
   pinnedSessions,
   recentSessions,
   userWorkspaces,
+  workspaceCwd,
   type SimpleSession,
 } from "./simpleExplorerModel";
 import { HISTORY_UPDATED_EVENT, useSimpleSessions } from "./useSimpleSessions";
@@ -69,11 +67,14 @@ export default function SimpleExplorerView({ onOpenTerminal, hideTerminalActions
 
   const { sessions } = useSimpleSessions();
   const users = useMemo(() => userWorkspaces(workspaces), [workspaces]);
-  const groups = useMemo(() => groupByProject(sessions, workspaces), [sessions, workspaces]);
+  const groups = useMemo(() => groupByWorkspace(sessions, workspaces), [sessions, workspaces]);
+  // 哪些工作空间点过「展开显示」（只在本次打开期间记着），以及正在编辑哪一个。
+  const [showAll, setShowAll] = useState<readonly string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = editingId ? users.find((ws) => ws.id === editingId) ?? null : null;
   const pinned = useMemo(() => pinnedSessions(sessions, pinnedKeys), [sessions, pinnedKeys]);
   const recent = useMemo(() => recentSessions(sessions, RECENT_LIMIT), [sessions]);
   const contextWorkspace = useMemo(() => defaultContextWorkspace(workspaces, preferredName), [workspaces, preferredName]);
-  const multiWorkspace = users.length > 1;
 
   // 无选中项目时落到默认上下文工作空间（系统默认工作空间不参与）
   const selectedWorkspace = workspaces.find((ws) => ws.id === expandedWorkspaceId) ?? null;
@@ -120,69 +121,40 @@ export default function SimpleExplorerView({ onOpenTerminal, hideTerminalActions
     />
   );
 
-  const renderProject = (workspace: Workspace | null, project: WorkspaceProject | null, items: SimpleSession[]) => {
-    const path = project?.path ?? "";
-    const name = project ? project.alias || getProjectName(project.path) : t("simple.other");
-    const isCollapsed = project ? collapsed.includes(path) : false;
-    const row = (
-      <button
-        type="button"
-        data-testid="simple-project-row"
-        data-project-path={path || undefined}
-        data-typeahead-label={name}
-        aria-expanded={!isCollapsed}
-        className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-        onClick={() => project && toggleProject(path)}
-      >
-        <ChevronRight className={`size-3.5 shrink-0 text-[var(--app-text-tertiary)] transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
-        {isCollapsed
-          ? <Folder className="size-4 shrink-0 text-[var(--app-text-tertiary)] transition-colors group-hover:text-[var(--app-text-secondary)]" />
-          : <FolderOpen className="size-4 shrink-0 text-[var(--app-text-secondary)]" />}
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">{name}</span>
-        {items.length > 0 && <span className={sidebarEntityCountClass}>{items.length}</span>}
-      </button>
-    );
+  const renderWorkspace = (workspace: Workspace | null, items: SimpleSession[]) => {
+    // 折叠状态存在 collapsedSimpleProjects 里，键带前缀，和旧的按项目路径折叠的键不会撞。
+    const key = workspace ? `ws:${workspace.id}` : "ws:__other__";
+    const isCollapsed = collapsed.includes(key);
+    const expandedAll = showAll.includes(key);
+    const visible = expandedAll ? items : items.slice(0, WORKSPACE_SESSION_PREVIEW);
+    const hiddenCount = items.length - visible.length;
     return (
-      <div key={project?.id ?? "__other__"}>
-        {project ? (
-          <ContextMenu>
-            <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-            <ContextMenuContent className="w-48">
-              <ContextMenuItem onClick={() => openNewAgentChat(project.path)}>
-                <MessagesSquare /> {t("simple.newChatHere")}
-              </ContextMenuItem>
-              {!hideTerminalActions && (
-                <ContextMenuItem onClick={() => launch(workspace, project.path)}>
-                  <TerminalSquare /> {t("simple.launchHere")}
-                </ContextMenuItem>
-              )}
-            </ContextMenuContent>
-          </ContextMenu>
-        ) : row}
-        {!isCollapsed && items.map((session) => renderSession(session, true))}
+      <div key={key}>
+        <SimpleWorkspaceRow
+          workspace={workspace}
+          label={workspace ? workspace.alias || workspace.name : t("simple.other")}
+          sessionCount={items.length}
+          collapsed={isCollapsed}
+          isDefaultContext={!!workspace && contextWorkspace?.id === workspace.id}
+          hideTerminalActions={hideTerminalActions}
+          onToggle={() => toggleProject(key)}
+          onNewChat={(ws) => openNewAgentChat(workspaceCwd(ws))}
+          onLaunch={(ws) => launch(ws)}
+          onSetDefault={(ws) => setPreferred(ws.name)}
+          onEdit={(ws) => setEditingId(ws.id)}
+        />
+        {!isCollapsed && visible.map((session) => renderSession(session, true))}
+        {!isCollapsed && (hiddenCount > 0 || expandedAll) && items.length > WORKSPACE_SESSION_PREVIEW && (
+          <button
+            type="button"
+            data-testid="simple-workspace-show-more"
+            className="ml-8 rounded px-1 py-1 text-[length:var(--text-row)] text-[var(--app-text-tertiary)] transition-colors hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            onClick={() => setShowAll((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]))}
+          >
+            {t(expandedAll ? "simple.showLess" : "simple.showMore")}
+          </button>
+        )}
       </div>
-    );
-  };
-
-  const renderWorkspaceCaption = (workspace: Workspace | null) => {
-    if (!multiWorkspace && workspace) return null;
-    const label = workspace ? workspace.alias || workspace.name : t("simple.other");
-    const caption = (
-      <div className={`${SECTION_CLASS} flex items-center gap-1 ${sidebarSectionTitleClass}`} data-testid="simple-workspace-caption">
-        <span className="truncate">{label}</span>
-        {workspace && contextWorkspace?.id === workspace.id && <Check className="size-3 shrink-0" aria-label={t("simple.defaultContext")} />}
-      </div>
-    );
-    if (!workspace) return caption;
-    return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{caption}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={() => setPreferred(workspace.name)}>
-            <Check /> {t("simple.setDefaultContext")}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
     );
   };
 
@@ -222,12 +194,7 @@ export default function SimpleExplorerView({ onOpenTerminal, hideTerminalActions
               action={{ label: t("newWorkspace"), onClick: () => useDialogStore.getState().requestNewWorkspace() }}
             />
           ) : (
-            groups.map((group) => (
-              <div key={group.workspace?.id ?? "__other__"}>
-                {renderWorkspaceCaption(group.workspace)}
-                {group.projects.map(({ project, sessions: items }) => renderProject(group.workspace, project, items))}
-              </div>
-            ))
+            groups.map((group) => renderWorkspace(group.workspace, group.sessions))
           )}
         </section>
 
@@ -238,6 +205,7 @@ export default function SimpleExplorerView({ onOpenTerminal, hideTerminalActions
           </section>
         )}
       </div>
+      <SimpleWorkspaceEditDialog workspace={editing} onOpenChange={(open) => { if (!open) setEditingId(null); }} />
     </div>
   );
 }

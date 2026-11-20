@@ -5,11 +5,15 @@ import type { Workspace } from "@/types";
 import {
   defaultContextWorkspace,
   groupByProject,
+  groupByWorkspace,
   mergeSessions,
   normalizePath,
   pinnedSessions,
   recentSessions,
+  primaryFolder,
   userWorkspaces,
+  workspaceCwd,
+  workspaceFolders,
 } from "./simpleExplorerModel";
 
 function record(partial: Partial<LaunchRecord> & { id: number }): LaunchRecord {
@@ -123,5 +127,44 @@ describe("defaultContextWorkspace", () => {
     expect(defaultContextWorkspace(ws, "default")?.name).toBe("cc-pane");
     expect(defaultContextWorkspace(ws, null)?.name).toBe("cc-pane");
     expect(defaultContextWorkspace([ws[0], ws[1]], null)).toBeNull();
+  });
+});
+
+describe("workspace-level grouping", () => {
+  const workspace = {
+    id: "w", name: "w", createdAt: "", path: "/repos/main",
+    projects: [
+      { id: "a", path: "/repos/tools" },
+      { id: "b", path: "/repos/main" },
+      { id: "z", path: "/repos/old", archivedAt: "2026-01-01T00:00:00Z" },
+    ],
+  } as Workspace;
+
+  it("merges the sessions of every folder in a workspace, newest first", () => {
+    const sessions = mergeSessions(
+      [record({ id: 1, projectPath: "/repos/tools", launchedAt: "2026-11-03T10:00:00Z" })],
+      [
+        chat({ acpSessionId: "new", cwd: "/repos/main/pkg", updatedAt: Date.parse("2026-11-03T12:00:00Z") }),
+        chat({ acpSessionId: "old", cwd: "/repos/main", updatedAt: Date.parse("2026-11-03T09:00:00Z") }),
+        chat({ acpSessionId: "stray", cwd: "/elsewhere", updatedAt: 5 }),
+      ],
+    );
+    const groups = groupByWorkspace(sessions, [workspace]);
+    expect(groups.map((group) => group.workspace?.name ?? null)).toEqual(["w", null]);
+    expect(groups[0].sessions.map((session) => session.key)).toEqual(["chat:new", "launch:1", "chat:old"]);
+    expect(groups[1].sessions.map((session) => session.key)).toEqual(["chat:stray"]);
+  });
+
+  it("picks the folder at the workspace root as primary, else the first active one", () => {
+    expect(workspaceFolders(workspace).map((folder) => folder.id)).toEqual(["a", "b"]);
+    expect(primaryFolder(workspace)?.id).toBe("b");
+    expect(primaryFolder({ ...workspace, path: undefined })?.id).toBe("a");
+    expect(primaryFolder({ ...workspace, projects: [] })).toBeNull();
+  });
+
+  it("uses the workspace root as its working directory, falling back to the primary folder", () => {
+    expect(workspaceCwd(workspace)).toBe("/repos/main");
+    expect(workspaceCwd({ ...workspace, path: undefined })).toBe("/repos/tools");
+    expect(workspaceCwd({ ...workspace, path: undefined, projects: [] })).toBeUndefined();
   });
 });

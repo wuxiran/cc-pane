@@ -114,6 +114,44 @@ export function groupByProject(sessions: readonly SimpleSession[], workspaces: r
   return groups;
 }
 
+export interface SimpleWorkspaceSessions {
+  /** null = 「其他」（没落到任何已注册项目的会话） */
+  workspace: Workspace | null;
+  /** 该工作空间下所有项目文件夹的会话，新的在前 */
+  sessions: SimpleSession[];
+}
+
+/** 一个工作空间一行：把它下面各项目文件夹的会话并成一列，按时间倒序。 */
+export function groupByWorkspace(sessions: readonly SimpleSession[], workspaces: readonly Workspace[]): SimpleWorkspaceSessions[] {
+  return groupByProject(sessions, workspaces).map((group) => ({
+    workspace: group.workspace,
+    sessions: group.projects.flatMap((project) => project.sessions).sort((a, b) => b.time - a.time),
+  }));
+}
+
+/** 工作空间的未归档项目文件夹。 */
+export function workspaceFolders(workspace: Workspace): WorkspaceProject[] {
+  return workspace.projects.filter((project) => !project.archivedAt);
+}
+
+/**
+ * 主要文件夹：新聊天 / 启动终端默认落在这里。工作空间根路径正好是其中一个项目时
+ * 取它，否则取第一个项目。
+ */
+export function primaryFolder(workspace: Workspace): WorkspaceProject | null {
+  const folders = workspaceFolders(workspace);
+  const root = workspace.path ? normalizePath(workspace.path) : null;
+  return (root ? folders.find((project) => normalizePath(project.path) === root) : undefined) ?? folders[0] ?? null;
+}
+
+/** 工作空间的默认工作目录：根路径优先，否则主要文件夹。 */
+export function workspaceCwd(workspace: Workspace): string | undefined {
+  return workspace.path || primaryFolder(workspace)?.path;
+}
+
+/** 列表里先露出几条，其余收在「展开显示」后面。 */
+export const WORKSPACE_SESSION_PREVIEW = 5;
+
 export function recentSessions(sessions: readonly SimpleSession[], limit = 8): SimpleSession[] {
   return sessions.slice(0, limit);
 }
