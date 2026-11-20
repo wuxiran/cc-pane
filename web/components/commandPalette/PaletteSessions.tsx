@@ -83,10 +83,16 @@ export function usePaletteSessions(open: boolean): PaletteSession[] {
     // 先用现成的索引出结果，再增量扫一遍（只解析有变化的转录文件）补上刚聊过的会话。
     void loadIndex().then(() => sessionIndexService.refresh()).then(loadIndex).catch(() => undefined);
     void loadChats();
+    // 常驻挂载的调用方（侧栏「最近」）靠这几个事件保持新鲜：切回窗口、启动记录变化。
+    const reloadAll = () => { void loadIndex(); void loadChats(); };
     window.addEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, loadChats);
+    window.addEventListener("cc-panes:history-updated", loadIndex);
+    window.addEventListener("focus", reloadAll);
     return () => {
       cancelled = true;
       window.removeEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, loadChats);
+      window.removeEventListener("cc-panes:history-updated", loadIndex);
+      window.removeEventListener("focus", reloadAll);
     };
   }, [open]);
   return useMemo(() => mergePaletteSessions(entries, chats), [entries, chats]);
@@ -129,6 +135,32 @@ export function PaletteQuickActions({ run, newTabShortcut }: { run: (fn: () => v
   );
 }
 
+/** 打开一条会话：对话开新标签续接；终端会话带 resume 开终端。侧栏「最近」和搜索面板共用。 */
+export function openPaletteSession(
+  session: PaletteSession,
+  onOpenTerminal: ((opts: OpenTerminalOptions) => void) | undefined,
+  rolloutMissingMessage: string,
+): void {
+  if (session.kind === "chat") {
+    resumeAgentChat(session.chat);
+    return;
+  }
+  const { entry } = session;
+  const open = () => onOpenTerminal?.(buildSessionHistoryTerminalOptions(
+    entry,
+    useWorkspacesStore.getState().workspaces,
+    useSshMachinesStore.getState().machines,
+  ));
+  if (entry.cliTool !== "codex") {
+    open();
+    return;
+  }
+  // Codex 的转录文件可能已被清掉：确认不在了就提示，不开一个恢复不了的终端。
+  sessionIndexService.checkCodexRollout(entry.sessionId, entry.wslDistro ?? undefined)
+    .then((exists) => (exists === false ? toastWarn(rolloutMissingMessage) : open()))
+    .catch(open);
+}
+
 interface PaletteSessionsGroupProps {
   sessions: PaletteSession[];
   run: (fn: () => void) => void;
@@ -151,24 +183,7 @@ export function PaletteSessionsGroup({ sessions, run, onOpenTerminal }: PaletteS
             // value 带 key：标题相同的两条会话不会被 cmdk 当成同一项。
             value={`${session.title} ${session.place} ${tag} ${session.kind === "cli" ? session.entry.firstPrompt.slice(0, 200) : ""} ${session.key}`}
             onSelect={() => run(() => {
-              if (session.kind === "chat") {
-                resumeAgentChat(session.chat);
-                return;
-              }
-              const { entry } = session;
-              const open = () => onOpenTerminal?.(buildSessionHistoryTerminalOptions(
-                entry,
-                useWorkspacesStore.getState().workspaces,
-                useSshMachinesStore.getState().machines,
-              ));
-              if (entry.cliTool !== "codex") {
-                open();
-                return;
-              }
-              // Codex 的转录文件可能已被清掉：确认不在了就提示，不开一个恢复不了的终端。
-              sessionIndexService.checkCodexRollout(entry.sessionId, entry.wslDistro ?? undefined)
-                .then((exists) => (exists === false ? toastWarn(t("sessionHistory.rolloutMissing", { ns: "sidebar" })) : open()))
-                .catch(open);
+              openPaletteSession(session, onOpenTerminal, t("sessionHistory.rolloutMissing", { ns: "sidebar" }));
             })}
           >
             {session.kind === "cli" ? <Terminal strokeWidth={1.5} /> : <MessagesSquare strokeWidth={1.5} />}
@@ -190,27 +205,31 @@ export function findSessionByValue(sessions: PaletteSession[], value: string): P
   return sessions.find((session) => normalized.endsWith(` ${session.key.toLowerCase()}`)) ?? null;
 }
 
+/** 一条会话的详情内容（不带外框）：搜索面板的预览和侧栏「最近」的悬浮卡片共用。 */
+export function PaletteSessionPreviewBody({ session }: { session: PaletteSession }) {
+  const { t } = useTranslation(["shortcuts", "sidebar"]);
+  if (session.kind === "cli") return <SessionEntryDetail entry={session.entry} />;
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="text-[length:var(--text-row)] font-semibold leading-snug text-[var(--app-text-primary)] line-clamp-3">{session.title}</div>
+      <div className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
+        {t("sessionTagChat", { ns: "sidebar" })}{session.chat.engineId ? ` · ${session.chat.engineId}` : ""}
+        {session.time > 0 ? ` · ${formatRelativeTime(new Date(session.time).toISOString())}` : ""}
+      </div>
+      <div className="break-all font-mono text-[length:var(--text-nano)] text-[var(--app-text-tertiary)]">{session.chat.cwd}</div>
+      <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("palettePreviewChatOnly", { ns: "shortcuts" })}</p>
+    </div>
+  );
+}
+
 /** 高亮某条会话时右侧的内容预览：这段会话是什么、聊到哪了。 */
 export function PaletteSessionPreview({ session }: { session: PaletteSession }) {
-  const { t } = useTranslation(["shortcuts", "sidebar"]);
   return (
     <aside
       data-testid="palette-session-preview"
       className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3.5 sm:block"
     >
-      {session.kind === "cli" ? (
-        <SessionEntryDetail entry={session.entry} />
-      ) : (
-        <div className="flex flex-col gap-2.5">
-          <div className="text-[length:var(--text-row)] font-semibold leading-snug text-[var(--app-text-primary)] line-clamp-3">{session.title}</div>
-          <div className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-            {t("sessionTagChat", { ns: "sidebar" })}{session.chat.engineId ? ` · ${session.chat.engineId}` : ""}
-            {session.time > 0 ? ` · ${formatRelativeTime(new Date(session.time).toISOString())}` : ""}
-          </div>
-          <div className="break-all font-mono text-[length:var(--text-nano)] text-[var(--app-text-tertiary)]">{session.chat.cwd}</div>
-          <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("palettePreviewChatOnly", { ns: "shortcuts" })}</p>
-        </div>
-      )}
+      <PaletteSessionPreviewBody session={session} />
     </aside>
   );
 }

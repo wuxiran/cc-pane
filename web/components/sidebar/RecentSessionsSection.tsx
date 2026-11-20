@@ -1,0 +1,116 @@
+// 资源管理器下半部分的「最近」：最近的会话（终端会话 + Agent 对话），按时间倒序。
+// 每行只有一行标题，点一下恢复；悬浮弹出这段会话的详情。完整的搜索在搜索面板里。
+import { HoverCard } from "radix-ui";
+import { useTranslation } from "react-i18next";
+import { ChevronDown, ChevronRight, MessagesSquare, SquarePen, Terminal } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  openPaletteSession,
+  PaletteSessionPreviewBody,
+  usePaletteSessions,
+  type PaletteSession,
+} from "@/components/commandPalette/PaletteSessions";
+import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
+import { useWorkspacesStore } from "@/stores";
+import type { OpenTerminalOptions } from "@/types";
+import { openNewAgentChat } from "./agentChatResume";
+
+/** 侧栏里最多列这么多条，更早的去搜索面板找。 */
+export const RECENT_SESSIONS_LIMIT = 30;
+
+interface RecentSessionsSectionProps {
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
+}
+
+export default function RecentSessionsSection({ onOpenTerminal }: RecentSessionsSectionProps) {
+  const { t } = useTranslation("sidebar");
+  const collapsed = useExplorerSectionsStore((s) => s.recentCollapsed);
+  const toggle = useExplorerSectionsStore((s) => s.toggleRecentCollapsed);
+  const sessions = usePaletteSessions(true).slice(0, RECENT_SESSIONS_LIMIT);
+  const rolloutMissing = t("sessionHistory.rolloutMissing");
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
+
+  const newChat = () => {
+    const state = useWorkspacesStore.getState();
+    const workspace = state.workspaces.find((item) => item.id === state.expandedWorkspaceId);
+    openNewAgentChat(workspace?.projects.find((project) => project.id === state.expandedProjectId)?.path);
+  };
+
+  return (
+    <section
+      data-testid="recent-sessions"
+      className={`flex min-h-0 flex-col border-t border-[var(--app-border)] px-3 pt-1.5 ${collapsed ? "shrink-0 pb-1.5" : "max-h-[55%] shrink-0 pb-2"}`}
+    >
+      <div className="flex shrink-0 items-center">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          onClick={toggle}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left text-[length:var(--text-caption)] font-medium text-[var(--app-text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-text-secondary)]"
+        >
+          {t("recentSessions.title")}
+          <Chevron className="size-3.5 shrink-0" strokeWidth={1.8} />
+        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("newAgentChat")}
+              onClick={newChat}
+              className="flex h-[24px] w-[26px] shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+            >
+              <SquarePen className="size-3.5" strokeWidth={1.8} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t("newAgentChat")}</TooltipContent>
+        </Tooltip>
+      </div>
+      {!collapsed && (
+        <div className="app-scrollbar -mx-1 min-h-0 flex-1 overflow-y-auto">
+          {sessions.length === 0 ? (
+            <p className="px-2 py-3 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("recentSessions.empty")}</p>
+          ) : (
+            sessions.map((session) => (
+              <RecentSessionRow
+                key={session.key}
+                session={session}
+                onOpen={() => openPaletteSession(session, onOpenTerminal, rolloutMissing)}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RecentSessionRow({ session, onOpen }: { session: PaletteSession; onOpen: () => void }) {
+  const Icon = session.kind === "cli" ? Terminal : MessagesSquare;
+  return (
+    <HoverCard.Root openDelay={500} closeDelay={100}>
+      <HoverCard.Trigger asChild>
+        <button
+          type="button"
+          data-session-kind={session.kind}
+          onClick={onOpen}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[length:var(--text-row)] text-[var(--app-text-primary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+        >
+          <Icon className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" strokeWidth={1.6} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{session.title}</span>
+        </button>
+      </HoverCard.Trigger>
+      <HoverCard.Portal>
+        <HoverCard.Content
+          side="right"
+          align="start"
+          sideOffset={10}
+          collisionPadding={12}
+          data-testid="recent-session-hover-card"
+          className="z-50 max-h-[min(520px,80vh)] w-[340px] overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3.5 shadow-[var(--sh-lg)]"
+        >
+          <PaletteSessionPreviewBody session={session} />
+        </HoverCard.Content>
+      </HoverCard.Portal>
+    </HoverCard.Root>
+  );
+}

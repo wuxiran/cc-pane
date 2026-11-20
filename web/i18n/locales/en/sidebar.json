@@ -942,5 +942,7 @@
     "popOut": "Open in new window",
     "close": "Close",
     "popOutFailed": "Failed to open window: {{error}}"
-  }
+  },
+  "recentSessions.title": "Recent",
+  "recentSessions.empty": "No sessions yet. Terminal sessions and agent chats you have used will show up here."
 }

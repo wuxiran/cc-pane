@@ -28,6 +28,11 @@ vi.mock("@/components/sidebar/WorkspaceTree", () => ({
   ),
 }));
 
+// --- 「最近」分区 stub：桩掉其会话索引 / 对话历史加载 ---
+vi.mock("@/components/sidebar/RecentSessionsSection", () => ({
+  default: () => <div>recent-sessions-stub</div>,
+}));
+
 // --- FileTree stub ---
 vi.mock("@/components/filetree", () => ({
   FileTree: ({ rootPath }: { rootPath: string }) => (
@@ -71,6 +76,7 @@ describe("ExplorerView", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("explorer.title")).toBeVisible();
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
+    expect(screen.getByText("recent-sessions-stub")).toBeVisible();
     // 会话进了搜索面板、通讯录进了左侧图标栏：标题旁不再有视图切换
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
     // 「启动终端」主操作行已去掉（搜索面板的快捷操作 / 快捷键 / 标签栏 + 仍可启动）

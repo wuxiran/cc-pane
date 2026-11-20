@@ -942,5 +942,7 @@
     "popOut": "在新窗口中打开",
     "close": "关闭",
     "popOutFailed": "弹出窗口失败: {{error}}"
-  }
+  },
+  "recentSessions.title": "最近",
+  "recentSessions.empty": "还没有会话。聊过的终端会话和 Agent 对话会出现在这里。"
 }

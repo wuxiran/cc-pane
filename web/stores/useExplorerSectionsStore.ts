@@ -1,5 +1,6 @@
 // Explorer 侧栏的 UI 偏好（持久化到 localStorage）。
 // v6：侧栏不再分视图（会话进了搜索面板、通讯录进了左侧图标栏），activeSection 下线。
+// v7：加「最近」分区的收起状态。
 // 默认上下文工作空间只是前端偏好，不动后端 workspace.json。
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -13,10 +14,13 @@ interface ExplorerSectionsState {
   workspaceTreeMode: WorkspaceTreeMode;
   /** 「工作空间」分区是否收起（点分区头切换） */
   workspacesCollapsed: boolean;
+  /** 「最近」分区（最近的会话）是否收起 */
+  recentCollapsed: boolean;
   /** 无选中项目时「启动终端 / 新聊天」的上下文工作空间名；空则取首个用户工作空间 */
   preferredContextWorkspaceName: string | null;
   setWorkspaceTreeMode: (mode: WorkspaceTreeMode) => void;
   toggleWorkspacesCollapsed: () => void;
+  toggleRecentCollapsed: () => void;
   setPreferredContextWorkspace: (name: string | null) => void;
 }
 
@@ -25,17 +29,20 @@ export const useExplorerSectionsStore = create<ExplorerSectionsState>()(
     (set) => ({
       workspaceTreeMode: "projects",
       workspacesCollapsed: false,
+      recentCollapsed: false,
       preferredContextWorkspaceName: null,
       setWorkspaceTreeMode: (mode) => set({ workspaceTreeMode: mode }),
       toggleWorkspacesCollapsed: () => set((state) => ({ workspacesCollapsed: !state.workspacesCollapsed })),
+      toggleRecentCollapsed: () => set((state) => ({ recentCollapsed: !state.recentCollapsed })),
       setPreferredContextWorkspace: (name) => set({ preferredContextWorkspaceName: name }),
     }),
     {
       name: "cc-panes-explorer-sections",
-      version: 6,
+      version: 7,
       partialize: (s) => ({
         workspaceTreeMode: s.workspaceTreeMode,
         workspacesCollapsed: s.workspacesCollapsed,
+        recentCollapsed: s.recentCollapsed,
         preferredContextWorkspaceName: s.preferredContextWorkspaceName,
       }),
       // v0 可能持久化了已下线的 files/git，落回 workspaces；v1 → v2 补 workspaceTreeMode；
@@ -47,6 +54,7 @@ export const useExplorerSectionsStore = create<ExplorerSectionsState>()(
         return {
           workspaceTreeMode: mode && TREE_MODES.includes(mode) ? mode : "projects",
           workspacesCollapsed: state?.workspacesCollapsed === true,
+          recentCollapsed: state?.recentCollapsed === true,
           preferredContextWorkspaceName: typeof preferred === "string" ? preferred : null,
         } as ExplorerSectionsState;
       },
