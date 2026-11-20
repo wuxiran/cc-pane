@@ -39,7 +39,8 @@ export default function RecentSessionsSection({ onOpenTerminal }: RecentSessions
   return (
     <section
       data-testid="recent-sessions"
-      className={`flex min-h-0 flex-col border-t border-[var(--app-border)] px-3 pt-1.5 ${collapsed ? "shrink-0 pb-1.5" : "max-h-[55%] shrink-0 pb-2"}`}
+      // 展开时占满树下面剩余的高度（列表自己滚动），至少留 160px；收起时只剩分区头，留在原位。
+      className={`flex flex-col px-3 pt-1 ${collapsed ? "shrink-0 pb-1.5" : "min-h-[160px] flex-1 pb-2"}`}
     >
       <div className="flex shrink-0 items-center">
         <button

@@ -44,7 +44,8 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         </Tooltip>
       </div>
 
-      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2" onKeyDown={onTreeTypeAhead}>
+      {/* 树按内容高度排，放不下才收缩滚动；「最近」紧跟在它下面，不再被顶到面板最底部 */}
+      <div className="app-scrollbar min-h-0 shrink overflow-y-auto px-3 pb-2" onKeyDown={onTreeTypeAhead}>
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
       </div>
 
