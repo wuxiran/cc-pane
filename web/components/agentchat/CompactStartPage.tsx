@@ -2,7 +2,8 @@
 // 卡片里左边权限、右边引擎/模型/语音/发送；项目只在问话里出现一次，不再重复挂条。
 // 控件本身由 EnginePicker 传入，这里只管排版——和窗格启动页共用同一套状态与行为。
 import type { ReactElement, ReactNode, RefObject } from "react";
-import { Bot, FolderOpen } from "lucide-react";
+import { FolderOpen } from "lucide-react";
+import logoUrl from "@/assets/logo.svg";
 import { useTranslation } from "react-i18next";
 
 interface CompactStartPageProps {
@@ -33,7 +34,7 @@ export default function CompactStartPage({
   return (
     <div className="agent-chat-start-page flex h-full flex-col px-3 pb-3" data-testid="compact-start-page">
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-        <Bot className="size-8 text-[var(--app-text-tertiary)]" strokeWidth={1.3} aria-hidden="true" />
+        <img src={logoUrl} alt="" aria-hidden="true" draggable={false} className="size-9 rounded-lg" />
         {cwd && projectName ? (
           <h2 className="text-[17px] font-normal leading-snug text-[var(--app-text-primary)]">
             {t("agentChatHeroBefore")}

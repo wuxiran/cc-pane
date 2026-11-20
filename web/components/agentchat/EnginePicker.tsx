@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
-  Bot,
   ChevronDown,
   FolderOpen,
   FileDiff,
   Loader2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import logoUrl from "@/assets/logo.svg";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import LocalLaunchSettings from "@/components/launcher/LocalLaunchSettings";
@@ -333,110 +333,103 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   }
   return (
     <div className="agent-chat-start-page flex h-full flex-col overflow-y-auto px-4 sm:px-8">
-      <div className="agent-chat-start-content mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-7 py-12">
-        {/* Hero：问候语与项目名（无项目时引导选目录） */}
-        <div className="flex flex-col items-start gap-3 px-1 text-left">
-          <div className="mb-1 flex h-11 w-11 items-center justify-center text-[var(--app-text-secondary)]">
-            <Bot className="h-7 w-7" strokeWidth={1.5} />
-          </div>
-          <h2 className="max-w-full break-words text-[length:var(--text-hero)] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
-            {projectName ? (
-              <>
-                {t("agentChatHeroBefore")}
-                <span className="text-[var(--app-text-primary)]">
-                  {projectName}
-                </span>
-                {t("agentChatHeroAfter")}
-              </>
-            ) : (
-              t("agentChatNoProject")
-            )}
-          </h2>
-          {projectName ? (
-            <p className="text-sm leading-relaxed text-[var(--app-text-tertiary)]">{t("agentChatHeroSub")}</p>
-          ) : null}
-        </div>
-        {!cwd && (
-          <div className="flex justify-center">
-            <StartProjectMenu
-              cwd={cwd}
-              onPickCwd={pickCwd}
-              trigger={
+      <div className="agent-chat-start-content mx-auto flex w-full max-w-3xl flex-1 flex-col">
+        {/* Hero：垂直居中的 logo + 问话；项目名可点，直接换项目（ChatGPT / Codex 式） */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-1 py-10 text-center">
+          <img src={logoUrl} alt="CC-Panes" draggable={false} className="size-12 rounded-xl" />
+          {cwd && projectName ? (
+            <h2 className="max-w-full break-words text-[length:var(--text-hero)] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
+              {t("agentChatHeroBefore")}
+              {projectMenu(
                 <button
                   type="button"
-                  className="flex items-center gap-2 rounded-full border border-[var(--app-border)] px-4 py-2.5 text-sm text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                  title={cwd}
+                  disabled={startingEngine !== null}
+                  className="underline decoration-[var(--app-text-tertiary)] decoration-dotted decoration-1 underline-offset-[6px] transition-colors hover:decoration-[var(--app-text-primary)]"
+                >
+                  {projectName}
+                </button>,
+              )}
+              {t("agentChatHeroAfter")}
+            </h2>
+          ) : (
+            <>
+              <h2 className="text-[length:var(--text-hero)] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
+                {t("agentChatNoProject")}
+              </h2>
+              {projectMenu(
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-full border border-[var(--app-border)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 >
                   <FolderOpen className="h-4 w-4" /> {t("agentChatPickCwd")}
                   <ChevronDown className="h-3.5 w-3.5 text-[var(--app-text-tertiary)]" />
-                </button>
-              }
-            />
-          </div>
-        )}
+                </button>,
+              )}
+            </>
+          )}
+        </div>
 
-        {/* Composer 式启动栏：chips 行 + 输入 + 引擎/模型/模式/权限 + 发送 */}
-        <div className={`agent-chat-start-composer agent-chat-composer-shell rounded-3xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-5 pb-4 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)]`}>
+        {selectedEngine && engines && !selected?.available && <p role="status" className="mb-2 px-2 text-sm text-[var(--app-text-tertiary)]">{selected?.requirement || codexT("unavailable")}</p>}
+        {error ? (
+          <div className="mb-2 whitespace-pre-wrap break-all rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-xs text-[var(--app-status-danger)]">
+            {t("agentChatStartFailed")}: {error}
+          </div>
+        ) : null}
+
+        {/* 底部输入区：上方托盘挂运行位置 / 项目 / 审查，下方输入卡挂权限、引擎、模型、发送 */}
+        <div className="agent-chat-start-dock pb-4">
           {cwd ? (
-            <div className={"agent-chat-start-context flex flex-wrap items-center gap-2 pb-3 text-xs text-[var(--app-text-tertiary)]"}>
-              <StartProjectMenu
-                cwd={cwd}
-                onPickCwd={pickCwd}
-                trigger={
-                  <button
-                    type="button"
-                    title={cwd}
-                    disabled={startingEngine !== null}
-                    className="flex min-w-0 max-w-full items-center gap-2 rounded-lg px-1.5 py-2 text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                  >
-                    <FolderOpen className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 max-w-64 truncate">{projectName}</span>
-                    <ChevronDown className="h-2.5 w-2.5" />
-                  </button>
-                }
-              />
-              <span className="min-w-0 flex-1" />
+            <div className="agent-chat-start-tray mx-4 flex min-w-0 items-center gap-1 rounded-t-2xl border border-b-0 border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-text-secondary)]">
               <LocalLaunchSettings projectPath={cwd} worktree={worktree}
                 onChange={setWorktree} disabled={startingEngine !== null} />
+              {projectMenu(
+                <button
+                  type="button"
+                  title={cwd}
+                  disabled={startingEngine !== null}
+                  className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                >
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 max-w-64 truncate">{projectName}</span>
+                </button>,
+              )}
+              <span className="min-w-0 flex-1" />
               {runtimeTools && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-hover)] transition-colors hover:text-[var(--app-text-primary)]">
+                className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]">
                 <FileDiff className="h-3.5 w-3.5" />
               </button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
             </div>
           ) : null}
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                launch();
-              }
-            }}
-            placeholder={t("agentChatHeroPlaceholder")}
-            rows={5}
-            className={"agent-chat-composer-input max-h-72 min-h-36 w-full resize-none bg-transparent py-4 text-[length:var(--text-heading)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"}
-          />
-          <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
-            <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
-              {engineMenu}
-              {modelMenu}
-              {modeMenu}
-              {permissionMenu}
-            </div>
-            <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
-              {voiceButton}
-              {sendButton}
+          <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border px-4 pb-3 pt-3 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)]">
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  launch();
+                }
+              }}
+              placeholder={t("agentChatHeroPlaceholder")}
+              rows={2}
+              className="agent-chat-composer-input block max-h-72 w-full resize-none bg-transparent px-1 py-1 text-[length:var(--text-body)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            />
+            <div className="agent-chat-composer-toolbar mt-2 flex items-center justify-between gap-3">
+              <div className="flex shrink-0 items-center">{permissionMenu}</div>
+              <div className="agent-chat-composer-options flex min-w-0 items-center justify-end gap-0.5">
+                {engineMenu}
+                {modelMenu}
+                {modeMenu}
+              </div>
+              <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
+                {voiceButton}
+                {sendButton}
+              </div>
             </div>
           </div>
         </div>
-
-        {selectedEngine && engines && !selected?.available && <p role="status" className="text-sm text-[var(--app-text-tertiary)]">{selected?.requirement || codexT("unavailable")}</p>}
-        {error ? (
-          <div className="whitespace-pre-wrap break-all rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-center text-xs text-[var(--app-status-danger)]">
-            {t("agentChatStartFailed")}: {error}
-          </div>
-        ) : null}
       </div>
 
       {/* 最近会话：紧凑列表，点击续接（session/load） */}
