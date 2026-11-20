@@ -11,6 +11,8 @@ export interface SessionIndexEntry {
   projectName: string;
   workspaceName: string | null;
   firstPrompt: string;
+  /** CLI 自己起的会话标题（Claude 的手动命名 / ai-title、Codex 应用的 thread name）；没有则空串 */
+  title?: string;
   lastSummary: string;
   messageCount: number;
   mtimeMs: number;

@@ -28,6 +28,7 @@ function row(overrides: Partial<WorkspaceTerminalRow> = {}): WorkspaceTerminalRo
     layoutId: "l1",
     title: "cc-book (Claude)",
     firstPrompt: null,
+    sessionTitle: null,
     status: "thinking",
     toolName: null,
     oscProgress: null,
@@ -77,6 +78,18 @@ describe("WorkspaceTerminalList", () => {
       "title",
       expect.stringContaining("cc-book (Claude)"),
     );
+  });
+
+  it("prefers the CLI session title over the first prompt, which moves to the tooltip", () => {
+    render(
+      <WorkspaceTerminalList
+        workspaceName="ws-alpha"
+        rows={[row({ sessionTitle: "起草授权委托书", firstPrompt: "帮我做个空白的授权委托书" })]}
+      />,
+    );
+    const item = screen.getByRole("button", { name: /起草授权委托书/ });
+    expect(item).toHaveTextContent("起草授权委托书");
+    expect(item).toHaveAttribute("title", expect.stringContaining("帮我做个空白的授权委托书"));
   });
 
   it("falls back to tab title when no first prompt is known", () => {

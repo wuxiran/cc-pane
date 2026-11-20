@@ -133,6 +133,15 @@ describe("deriveWorkspaceTerminals", () => {
     expect(rows.find((r) => r.tabId === sentinel.id)?.firstPrompt).toBeNull();
   });
 
+  it("carries the CLI-generated session title alongside the first prompt", () => {
+    const tab = makeTab({ resumeId: "cli-session-2" });
+    const layouts = [layout("l1", panel([tab]))];
+    const labels = new Map([["cli-session-2", { title: "起草授权委托书", firstPrompt: "帮我做个空白的授权委托书" }]]);
+    const row = deriveWorkspaceTerminals(slice(layouts, "l1"), [wsAlpha], new Map(), labels).get("ws-1")![0];
+    expect(row.sessionTitle).toBe("起草授权委托书");
+    expect(row.firstPrompt).toBe("帮我做个空白的授权委托书");
+  });
+
   it("counts restoring tabs whose only id is savedSessionId (not yet attached)", () => {
     // 恢复中：sessionId 还没 attach，只有 savedSessionId——它对应真实 PTY，必须进列表
     const restoring = makeTab({ sessionId: undefined, restoring: true, savedSessionId: "saved-1" });

@@ -64,6 +64,7 @@ pub fn parse_session_transcript(
         .unwrap_or_default();
     let mut cwd = String::new();
     let mut first_prompt = String::new();
+    let mut titles = ClaudeTitles::default();
     let mut message_count = 0u64;
 
     loop {
@@ -79,7 +80,10 @@ pub fn parse_session_transcript(
             continue;
         };
         match cli_tool {
-            "claude" => parse_claude_line(&json, &mut cwd, &mut first_prompt, &mut message_count),
+            "claude" => {
+                titles.observe(&json);
+                parse_claude_line(&json, &mut cwd, &mut first_prompt, &mut message_count)
+            }
             "codex" => parse_codex_line(
                 &json,
                 &mut session_id,
@@ -100,6 +104,7 @@ pub fn parse_session_transcript(
         cwd,
         header_timestamp: None,
         first_prompt,
+        title: titles.resolve(),
         last_summary,
         message_count,
         bytes_read: bytes_read + tail_bytes,
@@ -216,6 +221,7 @@ fn parse_pi_session_transcript_with_limits(
         cwd,
         header_timestamp,
         first_prompt,
+        title: String::new(),
         last_summary,
         message_count,
         bytes_read,
@@ -369,6 +375,40 @@ fn append_pi_preview(preview: &mut String, text: &str) -> bool {
         preview.push(character);
     }
     false
+}
+
+/// Claude Code 自己往转录里写的标题：`ai-title`（首条消息后自动生成，即 `/resume` 列表里的标题）
+/// 与 `agent-name`（用户手动命名）。都可能多次出现，取最后一次；手动命名优先。
+#[derive(Default)]
+struct ClaudeTitles {
+    ai_title: String,
+    agent_name: String,
+}
+
+impl ClaudeTitles {
+    fn observe(&mut self, json: &Value) {
+        let (slot, key) = match json.get("type").and_then(Value::as_str) {
+            Some("ai-title") => (&mut self.ai_title, "aiTitle"),
+            Some("agent-name") => (&mut self.agent_name, "agentName"),
+            _ => return,
+        };
+        if let Some(value) = json
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            *slot = truncate_text(value);
+        }
+    }
+
+    fn resolve(self) -> String {
+        if self.agent_name.is_empty() {
+            self.ai_title
+        } else {
+            self.agent_name
+        }
+    }
 }
 
 fn parse_claude_line(
@@ -564,6 +604,34 @@ mod tests {
             max_line_bytes: 256,
             max_entries: 10,
         }
+    }
+
+    #[test]
+    fn claude_titles_prefer_manual_name_then_latest_ai_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("abc.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"cwd\":\"/w\",\"message\":{\"role\":\"user\",\"content\":\"帮我做个空白的授权委托书\"}}\n",
+                "{\"type\":\"ai-title\",\"aiTitle\":\"旧标题\"}\n",
+                "{\"type\":\"ai-title\",\"aiTitle\":\"起草授权委托书\"}\n",
+            ),
+        )
+        .unwrap();
+        let parsed = super::parse_session_transcript("claude", &path).unwrap();
+        assert_eq!(parsed.title, "起草授权委托书");
+        assert_eq!(parsed.first_prompt, "帮我做个空白的授权委托书");
+
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("{\"type\":\"agent-name\",\"agentName\":\"我的命名\"}\n");
+        std::fs::write(&path, text).unwrap();
+        assert_eq!(
+            super::parse_session_transcript("claude", &path)
+                .unwrap()
+                .title,
+            "我的命名"
+        );
     }
 
     #[test]

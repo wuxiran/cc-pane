@@ -49,9 +49,13 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
         const statusLabel = labelKey ? t(`dialogs:${labelKey}` as never) : "";
         const needsAttention = row.status != null && ATTENTION_STATUSES.has(row.status);
         const active = row.tabId === activeTabId;
-        // 首条输入优先作行名（用户记的是「让它干什么」而非项目名），原 title 只进 tooltip
-        const name = row.firstPrompt ?? row.title;
-        const tooltip = [row.firstPrompt ? row.title : null, statusLabel || null].filter(Boolean).join(" · ");
+        // 行名：CLI 自己起的标题 > 首条输入 > 标签标题（用户记的是「让它干什么」而非项目名）
+        const name = row.sessionTitle ?? row.firstPrompt ?? row.title;
+        const tooltip = [
+          row.sessionTitle ? row.firstPrompt : null,
+          name !== row.title ? row.title : null,
+          statusLabel || null,
+        ].filter(Boolean).join(" · ");
         return (
           <button
             key={row.tabId}

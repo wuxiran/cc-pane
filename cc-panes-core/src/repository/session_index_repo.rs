@@ -7,7 +7,7 @@ use std::sync::Arc;
 const SESSION_COLUMNS: &str = "
     session_id, cli_tool, file_path, cwd, project_path_norm, project_name,
     workspace_name, first_prompt, last_summary, message_count, mtime_ms,
-    size, source, wsl_distro, updated_at";
+    size, source, wsl_distro, updated_at, title";
 const ALGO_VERSION_KEY: &str = "_algo_version";
 
 pub struct SessionIndexRepository {
@@ -25,9 +25,9 @@ impl SessionIndexRepository {
             "INSERT INTO session_index (
                 session_id, cli_tool, file_path, cwd, project_path_norm, project_name,
                 workspace_name, first_prompt, last_summary, message_count, mtime_ms,
-                size, source, wsl_distro, updated_at
+                size, source, wsl_distro, updated_at, title
              ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
              ) ON CONFLICT(session_id) DO UPDATE SET
                 cli_tool = excluded.cli_tool,
                 file_path = excluded.file_path,
@@ -42,7 +42,8 @@ impl SessionIndexRepository {
                 size = excluded.size,
                 source = excluded.source,
                 wsl_distro = excluded.wsl_distro,
-                updated_at = excluded.updated_at",
+                updated_at = excluded.updated_at,
+                title = excluded.title",
             params![
                 entry.session_id,
                 entry.cli_tool,
@@ -59,6 +60,7 @@ impl SessionIndexRepository {
                 entry.source,
                 entry.wsl_distro,
                 entry.updated_at,
+                entry.title,
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -88,9 +90,10 @@ impl SessionIndexRepository {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            sql.push_str(" AND (first_prompt LIKE ? OR last_summary LIKE ? OR session_id LIKE ?)");
+            sql.push_str(" AND (first_prompt LIKE ? OR title LIKE ? OR last_summary LIKE ? OR session_id LIKE ?)");
             let pattern = format!("%{search}%");
             values.extend([
+                pattern.clone().into(),
                 pattern.clone().into(),
                 pattern.clone().into(),
                 pattern.into(),
@@ -158,6 +161,32 @@ impl SessionIndexRepository {
         Ok(())
     }
 
+    /// 记下一个从 hook 学到的转录根目录；返回 true 表示是新目录。
+    pub fn learn_root(&self, cli_tool: &str, path: &str) -> Result<bool, String> {
+        let conn = self.db.connection().map_err(|error| error.to_string())?;
+        let inserted = conn
+            .execute(
+                "INSERT OR IGNORE INTO session_learned_roots (path, cli_tool, learned_at)
+                 VALUES (?1, ?2, ?3)",
+                params![path, cli_tool, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(inserted > 0)
+    }
+
+    /// 已学到的转录根目录：`(cli_tool, path)`。
+    pub fn learned_roots(&self) -> Result<Vec<(String, String)>, String> {
+        let conn = self.db.connection().map_err(|error| error.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT cli_tool, path FROM session_learned_roots ORDER BY learned_at")
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
+    }
+
     /// 返回 true 表示版本未变；false 表示已清缓存、下轮必须全量重扫。
     pub fn ensure_scan_algo_version(&self, version: u64) -> Result<bool, String> {
         let current = self
@@ -203,6 +232,7 @@ fn map_session_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionIndexEn
         source: row.get(12)?,
         wsl_distro: row.get(13)?,
         updated_at: row.get(14)?,
+        title: row.get(15)?,
     })
 }
 
@@ -223,6 +253,7 @@ mod tests {
             project_name: project.rsplit('/').next().unwrap_or(project).to_string(),
             workspace_name: Some(workspace.to_string()),
             first_prompt: format!("first prompt for {id}"),
+            title: String::new(),
             last_summary: format!("last summary for {id}"),
             message_count: 4,
             mtime_ms: if id == "newer" { 20 } else { 10 },

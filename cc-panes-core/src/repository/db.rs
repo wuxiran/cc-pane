@@ -34,6 +34,7 @@ struct Migration {
 /// V23 = 洗掉 launch_history 里被 CLI hook 回填污染的 `\\?\` 路径（数据迁移，非 schema）
 /// V24 = Claude/Codex 本地会话索引与增量扫描状态
 /// V29 = launch_history 清理重复 launch id 并增加 project_id 唯一索引
+/// V45 = session_index.title（CLI 自带标题）+ session_learned_roots（hook 学到的转录根目录）
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1173,6 +1174,36 @@ const MIGRATIONS: &[Migration] = &[
             acceptance_json TEXT
         );",
     },
+    Migration {
+        version: 45,
+        description: "session index: CLI-generated title + transcript roots learned from hooks",
+        // 先补建表（与 v24 同结构，真实库里是 no-op）：只种了版本号的库没有这张表，ALTER 会失败。
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS session_index (
+                session_id TEXT PRIMARY KEY,
+                cli_tool TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                project_path_norm TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                workspace_name TEXT,
+                first_prompt TEXT NOT NULL DEFAULT '',
+                last_summary TEXT NOT NULL DEFAULT '',
+                message_count INTEGER NOT NULL DEFAULT 0,
+                mtime_ms INTEGER NOT NULL,
+                size INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                wsl_distro TEXT,
+                updated_at TEXT NOT NULL
+            );
+            ALTER TABLE session_index ADD COLUMN title TEXT NOT NULL DEFAULT '';
+            CREATE TABLE IF NOT EXISTS session_learned_roots (
+                path TEXT PRIMARY KEY,
+                cli_tool TEXT NOT NULL,
+                learned_at TEXT NOT NULL
+            );
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1970,7 +2001,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44]);
+        assert_eq!(applied, [41, 42, 43, 44, 45]);
     }
 
     #[test]

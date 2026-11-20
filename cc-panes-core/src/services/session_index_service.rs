@@ -1,3 +1,4 @@
+use super::session_index_learned::{codex_thread_names, merge_extra_roots, transcript_root};
 use super::session_index_parser::parse_session_transcript;
 use super::session_index_roots::{
     collect_jsonl_files, collect_scan_roots, match_registered_project, normalize_path, path_name,
@@ -11,6 +12,7 @@ use crate::repository::{LaunchRecord, SessionIndexRepository};
 use crate::services::{LaunchHistoryService, SettingsService, WorkspaceService};
 use crate::utils::{error::AppError, AppResult};
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +22,8 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 const SESSION_SCAN_INTERVAL_SECS: u64 = 300;
-const SESSION_INDEX_ALGO_VERSION: u64 = 2;
+// 3：解析 CLI 自带标题（title 列），老索引需全量重扫。
+const SESSION_INDEX_ALGO_VERSION: u64 = 3;
 const PI_RESUME_MATCH_WINDOW_SECS: i64 = 120;
 
 #[derive(Debug)]
@@ -40,6 +43,8 @@ pub struct SessionIndexService {
     background_started: AtomicBool,
     scan_running: AtomicBool,
     last_scan_report: Mutex<SessionIndexScanReport>,
+    /// 已落库的学习根目录（避免每条 hook 都查库）。
+    learned_cache: Mutex<std::collections::HashSet<String>>,
 }
 
 impl SessionIndexService {
@@ -57,6 +62,7 @@ impl SessionIndexService {
             background_started: AtomicBool::new(false),
             scan_running: AtomicBool::new(false),
             last_scan_report: Mutex::new(SessionIndexScanReport::default()),
+            learned_cache: Mutex::new(Default::default()),
         }
     }
 
@@ -112,6 +118,36 @@ impl SessionIndexService {
     pub async fn refresh_session_index(self: Arc<Self>) -> AppResult<SessionIndexScanReport> {
         self.refresh_wsl_distros().await;
         self.refresh_from_cache_async().await
+    }
+
+    /// hook 上报的 `transcript_path`：所在根目录若是第一次见，记下并在后台补扫一轮。
+    /// 这样 reclaude / 自定义 `CLAUDE_CONFIG_DIR` / 自定义 `CODEX_HOME` 都不用写死路径。
+    pub fn learn_transcript_path(self: &Arc<Self>, transcript_path: &str) {
+        let Some((cli_tool, root)) = transcript_root(Path::new(transcript_path.trim())) else {
+            return;
+        };
+        let root_str = root.to_string_lossy().to_string();
+        if let Ok(known) = self.learned_cache.lock() {
+            if known.contains(&root_str) {
+                return;
+            }
+        }
+        match self.repo.learn_root(cli_tool, &root_str) {
+            Ok(is_new) => {
+                if let Ok(mut known) = self.learned_cache.lock() {
+                    known.insert(root_str.clone());
+                }
+                if !is_new {
+                    return;
+                }
+                info!(cli = cli_tool, root = %root_str, "Session index learned a transcript root");
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let service = self.clone();
+                    handle.spawn(async move { service.refresh_from_cache_logged().await });
+                }
+            }
+            Err(error) => warn!(err = %error, "Failed to record learned transcript root"),
+        }
     }
 
     pub fn codex_rollout_exists(&self, session_id: &str, wsl_distro: Option<&str>) -> Option<bool> {
@@ -209,7 +245,8 @@ impl SessionIndexService {
             .lock()
             .map_err(|_| "Session index WSL cache lock poisoned".to_string())?
             .clone();
-        let roots = collect_scan_roots(&cached_distros, self.wsl_scan_allowed());
+        let mut roots = collect_scan_roots(&cached_distros, self.wsl_scan_allowed());
+        merge_extra_roots(&mut roots, self.repo.learned_roots().unwrap_or_default());
         let registered = registered_projects(&self.workspace_service);
         // Pi has no deterministic PTY hook. Load the launch candidates once
         // for this refresh instead of issuing a full history query per JSONL.
@@ -217,6 +254,11 @@ impl SessionIndexService {
         let mut report = SessionIndexScanReport::default();
         for root in roots {
             report.roots_scanned += 1;
+            let codex_names = if root.cli_tool == "codex" {
+                codex_thread_names(&root.path)
+            } else {
+                Default::default()
+            };
             for path in collect_jsonl_files(&root.path) {
                 report.files_seen += 1;
                 if let Err(error) = self.scan_file_with_pi_launch_records(
@@ -225,6 +267,7 @@ impl SessionIndexService {
                     &registered,
                     &mut report,
                     &mut pi_launch_records,
+                    &codex_names,
                 ) {
                     warn!(path = %path.display(), err = %error, "Failed to index session transcript");
                 }
@@ -248,6 +291,7 @@ impl SessionIndexService {
             registered,
             report,
             &mut pi_launch_records,
+            &HashMap::new(),
         )
     }
 
@@ -258,6 +302,7 @@ impl SessionIndexService {
         registered: &[RegisteredProject],
         report: &mut SessionIndexScanReport,
         pi_launch_records: &mut [LaunchRecord],
+        codex_names: &HashMap<String, String>,
     ) -> Result<(), String> {
         let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
         let mtime_ms = modified_mtime_ms(&metadata);
@@ -274,6 +319,11 @@ impl SessionIndexService {
         }
 
         let mut parsed = parse_session_transcript(root.cli_tool, path)?;
+        if parsed.title.is_empty() {
+            if let Some(name) = codex_names.get(&parsed.session_id) {
+                parsed.title = name.clone();
+            }
+        }
         self.backfill_pi_resume_session(root, &parsed, pi_launch_records);
         let identity = self.resolve_identity(&parsed.session_id, &parsed.cwd, registered, root);
         if parsed.cwd.is_empty() {
@@ -288,6 +338,7 @@ impl SessionIndexService {
             project_name: identity.project_name,
             workspace_name: identity.workspace_name,
             first_prompt: parsed.first_prompt,
+            title: parsed.title,
             last_summary: parsed.last_summary,
             message_count: parsed.message_count,
             mtime_ms,

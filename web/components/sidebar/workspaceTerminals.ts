@@ -22,6 +22,8 @@ export interface WorkspaceTerminalRow {
    * 有值时 UI 优先用它作行名，原 title 降级为次行/tooltip。
    */
   firstPrompt: string | null;
+  /** CLI 自己起的会话标题（优先级高于首条输入）；没有则 null */
+  sessionTitle: string | null;
   /** 各 leaf 中最严重的状态（无状态记录时为 null） */
   status: TerminalStatusType | null;
   /** toolRunning 时的工具名（取自状态最严重的那个 leaf） */
@@ -61,16 +63,29 @@ function collectResumeIds(tab: Tab): string[] {
   return [...ids];
 }
 
-function lookupFirstPrompt(
+/** 会话索引里的命名信息：CLI 标题 + 首条输入。 */
+export interface SessionLabel {
+  title: string;
+  firstPrompt: string;
+}
+
+export type SessionLabelIndex = ReadonlyMap<string, string | SessionLabel>;
+
+function lookupSessionLabel(
   tab: Tab,
-  firstPrompts: ReadonlyMap<string, string> | undefined,
-): string | null {
-  if (!firstPrompts) return null;
-  for (const resumeId of collectResumeIds(tab)) {
-    const prompt = firstPrompts.get(resumeId)?.trim();
-    if (prompt) return prompt;
+  labels: SessionLabelIndex | undefined,
+): { firstPrompt: string | null; sessionTitle: string | null } {
+  if (labels) {
+    for (const resumeId of collectResumeIds(tab)) {
+      const entry = labels.get(resumeId);
+      if (!entry) continue;
+      const label = typeof entry === "string" ? { title: "", firstPrompt: entry } : entry;
+      const firstPrompt = label.firstPrompt.trim() || null;
+      const sessionTitle = label.title.trim() || null;
+      if (firstPrompt || sessionTitle) return { firstPrompt, sessionTitle };
+    }
   }
-  return null;
+  return { firstPrompt: null, sessionTitle: null };
 }
 
 function resolveWorkspaceId(tab: Tab, workspaces: Workspace[]): string | null {
@@ -100,8 +115,8 @@ export function deriveWorkspaceTerminals(
   state: PanesLayoutSlice,
   workspaces: Workspace[],
   statusMap: Map<string, TerminalStatusInfo>,
-  /** resumeId → 首条用户输入（session_index.first_prompt），可选 */
-  firstPrompts?: ReadonlyMap<string, string>,
+  /** resumeId → 会话标题/首条用户输入（session_index），可选 */
+  firstPrompts?: SessionLabelIndex,
 ): Map<string, WorkspaceTerminalRow[]> {
   const grouped = new Map<string, WorkspaceTerminalRow[]>();
   eachLayoutTree(state as PanesState, (layout, tree) => {
@@ -117,7 +132,7 @@ export function deriveWorkspaceTerminals(
         tabId: tab.id,
         layoutId: layout.id,
         title: tab.title,
-        firstPrompt: lookupFirstPrompt(tab, firstPrompts),
+        ...lookupSessionLabel(tab, firstPrompts),
         status,
         toolName,
         oscProgress,

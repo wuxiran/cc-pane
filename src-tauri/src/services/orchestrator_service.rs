@@ -12150,6 +12150,21 @@ async fn handle_hook_event(
         recorder.record_hook_event(&req.pty_session_id, &event, &req.payload);
     }
 
+    // 转录目录自动发现：hook 带的 transcript_path 告诉我们这个 CLI 实际把会话记录写在哪
+    // （reclaude / 自定义 CLAUDE_CONFIG_DIR / CODEX_HOME），会话索引据此补扫，侧栏才拿得到标题。
+    if let Some(path) = req
+        .payload
+        .get("transcript_path")
+        .and_then(serde_json::Value::as_str)
+    {
+        if let Some(index) = state
+            .app_handle
+            .try_state::<Arc<cc_panes_core::services::SessionIndexService>>()
+        {
+            index.learn_transcript_path(path);
+        }
+    }
+
     let (from, to) = state.session_state_machine.on_event(
         &req.pty_session_id,
         &event,

@@ -67,6 +67,7 @@ pub mod remote_terminal;
 pub mod resume_identity;
 mod runner_service;
 mod session_cost;
+mod session_index_learned;
 mod session_index_parser;
 mod session_index_roots;
 mod session_index_service;

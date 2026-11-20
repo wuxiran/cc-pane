@@ -11,6 +11,9 @@ pub struct SessionIndexEntry {
     pub project_name: String,
     pub workspace_name: Option<String>,
     pub first_prompt: String,
+    /// CLI 自己起的会话标题（Claude 的 `agent-name` / `ai-title`，Codex 应用的 thread name）；没有则空。
+    #[serde(default)]
+    pub title: String,
     pub last_summary: String,
     pub message_count: u64,
     pub mtime_ms: i64,
@@ -115,6 +118,8 @@ pub struct ParsedSessionTranscript {
     /// is not shown in the session index itself.
     pub header_timestamp: Option<String>,
     pub first_prompt: String,
+    /// CLI 自己写进转录的标题（手动命名优先于自动标题）。
+    pub title: String,
     pub last_summary: String,
     pub message_count: u64,
     pub bytes_read: u64,
