@@ -56,7 +56,7 @@ vi.mock("@/components/sidebar/ExplorerFilesSection", () => ({
   ),
 }));
 
-vi.mock("@/components/sidebar/SshMachinesView", () => ({
+vi.mock("@/components/devices/DevicesView", () => ({
   default: ({ onOpenTerminal }: { onOpenTerminal: (options: OpenTerminalOptions) => void }) => (
     <button
       type="button"
@@ -236,7 +236,7 @@ describe("RightDock", () => {
 
     renderDock();
 
-    expect(screen.getByRole("tab", { name: "SSH 机器" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "设备" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "任务编排" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "通知" })).toBeInTheDocument();
@@ -303,7 +303,7 @@ describe("RightDock", () => {
     useModulePrefsStore.getState().setPosition("ssh", "rightDock");
     renderDock(onOpenTerminal);
 
-    await user.click(screen.getByRole("tab", { name: "SSH 机器" }));
+    await user.click(screen.getByRole("tab", { name: "设备" }));
 
     expect(useRightDockStore.getState().activeView).toBe("ssh");
     expect(screen.getByTestId("right-dock-ssh")).toBeInTheDocument();

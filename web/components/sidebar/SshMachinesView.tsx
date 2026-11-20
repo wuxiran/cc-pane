@@ -4,6 +4,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
@@ -29,7 +30,7 @@ import MachineItem, {
   SummaryMetric,
   type ConnectivityState,
 } from "./SshMachineItem";
-import SshMachinesHeader from "./SshMachinesHeader";
+import SshMachinesHeader, { type HeaderAddOption } from "./SshMachinesHeader";
 import WslDiscoverDialog from "./WslDiscoverDialog";
 import type {
   SshMachine,
@@ -59,12 +60,34 @@ function buildTerminalOpts(m: SshMachine): OpenTerminalOptions {
   return { path, ssh, machineName: m.name };
 }
 
+/**
+ * 「设备」合并视图注入的部分（docs/111）：每台 SSH 主机下挂它的 CC-Panes，
+ * 列表之后是不经 SSH 的其他电脑。不传时就是纯 SSH 机器列表。
+ */
+export interface MachineDevicesSlot {
+  title: string;
+  /** 不挂在任何已保存 SSH 主机下的设备数（计入标题） */
+  otherCount: number;
+  addOptions: readonly HeaderAddOption[];
+  renderForMachine: (machine: SshMachine) => ReactNode;
+  /** 这台主机还没部署 CC-Panes 时，机器菜单提供「部署 CC-Panes」 */
+  canDeploy: (machineId: string) => boolean;
+  onDeploy: (machine: SshMachine) => void;
+  onRefreshAll: () => void;
+  refreshing: boolean;
+  /** 机器与其他电脑都为空时显示 */
+  emptyState: ReactNode;
+  footer: ReactNode;
+}
+
 interface SshMachinesViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
+  devices?: MachineDevicesSlot;
 }
 
 export default function SshMachinesView({
   onOpenTerminal,
+  devices,
 }: SshMachinesViewProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const machines = useSshMachinesStore((s) => s.machines);
@@ -333,17 +356,25 @@ export default function SshMachinesView({
   return (
     <div className="flex flex-col h-full">
       <SshMachinesHeader
+        title={devices?.title}
+        totalCount={devices ? machines.length + devices.otherCount : undefined}
+        addOptions={devices?.addOptions}
         machineCount={machines.length}
-        checkingAll={checkingAll}
+        checkingAll={checkingAll || Boolean(devices?.refreshing)}
         showWslDiscovery={isWindows}
-        onCheckAll={() => void checkAll()}
+        onCheckAll={() => {
+          void checkAll();
+          devices?.onRefreshAll();
+        }}
         onDiscoverWsl={() => setWslDialogOpen(true)}
         onAdd={handleAdd}
       />
 
       {/* 列表 */}
       <div className="app-scrollbar flex-1 overflow-y-auto px-2 pb-2">
-        {machines.length === 0 ? (
+        {machines.length === 0 && devices ? (
+          devices.otherCount === 0 ? devices.emptyState : null
+        ) : machines.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
             <Server
               className="w-8 h-8"
@@ -449,7 +480,10 @@ export default function SshMachinesView({
                           onCopy={handleCopyConnectionInfo}
                           onCheckConnectivity={checkOne}
                           onToggleFavorite={toggleFavorite}
-                        />
+                          onDeployCcPanes={devices?.canDeploy(machine.id) ? devices.onDeploy : undefined}
+                        >
+                          {devices?.renderForMachine(machine)}
+                        </MachineItem>
                       ))}
                     </div>
                   </section>
@@ -458,6 +492,7 @@ export default function SshMachinesView({
             )}
           </div>
         )}
+        {devices?.footer}
       </div>
 
       {/* 对话框 */}

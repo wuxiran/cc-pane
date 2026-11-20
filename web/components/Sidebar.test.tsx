@@ -29,8 +29,8 @@ vi.mock("@/components/sidebar/OrchestratorView", () => ({
 vi.mock("@/components/sidebar/FileBrowserView", () => ({
   default: () => <div data-testid="file-browser-view" />,
 }));
-vi.mock("@/components/sidebar/SshMachinesView", () => ({
-  default: () => <div data-testid="ssh-machines-view" />,
+vi.mock("@/components/devices/DevicesView", () => ({
+  default: () => <div data-testid="merged-devices-view" />,
 }));
 vi.mock("@/components/sidebar/WorkspaceEnvironmentPanel", () => ({
   default: () => <div data-testid="workspace-env-panel" />,
@@ -66,7 +66,7 @@ describe("Sidebar", () => {
   it.each([
     ["sessions", "sessions-view"],
     ["files", "file-browser-view"],
-    ["ssh", "ssh-machines-view"],
+    ["ssh", "merged-devices-view"],
     ["orchestration", "orchestrator-view"],
   ] as const)("shows %s view when active", (view, testId) => {
     renderSidebar(view as ActivityView);

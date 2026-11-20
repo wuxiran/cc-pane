@@ -56,13 +56,30 @@ function isModulePosition(value: unknown): value is ModulePosition {
   return value === "activityBar" || value === "rightDock" || value === "hidden";
 }
 
+/**
+ * 0.12.23 起「SSH 机器」与「设备」合并成一个模块（沿用 `ssh` id）。老数据里两者各有一份偏好：
+ * 只要旧「设备」在活动栏可见而 `ssh` 被关掉或藏起，合并后的入口就留在活动栏，不让用户找不到。
+ */
+function mergeLegacyDevicesPreference(
+  persisted: Partial<Record<string, Partial<ModulePreference>>>,
+): Partial<ModulePreference> | undefined {
+  const ssh = persisted.ssh;
+  const devices = persisted.devices;
+  if (!devices || typeof devices !== "object") return ssh;
+  const devicesVisible = devices.enabled !== false && devices.position !== "hidden";
+  const sshVisible = Boolean(ssh && typeof ssh === "object" && ssh.enabled !== false && ssh.position !== "hidden");
+  if (devicesVisible && !sshVisible) return { enabled: true, position: "activityBar" };
+  return ssh;
+}
+
 function normalizePreferences(value: unknown): ModulePreferences {
   const defaults = createDefaultModulePreferences();
   if (!value || typeof value !== "object") return defaults;
   const persisted = value as Partial<Record<ModuleId, Partial<ModulePreference>>>;
 
+  const legacy = mergeLegacyDevicesPreference(persisted);
   for (const id of MODULE_IDS) {
-    const preference = persisted[id];
+    const preference = id === "ssh" ? legacy : persisted[id];
     if (!preference || typeof preference !== "object") continue;
     defaults[id] = {
       enabled: typeof preference.enabled === "boolean" ? preference.enabled : true,

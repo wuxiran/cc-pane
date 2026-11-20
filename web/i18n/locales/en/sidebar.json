@@ -42,13 +42,12 @@
   "planLegacyLocationHint": "From .ccpanes/plans/ (pre-0.12.10 location, read-only). New archives go to the workspace folder.",
   "tools": "Tools",
   "moduleNames": {
-    "ssh": "SSH Machines",
+    "ssh": "Devices",
     "orchestration": "Orchestration",
     "resources": "Resources",
     "todo": "TodoList",
     "aiPanel": "Notifications",
-    "sessionHistory": "Session History",
-    "devices": "Devices"
+    "sessionHistory": "Session History"
   },
   "moduleMenu": {
     "title": "Module placement",
@@ -799,12 +798,21 @@
     "createFailed": "Failed to create Library: {{error}}",
     "assistantPrompt": "You are the Library assistant. Follow the conventions in CLAUDE.md in the current directory: file links, text and images the user sends into uploads/ with the ingest skill, download and transcribe video links with the video-transcribe skill, organize with the organize skill, and write created work to works/. When first opened, greet briefly and say the user can just send you links or ideas."
   },
-  "devices": {
+  "machines": {
     "title": "Devices",
-    "intro": "Servers or computers running CC-Panes. Sessions start on that machine, with its own MCP, skills and memory.",
     "add": "Add device",
+    "addSshHost": "SSH host",
+    "addSshCcPanes": "Deploy CC-Panes to an SSH host",
+    "addOtherComputer": "Connect to CC-Panes on another computer",
+    "empty": "No devices yet. Add an SSH host to open terminals, browse remote files and deploy CC-Panes to it in one click, or pair with another computer running CC-Panes.",
+    "otherComputers": "Other computers",
+    "deployCcPanes": "Deploy CC-Panes…",
+    "ccPanes": "CC-Panes",
+    "ccPanesNamed": "CC-Panes · {{name}}",
+    "port": "Port {{port}}"
+  },
+  "devices": {
     "refresh": "Refresh",
-    "empty": "No devices yet. Add an SSH server and CC-Panes deploys the server there, or connect directly to another computer running CC-Panes.",
     "status": {
       "unknown": "Checking…",
       "online": "Online",
@@ -854,7 +862,7 @@
       "kindDirectHint": "Another computer running CC-Panes (LAN or Tailscale). On that computer, turn on \"Allow other devices\" and generate a pairing code.",
       "name": "Name",
       "machine": "SSH machine",
-      "noMachines": "No SSH machines yet. Add one under SSH Machines first.",
+      "noMachines": "No SSH hosts yet. Add one under Devices → + → SSH host first.",
       "remotePort": "Server port (on that machine)",
       "deployNow": "Deploy right after adding",
       "baseUrl": "Address",
@@ -883,7 +891,7 @@
       "generate": "Generate pairing code",
       "expiresIn": "expires in {{minutes}}:{{seconds}}",
       "cancel": "Cancel pairing",
-      "addressHint": "On the other computer, open Devices → Add device → Direct and enter one of these addresses with the code:",
+      "addressHint": "On the other computer, open Devices → + → Connect to CC-Panes on another computer and enter one of these addresses with the code:",
       "noAddress": "No usable network address was found.",
       "copy": "Copy",
       "copied": "Copied",

@@ -3,7 +3,6 @@ import {
   MonitorSmartphone,
   ListTodo,
   Bell,
-  Server,
   Network,
   type LucideIcon,
 } from "lucide-react";
@@ -14,9 +13,9 @@ import { useDockChatStore } from "@/stores/useDockChatStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import type { TaskBinding } from "@/types";
 
+// `ssh` 是「设备」模块：SSH 主机与其他电脑上的 CC-Panes 合并后的唯一入口（0.12.23 起不再有独立的 devices 模块）。
 export const MODULE_IDS = [
   "ssh",
-  "devices",
   "orchestration",
   "todo",
   "aiPanel",
@@ -65,19 +64,6 @@ function openSsh(position: ModulePosition) {
   }
   useActivityBarStore.setState({
     activeView: "ssh",
-    sidebarVisible: true,
-    appViewMode: "panes",
-    orchestrationOverlayOpen: false,
-  });
-}
-
-function openDevices(position: ModulePosition) {
-  if (position === "activityBar") {
-    useActivityBarStore.getState().toggleView("devices");
-    return;
-  }
-  useActivityBarStore.setState({
-    activeView: "devices",
     sidebarVisible: true,
     appViewMode: "panes",
     orchestrationOverlayOpen: false,
@@ -137,20 +123,11 @@ function aiPanelBadge({ aiPanelUnreadCount = 0 }: ModuleBadgeContext): ModuleBad
 export const MODULE_REGISTRY: readonly ModuleDef[] = [
   {
     id: "ssh",
-    icon: Server,
+    icon: MonitorSmartphone,
     titleKey: "moduleNames.ssh",
     surfaces: ["activityBar", "rightDock"],
     defaultPosition: "activityBar",
     open: openSsh,
-    minimal: false,
-  },
-  {
-    id: "devices",
-    icon: MonitorSmartphone,
-    titleKey: "moduleNames.devices",
-    surfaces: ["activityBar"],
-    defaultPosition: "activityBar",
-    open: openDevices,
     minimal: false,
   },
   {

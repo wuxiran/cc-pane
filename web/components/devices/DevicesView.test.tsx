@@ -1,7 +1,10 @@
 import "@/i18n";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useSshMachineDialogStore, useSshMachinesStore } from "@/stores";
+import type { SshMachine } from "@/types";
 import type { DeviceSnapshot, DeviceSummary } from "@/types/device";
 
 vi.mock("@/services/runtime", () => ({
@@ -17,6 +20,16 @@ vi.mock("@/services/runtime", () => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "0.12.21") }));
 vi.mock("@/services/nativeDialog", () => ({ nativeConfirm: vi.fn(async () => true) }));
 vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("@/services/sshMachineService", () => ({
+  checkSshConnectivity: vi.fn(async () => ({ reachable: true, message: "ok", latencyMs: 5 })),
+}));
+vi.mock("@/components/sidebar/SshMachineDialog", () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div data-testid="ssh-machine-dialog" /> : null),
+}));
+vi.mock("@/utils", async () => ({
+  ...await vi.importActual<typeof import("@/utils")>("@/utils"),
+  waitForTauri: vi.fn(async () => true),
+}));
 vi.mock("./openRemoteSession", () => ({
   openRemoteSession: vi.fn(async () => "tab-1"),
   startRemoteSession: vi.fn(async () => "tab-2"),
@@ -78,29 +91,70 @@ const online: DeviceSnapshot = {
   }],
 };
 
-function resetStore() {
+const gpuBox: SshMachine = {
+  id: "m1",
+  name: "gpu-box",
+  host: "gpu-box",
+  port: 22,
+  user: "dev",
+  authMethod: "key",
+  tags: [],
+  createdAt: "",
+  updatedAt: "",
+};
+
+const plainHost: SshMachine = { ...gpuBox, id: "m2", name: "bare-host", host: "bare-host" };
+
+const directDevice: DeviceSummary = {
+  id: "d2",
+  name: "studio-mac",
+  connection: { kind: "direct", baseUrl: "http://studio.ts.net:8080" },
+  createdAt: "",
+  hasToken: true,
+  targetLabel: "http://studio.ts.net:8080",
+};
+
+function resetStore(machines: SshMachine[] = []) {
   useDevicesStore.setState({ devices: [], loaded: false, snapshots: {}, refreshing: {}, deploying: {} });
+  useSshMachinesStore.setState({ machines, load: vi.fn(async () => undefined) as never });
+  useSshMachineDialogStore.setState({ addDialogOpen: false });
+}
+
+function renderView() {
+  return render(
+    <TooltipProvider>
+      <DevicesView onOpenTerminal={vi.fn()} />
+    </TooltipProvider>,
+  );
 }
 
 describe("DevicesView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetStore();
+    resetStore([gpuBox]);
   });
 
-  it("shows the empty state when there are no devices", async () => {
+  it("shows the merged empty state when there are no SSH hosts and no devices", async () => {
+    resetStore([]);
     vi.mocked(deviceService.listDevices).mockResolvedValue([]);
-    render(<DevicesView />);
+    renderView();
     expect(await screen.findByText(/还没有设备|No devices yet/)).toBeInTheDocument();
+    expect(screen.getByTestId("machines-empty")).toBeInTheDocument();
   });
 
-  it("renders an online device with CLI status, sessions and workspaces, and opens a session", async () => {
+  it("nests an SSH host's CC-Panes under that host's entry, and opens a remote session", async () => {
+    resetStore([gpuBox]);
     vi.mocked(deviceService.listDevices).mockResolvedValue([sshDevice]);
     vi.mocked(deviceService.getDeviceSnapshot).mockResolvedValue(online);
     const user = userEvent.setup();
-    render(<DevicesView />);
+    renderView();
 
     expect(await screen.findByText("gpu-box")).toBeInTheDocument();
+    const entry = screen.getByTestId("machine-entry-m1");
+    await waitFor(() => expect(entry).toContainElement(screen.getByTestId("device-card-d1")));
+    // 同一条目上既能开 SSH 终端，也能进它的 CC-Panes
+    expect(screen.getByRole("button", { name: /连接到 gpu-box|Connect to gpu-box/ })).toBeInTheDocument();
+    expect(screen.getByTestId("device-card-d1")).toHaveTextContent("CC-Panes");
     await waitFor(() => expect(screen.getByTestId("device-cli-tools")).toHaveTextContent("claude 2.1.3"));
     expect(screen.getByTestId("device-cli-tools")).toHaveTextContent("codex");
     expect(screen.getByText("prod")).toBeInTheDocument();
@@ -122,12 +176,60 @@ describe("DevicesView", () => {
       platform: { os: "linux", arch: "x86_64", user: "dev", installedVersion: null },
       previousVersion: null, version: "0.12.21", manager: "systemd", warnings: ["linger off"],
     });
-    render(<DevicesView />);
+    renderView();
 
     const deploy = await screen.findByRole("button", { name: /^部署$|^Deploy$/ });
     await act(async () => {
       fireEvent.click(deploy);
     });
     expect(deviceService.deployDevice).toHaveBeenCalledWith("d1");
+  });
+
+  it("lists direct devices and SSH devices whose host was removed under Other computers", async () => {
+    resetStore([plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([sshDevice, directDevice]);
+    vi.mocked(deviceService.getDeviceSnapshot).mockResolvedValue(online);
+    renderView();
+
+    const section = await screen.findByRole("region", { name: /其他电脑|Other computers/ });
+    await waitFor(() => expect(section).toContainElement(screen.getByTestId("device-card-d2")));
+    expect(section).toContainElement(screen.getByTestId("device-card-d1"));
+    // 纯 SSH 主机（未部署 CC-Panes）也在同一个视图里
+    expect(screen.getByTestId("machine-entry-m2")).not.toContainElement(screen.queryByTestId("device-card-d1"));
+  });
+
+  it("offers Deploy CC-Panes on a bare SSH host and opens the add dialog preset to it", async () => {
+    resetStore([plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderView();
+
+    const entry = await screen.findByTestId("machine-entry-m2");
+    await user.click(within(entry).getByRole("button", { name: /更多操作|More actions/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /部署 CC-Panes|Deploy CC-Panes/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/添加设备|Add device/);
+    expect(screen.getByTestId("device-machine-select")).toHaveTextContent("bare-host");
+  });
+
+  it("has a single add entry that asks for the type first", async () => {
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole("button", { name: /^添加设备$|^Add device$/ }));
+    expect(await screen.findByTestId("machines-add-ssh-host")).toBeInTheDocument();
+    expect(screen.getByTestId("machines-add-ssh-device")).toBeInTheDocument();
+    await user.click(screen.getByTestId("machines-add-direct"));
+    expect(await screen.findByTestId("device-pairing-code")).toBeInTheDocument();
+  });
+
+  it("routes the SSH host add option to the SSH machine dialog", async () => {
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole("button", { name: /^添加设备$|^Add device$/ }));
+    await user.click(await screen.findByTestId("machines-add-ssh-host"));
+    expect(await screen.findByTestId("ssh-machine-dialog")).toBeInTheDocument();
   });
 });

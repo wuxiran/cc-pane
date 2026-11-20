@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Folder, FolderOpen, FolderSync, GitBranch, MessageSquare, MessageSquareCode } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
-import SshMachinesView from "@/components/sidebar/SshMachinesView";
+import DevicesView from "@/components/devices/DevicesView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
 import DockChatView from "./DockChatView";
@@ -266,7 +266,7 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
         </div>
       ) : resolvedActiveView === "ssh" ? (
         <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
-          <SshMachinesView onOpenTerminal={onOpenTerminal} />
+          <DevicesView onOpenTerminal={onOpenTerminal} />
         </div>
       ) : workspace && selectedProject ? (
         <>

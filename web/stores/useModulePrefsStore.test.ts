@@ -18,7 +18,6 @@ describe("useModulePrefsStore", () => {
   it("defaults modules to their registered enabled positions", () => {
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: true, position: "activityBar" },
-      devices: { enabled: true, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -32,7 +31,6 @@ describe("useModulePrefsStore", () => {
     );
     expect(createModulePreferencesForPreset("minimal")).toEqual({
       ssh: { enabled: false, position: "activityBar" },
-      devices: { enabled: false, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: false, position: "activityBar" },
       aiPanel: { enabled: false, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -108,12 +106,46 @@ describe("useModulePrefsStore", () => {
 
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: false, position: "rightDock" },
-      devices: { enabled: true, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
       sessionHistory: { enabled: true, position: "rightDock" },
     });
+  });
+
+  it("merges the legacy devices module into the ssh (Devices) module on upgrade", async () => {
+    localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
+      state: {
+        preferences: {
+          ssh: { enabled: false, position: "activityBar" },
+          devices: { enabled: true, position: "activityBar" },
+        },
+      },
+      version: 1,
+    }));
+
+    await useModulePrefsStore.persist.rehydrate();
+
+    const preferences = useModulePrefsStore.getState().preferences as Record<string, unknown>;
+    // 旧「设备」可见而「SSH 机器」被关：合并后的入口留在活动栏
+    expect(preferences.ssh).toEqual({ enabled: true, position: "activityBar" });
+    expect(preferences.devices).toBeUndefined();
+  });
+
+  it("keeps the ssh placement when the legacy devices module was hidden", async () => {
+    localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
+      state: {
+        preferences: {
+          ssh: { enabled: true, position: "rightDock" },
+          devices: { enabled: true, position: "hidden" },
+        },
+      },
+      version: 1,
+    }));
+
+    await useModulePrefsStore.persist.rehydrate();
+
+    expect(useModulePrefsStore.getState().preferences.ssh).toEqual({ enabled: true, position: "rightDock" });
   });
 
   it("moves existing orchestration preferences from the activity bar to the right dock", async () => {

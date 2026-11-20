@@ -50,6 +50,8 @@ interface DeviceCardProps {
   onDeploy: () => void;
   onUpdateToken: () => void;
   onRemove: () => void;
+  /** 挂在某台 SSH 主机条目下时传主机名：标题改为「CC-Panes」，不再重复主机地址 */
+  hostName?: string;
 }
 
 function SmallButton({ children, onClick, disabled }: {
@@ -77,6 +79,7 @@ export default function DeviceCard({
   onDeploy,
   onUpdateToken,
   onRemove,
+  hostName,
 }: DeviceCardProps) {
   const { t } = useTranslation("sidebar");
   const snapshot = useDevicesStore((s) => s.snapshots[device.id]);
@@ -94,6 +97,15 @@ export default function DeviceCard({
   const DeviceIcon = info?.headless || isSsh ? Server : Monitor;
   const launchableClis = cliTools.filter((tool) => tool.installed);
   const [busy, setBusy] = useState<string | null>(null);
+  const embedded = hostName !== undefined;
+  const title = !embedded
+    ? device.name
+    : device.name === hostName
+      ? t("machines.ccPanes")
+      : t("machines.ccPanesNamed", { name: device.name });
+  const target = embedded && device.connection.kind === "ssh"
+    ? t("machines.port", { port: device.connection.remotePort })
+    : device.targetLabel;
 
   const run = async (key: string, action: () => Promise<unknown>) => {
     if (busy) return;
@@ -137,7 +149,7 @@ export default function DeviceCard({
 
   return (
     <div
-      className="rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--app-hover)]"
+      className={`rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--app-hover)] ${embedded ? "border border-[var(--app-border)]" : ""}`}
       data-testid={`device-card-${device.id}`}
     >
       <div className="flex min-w-0 items-start gap-2">
@@ -162,7 +174,7 @@ export default function DeviceCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
-              {device.name}
+              {title}
             </span>
             {info?.appVersion && (
               <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
@@ -174,8 +186,8 @@ export default function DeviceCard({
             {progress
               ? `${t(`devices.deployStep.${progress.step}`)}${progress.fraction != null ? ` ${Math.round(progress.fraction * 100)}%` : ""}`
               : status === "online" && info
-                ? `${device.targetLabel} · ${info.osVersion ?? info.os} ${info.arch}`
-                : `${device.targetLabel} · ${t(`devices.status.${status}`)}`}
+                ? `${target} · ${info.osVersion ?? info.os} ${info.arch}`
+                : `${target} · ${t(`devices.status.${status}`)}`}
           </span>
         </div>
         <DropdownMenu>

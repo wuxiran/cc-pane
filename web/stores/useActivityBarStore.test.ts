@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useActivityBarStore } from "./useActivityBarStore";
+import { normalizeActivityView, useActivityBarStore } from "./useActivityBarStore";
 import { registerExperimentalGate } from "@/lib/experimentalGate";
 
 function reset() {
@@ -17,6 +17,27 @@ function reset() {
 describe("useActivityBarStore", () => {
   beforeEach(() => {
     reset();
+  });
+
+  describe("旧视图迁移（SSH 机器与设备合并）", () => {
+    it("持久化的 devices / ssh 都落到合并后的设备视图", () => {
+      expect(normalizeActivityView("devices")).toBe("ssh");
+      expect(normalizeActivityView("ssh")).toBe("ssh");
+      expect(normalizeActivityView("explorer")).toBe("explorer");
+      expect(normalizeActivityView("bogus")).toBe("explorer");
+      expect(normalizeActivityView(undefined)).toBe("explorer");
+    });
+
+    it("rehydrate 时把老用户存的 devices 改写成 ssh", async () => {
+      localStorage.setItem("cc-panes-activity-bar", JSON.stringify({
+        state: { activeView: "devices", sidebarVisible: true, activityBarVisible: true, appViewMode: "panes" },
+        version: 0,
+      }));
+      await useActivityBarStore.persist.rehydrate();
+      expect(useActivityBarStore.getState().activeView).toBe("ssh");
+      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+      localStorage.removeItem("cc-panes-activity-bar");
+    });
   });
 
   describe("初始状态", () => {

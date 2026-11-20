@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Copy,
+  CloudUpload,
   FolderOpen,
   KeyRound,
   LockKeyhole,
@@ -130,6 +131,10 @@ interface MachineItemProps {
   onCopy: (machine: SshMachine) => void;
   onCheckConnectivity: (machineId: string) => void;
   onToggleFavorite: (machineId: string) => void;
+  /** 合并视图：这台主机还没有部署 CC-Panes 时，菜单里提供「部署 CC-Panes」 */
+  onDeployCcPanes?: (machine: SshMachine) => void;
+  /** 合并视图：挂在这台主机上的 CC-Panes（渲染在行下方，不在可点击行内） */
+  children?: ReactNode;
 }
 
 function formatConnection(machine: SshMachine): string {
@@ -149,8 +154,9 @@ function MachineMenuItems({
   onCopy,
   onCheckConnectivity,
   onToggleFavorite,
+  onDeployCcPanes,
   dropdown = false,
-}: Omit<MachineItemProps, "connectivity" | "selected" | "onSelect"> & { dropdown?: boolean }) {
+}: Omit<MachineItemProps, "connectivity" | "selected" | "onSelect" | "children"> & { dropdown?: boolean }) {
   const { t } = useTranslation("sidebar");
   const Item = dropdown ? DropdownMenuItem : ContextMenuItem;
   return (
@@ -163,6 +169,12 @@ function MachineMenuItems({
         <FolderOpen className="mr-2 h-3.5 w-3.5" />
         {t("ssh.openFiles", { defaultValue: "Remote Files" })}
       </Item>
+      {onDeployCcPanes && (
+        <Item onClick={() => onDeployCcPanes(machine)}>
+          <CloudUpload className="mr-2 h-3.5 w-3.5" />
+          {t("machines.deployCcPanes")}
+        </Item>
+      )}
       <Item onClick={() => onToggleFavorite(machine.id)}>
         <Star className="mr-2 h-3.5 w-3.5" fill={favorite ? "currentColor" : "none"} />
         {t(favorite ? "ssh.unfavorite" : "ssh.favorite", {
@@ -253,9 +265,11 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
     onCopy: props.onCopy,
     onCheckConnectivity: props.onCheckConnectivity,
     onToggleFavorite: props.onToggleFavorite,
+    onDeployCcPanes: props.onDeployCcPanes,
   };
 
   return (
+    <div className="flex flex-col" data-testid={`machine-entry-${machine.id}`}>
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
@@ -389,6 +403,8 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
         <MachineMenuItems {...menuProps} />
       </ContextMenuContent>
     </ContextMenu>
+    {props.children && <div className="ml-5 mt-0.5 flex flex-col gap-1">{props.children}</div>}
+    </div>
   );
 });
 

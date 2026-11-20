@@ -2,7 +2,19 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { experimentalFeatureEnabled } from "@/lib/experimentalGate";
 
-export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "devices" | "process" | "orchestration";
+/**
+ * 侧栏视图。`"ssh"` 是「设备」视图（SSH 主机与其他电脑上的 CC-Panes 合并后的唯一入口），
+ * 沿用旧 id 以兼容模块偏好、右侧面板与布局作用域里对它的引用。
+ */
+export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
+
+const ACTIVITY_VIEWS: readonly ActivityView[] = ["explorer", "sessions", "files", "ssh", "process", "orchestration"];
+
+/** 持久化的旧视图 id → 现视图：0.12.23 前「设备」是独立的 `"devices"` 视图。未知值回到资源管理器。 */
+export function normalizeActivityView(value: unknown): ActivityView {
+  if (value === "devices") return "ssh";
+  return ACTIVITY_VIEWS.includes(value as ActivityView) ? (value as ActivityView) : "explorer";
+}
 export type AppViewMode =
   | "home"
   | "panes"
@@ -219,6 +231,16 @@ export const useActivityBarStore = create<ActivityBarState>()(
         // 重启后不应再落回去；首次安装没有记录时落在首页。
         appViewMode: state.appViewMode === "home" ? "home" : "panes",
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<ActivityBarState>;
+        return {
+          ...currentState,
+          ...persisted,
+          activeView: persisted.activeView === undefined
+            ? currentState.activeView
+            : normalizeActivityView(persisted.activeView),
+        };
+      },
     }
   )
 );

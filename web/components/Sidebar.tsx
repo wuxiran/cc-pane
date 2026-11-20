@@ -9,7 +9,6 @@ import WorkspaceEnvironmentPanel from "@/components/sidebar/WorkspaceEnvironment
 import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
-import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import DevicesView from "@/components/devices/DevicesView";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
@@ -89,11 +88,9 @@ export default function Sidebar({
           <ProcessView />
         )}
         */}
+        {/* 「设备」：SSH 主机 + 其他电脑上的 CC-Panes（沿用 "ssh" 视图 id） */}
         {activeView === "ssh" && (
-          <SshMachinesView onOpenTerminal={onOpenTerminal} />
-        )}
-        {activeView === "devices" && (
-          <DevicesView />
+          <DevicesView onOpenTerminal={onOpenTerminal} />
         )}
         {activeView === "orchestration" && (
           <OrchestratorView onOpenTerminal={onOpenTerminal} />

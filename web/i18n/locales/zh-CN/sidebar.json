@@ -42,13 +42,12 @@
   "planLegacyLocationHint": "来自 .ccpanes/plans/（0.12.10 前的位置，只读）。新归档写入工作空间目录。",
   "tools": "工具",
   "moduleNames": {
-    "ssh": "SSH 机器",
+    "ssh": "设备",
     "orchestration": "任务编排",
     "resources": "资源库",
     "todo": "TodoList",
     "aiPanel": "通知",
-    "sessionHistory": "会话历史",
-    "devices": "设备"
+    "sessionHistory": "会话历史"
   },
   "moduleMenu": {
     "title": "模块位置",
@@ -799,12 +798,21 @@
     "createFailed": "创建资料空间失败：{{error}}",
     "assistantPrompt": "你是资料空间的素材助手。严格按当前目录 CLAUDE.md 的约定工作：用户投来的链接、文字、图片按 ingest skill 收进 uploads/，视频链接按 video-transcribe skill 下载并转写，整理按 organize skill，创作产出写到 works/。用户刚打开你时，简短问候并说明可以直接把链接或想法发给你。"
   },
-  "devices": {
+  "machines": {
     "title": "设备",
-    "intro": "其他运行 CC-Panes 的服务器或电脑。会话在对方机器上启动，MCP、技能、记忆都按对方的配置注入。",
     "add": "添加设备",
+    "addSshHost": "SSH 主机",
+    "addSshCcPanes": "在 SSH 主机上部署 CC-Panes",
+    "addOtherComputer": "连接其他电脑上的 CC-Panes",
+    "empty": "还没有设备。添加一台 SSH 主机即可开终端、浏览远程文件，还能一键把 CC-Panes 部署过去；也可以用配对码连接另一台开着 CC-Panes 的电脑。",
+    "otherComputers": "其他电脑",
+    "deployCcPanes": "部署 CC-Panes…",
+    "ccPanes": "CC-Panes",
+    "ccPanesNamed": "CC-Panes · {{name}}",
+    "port": "端口 {{port}}"
+  },
+  "devices": {
     "refresh": "刷新",
-    "empty": "还没有设备。添加一台 SSH 服务器，CC-Panes 会把服务端部署过去；或直连另一台开着 CC-Panes 的电脑。",
     "status": {
       "unknown": "检查中…",
       "online": "在线",
@@ -854,7 +862,7 @@
       "kindDirectHint": "另一台开着 CC-Panes 的电脑（局域网或 Tailscale）。在对方电脑上打开「允许其他设备连接」并生成配对码。",
       "name": "名称",
       "machine": "SSH 机器",
-      "noMachines": "还没有 SSH 机器，请先在「SSH 机器」里添加。",
+      "noMachines": "还没有 SSH 主机，请先在「设备 → + → SSH 主机」里添加。",
       "remotePort": "服务端口（对方机器上）",
       "deployNow": "添加后立即部署",
       "baseUrl": "地址",
@@ -883,7 +891,7 @@
       "generate": "生成配对码",
       "expiresIn": "{{minutes}}:{{seconds}} 后失效",
       "cancel": "取消配对",
-      "addressHint": "在对方的「设备 → 添加设备 → 直连」里填写下面任一地址和配对码：",
+      "addressHint": "在对方的「设备 → + → 连接其他电脑上的 CC-Panes」里填写下面任一地址和配对码：",
       "noAddress": "没有检测到可用的网络地址。",
       "copy": "复制",
       "copied": "已复制",

@@ -35,11 +35,21 @@ interface AddDeviceDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 添加成功；`deploy` 表示用户要求立即部署 */
   onAdded: (device: DeviceSummary, deploy: boolean) => void;
+  /** 打开时预选的类型（「设备」视图的添加菜单已经选过一次） */
+  initialKind?: Kind;
+  /** 从某台 SSH 主机的「部署 CC-Panes」进入时预选该主机 */
+  initialMachineId?: string;
 }
 
 type Kind = "ssh" | "direct";
 
-export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDeviceDialogProps) {
+export default function AddDeviceDialog({
+  open,
+  onOpenChange,
+  onAdded,
+  initialKind = "ssh",
+  initialMachineId = "",
+}: AddDeviceDialogProps) {
   const { t } = useTranslation("sidebar");
   const machines = useSshMachinesStore((s) => s.machines);
   const loadMachines = useSshMachinesStore((s) => s.load);
@@ -59,9 +69,9 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
 
   useEffect(() => {
     if (!open) return;
-    setKind("ssh");
+    setKind(initialKind);
     setName("");
-    setMachineId("");
+    setMachineId(initialMachineId);
     setRemotePort(String(DEFAULT_REMOTE_PORT));
     setDeployNow(true);
     setBaseUrl("");
@@ -69,7 +79,7 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
     setPairingCode("");
     setUseToken(false);
     loadMachines().catch(() => {});
-  }, [open, loadMachines]);
+  }, [open, loadMachines, initialKind, initialMachineId]);
 
   const machine = machines.find((item) => item.id === machineId);
   const port = Number(remotePort);

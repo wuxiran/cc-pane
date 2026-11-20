@@ -1,190 +1,142 @@
-// 侧栏「设备」：其他运行 CC-Panes 的服务器 / 电脑，显示在线状态、CLI 安装情况、
-// 工作空间和运行中的会话。docs/111-multi-device.md
-import { useCallback, useEffect, useState } from "react";
+// 侧栏「设备」：我能连到的机器。SSH 主机（开终端 / 远程文件）与其他电脑上的 CC-Panes
+// 合并在一个视图里——同一台 SSH 主机上部署了 CC-Panes 时，它的状态、会话和工作空间直接挂在
+// 那台主机的条目下；配对码 / 地址直连的其他电脑单独成一段。docs/111-multi-device.md
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "@/components/ui/toast";
-import { getVersion } from "@tauri-apps/api/app";
-import { Plus, RefreshCw } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  sidebarSectionCountClass,
-  sidebarSectionHeaderClass,
-  sidebarSectionTitleClass,
-} from "@/components/sidebar/sidebarStyles";
+import { MonitorSmartphone } from "lucide-react";
+import SshMachinesView, { type MachineDevicesSlot } from "@/components/sidebar/SshMachinesView";
+import { useSshMachineDialogStore, useSshMachinesStore } from "@/stores";
 import { useDevicesStore } from "@/stores/useDevicesStore";
-import { onDeployProgress } from "@/services/deviceService";
-import { nativeConfirm } from "@/services/nativeDialog";
-import { isTauriRuntime } from "@/services/runtime";
-import { getErrorMessage } from "@/utils";
+import type { OpenTerminalOptions } from "@/types";
 import type { DeviceSummary } from "@/types/device";
 import AddDeviceDialog from "./AddDeviceDialog";
 import DeviceCard from "./DeviceCard";
 import DeviceTokenDialog from "./DeviceTokenDialog";
+import { useDevicesController, type AddDeviceRequest } from "./useDevicesController";
 
-const POLL_INTERVAL_MS = 10_000;
+interface DevicesViewProps {
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
+}
 
-function HeaderButton({ label, onClick, children, disabled }: {
-  label: string;
-  onClick: () => void;
+function TextButton({ children, onClick, testId }: {
   children: React.ReactNode;
-  disabled?: boolean;
+  onClick: () => void;
+  testId?: string;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          disabled={disabled}
-          className="flex h-5 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)] disabled:opacity-40"
-          onClick={onClick}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      data-testid={testId}
+      className="self-start rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--app-hover)]"
+      style={{ color: "var(--app-accent)" }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
-export default function DevicesView() {
+function openSshMachineDialog() {
+  useSshMachineDialogStore.getState().openAddDialog();
+}
+
+export default function DevicesView({ onOpenTerminal }: DevicesViewProps) {
   const { t } = useTranslation("sidebar");
   const devices = useDevicesStore((s) => s.devices);
-  const loaded = useDevicesStore((s) => s.loaded);
-  const load = useDevicesStore((s) => s.load);
-  const refresh = useDevicesStore((s) => s.refresh);
-  const refreshAll = useDevicesStore((s) => s.refreshAll);
   const refreshing = useDevicesStore((s) => s.refreshing);
-  const deploy = useDevicesStore((s) => s.deploy);
-  const remove = useDevicesStore((s) => s.remove);
-  const applyDeployProgress = useDevicesStore((s) => s.applyDeployProgress);
+  const refreshAll = useDevicesStore((s) => s.refreshAll);
+  const machines = useSshMachinesStore((s) => s.machines);
+  const controller = useDevicesController();
+  const { openAdd } = controller;
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [tokenDevice, setTokenDevice] = useState<DeviceSummary | null>(null);
-  const [localVersion, setLocalVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    getVersion().then(setLocalVersion).catch(() => {});
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-    onDeployProgress(applyDeployProgress).then((fn) => {
-      if (disposed) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [applyDeployProgress]);
-
-  // 视图可见时加载并轮询；卸载即停止（侧栏切走就不再打对方）。
-  useEffect(() => {
-    let cancelled = false;
-    load()
-      .then(() => {
-        if (!cancelled) void useDevicesStore.getState().refreshAll();
-      })
-      .catch((error) => toast.error(getErrorMessage(error)));
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void useDevicesStore.getState().refreshAll();
-    }, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [load]);
-
-  const runDeploy = useCallback(async (device: DeviceSummary) => {
-    try {
-      const report = await deploy(device.id);
-      toast.success(t("devices.deployed", { name: device.name, version: report.version }));
-      for (const warning of report.warnings) toast.warning(warning, { duration: 12_000 });
-    } catch (error) {
-      toast.error(t("devices.deployFailed", { error: getErrorMessage(error) }), { duration: 15_000 });
+  // 按 SSH 主机归组；主机已被删掉的旧 SSH 设备落到「其他电脑」段，仍可查看和移除。
+  const { byMachine, others } = useMemo(() => {
+    const machineIds = new Set(machines.map((machine) => machine.id));
+    const grouped = new Map<string, DeviceSummary[]>();
+    const rest: DeviceSummary[] = [];
+    for (const device of devices) {
+      const { connection } = device;
+      if (connection.kind === "ssh" && machineIds.has(connection.machineId)) {
+        grouped.set(connection.machineId, [...(grouped.get(connection.machineId) ?? []), device]);
+      } else {
+        rest.push(device);
+      }
     }
-  }, [deploy, t]);
+    return { byMachine: grouped, others: rest };
+  }, [devices, machines]);
 
-  const handleRemove = useCallback(async (device: DeviceSummary) => {
-    const confirmed = await nativeConfirm(t("devices.removeConfirm", { name: device.name }));
-    if (!confirmed) return;
-    try {
-      await remove(device.id);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
-  }, [remove, t]);
+  const renderCard = (device: DeviceSummary, hostName?: string) => (
+    <DeviceCard
+      key={device.id}
+      device={device}
+      hostName={hostName}
+      localVersion={controller.localVersion}
+      onRefresh={() => void controller.refresh(device.id)}
+      onDeploy={() => void controller.runDeploy(device)}
+      onUpdateToken={() => controller.setTokenDevice(device)}
+      onRemove={() => void controller.removeDevice(device)}
+    />
+  );
 
-  const anyRefreshing = Object.values(refreshing).some(Boolean);
+  const addDirect = () => openAdd({ kind: "direct" } satisfies AddDeviceRequest);
+
+  const slot: MachineDevicesSlot = {
+    title: t("machines.title"),
+    otherCount: others.length,
+    addOptions: [
+      { id: "ssh-host", label: t("machines.addSshHost"), onSelect: openSshMachineDialog },
+      { id: "ssh-device", label: t("machines.addSshCcPanes"), onSelect: () => openAdd({ kind: "ssh" }) },
+      { id: "direct", label: t("machines.addOtherComputer"), onSelect: addDirect },
+    ],
+    renderForMachine: (machine) => byMachine.get(machine.id)?.map((device) => renderCard(device, machine.name)),
+    canDeploy: (machineId) => !byMachine.has(machineId),
+    onDeploy: (machine) => openAdd({ kind: "ssh", machineId: machine.id }),
+    onRefreshAll: () => void refreshAll(),
+    refreshing: Object.values(refreshing).some(Boolean),
+    emptyState: (
+      <div
+        className="mx-1 mt-2 flex flex-col gap-2 rounded-lg border border-dashed px-3 py-4 text-xs leading-relaxed"
+        style={{ borderColor: "var(--app-border)", color: "var(--app-text-tertiary)" }}
+        data-testid="machines-empty"
+      >
+        <MonitorSmartphone className="h-6 w-6" style={{ color: "var(--app-text-muted)" }} />
+        <p>{t("machines.empty")}</p>
+        <TextButton onClick={openSshMachineDialog}>+ {t("machines.addSshHost")}</TextButton>
+        <TextButton onClick={addDirect}>+ {t("machines.addOtherComputer")}</TextButton>
+      </div>
+    ),
+    footer: others.length > 0 ? (
+      <section className="mt-3 flex flex-col gap-1" aria-label={t("machines.otherComputers")}>
+        <div className="flex items-center gap-1.5 px-1">
+          <span className="text-[length:var(--text-micro)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+            {t("machines.otherComputers")}
+          </span>
+          <span className="text-[length:var(--text-micro)] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
+            {others.length}
+          </span>
+        </div>
+        {others.map((device) => renderCard(device))}
+      </section>
+    ) : machines.length > 0 ? (
+      <div className="mt-3 flex">
+        <TextButton onClick={addDirect} testId="machines-add-other-inline">
+          + {t("machines.addOtherComputer")}
+        </TextButton>
+      </div>
+    ) : null,
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="devices-view">
-      <div className={sidebarSectionHeaderClass}>
-        <div className="flex items-center gap-2">
-          <span className={sidebarSectionTitleClass}>{t("devices.title")}</span>
-          <span
-            className={sidebarSectionCountClass}
-            style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
-          >
-            {devices.length}
-          </span>
-        </div>
-        <div className="flex items-center gap-0.5">
-          {devices.length > 0 && (
-            <HeaderButton label={t("devices.refresh")} onClick={() => void refreshAll()} disabled={anyRefreshing}>
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${anyRefreshing ? "animate-spin" : ""}`}
-                style={{ color: "var(--app-text-secondary)" }}
-              />
-            </HeaderButton>
-          )}
-          <HeaderButton label={t("devices.add")} onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" style={{ color: "var(--app-text-secondary)" }} />
-          </HeaderButton>
-        </div>
-      </div>
-
-      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
-        {loaded && devices.length === 0 ? (
-          <div className="mx-1 mt-2 flex flex-col gap-2 rounded-lg border border-dashed px-3 py-4 text-xs leading-relaxed"
-            style={{ borderColor: "var(--app-border)", color: "var(--app-text-tertiary)" }}
-          >
-            <p>{t("devices.empty")}</p>
-            <button
-              type="button"
-              className="self-start rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--app-hover)]"
-              style={{ color: "var(--app-accent)" }}
-              onClick={() => setAddOpen(true)}
-            >
-              + {t("devices.add")}
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {devices.map((device) => (
-              <DeviceCard
-                key={device.id}
-                device={device}
-                localVersion={localVersion}
-                onRefresh={() => void refresh(device.id)}
-                onDeploy={() => void runDeploy(device)}
-                onUpdateToken={() => setTokenDevice(device)}
-                onRemove={() => void handleRemove(device)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
+      <SshMachinesView onOpenTerminal={onOpenTerminal} devices={slot} />
       <AddDeviceDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        onAdded={(device, deployNow) => {
-          if (deployNow) void runDeploy(device);
-          else void refresh(device.id);
-        }}
+        open={controller.addOpen}
+        onOpenChange={controller.setAddOpen}
+        initialKind={controller.addRequest.kind}
+        initialMachineId={controller.addRequest.machineId}
+        onAdded={controller.handleAdded}
       />
-      <DeviceTokenDialog device={tokenDevice} onClose={() => setTokenDevice(null)} />
+      <DeviceTokenDialog device={controller.tokenDevice} onClose={() => controller.setTokenDevice(null)} />
     </div>
   );
 }
