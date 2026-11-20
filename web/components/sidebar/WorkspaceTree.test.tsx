@@ -348,7 +348,7 @@ describe("WorkspaceTree component", () => {
   it("点「工作空间」分区头收起和展开整个列表，状态记在 store 里", () => {
     storeState.workspaces = [makeWorkspace({ id: "a", name: "alpha" })];
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    const header = screen.getByRole("button", { name: "workspaces" });
+    const header = screen.getAllByRole("button", { name: "workspaces" })[0];
     expect(header).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByTestId("ws-item")).toHaveLength(1);
 

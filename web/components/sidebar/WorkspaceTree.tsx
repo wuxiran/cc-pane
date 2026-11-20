@@ -310,9 +310,8 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       ) : (
       <>
       <div className={sidebarSectionHeaderClass}>
-        <button type="button" aria-expanded={!sectionCollapsed} onClick={toggleSection} className={`${sidebarSectionTitleClass} -ml-1 flex items-center gap-0.5 rounded px-1 hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]`}>
+        <button type="button" aria-expanded={!sectionCollapsed} onClick={toggleSection} className={`${sidebarSectionTitleClass} -ml-1 flex items-center rounded px-1 hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]`}>
           {t("workspaces")}
-          <ChevronDown className={`size-3 transition-transform ${sectionCollapsed ? "-rotate-90" : ""}`} strokeWidth={2} aria-hidden="true" />
         </button>
         <div className="flex items-center gap-0.5">
           <IconTooltipButton
@@ -336,6 +335,16 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           >
             <FolderTree className="size-3.5" />
           </IconTooltipButton>
+          {/* 折叠箭头放最右：标题本身也可点击折叠 */}
+          <button
+            type="button"
+            aria-label={t("workspaces")}
+            aria-expanded={!sectionCollapsed}
+            onClick={toggleSection}
+            className="-mr-4 flex size-5 items-center justify-center rounded text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+          >
+            <ChevronDown className={`size-3.5 transition-transform ${sectionCollapsed ? "-rotate-90" : ""}`} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
       </div>
       </>
