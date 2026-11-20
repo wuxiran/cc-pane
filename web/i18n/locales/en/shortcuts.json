@@ -51,5 +51,9 @@
   "paletteSessions": "Sessions",
   "paletteTabAll": "All",
   "paletteTabActions": "Actions",
-  "paletteTabSettings": "Settings"
+  "paletteTabSettings": "Settings",
+  "palettePreviewFirstPrompt": "First prompt",
+  "palettePreviewSummary": "Latest progress",
+  "palettePreviewMessages": "{{count}} messages",
+  "palettePreviewNoContent": "No content has been read for this session yet."
 }

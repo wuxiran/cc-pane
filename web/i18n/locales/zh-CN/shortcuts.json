@@ -51,5 +51,9 @@
   "paletteSessions": "会话",
   "paletteTabAll": "全部",
   "paletteTabActions": "操作",
-  "paletteTabSettings": "设置"
+  "paletteTabSettings": "设置",
+  "palettePreviewFirstPrompt": "首条输入",
+  "palettePreviewSummary": "最近进展",
+  "palettePreviewMessages": "{{count}} 条消息",
+  "palettePreviewNoContent": "还没有读到这段会话的内容。"
 }

@@ -38,7 +38,7 @@ import {
 } from "@/lib/quickCommandExecution";
 import type { OpenTerminalOptions, ScopedQuickCommand } from "@/types";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/lib/commands/paletteEvents";
-import { PaletteQuickActions, PaletteSessionsGroup, RECENT_SESSION_LIMIT, usePaletteSessions } from "@/components/commandPalette/PaletteSessions";
+import { findSessionByValue, PaletteQuickActions, PaletteSessionPreview, PaletteSessionsGroup, RECENT_SESSION_LIMIT, usePaletteSessions } from "@/components/commandPalette/PaletteSessions";
 
 export { COMMAND_PALETTE_TOGGLE_EVENT };
 
@@ -62,11 +62,15 @@ export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps =
   const [scope, setScope] = useState<PaletteScope>("all");
   const [query, setQuery] = useState("");
   const sessions = usePaletteSessions(open);
+  // 高亮项（键盘或鼠标悬浮）是会话时，右侧显示它的内容预览。
+  const [selectedValue, setSelectedValue] = useState("");
+  const previewSession = open ? findSessionByValue(sessions, selectedValue) : null;
   // 每次打开都回到「全部」+ 空关键字。
   useEffect(() => {
     if (open) return;
     setScope("all");
     setQuery("");
+    setSelectedValue("");
   }, [open]);
   const inScope = (...scopes: PaletteScope[]) => scope === "all" || scopes.includes(scope);
   const listedSessions = scope === "all" && !query.trim() ? sessions.slice(0, RECENT_SESSION_LIMIT) : sessions;
@@ -175,7 +179,7 @@ export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps =
     .filter(({ items }) => items.length > 0);
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen} title={t("command-palette", { ns: "shortcuts", defaultValue: "命令面板" })}>
+    <CommandDialog open={open} onOpenChange={setOpen} selectedValue={selectedValue} onSelectedChange={setSelectedValue} title={t("command-palette", { ns: "shortcuts", defaultValue: "命令面板" })}>
       <CommandInput
         value={query}
         onValueChange={setQuery}
@@ -184,7 +188,8 @@ export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps =
           defaultValue: "输入命令、工作空间或布局名…",
         })}
       />
-      <CommandList className="max-h-[min(440px,60vh)]">
+      <div className="flex min-h-0">
+      <CommandList className="max-h-[min(440px,60vh)] min-w-0 flex-1">
         <CommandEmpty>
           {t("commandPaletteEmpty", { ns: "shortcuts", defaultValue: "没有匹配的命令" })}
         </CommandEmpty>
@@ -341,6 +346,8 @@ export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps =
           </CommandGroup>
         )}
       </CommandList>
+      {previewSession && <PaletteSessionPreview session={previewSession} />}
+      </div>
       {/* 分类标签：收窄到一类（同 ChatGPT 桌面端搜索面板底部那一排） */}
       <div className="flex shrink-0 items-center gap-1 border-t border-[var(--app-border)] px-2 py-1.5" role="tablist" aria-label={t("command-palette", { ns: "shortcuts" })}>
         {SCOPES.map((item) => (

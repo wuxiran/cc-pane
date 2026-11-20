@@ -26,10 +26,13 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 
 interface CommandDialogProps extends React.ComponentProps<typeof Dialog> {
   title?: string;
+  /** 受控的高亮项（键盘或鼠标悬浮选中的那一项的 value）。cmdk 只在受控时回调，两个要一起传。 */
+  selectedValue?: string;
+  onSelectedChange?: (value: string) => void;
   children: React.ReactNode;
 }
 
-function CommandDialog({ title, children, ...props }: CommandDialogProps) {
+function CommandDialog({ title, selectedValue, onSelectedChange, children, ...props }: CommandDialogProps) {
   // 默认标题在渲染时取当前语言（调用方显式传 title 时以调用方为准）
   const resolvedTitle = title ?? i18n.t("command-palette", { ns: "shortcuts" });
   return (
@@ -37,12 +40,14 @@ function CommandDialog({ title, children, ...props }: CommandDialogProps) {
       <DialogContent
         showCloseButton={false}
         // 键盘唤起的高频面板：零动画（Raycast 式），出现/消失都即时
-        className="overflow-hidden p-0 top-[20%] translate-y-0 max-w-[680px] border-[var(--app-border)] bg-[var(--app-overlay)] shadow-[var(--sh-lg)] data-[state=open]:animate-none data-[state=closed]:animate-none"
+        className="overflow-hidden p-0 top-[20%] translate-y-0 max-w-[760px] border-[var(--app-border)] bg-[var(--app-overlay)] shadow-[var(--sh-lg)] data-[state=open]:animate-none data-[state=closed]:animate-none"
       >
         <DialogTitle className="sr-only">{resolvedTitle}</DialogTitle>
         <DialogDescription className="sr-only">{resolvedTitle}</DialogDescription>
         <Command
           shouldFilter
+          value={selectedValue}
+          onValueChange={onSelectedChange}
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[length:var(--text-micro)] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--app-text-tertiary)]"
         >
           {children}

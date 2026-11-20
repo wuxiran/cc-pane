@@ -181,6 +181,9 @@ describe("CommandPalette modules", () => {
           { id: 1, projectId: "p", projectName: "demo", projectPath: "/repo/demo", launchedAt: "2026-05-01T10:00:00Z", resumeSessionId: "resume-1", cliTool: "claude", lastPrompt: "Fix login" },
           { id: 2, projectId: "p", projectName: "no-resume", projectPath: "/repo/x", launchedAt: "2026-05-03T10:00:00Z" },
         ],
+        list_session_index: [
+          { sessionId: "resume-1", cliTool: "claude", filePath: "", cwd: "/repo/demo", projectPathNorm: "", projectName: "demo", workspaceName: null, firstPrompt: "Fix login\nplease check the token refresh", title: "Login token bug", lastSummary: "Patched the refresh path; tests pass.", messageCount: 42, mtimeMs: 0, size: 0, source: "local", wslDistro: null, updatedAt: "" },
+        ],
         list_acp_chat_history: [
           { acpSessionId: "acp-1", engineId: "codex", cwd: "/repo/demo", title: "Review report", createdAt: 1, updatedAt: Date.parse("2026-05-02T10:00:00Z") },
         ],
@@ -191,15 +194,27 @@ describe("CommandPalette modules", () => {
       await openPalette();
       await waitFor(() => expect(kinds()).toEqual(["chat", "cli"]));
       expect(screen.getByText("Review report")).toBeInTheDocument();
-      expect(screen.getByText("Fix login")).toBeInTheDocument();
+      expect(screen.getByText("Login token bug")).toBeInTheDocument();
       expect(screen.queryByText("no-resume")).not.toBeInTheDocument();
       expect(document.querySelector('[data-session-kind="cli"]')?.textContent).toMatch(/demo · .* · claude/);
     });
 
     it("resumes a CLI session through onOpenTerminal", async () => {
       await openPalette();
-      fireEvent.click(await screen.findByText("Fix login"));
+      fireEvent.click(await screen.findByText("Login token bug"));
       await waitFor(() => expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({ path: "/repo/demo", resumeId: "resume-1" })));
+    });
+
+    it("previews the highlighted session's content: first prompt, latest progress, message count", async () => {
+      const user = userEvent.setup();
+      await openPalette();
+      const row = (await screen.findByText("Login token bug")).closest("[cmdk-item]") as HTMLElement;
+      await user.hover(row);
+      const preview = await screen.findByTestId("palette-session-preview");
+      expect(preview.textContent).toContain("please check the token refresh");
+      expect(preview.textContent).toContain("Patched the refresh path; tests pass.");
+      expect(preview.textContent).toMatch(/42/);
+      expect(preview.textContent).toContain("/repo/demo");
     });
 
     it("narrows the list with the category tabs", async () => {
