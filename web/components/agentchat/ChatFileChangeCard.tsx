@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FilePlus2, FilePenLine, Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { undoAgentFileEdit } from "@/services/agentEditService";
 import { translateError } from "@/utils/errorTranslation";
 import type { FileEditBlock } from "./fileEdits";
@@ -18,6 +19,8 @@ interface Props {
 export default function ChatFileChangeCard({ block, toolCallId, chatId, undoable, renderDiff, onOpenFile }: Props) {
   const { t } = useTranslation("panes");
   const snapshot = useAgentChatStore((state) => chatId ? state.chats[chatId]?.snapshot : undefined);
+  // 远程会话改的是远端文件，本地撤销无从下手（后端也不记录远程改动）。
+  const remote = useAgentChatRemoteStore((state) => chatId ? Boolean(state.targets[chatId]) : false);
   const [expanded, setExpanded] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
@@ -60,12 +63,12 @@ export default function ChatFileChangeCard({ block, toolCallId, chatId, undoable
           {onOpenFile ? <button type="button" className="mt-0.5 max-w-full truncate text-xs text-[var(--app-text-secondary)] hover:underline" onClick={() => onOpenFile(block.path)} title={block.path}>{block.path}</button> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button type="button" disabled={undoDisabled} onClick={() => void undo()}
+          {!remote && <button type="button" disabled={undoDisabled} onClick={() => void undo()}
             title={!undoable ? t("agentChatUndoEditUnavailable", { defaultValue: "The complete original content is unavailable for safe undo" }) : !ready ? t("agentChatUndoEditBusy", { defaultValue: "Wait for this conversation to finish before undoing" }) : undefined}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-[var(--app-active-bg)] disabled:cursor-default disabled:opacity-45">
             {undoing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />}
             {undone ? t("agentChatEditUndone", { defaultValue: "Undone" }) : undoing ? t("agentChatUndoingEdit", { defaultValue: "Undoing…" }) : t("agentChatUndoEdit", { defaultValue: "Undo" })}
-          </button>
+          </button>}
           <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="rounded-lg border border-[var(--app-border)] px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--app-active-bg)]">
             {t("agentChatViewChanges", { defaultValue: "View changes" })}
           </button>

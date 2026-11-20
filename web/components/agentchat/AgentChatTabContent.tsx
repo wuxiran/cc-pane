@@ -17,6 +17,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
 import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { getAgentChatRemoteTarget, useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -36,6 +37,8 @@ import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
 import CodexMenuItems from "./CodexMenuItems";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
+import RemoteTargetChip from "./RemoteTargetChip";
+import { remoteLaunchOf } from "./remoteTarget";
 import ChatPermissionQueue from "./ChatPermissionQueue";
 import ChatQuestionQueue from "./ChatQuestionQueue";
 import { startConfiguredChat } from "./startConfiguredChat";
@@ -75,7 +78,10 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   // 既没覆盖也没带项目时（专用布局自动补的空标签、首页直接开聊），回退到
   // Agent Chat 常驻工作空间：聊天永远要有一个真实存在的 cwd。
-  const effectiveCwd = cwdOverride || tab.projectPath || residentAgentChatCwd(workspaces);
+  const localCwd = cwdOverride || tab.projectPath || residentAgentChatCwd(workspaces);
+  // 远程会话（启动页选了 SSH 机器）：cwd 是远端目录，本地入口全部下线。
+  const remote = useAgentChatRemoteStore((state) => state.targets[tab.id] ?? null);
+  const effectiveCwd = remote?.cwd || localCwd;
   const setCwdOverride = useCallback(
     (cwd: string | null) => useAgentChatStore.getState().setCwdOverride(tab.id, cwd),
     [tab.id],
@@ -237,10 +243,12 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
     if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
     const setup = useAgentChatStore.getState().chats[tab.id]?.setup;
+    const target = getAgentChatRemoteTarget(tab.id);
     void startConfiguredChat({
       chatId: tab.id,
       engineId: current.engineId,
-      cwd: effectiveCwd,
+      cwd: target?.cwd || effectiveCwd,
+      remote: remoteLaunchOf(target),
       resumeAcpSessionId: current.acpSessionId,
       autoApproveKinds: current.autoApproveKinds,
       firstPrompt: setup?.firstPrompt,
@@ -277,7 +285,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
         <EnginePicker
           chatId={tab.id}
           preferredEngineId={tab.agentEngineId}
-          cwd={effectiveCwd}
+          cwd={localCwd}
           onPickCwd={setCwdOverride}
           onCwdAdopted={setCwdOverride}
           compact={compact}
@@ -315,12 +323,11 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
       {snapshot && !compact ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
-          extraMenuItems={<CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={setHandoffCwd} />}
+          extraMenuItems={remote ? undefined : <CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={setHandoffCwd} />}
           onHistory={runtimeTools?.openHistory}
           onCheckpoints={runtimeTools?.openCheckpoints}
-          workspaceMenu={
-            <SessionWorkspaceMenu chatId={tab.id} cwd={effectiveCwd} generating={generating} />
-          }
+          workspaceMenu={remote ? <RemoteTargetChip target={remote} />
+            : <SessionWorkspaceMenu chatId={tab.id} cwd={effectiveCwd} generating={generating} />}
           generating={generating}
           changesCount={changesCount}
           showChanges={showChanges}
@@ -329,7 +336,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
           onToggleTools={() =>
             setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
           }
-          canFork={Boolean(snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
+          canFork={Boolean(!remote && snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
           onFork={() => {
             if (!snapshot.acpSessionId || !effectiveCwd) return;
             forkSource.current = { engineId: snapshot.engineId, sessionId: snapshot.acpSessionId, cwd: effectiveCwd };
@@ -364,6 +371,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
                 engineLabel={engineLabel}
                 cwd={effectiveCwd}
                 concierge={chat?.concierge ?? false}
+                locationLabel={remote ? t("agentChatRemoteTarget", { machine: remote.machineName, path: remote.cwd }) : undefined}
               />
             ) : null}
             {turns.length > visibleCount ? (

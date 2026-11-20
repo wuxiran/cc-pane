@@ -3,6 +3,7 @@ import { lazyWithRetry } from "@/lib/lazyRetry";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { residentAgentChatCwd } from "./chatPaths";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { usePanesStore } from "@/stores/usePanesStore";
 
 const ChatRunHistoryPanel = lazyWithRetry(() => import("./ChatRunHistoryPanel"), "ChatRunHistoryPanel");
@@ -13,7 +14,10 @@ export function useChatRuntimeTools() {
   return useContext(RuntimeToolsContext);
 }
 
-/** Tools remain available after process exit and before a new engine is started. */
+/**
+ * Tools remain available after process exit and before a new engine is started.
+ * Remote chats get none: review/run history/checkpoints all read local paths and records.
+ */
 export default function ChatRuntimeWorkspace({ chatId, cwd, children }: { chatId: string; cwd?: string; children: ReactNode }) {
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const cwdOverride = useAgentChatStore((state) => state.chats[chatId]?.cwdOverride);
@@ -25,12 +29,13 @@ export default function ChatRuntimeWorkspace({ chatId, cwd, children }: { chatId
     return Boolean(target?.snapshot?.phase === "generating" || target?.pendingPrompt || target?.setup?.pending);
   });
   const [historyOpen, setHistoryOpen] = useState(false);
+  const remote = useAgentChatRemoteStore((state) => Boolean(state.targets[chatId]));
   useEffect(() => { setHistoryOpen(false); setCheckpointTarget(null); }, [chatId]);
   const openCheckpoint = (sourceChatId: string, checkpointId?: string) => {
     setHistoryOpen(false);
     setCheckpointTarget({ chatId: sourceChatId, checkpointId });
   };
-  return <RuntimeToolsContext.Provider value={{
+  return <RuntimeToolsContext.Provider value={remote ? null : {
     openHistory: () => { setCheckpointTarget(null); setHistoryOpen(true); },
     openCheckpoints: () => { openCheckpoint(chatId); },
     openReview: (path) => {

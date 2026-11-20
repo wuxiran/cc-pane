@@ -18,6 +18,13 @@ describe("prepareLocalSessionCwd", () => {
     })).resolves.toBe("/repo-worktrees/cc-task");
     expect(worktreeService.add).toHaveBeenCalledWith("/repo", "cc-task", "cc/task", "refs/heads/release", true);
   });
+  it("creates the worktree in the selected workspace project when the launch directory is not a repo", async () => {
+    vi.mocked(worktreeService.add).mockResolvedValue("/ws/app-worktrees/cc-task");
+    await expect(prepareLocalSessionCwd("/ws", {
+      enabled: true, branch: "cc/task", baseRef: "HEAD", repoPath: "/ws/app",
+    })).resolves.toBe("/ws/app-worktrees/cc-task");
+    expect(worktreeService.add).toHaveBeenCalledWith("/ws/app", "cc-task", "cc/task", "HEAD", true);
+  });
   it("rejects an empty new branch and surfaces creation failure", async () => {
     await expect(prepareLocalSessionCwd("/repo", { enabled: true, branch: " " })).rejects.toThrow();
     expect(worktreeService.add).not.toHaveBeenCalled();

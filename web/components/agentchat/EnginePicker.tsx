@@ -5,17 +5,15 @@ import {
   ArrowUp,
   ChevronDown,
   FolderOpen,
-  FileDiff,
   Loader2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import logoUrl from "@/assets/logo.svg";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
-import { agentChatService } from "@/services/agentChatService";
-import LocalLaunchSettings from "@/components/launcher/LocalLaunchSettings";
+import { agentChatService, type AcpRemoteLaunch } from "@/services/agentChatService";
 import type { LocalWorktreeDraft } from "@/types/localLaunch";
-import { useChatRuntimeTools } from "./ChatRuntimeWorkspace";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import {
@@ -30,6 +28,8 @@ import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
 import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
+import StartTray from "./StartTray";
+import { remoteLaunchOf, selectRemoteMachine } from "./remoteTarget";
 import CompactStartPage from "./CompactStartPage";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
@@ -45,7 +45,6 @@ import {
   savePreferredModel,
   type EngineModelPrefs,
 } from "./enginePrefs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 export interface EnginePickerProps {
@@ -61,9 +60,9 @@ export interface EnginePickerProps {
 
 export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, compact = false }: EnginePickerProps) {
   const { t } = useTranslation("panes");
-  const { t: reviewT } = useTranslation("review");
   const { t: codexT } = useTranslation("codexIntegration");
-  const runtimeTools = useChatRuntimeTools();
+  // 远程目标按对话存：启动页选的机器，restart/重试沿用（AgentChatTabContent 读同一份）。
+  const remote = useAgentChatRemoteStore((state) => state.targets[chatId] ?? null);
   const [engines, setEngines] = useState<AcpEngineInfo[] | null>(null);
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -155,8 +154,11 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
       firstPrompt?: string,
       preamble?: string,
       launchWorktree?: LocalWorktreeDraft,
+      launchRemote?: AcpRemoteLaunch,
     ) => {
       if (!startCwd || useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
+      // 续接/首页交接都是本地会话；残留的远程选择不能让画面误标成远程。
+      if (!launchRemote) selectRemoteMachine(chatId, null);
       setError(null);
       setStartingEngine(resumeAcpSessionId ?? engineId);
       try {
@@ -164,6 +166,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
           chatId, engineId, cwd: startCwd, resumeAcpSessionId, firstPrompt, preamble,
           onCwdAdopted,
           worktree: launchWorktree,
+          remote: launchRemote,
         });
       } catch (startError) {
         setError(startError instanceof Error ? startError.message : String(startError));
@@ -174,15 +177,24 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
     [chatId, onCwdAdopted],
   );
 
+  const remoteChecking = remote?.probe.status === "checking";
   const launch = useCallback(() => {
     if (!cwd || !selectedEngine || !engines?.some((engine) => engine.id === selectedEngine && engine.available) || startingEngine !== null) return;
-    void start(selectedEngine, cwd, undefined, draft, undefined, worktree);
-  }, [cwd, engines, selectedEngine, startingEngine, start, draft, worktree]);
+    if (!remote) {
+      void start(selectedEngine, cwd, undefined, draft, undefined, worktree);
+      return;
+    }
+    if (remoteChecking) return;
+    const remoteCwd = remote.cwd.trim() || "~";
+    if (remoteCwd !== remote.cwd) useAgentChatRemoteStore.getState().setRemoteCwd(chatId, remoteCwd);
+    void start(selectedEngine, remoteCwd, undefined, draft, undefined, undefined, remoteLaunchOf(remote));
+  }, [chatId, cwd, engines, selectedEngine, startingEngine, start, draft, worktree, remote, remoteChecking]);
 
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   // 常驻工作空间显示产品名（Agent Chat），普通目录退回目录名
-  const projectName = cwd ? workspaceLabelFor(cwd, workspaces) : null;
+  const remoteLabel = remote ? t("agentChatRemoteTarget", { machine: remote.machineName, path: remote.cwd.trim() || "~" }) : null;
+  const projectName = remoteLabel ?? (cwd ? workspaceLabelFor(cwd, workspaces) : null);
 
   const launching = startingEngine !== null && startingEngine === selectedEngine;
 
@@ -297,7 +309,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               <IconTooltipButton
                 label={t("agentChatSend")}
                 kbd="Enter"
-                disabled={!cwd || !selected?.available || startingEngine !== null}
+                disabled={!cwd || !selected?.available || startingEngine !== null || remoteChecking}
                 className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30"
                 onClick={launch}
               >
@@ -308,7 +320,10 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
                 )}
               </IconTooltipButton>
   );
-  const projectMenu = (trigger: React.ReactElement) => <StartProjectMenu cwd={cwd} onPickCwd={pickCwd} trigger={trigger} />;
+  // 远程目标：项目位只显示「机器 · 远端目录」，不挂本地项目选择。
+  const projectMenu = (trigger: React.ReactElement) => remote
+    ? <span data-testid="remote-target-label" title={t("agentChatRemoteTargetTip", { host: remote.host, path: remote.cwd })}>{remoteLabel}</span>
+    : <StartProjectMenu cwd={cwd} onPickCwd={pickCwd} trigger={trigger} />;
   if (compact) {
     return (
       <CompactStartPage
@@ -380,26 +395,9 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
         {/* 底部输入区：上方托盘挂运行位置 / 项目 / 审查，下方输入卡挂权限、引擎、模型、发送 */}
         <div className="agent-chat-start-dock pb-4">
           {cwd ? (
-            <div className="agent-chat-start-tray mx-4 flex min-w-0 items-center gap-1 rounded-t-2xl border border-b-0 border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-text-secondary)]">
-              <LocalLaunchSettings projectPath={cwd} worktree={worktree}
-                onChange={setWorktree} disabled={startingEngine !== null} />
-              {projectMenu(
-                <button
-                  type="button"
-                  title={cwd}
-                  disabled={startingEngine !== null}
-                  className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                >
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 max-w-64 truncate">{projectName}</span>
-                </button>,
-              )}
-              <span className="min-w-0 flex-1" />
-              {runtimeTools && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]">
-                <FileDiff className="h-3.5 w-3.5" />
-              </button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
-            </div>
+            <StartTray chatId={chatId} cwd={cwd} projectName={projectName} busy={startingEngine !== null}
+              worktree={worktree} onWorktreeChange={setWorktree} projectMenu={projectMenu}
+              remote={remote} remoteLabel={remoteLabel} />
           ) : null}
           <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border px-4 pb-3 pt-3 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)]">
             <textarea

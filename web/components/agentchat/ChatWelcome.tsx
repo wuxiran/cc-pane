@@ -9,9 +9,11 @@ interface ChatWelcomeProps {
   engineLabel: string;
   cwd: string;
   concierge: boolean;
+  /** 远程会话：替代「工作空间 · 目录」的整行文案（机器 · 远端目录）。 */
+  locationLabel?: string;
 }
 
-export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcomeProps) {
+export default function ChatWelcome({ engineLabel, cwd, concierge, locationLabel }: ChatWelcomeProps) {
   const { t } = useTranslation("panes");
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const Icon = concierge ? Sparkles : Bot;
@@ -39,7 +41,7 @@ export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcome
           >
             <FolderOpen className="h-3 w-3 shrink-0" aria-hidden="true" />
             <span className="truncate">
-              {workspaceLabelFor(cwd, workspaces)} · {cwd}
+              {locationLabel ?? `${workspaceLabelFor(cwd, workspaces)} · ${cwd}`}
             </span>
           </p>
         ) : null}

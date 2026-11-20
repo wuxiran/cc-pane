@@ -6,6 +6,7 @@ import { screenshotService } from "@/services/screenshotService";
 import { isTauriRuntime } from "@/services/runtime";
 import { usePanesStore } from "@/stores/usePanesStore";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { getAgentChatRemoteTarget } from "@/stores/useAgentChatRemoteStore";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { translateError } from "@/utils/errorTranslation";
 import { resolveRelativeFromDir } from "@/utils/mdAssetPath";
@@ -88,9 +89,14 @@ export function useChatFileActions({ chatId, cwd, projectPath }: {
   }, [captureOrigin, cwd, projectPath, t]);
 
   const openLocation = useCallback((path: string, line?: number) => {
+    // 远程会话的路径属于远端机器；按本地路径打开会落到同名的本地文件上。
+    if (getAgentChatRemoteTarget(chatId)) {
+      useAgentChatStore.getState().pushNotice(chatId, t("agentChatRemoteFileUnavailable"));
+      return;
+    }
     const origin = captureOrigin();
     if (origin) void openPath(path, origin, line).catch(report);
-  }, [captureOrigin, openPath, report]);
+  }, [captureOrigin, chatId, openPath, report, t]);
 
   const openAttachment = useCallback<OpenChatAttachment>(async (attachment) => {
     const origin = captureOrigin();

@@ -1,4 +1,4 @@
-import { agentChatService } from "@/services/agentChatService";
+import { agentChatService, type AcpRemoteLaunch } from "@/services/agentChatService";
 import i18n from "@/i18n";
 import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
@@ -20,6 +20,8 @@ interface StartConfiguredChatOptions {
   preamble?: string;
   onCwdAdopted?: (cwd: string) => void;
   worktree?: LocalWorktreeDraft;
+  /** 远程启动：cwd 是远端目录，不建本地 worktree，也不回写本地 cwd 覆盖。 */
+  remote?: AcpRemoteLaunch;
 }
 
 async function applyPreferredSelection(
@@ -94,7 +96,10 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
     if (options.resumeAcpSessionId && options.worktree?.enabled) {
       throw new Error(i18n.t("worktreeNewSessionOnly", { ns: "launcher" }));
     }
-    const launchCwd = await prepareLocalSessionCwd(cwd, options.worktree);
+    if (options.remote && options.worktree?.enabled) {
+      throw new Error(i18n.t("worktreeUnavailableRemote", { ns: "launcher" }));
+    }
+    const launchCwd = options.remote ? cwd : await prepareLocalSessionCwd(cwd, options.worktree);
     if (!ownsSetup()) return null;
     // Adopt a successfully created worktree before spawn, so a failed engine can retry there.
     if (launchCwd !== cwd) {
@@ -102,13 +107,13 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
       options.onCwdAdopted?.(launchCwd);
     }
     spawnAttempted = true;
-    const snapshot = await agentChatService.start(
-      chatId, engineId, launchCwd, options.resumeAcpSessionId,
-      options.autoApproveKinds ?? loadAutoApproveKinds(engineId),
-    );
+    const autoApprove = options.autoApproveKinds ?? loadAutoApproveKinds(engineId);
+    const snapshot = options.remote
+      ? await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove, options.remote)
+      : await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove);
     if (!ownsSetup()) return null;
     store.setSnapshot(chatId, snapshot);
-    options.onCwdAdopted?.(launchCwd);
+    if (!options.remote) options.onCwdAdopted?.(launchCwd);
     await applyPreferences(chatId, snapshot);
     if (!ownsSetup()) return null;
     const text = firstPrompt?.trim();
