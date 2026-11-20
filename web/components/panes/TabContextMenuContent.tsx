@@ -2,10 +2,11 @@ import "@/i18n/tabContextMenuResources";
 import { Suspense, useState } from "react";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { terminalForkSource } from "@/services/chatForkService";
-// tab 右键菜单：从 TabBar 拆出（行数棘轮约束），行为与外观保持不变。
+// tab 右键菜单：从 TabBar 拆出（行数棘轮约束）。
 // 新增「恢复已关闭标签」入口直接读 usePanesStore（与 TabQuickCommandsMenu 直读 store 同形态），
 // 避免 Panel → TabBar → 此处的三层 props 透传。
 import {
+  Columns2,
   Copy,
   CopyPlus,
   GitFork,
@@ -14,11 +15,14 @@ import {
   FolderTree,
   Maximize2,
   Minimize2,
+  MoreHorizontal,
   PanelBottom,
   PanelRight,
   Pencil,
+  Pin,
   Send,
   Settings2,
+  Star,
 } from "lucide-react";
 import {
   ContextMenuContent,
@@ -131,36 +135,22 @@ export default function TabContextMenuContent({
     {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.contentType === "agent-chat" ? tab.id : undefined} onClose={() => setHandoffCwd(null)} /></Suspense>}
     {forkOpen && <Suspense fallback={null}><TerminalForkDialog open={forkOpen} onOpenChange={setForkOpen} tabId={tab.id} /></Suspense>}
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
-      <ContextMenuContent className="w-60 rounded-2xl p-1.5">
-        {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="browser" /></Suspense>}
-        {menuOpen && <CodexMenuItems tab={tab} onHandoff={setHandoffCwd} />}
+      <ContextMenuContent className="w-56 rounded-2xl p-1.5">
+        {/* 顶层只留最常用的几项，其余按「拆分 / 移动到 / 更多」收进子菜单。
+            原来所有动作平铺在一层（终端标签 20 多项），找一个要从头扫到尾。 */}
         <ContextMenuItem onClick={() => startRename(tab)}>
           <Pencil /> {t("renameTab")}
         </ContextMenuItem>
-        <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>
-          {tab.pinned ? t("unpinTab") : t("pinTab")}
+        <ContextMenuItem onClick={() => onTogglePin(tab.id)}>
+          <Pin /> {tab.pinned ? t("unpinTab") : t("pinTab")}
         </ContextMenuItem>
-        <ContextMenuItem inset onClick={() => onToggleStar(tab.id)}>
-          {tab.starred ? t("unstarTab") : t("starTab")}
-        </ContextMenuItem>
-        {tab.contentType === "terminal" && tab.projectPath && onCloneTab && (
-          <ContextMenuItem onClick={() => onCloneTab(tab)}>
-            <CopyPlus /> {t("cloneTerminal")}
-          </ContextMenuItem>
-        )}
         {forkSource && !forkSource.ssh && (
           <ContextMenuItem onClick={() => setForkOpen(true)}><GitFork /> {t("forkChat")}</ContextMenuItem>
         )}
-        {(tab.forkReviewId || (forkSource && !forkSource.ssh && !forkSource.wsl)) && <ContextMenuItem onClick={() => setReviewOpen(true)}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</ContextMenuItem>}
-        {onToggleFullscreen && (
-          <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
-            {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}{" "}
-            {isPaneFullscreen ? t("exitFullscreenTab") : t("enterFullscreenTab")}
-          </ContextMenuItem>
-        )}
-        {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
-          <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
-            <ExternalLink /> {t("popOutWindow")}
+        {/* 文件标签最常用的两个动作留在顶层：复制路径、在文件树里定位。 */}
+        {tab.contentType === "editor" && tab.filePath && (
+          <ContextMenuItem onClick={() => { void Promise.resolve().then(() => navigator.clipboard.writeText(tab.filePath!)).catch((error) => handleError(error, "copy file path")); }}>
+            <Copy /> {t("copyFilePath")}
           </ContextMenuItem>
         )}
         {tab.contentType === "editor" && tab.filePath && onRevealInExplorer && (
@@ -168,130 +158,150 @@ export default function TabContextMenuContent({
             <FolderTree /> {t("revealInExplorer")}
           </ContextMenuItem>
         )}
-        {/* 非终端 tab 此前只能沿用一套按终端做的菜单。浏览器复制 URL、文件复制
-            路径是这两类最常用的动作，缺了就只能手抄地址栏。 */}
-        {tab.contentType === "editor" && tab.filePath && (
-          <ContextMenuItem onClick={() => { void Promise.resolve().then(() => navigator.clipboard.writeText(tab.filePath!)).catch((error) => handleError(error, "copy file path")); }}>
-            <Copy /> {t("copyFilePath")}
-          </ContextMenuItem>
-        )}
-        {onEditWorkspaceEnvironment && canEditWorkspaceEnvironment?.(tab) ? (
-          <ContextMenuItem onClick={() => onEditWorkspaceEnvironment(tab)}>
-            <Settings2 /> {t("editWorkspaceEnvironment")}
-          </ContextMenuItem>
-        ) : null}
-        <TabQuickCommandsMenu tab={tab} paneId={paneId} />
         <ContextMenuSeparator />
-        {/* 窗格级分屏走命令注册中心：菜单项自动显示当前键位，键位改绑后同步变。
-            菜单文案保留「面板 · 拆分到右/下」，与终端格子分屏（下方 splitRight/splitDown）区分。 */}
-        <CommandMenuItem commandId="split-right" ctx={{ paneId }} label={t("splitPanelRight")} />
-        <CommandMenuItem commandId="split-down" ctx={{ paneId }} label={t("splitPanelDown")} />
-        {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="move" /></Suspense>}
-        {tabs.length > 1 && (
-          <>
-            <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
-              <PanelRight /> {t("splitAndMoveRight")}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onSplitAndMoveDown(tab.id)}>
-              <PanelBottom /> {t("splitAndMoveDown")}
-            </ContextMenuItem>
-          </>
-        )}
-        {moveTargets.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Send /> {t("sendToPane")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {moveTargets.map((target) => (
-                <ContextMenuItem key={target.id} onClick={() => onMoveTabToPane(tab.id, target.id)}>
-                  {target.label}
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger><Columns2 /> {t("tabMenuSplit")}</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-56">
+            {/* 窗格级分屏走命令注册中心：菜单项自动显示当前键位，键位改绑后同步变。
+                文案保留「面板 · 拆分到右/下」，与终端格子分屏（splitRight/splitDown）区分。 */}
+            <CommandMenuItem commandId="split-right" ctx={{ paneId }} label={t("splitPanelRight")} />
+            <CommandMenuItem commandId="split-down" ctx={{ paneId }} label={t("splitPanelDown")} />
+            {tabs.length > 1 && (
+              <>
+                <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
+                  <PanelRight /> {t("splitAndMoveRight")}
                 </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        )}
-        {layoutMoveTargets.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Send /> {t("sendToLayout")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-56">
-              {layoutMoveTargets.map((layout) => {
-                if (layout.panes.length === 1) {
-                  const targetPane = layout.panes[0];
-                  return (
-                    <ContextMenuItem
-                      key={layout.id}
-                      onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}
-                    >
-                      {layout.label}
+                <ContextMenuItem onClick={() => onSplitAndMoveDown(tab.id)}>
+                  <PanelBottom /> {t("splitAndMoveDown")}
+                </ContextMenuItem>
+              </>
+            )}
+            {tab.contentType === "terminal" && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => onSplitTerminalRight(tab.id)}>
+                  <PanelRight /> {t("splitRight")}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onSplitTerminalDown(tab.id)}>
+                  <PanelBottom /> {t("splitDown")}
+                </ContextMenuItem>
+                <ContextMenuItem inset disabled={terminalLeafCount <= 1} onSelect={() => onCloseTerminalPane(tab.id)}>
+                  {t("closeTerminalPane")}
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger><Send /> {t("tabMenuMoveTo")}</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-56">
+            {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="move" /></Suspense>}
+            {moveTargets.length > 0 && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>{t("sendToPane")}</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  {moveTargets.map((target) => (
+                    <ContextMenuItem key={target.id} onClick={() => onMoveTabToPane(tab.id, target.id)}>
+                      {target.label}
                     </ContextMenuItem>
-                  );
-                }
-                return (
-                  <ContextMenuSub key={layout.id}>
-                    <ContextMenuSubTrigger>{layout.label}</ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="w-56">
-                      {layout.panes.map((targetPane) => (
-                        <ContextMenuItem
-                          key={targetPane.id}
-                          onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}
-                        >
-                          {targetPane.label}
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            {layoutMoveTargets.length > 0 && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>{t("sendToLayout")}</ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-56">
+                  {layoutMoveTargets.map((layout) => {
+                    if (layout.panes.length === 1) {
+                      const targetPane = layout.panes[0];
+                      return (
+                        <ContextMenuItem key={layout.id} onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}>
+                          {layout.label}
                         </ContextMenuItem>
-                      ))}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                );
-              })}
+                      );
+                    }
+                    return (
+                      <ContextMenuSub key={layout.id}>
+                        <ContextMenuSubTrigger>{layout.label}</ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="w-56">
+                          {layout.panes.map((targetPane) => (
+                            <ContextMenuItem key={targetPane.id} onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}>
+                              {targetPane.label}
+                            </ContextMenuItem>
+                          ))}
+                        </ContextMenuSubContent>
+                      </ContextMenuSub>
+                    );
+                  })}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
+              <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
+                <ExternalLink /> {t("popOutWindow")}
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger><MoreHorizontal /> {t("tabMenuMore")}</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-56">
+            {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="browser" /></Suspense>}
+            <ContextMenuItem onClick={() => onToggleStar(tab.id)}>
+              <Star /> {tab.starred ? t("unstarTab") : t("starTab")}
+            </ContextMenuItem>
+            {onToggleFullscreen && (
+              <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
+                {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}{" "}
+                {isPaneFullscreen ? t("exitFullscreenTab") : t("enterFullscreenTab")}
+              </ContextMenuItem>
+            )}
+            {tab.contentType === "terminal" && tab.projectPath && onCloneTab && (
+              <ContextMenuItem onClick={() => onCloneTab(tab)}>
+                <CopyPlus /> {t("cloneTerminal")}
+              </ContextMenuItem>
+            )}
+            {(tab.forkReviewId || (forkSource && !forkSource.ssh && !forkSource.wsl)) && <ContextMenuItem onClick={() => setReviewOpen(true)}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</ContextMenuItem>}
+            {menuOpen && <CodexMenuItems tab={tab} onHandoff={setHandoffCwd} />}
+            {onEditWorkspaceEnvironment && canEditWorkspaceEnvironment?.(tab) ? (
+              <ContextMenuItem onClick={() => onEditWorkspaceEnvironment(tab)}>
+                <Settings2 /> {t("editWorkspaceEnvironment")}
+              </ContextMenuItem>
+            ) : null}
+            <TabQuickCommandsMenu tab={tab} paneId={paneId} />
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSeparator />
+        {tabs.length > 1 && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger inset>{t("tabMenuCloseOthers")}</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-48">
+              <ContextMenuItem
+                disabled={tabs.slice(0, index).filter((t) => !t.pinned).length === 0}
+                onClick={() => onCloseTabsToLeft(tab.id)}
+              >
+                {t("closeTabsToLeft")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={tabs.slice(index + 1).filter((t) => !t.pinned).length === 0}
+                onClick={() => onCloseTabsToRight(tab.id)}
+              >
+                {t("closeTabsToRight")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={tabs.filter((_, i) => i !== index && !tabs[i].pinned).length === 0}
+                onClick={() => onCloseOtherTabs(tab.id)}
+              >
+                {t("closeOtherTabs")}
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
-        {tab.contentType === "terminal" && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => onSplitTerminalRight(tab.id)}>
-              <PanelRight /> {t("splitRight")}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onSplitTerminalDown(tab.id)}>
-              <PanelBottom /> {t("splitDown")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              disabled={terminalLeafCount <= 1}
-              onSelect={() => onCloseTerminalPane(tab.id)}
-            >
-              {t("closeTerminalPane")}
-            </ContextMenuItem>
-          </>
-        )}
-        {tabs.length > 1 && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              inset
-              disabled={tabs.slice(0, index).filter((t) => !t.pinned).length === 0}
-              onClick={() => onCloseTabsToLeft(tab.id)}
-            >
-              {t("closeTabsToLeft")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              inset
-              disabled={tabs.slice(index + 1).filter((t) => !t.pinned).length === 0}
-              onClick={() => onCloseTabsToRight(tab.id)}
-            >
-              {t("closeTabsToRight")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              inset
-              disabled={tabs.filter((_, i) => i !== index && !tabs[i].pinned).length === 0}
-              onClick={() => onCloseOtherTabs(tab.id)}
-            >
-              {t("closeOtherTabs")}
-            </ContextMenuItem>
-          </>
-        )}
-        <ContextMenuSeparator />
         {!tab.pinned && (
           <ContextMenuItem variant="destructive" inset onClick={() => onClose(tab.id)}>
             {t("closeTab")}

@@ -117,6 +117,11 @@ function renderTabBar({
   );
 }
 
+/** 标签右键菜单把次要动作收进了子菜单：先点开对应的子菜单再找菜单项。 */
+async function openTabSubmenu(name: RegExp) {
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
 describe("TabBar", () => {
   beforeEach(() => {
     executeQuickCommand.mockReset();
@@ -216,9 +221,26 @@ describe("TabBar", () => {
     });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/更多|More/);
     await user.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
 
     expect(onEditWorkspaceEnvironment).toHaveBeenCalledWith(tab);
+  });
+
+  it("keeps the top level of the tab menu short; secondary actions live in submenus", async () => {
+    renderTabBar({ tabs: [makeTab("tab-1", "Alpha"), makeTab("tab-2", "Beta")], onCloneTab: vi.fn(), onToggleFullscreen: vi.fn() });
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await screen.findByRole("menuitem", { name: /重命名|Rename/ });
+    const topLevel = screen.getAllByRole("menuitem").map((item) => item.textContent?.trim());
+    expect(topLevel.length).toBeLessThanOrEqual(10);
+    // 次要动作不在顶层
+    for (const hidden of [/克隆终端|Clone Terminal/i, /进入全屏|Enter fullscreen/i, /添加星标|Star/i, /终端 · 右切|Split terminal right/i]) {
+      expect(screen.queryByRole("menuitem", { name: hidden })).not.toBeInTheDocument();
+    }
+    for (const group of [/^拆分$|^Split$/, /移动到|Move to/, /更多|More/]) {
+      expect(screen.getByRole("menuitem", { name: group })).toBeInTheDocument();
+    }
   });
 
   it("克隆终端菜单项应回传整个 tab", async () => {
@@ -228,6 +250,8 @@ describe("TabBar", () => {
     renderTabBar({ tabs: [tab], onCloneTab });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/更多|More/);
     await user.click(await screen.findByRole("menuitem", { name: /克隆终端|Clone Terminal/i }));
 
     expect(onCloneTab).toHaveBeenCalledWith(tab);
@@ -269,6 +293,8 @@ describe("TabBar", () => {
     renderTabBar({ tabs: [tab] });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/更多|More/);
     const trigger = await screen.findByText(/运行快捷命令|Run Quick Command/i);
     await user.hover(trigger);
 
@@ -300,6 +326,8 @@ describe("TabBar", () => {
     renderTabBar({ tabs: [tab] });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/更多|More/);
     await user.hover(await screen.findByText(/运行快捷命令|Run Quick Command/i));
 
     expect(await screen.findByRole("menuitem", { name: /Global command/ })).toBeInTheDocument();
@@ -324,12 +352,15 @@ describe("TabBar", () => {
     const view = renderTabBar({ onToggleFullscreen, isPaneFullscreen: false });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/更多|More/);
     await user.click(await screen.findByRole("menuitem", { name: /进入全屏|Enter Full Screen/i }));
     expect(onToggleFullscreen).toHaveBeenCalledWith("tab-1");
 
     view.unmount();
     renderTabBar({ onToggleFullscreen, isPaneFullscreen: true });
     fireEvent.contextMenu(screen.getByText("Alpha"));
+    await openTabSubmenu(/更多|More/);
     expect(
       await screen.findByRole("menuitem", { name: /退出全屏|Exit Full Screen/i })
     ).toBeInTheDocument();
@@ -345,6 +376,8 @@ describe("TabBar", () => {
     });
 
     fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await openTabSubmenu(/移动到|Move to/);
 
     expect(await screen.findByText("发送到布局")).toBeInTheDocument();
   });

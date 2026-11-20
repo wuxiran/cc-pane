@@ -10,5 +10,9 @@
   "enterFullscreenTab": "Enter Full Screen",
   "exitFullscreenTab": "Exit Full Screen",
   "popOutWindow": "Pop Out to Window",
-  "editWorkspaceEnvironment": "Edit Environment"
+  "editWorkspaceEnvironment": "Edit Environment",
+  "tabMenuSplit": "Split",
+  "tabMenuMoveTo": "Move to",
+  "tabMenuMore": "More",
+  "tabMenuCloseOthers": "Close multiple"
 }

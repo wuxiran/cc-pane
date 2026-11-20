@@ -10,5 +10,9 @@
   "enterFullscreenTab": "进入全屏",
   "exitFullscreenTab": "退出全屏",
   "popOutWindow": "弹出为独立窗口",
-  "editWorkspaceEnvironment": "编辑运行环境"
+  "editWorkspaceEnvironment": "编辑运行环境",
+  "tabMenuSplit": "拆分",
+  "tabMenuMoveTo": "移动到",
+  "tabMenuMore": "更多",
+  "tabMenuCloseOthers": "批量关闭"
 }
