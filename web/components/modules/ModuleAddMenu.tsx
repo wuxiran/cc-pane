@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { SolidPlus } from "@/components/icons/solidIcons";
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
@@ -65,7 +65,7 @@ export default function ModuleAddMenu() {
               aria-label={t("moduleAdd.trigger")}
               className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--app-icon-inactive)] transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] hover:bg-[var(--app-activity-item-hover)] hover:text-[var(--app-icon-hover)] active:scale-[0.96]"
             >
-              <Plus className="h-[18px] w-[18px]" strokeWidth={1.5} />
+              <SolidPlus className="h-[18px] w-[18px]" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
