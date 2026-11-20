@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, History, LoaderCircle, Play, RefreshCw, Search, X } from "lucide-react";
+import SessionHistoryRow from "./SessionHistoryRow";
+import { AlertTriangle, History, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastWarn } from "@/lib/feedback";
 import { sessionIndexService } from "@/services/sessionIndexService";
@@ -340,55 +341,17 @@ export default function SessionHistoryView({
           </div>
         ) : (
           <div className="divide-y divide-[var(--app-border)]">
-            {sessions.map((entry) => {
-              const rolloutStatus = rolloutStatuses[entry.sessionId];
-              const invalid = rolloutStatus === "invalid";
-              const checking = rolloutStatus === "checking";
-              const summary = entry.lastSummary || entry.firstPrompt || t("sessionHistory.untitled");
-              return (
-                <article key={entry.sessionId} className="px-2.5 py-2.5 hover:bg-[var(--app-hover)]">
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-[length:var(--text-small)] leading-5 text-[var(--app-text-primary)]" title={summary}>
-                        {summary}
-                      </p>
-                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-                        <span className="rounded-md bg-[var(--app-active-bg)] px-1.5 py-0.5 font-medium capitalize text-[var(--app-text-secondary)]">
-                          {entry.cliTool}
-                        </span>
-                        <span>{t("sessionHistory.messages", { count: entry.messageCount })}</span>
-                        <span aria-hidden="true">·</span>
-                        <time title={new Date(entry.mtimeMs).toLocaleString(language)}>
-                          {formatRelativeTime(entry.mtimeMs, language)}
-                        </time>
-                        <span aria-hidden="true">·</span>
-                        <span className="max-w-full truncate" title={entry.projectName}>
-                          {entry.projectName || t("sessionHistory.unknownProject")}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={invalid || checking}
-                      aria-busy={checking}
-                      onClick={() => void handleResume(entry)}
-                      className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 text-[length:var(--text-caption)] font-medium text-[var(--app-text-primary)] hover:bg-[var(--app-active-bg)] disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {checking
-                        ? <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />
-                        : <Play aria-hidden="true" className="size-3" />}
-                      <span>{t("sessionHistory.resume")}</span>
-                    </button>
-                  </div>
-                  {invalid && (
-                    <p role="alert" className="mt-1.5 flex items-center gap-1 text-[length:var(--text-micro)] text-[var(--app-status-warning)]">
-                      <AlertTriangle aria-hidden="true" className="size-3 shrink-0" />
-                      <span>{t("sessionHistory.rolloutMissing")}</span>
-                    </p>
-                  )}
-                </article>
-              );
-            })}
+            {sessions.map((entry) => (
+              <SessionHistoryRow
+                key={entry.sessionId}
+                entry={entry}
+                invalid={rolloutStatuses[entry.sessionId] === "invalid"}
+                checking={rolloutStatuses[entry.sessionId] === "checking"}
+                relativeTime={formatRelativeTime(entry.mtimeMs, language)}
+                fullTime={new Date(entry.mtimeMs).toLocaleString(language)}
+                onResume={(target) => void handleResume(target)}
+              />
+            ))}
             {hasMore && (
               <div className="p-2">
                 <button

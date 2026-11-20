@@ -1,5 +1,6 @@
 import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   OpenTerminalOptions,
@@ -203,6 +204,23 @@ describe("SessionHistoryView", () => {
       scope: "project",
       projectPath: "D:/workspace/alpha",
     })));
+  });
+
+  it("行标题取首条输入，下面一行是最近进展；悬浮弹出详情", async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([
+      session({ firstPrompt: "<local-command-caveat>\nCreate the index", lastSummary: "Finished the index implementation", messageCount: 12 }),
+    ]);
+    renderView();
+
+    const title = await screen.findByText("Create the index");
+    expect(screen.getByText("Finished the index implementation")).toBeInTheDocument();
+    await user.hover(title.closest("article") as HTMLElement);
+
+    const card = await screen.findByTestId("session-history-hover-card");
+    expect(card.textContent).toContain("Create the index");
+    expect(card.textContent).toContain("Finished the index implementation");
+    expect(card.textContent).toMatch(/12/);
   });
 
   it("用索引 cwd 和会话 ID 组装 Claude resume", async () => {

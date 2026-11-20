@@ -10,6 +10,8 @@ import { CommandGroup, CommandItem, CommandShortcut } from "@/components/ui/comm
 import { agentChatService } from "@/services/agentChatService";
 import { sessionIndexService } from "@/services/sessionIndexService";
 import type { SessionIndexEntry } from "@/types/sessionIndex";
+import SessionEntryDetail from "@/components/sessions/SessionEntryDetail";
+import { sessionEntryTitle } from "@/components/sessions/sessionEntryText";
 import { formatRelativeTime } from "@/utils";
 import { useDialogStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
@@ -33,21 +35,11 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** 取第一行可读文字：去掉 <local-command-caveat> 之类的标记。 */
-function firstLine(text: string | undefined): string {
-  if (!text) return "";
-  for (const line of text.replace(/<[^>\n]*>?/g, " ").split(/\r?\n/)) {
-    const cleaned = line.replace(/^#+\s*/, "").trim();
-    if (cleaned) return cleaned;
-  }
-  return "";
-}
-
 /** 两种会话合成一份，按时间倒序。读不出任何内容的终端会话不列（只剩项目名，认不出是哪条）。 */
 export function mergePaletteSessions(entries: SessionIndexEntry[], chats: AcpChatHistoryEntry[]): PaletteSession[] {
   const out: PaletteSession[] = [];
   for (const entry of entries) {
-    const title = entry.title?.trim() || firstLine(entry.firstPrompt) || firstLine(entry.lastSummary);
+    const title = sessionEntryTitle(entry);
     if (!title) continue;
     out.push({
       kind: "cli",
@@ -201,38 +193,23 @@ export function findSessionByValue(sessions: PaletteSession[], value: string): P
 /** 高亮某条会话时右侧的内容预览：这段会话是什么、聊到哪了。 */
 export function PaletteSessionPreview({ session }: { session: PaletteSession }) {
   const { t } = useTranslation(["shortcuts", "sidebar"]);
-  const index = session.kind === "cli" ? session.entry : undefined;
-  const path = session.kind === "cli" ? session.entry.cwd : session.chat.cwd;
-  const tool = session.kind === "cli" ? session.entry.cliTool : session.chat.engineId;
-  const firstPrompt = index?.firstPrompt.trim() ?? "";
-  const summary = index?.lastSummary.trim() ?? "";
-  const meta = [
-    `${t(session.kind === "cli" ? "sessionTagCli" : "sessionTagChat", { ns: "sidebar" })}${tool ? ` · ${tool}` : ""}`,
-    session.time > 0 ? formatRelativeTime(new Date(session.time).toISOString()) : "",
-    index && index.messageCount > 0 ? t("palettePreviewMessages", { ns: "shortcuts", count: index.messageCount }) : "",
-  ].filter(Boolean).join(" · ");
   return (
     <aside
       data-testid="palette-session-preview"
-      className="hidden w-[300px] shrink-0 flex-col gap-2 overflow-y-auto border-l border-[var(--app-border)] p-3 sm:flex"
+      className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3.5 sm:block"
     >
-      <div className="text-[length:var(--text-row)] font-medium leading-snug text-[var(--app-text-primary)] line-clamp-3">{session.title}</div>
-      <div className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{meta}</div>
-      <div className="break-all font-mono text-[length:var(--text-nano)] text-[var(--app-text-tertiary)]">{path}</div>
-      {firstPrompt && (
-        <section>
-          <div className="mb-0.5 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{t("palettePreviewFirstPrompt", { ns: "shortcuts" })}</div>
-          <p className="whitespace-pre-wrap break-words text-[length:var(--text-caption)] leading-relaxed text-[var(--app-text-secondary)] line-clamp-6">{firstPrompt}</p>
-        </section>
-      )}
-      {summary && (
-        <section>
-          <div className="mb-0.5 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{t("palettePreviewSummary", { ns: "shortcuts" })}</div>
-          <p className="whitespace-pre-wrap break-words text-[length:var(--text-caption)] leading-relaxed text-[var(--app-text-secondary)] line-clamp-[8]">{summary}</p>
-        </section>
-      )}
-      {!firstPrompt && !summary && (
-        <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t(session.kind === "chat" ? "palettePreviewChatOnly" : "palettePreviewNoContent", { ns: "shortcuts" })}</p>
+      {session.kind === "cli" ? (
+        <SessionEntryDetail entry={session.entry} />
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[length:var(--text-row)] font-semibold leading-snug text-[var(--app-text-primary)] line-clamp-3">{session.title}</div>
+          <div className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
+            {t("sessionTagChat", { ns: "sidebar" })}{session.chat.engineId ? ` · ${session.chat.engineId}` : ""}
+            {session.time > 0 ? ` · ${formatRelativeTime(new Date(session.time).toISOString())}` : ""}
+          </div>
+          <div className="break-all font-mono text-[length:var(--text-nano)] text-[var(--app-text-tertiary)]">{session.chat.cwd}</div>
+          <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("palettePreviewChatOnly", { ns: "shortcuts" })}</p>
+        </div>
       )}
     </aside>
   );
