@@ -118,7 +118,10 @@ export default function DockChatView({ defaultCwd, workspaces, workspace, projec
               <div
                 key={entry.id}
                 className={`group flex h-[26px] min-w-0 max-w-[160px] shrink items-center rounded-[5px] ${
-                  selected ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
+                  // 只有一个对话时不画选中底色：一个孤零零的色块像按钮，不像标签。
+                  selected
+                    ? `text-[var(--app-text-primary)] ${chats.length > 1 ? "bg-[var(--app-active-bg)]" : ""}`
+                    : "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
                 }`}
               >
                 <button

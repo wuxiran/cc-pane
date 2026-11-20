@@ -1,5 +1,5 @@
 // 右侧面板窄版启动页：中间一句问话（项目名可点，换项目），底部输入框。
-// 输入框上方挂一条浅色上下文条（项目），卡片里左边权限、右边引擎/模型/语音/发送。
+// 卡片里左边权限、右边引擎/模型/语音/发送；项目只在问话里出现一次，不再重复挂条。
 // 控件本身由 EnginePicker 传入，这里只管排版——和窗格启动页共用同一套状态与行为。
 import type { ReactElement, ReactNode, RefObject } from "react";
 import { Bot, Bug, FolderOpen, Hammer, SearchCode, Telescope } from "lucide-react";
@@ -78,43 +78,32 @@ export default function CompactStartPage({
         </div>
       )}
 
-      <div className="agent-chat-start-composer">
-        {cwd && projectName && (
-          <div className="mx-3 flex h-8 items-center gap-3 rounded-t-xl bg-[var(--app-hover)] px-3 text-xs text-[var(--app-text-secondary)]">
-            {projectMenu(
-              <button type="button" title={cwd} disabled={busy} className="flex min-w-0 items-center gap-1.5 transition-colors hover:text-[var(--app-text-primary)]">
-                <FolderOpen className="size-3.5 shrink-0" />
-                <span className="truncate">{projectName}</span>
-              </button>,
-            )}
+      {/* 不挂 agent-chat-start-composer：那组全局样式是给窗格大启动页的（外框底色 + 112px 输入高度）。 */}
+      <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-3 pb-2 pt-2.5 transition-[border-color] duration-[var(--dur)] focus-within:border-[var(--app-text-tertiary)]">
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => onDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder={placeholder}
+          rows={2}
+          className="block max-h-48 min-h-11 w-full resize-none bg-transparent px-1 text-[13px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+        />
+        <div className="mt-1.5 flex items-center gap-1">
+          <div className="shrink-0">{permissionMenu}</div>
+          <span className="min-w-0 flex-1" />
+          <div className="flex min-w-0 items-center gap-0.5 overflow-hidden [&>*]:min-w-0">
+            {engineMenu}
+            {modelMenu}
           </div>
-        )}
-        <div className="agent-chat-composer-shell rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color] duration-[var(--dur)] focus-within:border-[var(--app-text-tertiary)]">
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => onDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                onSubmit();
-              }
-            }}
-            placeholder={placeholder}
-            rows={2}
-            className="agent-chat-composer-input max-h-48 min-h-11 w-full resize-none bg-transparent px-1 text-[length:var(--text-row)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
-          />
-          <div className="mt-1 flex items-center gap-1">
-            <div className="shrink-0">{permissionMenu}</div>
-            <span className="min-w-0 flex-1" />
-            <div className="flex min-w-0 items-center gap-0.5 overflow-hidden [&>*]:min-w-0">
-              {engineMenu}
-              {modelMenu}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {voiceButton}
-              {sendButton}
-            </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {voiceButton}
+            <div className={`transition-opacity [&_button]:size-7 ${draft.trim() ? "" : "opacity-35"}`}>{sendButton}</div>
           </div>
         </div>
       </div>

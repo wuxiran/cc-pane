@@ -29,11 +29,11 @@ function renderPage(overrides: Partial<Parameters<typeof CompactStartPage>[0]> =
 }
 
 describe("CompactStartPage", () => {
-  it("中间一句问话带项目名，输入框上方挂项目条，控件都在", () => {
+  it("中间一句问话带项目名（只出现一次），控件都在", () => {
     renderPage();
 
     expect(screen.getByRole("heading")).toHaveTextContent("你想在 cc-pane 中构建什么？");
-    expect(screen.getAllByRole("button", { name: "cc-pane" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "cc-pane" })).toHaveLength(1);
     for (const id of ["permission", "engine", "model", "voice", "send"]) expect(screen.getByTestId(id)).toBeInTheDocument();
   });
 
