@@ -944,5 +944,15 @@
     "popOutFailed": "弹出窗口失败: {{error}}"
   },
   "recentSessions.title": "最近",
-  "recentSessions.empty": "还没有会话。聊过的终端会话和 Agent 对话会出现在这里。"
+  "recentSessions.empty": "还没有会话。聊过的终端会话和 Agent 对话会出现在这里。",
+  "recentSessions.resume": "恢复",
+  "recentSessions.rename": "重命名",
+  "recentSessions.pin": "置顶",
+  "recentSessions.unpin": "取消置顶",
+  "recentSessions.copy": "复制",
+  "recentSessions.copyTitle": "标题",
+  "recentSessions.copyId": "会话 ID",
+  "recentSessions.copyCwd": "工作目录",
+  "recentSessions.copyResumeCommand": "恢复命令",
+  "recentSessions.remove": "从最近中移除"
 }

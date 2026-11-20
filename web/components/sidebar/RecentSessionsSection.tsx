@@ -1,15 +1,12 @@
 // 资源管理器下半部分的「最近」：最近的会话（终端会话 + Agent 对话），按时间倒序。
-// 每行只有一行标题，点一下恢复；悬浮弹出这段会话的详情。完整的搜索在搜索面板里。
-import { HoverCard } from "radix-ui";
+// 每行只有一行标题，点一下恢复；悬浮弹出这段会话的详情；右键有重命名、置顶、复制、移除。
+// 完整的搜索在搜索面板里。
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, MessagesSquare, SquarePen, Terminal } from "lucide-react";
+import { ChevronDown, ChevronRight, SquarePen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  openPaletteSession,
-  PaletteSessionPreviewBody,
-  usePaletteSessions,
-  type PaletteSession,
-} from "@/components/commandPalette/PaletteSessions";
+import { openPaletteSession, usePaletteSessions } from "@/components/commandPalette/PaletteSessions";
+import { applyRecentSessionPrefs, useRecentSessionPrefsStore } from "@/stores/useRecentSessionPrefsStore";
+import RecentSessionRow from "./RecentSessionRow";
 import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
 import { useWorkspacesStore } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
@@ -26,7 +23,12 @@ export default function RecentSessionsSection({ onOpenTerminal }: RecentSessions
   const { t } = useTranslation("sidebar");
   const collapsed = useExplorerSectionsStore((s) => s.recentCollapsed);
   const toggle = useExplorerSectionsStore((s) => s.toggleRecentCollapsed);
-  const sessions = usePaletteSessions(true).slice(0, RECENT_SESSIONS_LIMIT);
+  const all = usePaletteSessions(true);
+  const pinned = useRecentSessionPrefsStore((s) => s.pinned);
+  const hidden = useRecentSessionPrefsStore((s) => s.hidden);
+  const titles = useRecentSessionPrefsStore((s) => s.titles);
+  // 置顶的排最前、移除的不显示、自己起的名字优先；更早的会话去搜索面板找。
+  const sessions = applyRecentSessionPrefs(all, { pinned, hidden, titles }, RECENT_SESSIONS_LIMIT);
   const rolloutMissing = t("sessionHistory.rolloutMissing");
   const Chevron = collapsed ? ChevronRight : ChevronDown;
 
@@ -75,6 +77,7 @@ export default function RecentSessionsSection({ onOpenTerminal }: RecentSessions
               <RecentSessionRow
                 key={session.key}
                 session={session}
+                pinned={pinned.includes(session.key)}
                 onOpen={() => openPaletteSession(session, onOpenTerminal, rolloutMissing)}
               />
             ))
@@ -82,36 +85,5 @@ export default function RecentSessionsSection({ onOpenTerminal }: RecentSessions
         </div>
       )}
     </section>
-  );
-}
-
-function RecentSessionRow({ session, onOpen }: { session: PaletteSession; onOpen: () => void }) {
-  const Icon = session.kind === "cli" ? Terminal : MessagesSquare;
-  return (
-    <HoverCard.Root openDelay={500} closeDelay={100}>
-      <HoverCard.Trigger asChild>
-        <button
-          type="button"
-          data-session-kind={session.kind}
-          onClick={onOpen}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[length:var(--text-row)] text-[var(--app-text-primary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-        >
-          <Icon className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" strokeWidth={1.6} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{session.title}</span>
-        </button>
-      </HoverCard.Trigger>
-      <HoverCard.Portal>
-        <HoverCard.Content
-          side="right"
-          align="start"
-          sideOffset={10}
-          collisionPadding={12}
-          data-testid="recent-session-hover-card"
-          className="z-50 max-h-[min(520px,80vh)] w-[340px] overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3.5 shadow-[var(--sh-lg)]"
-        >
-          <PaletteSessionPreviewBody session={session} />
-        </HoverCard.Content>
-      </HoverCard.Portal>
-    </HoverCard.Root>
   );
 }

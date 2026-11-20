@@ -944,5 +944,15 @@
     "popOutFailed": "Failed to open window: {{error}}"
   },
   "recentSessions.title": "Recent",
-  "recentSessions.empty": "No sessions yet. Terminal sessions and agent chats you have used will show up here."
+  "recentSessions.empty": "No sessions yet. Terminal sessions and agent chats you have used will show up here.",
+  "recentSessions.resume": "Resume",
+  "recentSessions.rename": "Rename",
+  "recentSessions.pin": "Pin",
+  "recentSessions.unpin": "Unpin",
+  "recentSessions.copy": "Copy",
+  "recentSessions.copyTitle": "Title",
+  "recentSessions.copyId": "Session ID",
+  "recentSessions.copyCwd": "Working directory",
+  "recentSessions.copyResumeCommand": "Resume command",
+  "recentSessions.remove": "Remove from Recent"
 }
