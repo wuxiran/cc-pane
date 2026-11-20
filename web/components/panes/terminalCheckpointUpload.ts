@@ -10,6 +10,7 @@
 // ① 休眠 Tier2（serialize 已在手，经 snapshotAnsi 复用，避免二次全量序列化）；
 // ② 隐藏 1s 边沿（Tier1，xterm 还活着）；
 // ③ daemon 补拍请求（terminal-checkpoint-request）。
+import { isSecondaryTerminalView } from "./terminalViewOwnership";
 import type { TerminalCheckpointUpload } from "@/types";
 import { devDebugLog } from "@/utils/devLogger";
 import { uploadCheckpoint } from "@/services/terminalCheckpoint";
@@ -75,6 +76,8 @@ export async function captureAndUploadCheckpoint(
   const done = (result: CaptureCheckpointResult, detail: string = result): CaptureCheckpointResult => {
     noteCheckpointResult(sessionId, detail); return result;
   };
+  // 副视图的画面可能缺行，不能存成这个会话的正式快照（terminalViewOwnership.ts）。
+  if (isSecondaryTerminalView(term)) return done("skipped-no-terminal", "skipped-secondary-view");
   // 休眠中无 xterm / 实例未建：跳过本次（daemon 补拍会周期重发）。
   if (!term || options.canCapture?.() === false || (options.snapshotAnsi === undefined && !serializeAddon)) {
     return done("skipped-no-terminal");

@@ -35,13 +35,16 @@ vi.mock("./terminalCheckpointUpload", () => ({
 }));
 
 import { bindTerminalSessionCallbacks } from "./terminalSessionBinding";
-import { _resetSeqTrackersForTest, anchorCandidate, noteReceived, reanchorSeq } from "./terminalOutputSeqTracker";
+import { _resetSeqTrackersForTest, anchorCandidate, noteReceived, noteWritten, reanchorSeq } from "./terminalOutputSeqTracker";
+import { markSecondaryTerminalView, recordRecoveryFloor } from "./terminalViewOwnership";
 
 function snapshotOf(overrides: Partial<TerminalRecoverySnapshot>): TerminalRecoverySnapshot {
   return { checkpoint: null, delta: "", bufferMode: "normal", endSeq: 0, checkpointEpoch: "0", ...overrides };
 }
 
 interface BindOverrides {
+  /** 绑定前对 xterm 做的准备（登记为副视图、记下回放下限）。 */
+  prepareTerm?: (term: object) => void;
   writeTerminalData?: (data: string, onWritten?: () => void) => Promise<void>;
   onSessionExit?: (sessionId: string, exitCode: number) => void;
   pendingExitRef?: { current: { sessionId: string; exitCode: number } | null };
@@ -52,6 +55,7 @@ async function bind(overrides: BindOverrides = {}) {
   const renderTerminalData = vi.fn((data: string, _options?: { discontinuity?: boolean }) => data);
   const resyncActiveRef = { current: false };
   const term = { reset: vi.fn(() => writes.push("<reset>")), buffer: { active: { type: "normal" } } };
+  overrides.prepareTerm?.(term);
   await bindTerminalSessionCallbacks("s-gate", {
     terminalInstanceRef: { current: term as unknown as Terminal },
     hiddenWriteBufferRef: { current: null },
@@ -184,9 +188,8 @@ describe("resync gate backlog reconciliation", () => {
   });
 
   it("reconciles output buffered before the view subscribed (replay first, bind second)", async () => {
-    // attach / 唤醒：回放先完成并重锚到 50，然后才绑定输出回调。
-    reanchorSeq("s-gate", 50, "e1");
-    const { writes } = await bind();
+    // attach / 唤醒：回放先完成、覆盖到 50，然后才绑定输出回调。
+    const { writes } = await bind({ prepareTerm: (term) => recordRecoveryFloor(term, 50) });
 
     service.output!("covered", 50);
     service.output!("fresh", 55);
@@ -262,5 +265,91 @@ describe("resync gate backlog reconciliation", () => {
     expect(await resync).toBe(false);
 
     expect(writes.filter((entry) => entry.startsWith("tail"))).toEqual(["tail-1", "tail-2"]);
+  });
+
+  describe("secondary views (starred mirror / popup)", () => {
+    it("rebuilds from a fresh snapshot when output was dispatched during its replay", async () => {
+      // 主视图已收到 120；镜像的回放快照只覆盖到 100，中间那段只发给了主视图。
+      noteReceived("s-gate", 120);
+      service.snapshot = async () => snapshotOf({ delta: "FULL", endSeq: 120, checkpointEpoch: "e1" });
+      const { writes } = await bind({
+        prepareTerm: (term) => {
+          markSecondaryTerminalView(term);
+          recordRecoveryFloor(term, 100);
+        },
+      });
+
+      await vi.waitFor(() => expect(writes).toEqual(["<reset>", "FULL"]));
+    });
+
+    it("rebuilds when the next frame does not follow on from its snapshot", async () => {
+      service.snapshot = async () => snapshotOf({ delta: "FULL", endSeq: 130, checkpointEpoch: "e1" });
+      const { writes } = await bind({
+        prepareTerm: (term) => {
+          markSecondaryTerminalView(term);
+          recordRecoveryFloor(term, 100);
+        },
+      });
+
+      // 帧 [120,130)：100–120 这段镜像从没收到。这一帧不写，等新快照。
+      service.output!("0123456789", 130);
+      await vi.waitFor(() => expect(writes).toEqual(["<reset>", "FULL"]));
+    });
+
+    it("does not rebuild when its replay was already complete", async () => {
+      noteReceived("s-gate", 100);
+      const snapshot = vi.fn(async () => snapshotOf({ delta: "FULL", endSeq: 100, checkpointEpoch: "e1" }));
+      service.snapshot = snapshot;
+      const { writes } = await bind({
+        prepareTerm: (term) => {
+          markSecondaryTerminalView(term);
+          recordRecoveryFloor(term, 100);
+        },
+      });
+
+      service.output!("next", 104);
+      expect(writes).toEqual(["next"]);
+      expect(snapshot).not.toHaveBeenCalled();
+    });
+
+    it("never moves the shared seq ledger", async () => {
+      // 主视图的账本：收到并写到 100。
+      reanchorSeq("s-gate", 100, "e1");
+      const { writes } = await bind({ prepareTerm: (term) => markSecondaryTerminalView(term) });
+
+      // 主视图还没写完 110，镜像先写完了：账本不能因此前进。
+      noteReceived("s-gate", 110);
+      service.output!("mirror-first", 110);
+      expect(writes).toEqual(["mirror-first"]);
+      expect(anchorCandidate("s-gate")).toBeNull();
+      noteWritten("s-gate", 110);
+      expect(anchorCandidate("s-gate")).toEqual({ anchorSeq: 110, checkpointEpoch: "e1" });
+
+      // 镜像自己重建也不重锚：主视图的进度留在 110。
+      service.snapshot = async () => snapshotOf({ delta: "SNAP", endSeq: 90, checkpointEpoch: "e1" });
+      await service.desync!();
+      expect(anchorCandidate("s-gate")).toEqual({ anchorSeq: 110, checkpointEpoch: "e1" });
+    });
+
+    it("stops rebuilding after repeated gaps instead of resetting the screen forever", async () => {
+      const snapshot = vi.fn(async () => snapshotOf({ delta: "S", endSeq: 100, checkpointEpoch: "e1" }));
+      service.snapshot = snapshot;
+      const { writes } = await bind({
+        prepareTerm: (term) => {
+          markSecondaryTerminalView(term);
+          recordRecoveryFloor(term, 100);
+        },
+      });
+
+      // 每次重建后下一帧仍然不连续（坐标推算出了偏差的情形）。
+      for (let round = 0; round < 5; round += 1) {
+        service.output!("xx", 200 + round * 10);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(snapshot.mock.calls.length).toBe(3);
+      // 超过上限后帧照常放行。
+      expect(writes.filter((entry) => entry === "xx").length).toBeGreaterThan(0);
+    });
   });
 });

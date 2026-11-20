@@ -11,7 +11,8 @@ import {
 } from "./terminalOutputHandler";
 import { createTerminalDesyncHandler } from "./terminalResync";
 import { takeCurrentTerminalDeliveryCredit } from "./terminalDeliveryCredit";
-import { invalidateSeq, noteBacklogReplayed, takeRecoveryFloor } from "./terminalOutputSeqTracker";
+import { invalidateSeq, noteBacklogReplayed, receivedThroughSeq } from "./terminalOutputSeqTracker";
+import { isSecondaryTerminalView, takeRecoveryFloor } from "./terminalViewOwnership";
 import { createResyncGateBacklog, createSnapshotReconciler, type SeqChunk } from "./terminalSnapshotOverlap";
 import type { TerminalRecoverySnapshot } from "@/types";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
@@ -127,6 +128,10 @@ export interface BindTerminalSessionCallbacksOptions {
 const RESYNC_FAILED_NOTICE =
   "\r\n\x1b[33m[CC-Panes] Some output could not be restored. " +
   'Right-click → "Repair Display" to force a redraw.\x1b[0m\r\n';
+
+/** 因漏收输出而自动重建的次数上限（每个绑定、每个时间窗）。 */
+const MAX_GAP_RESYNCS_PER_WINDOW = 3;
+const GAP_RESYNC_WINDOW_MS = 30_000;
 
 interface CreateHiddenWriteFlusherOptions {
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
@@ -244,8 +249,11 @@ export async function bindTerminalSessionCallbacks(
   /** 本轮快照请求发出前已暂存的片数（旧后端无 seq 时按它丢弃，见 onResyncSettled）。 */
   let chunksBeforeRequest = 0;
   let lastRecoverySnapshot: TerminalRecoverySnapshot | null = null;
+  // 共享的 seq 账本只归主视图（terminalViewOwnership.ts）。
+  const ownsSeqLedger = () => !isSecondaryTerminalView(terminalInstanceRef.current);
   const outputHandler = createTerminalOutputHandler({
     sessionId,
+    ownsSeqLedger,
     terminalRef: terminalInstanceRef,
     hiddenWriteBufferRef,
     // 输出直写门槛 = 可见 且 无重同步在途：闸门期实时输出必须进积压，
@@ -260,19 +268,36 @@ export async function bindTerminalSessionCallbacks(
   });
   /** 对账后确定要写的一块：推进 seq 账本并交给正常写入管线。 */
   const deliverReconciled = (chunk: SeqChunk): Promise<void> | undefined => {
-    if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
+    if (chunk.endSeq !== undefined && ownsSeqLedger()) noteBacklogReplayed(sessionId, chunk.endSeq);
     return outputHandler(chunk.data, chunk.endSeq);
+  };
+  // 本视图漏收了一段输出时用一份新快照重建。有次数上限：如果「漏收」其实是坐标
+  // 推算出了偏差，不能没完没了地重置画面。
+  const gapResyncAt: number[] = [];
+  const resyncForGap = (reason: string, floorSeq: number, missingThroughSeq: number): boolean => {
+    const now = Date.now();
+    while (gapResyncAt.length > 0 && now - gapResyncAt[0] > GAP_RESYNC_WINDOW_MS) gapResyncAt.shift();
+    const resync = overflowResyncRef.current;
+    if (!resync || gapResyncAt.length >= MAX_GAP_RESYNCS_PER_WINDOW) {
+      debugLog("output.reconcile.gap-ignored", { bindSessionId: sessionId, reason, floorSeq, missingThroughSeq });
+      return false;
+    }
+    gapResyncAt.push(now);
+    debugLog("output.reconcile.gap-resync", { bindSessionId: sessionId, reason, floorSeq, missingThroughSeq });
+    void resync();
+    return true;
   };
   // 快照已包含的输出不再写第二遍（terminalSnapshotOverlap.ts）。闸门期暂存、放闸之后
   // 才迟到的帧、订阅前暂存的输出都过它；一帧越过快照边界后自动停用，回到直通。
   const reconciler = createSnapshotReconciler({
+    onGap: (floorSeq, frameStartSeq) => resyncForGap("frame-after-gap", floorSeq, frameStartSeq),
     onHoldTimeout: (chunk) => {
       debugLog("output.reconcile.hold-timeout", { bindSessionId: sessionId, length: chunk.data.length });
       void deliverReconciled(chunk);
     },
   });
   // 先回放、后绑定的路径（attach / 唤醒）：回放的重锚留下了它覆盖到的 endSeq。
-  const attachFloorSeq = takeRecoveryFloor(sessionId);
+  const attachFloorSeq = takeRecoveryFloor(terminalInstanceRef.current);
   if (attachFloorSeq !== null) reconciler.arm(attachFloorSeq);
   outputUnsubRef.current = await terminalService.registerOutput(
     sessionId,
@@ -283,7 +308,7 @@ export async function bindTerminalSessionCallbacks(
         // 去掉已包含的部分再补写——先渲染再积压会丢掉 seq，重叠段只能整段重复写入。
         const releaseCredit = takeCurrentTerminalDeliveryCredit() ?? (() => {});
         gateBacklog.push(data, endSeq);
-        invalidateSeq(sessionId);
+        if (ownsSeqLedger()) invalidateSeq(sessionId);
         // 流控信用照常归还：字节已进前端自有的有界暂存（见 terminalOutputHandler）。
         releaseCredit();
         return;
@@ -418,5 +443,15 @@ export async function bindTerminalSessionCallbacks(
     checkpointRequestUnsub?.();
   };
   overflowResyncRef.current = resyncHandler;
+  // 副视图回放期间，新输出只发给了当时已订阅的主视图，这里既不在快照里也不会再来。
+  // 会话此后一直安静的话，上面「下一帧不连续」的检测等不到触发，所以绑定完就查一次：
+  // 会话已分发的进度超过了本视图快照覆盖到的位置，就是漏了。主视图不查——它订阅前的
+  // 输出进了待补投队列，会完整送到。
+  if (attachFloorSeq !== null && !ownsSeqLedger()) {
+    const received = receivedThroughSeq(sessionId);
+    if (received !== null && received > attachFloorSeq) {
+      resyncForGap("missed-during-replay", attachFloorSeq, received);
+    }
+  }
   debugLog("session.bind-callbacks.end", { bindSessionId: sessionId });
 }

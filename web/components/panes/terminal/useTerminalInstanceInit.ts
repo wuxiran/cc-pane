@@ -19,6 +19,7 @@ import type { HibernatedTerminalState } from "../terminalHibernation";
 import { attachTerminalTuiWheelMultiplier } from "../terminalTuiWheelMultiplier";
 import { createTerminalWriteFlowControl } from "../terminalWriteFlowControl";
 import { registerRecoveryCheckpointSource } from "../terminalRecoveryCheckpoint";
+import { markSecondaryTerminalView } from "../terminalViewOwnership";
 import {
   createTerminalLayoutScheduler,
   type TerminalLayoutScheduler,
@@ -308,6 +309,7 @@ export function useTerminalInstanceInit({
       term.loadAddon(serialize);
       serializeAddonRef.current = serialize;
       if (drivesBackendPty) registerRecoveryCheckpointSource(term, serialize, () => isMounted && !readOnlyRef.current);
+      else markSecondaryTerminalView(term); // 副视图：不碰共享 seq 账本、不上传 checkpoint
       term.open(terminalRef.current);
       // 给开了鼠标上报的全屏 TUI 补足滚轮距离（xterm 会抑制小像素增量）。
       // 走官方钩子而不是自己挂监听——理由见 terminalTuiWheelMultiplier.ts。
