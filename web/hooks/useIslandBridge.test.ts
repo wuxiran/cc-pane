@@ -24,7 +24,7 @@ describe("startIslandBridge", () => {
     vi.mocked(listen).mockImplementation(((event: string, handler: (event: { payload: unknown }) => void) => {
       handlers.set(event, handler);
       return Promise.resolve(() => handlers.delete(event));
-    }) as typeof listen);
+    }) as unknown as typeof listen);
     useAgentChatStore.getState().dropChat(CHAT);
   });
 
@@ -39,7 +39,7 @@ describe("startIslandBridge", () => {
       params: { toolCall: { title: "run" }, options: [{ optionId: "ok", name: "OK", kind: "allow_once" }] },
     });
     await Promise.resolve();
-    const last = emit.mock.calls.at(-1)?.[0];
+    const last = emit.mock.calls[emit.mock.calls.length - 1]?.[0];
     expect(last?.sessions).toEqual([
       expect.objectContaining({ id: CHAT, kind: "chat", state: "needs", cli: "Claude", approval: expect.objectContaining({ requestKey: "req-1" }) }),
     ]);

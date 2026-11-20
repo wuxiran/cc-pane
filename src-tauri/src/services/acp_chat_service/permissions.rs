@@ -234,7 +234,10 @@ mod tests {
             pending.pending_tool_call("n7").await,
             Some(Some("tool-1".into()))
         );
-        pending.respond("n7", |_, _| async { Ok(()) }).await.unwrap();
+        pending
+            .respond("n7", |_, _| async { Ok(()) })
+            .await
+            .unwrap();
         assert_eq!(pending.pending_tool_call("n7").await, None);
         // 新回合清空：旧 toolCall 身份不会挂到同 key 的新请求上。
         pending.bind_tool_call("n8", Some("tool-2".into())).await;
