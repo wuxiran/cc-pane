@@ -268,7 +268,7 @@ describe("WorkspaceTree component", () => {
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    // 空态 CTA（常驻入口已移到 Explorer 顶部）
+    // 分区头 + 按钮（空态还有一个 CTA）
     fireEvent.click(screen.getAllByText("newWorkspace")[0]);
     expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
   });

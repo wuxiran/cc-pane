@@ -75,7 +75,7 @@ describe("ActivityBar", () => {
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
     // Home + explorer + resources + 设备(ssh)/todo + 添加模块 + settings（SSH 机器与设备已合并为一个入口）
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(8);
     expect(container.querySelector('[data-module-id="devices"]')).toBeNull();
     expect(screen.getByRole("button", { name: "设备" })).toBeInTheDocument();
     // 技能市场已并入资源库，活动栏不再有单独入口
@@ -96,7 +96,7 @@ describe("ActivityBar", () => {
     setExperimental({ librarySpace: true });
     const user = userEvent.setup();
     const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(8);
+    expect(container.querySelectorAll("button")).toHaveLength(9);
     await user.click(screen.getByRole("button", { name: "创建资料空间" }));
     expect(await screen.findByRole("button", { name: "创建并打开素材助手" })).toBeInTheDocument();
   });
@@ -127,8 +127,8 @@ describe("ActivityBar", () => {
     const user = userEvent.setup();
     const { container } = renderBar();
     const buttons = container.querySelectorAll("button");
-    // 底部固定两枚：添加模块、设置；todo 是模块区最后一枚
-    const todoBtn = buttons[buttons.length - 3];
+    // 底部固定三枚：添加模块、自动化、设置；todo 是模块区最后一枚
+    const todoBtn = buttons[buttons.length - 4];
     await user.click(todoBtn);
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");
     expect(useActivityBarStore.getState().sidebarVisible).toBe(true);

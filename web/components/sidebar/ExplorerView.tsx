@@ -6,7 +6,7 @@
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
 import { useRowTypeAhead } from "@/hooks/useTypeAhead";
-import { Contact, History, LayoutGrid, MessagesSquare, Plus, Rocket } from "lucide-react";
+import { Contact, History, LayoutGrid, MessagesSquare, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
@@ -120,17 +120,6 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
             {formatKeyCombo(newTabBinding)}
           </kbd>
         </button>
-        {/* 新建对话框由 WorkspaceTree 承载，这里只发请求意图 */}
-        {activeSection === "workspaces" && (
-          <button
-            type="button"
-            onClick={() => useDialogStore.getState().requestNewWorkspace()}
-            className={ACTION_ROW_CLASS}
-          >
-            <Plus className="size-4 shrink-0" strokeWidth={1.6} />
-            {t("newWorkspace")}
-          </button>
-        )}
       </div>
 
       {/* 工作空间视图：keep-alive，隐藏而不卸载（WorkspaceDialogs 挂在树内） */}

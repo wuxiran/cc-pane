@@ -1,4 +1,5 @@
-import { Boxes, Clapperboard, FolderTree, House, Library, Settings } from "lucide-react";
+import { Boxes, CalendarClock, Clapperboard, FolderTree, House, Library, Settings } from "lucide-react";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
@@ -299,6 +300,12 @@ export default function ActivityBar() {
           <div className="mt-auto flex w-full flex-col items-center gap-1.5 pb-2">
             {layoutSwitcherMode === "corner" && <LayoutBar />}
             <ModuleAddMenu />
+            <ActivityBarIcon
+              icon={<CalendarClock className="h-[18px] w-[18px]" strokeWidth={1.5} />}
+              label={t("agentChatsAutomations")}
+              active={false}
+              onClick={() => navigateToSettings({ paneId: "automations" })}
+            />
             <ActivityBarIcon
               icon={<Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />}
               label={t("settings", { ns: "common", defaultValue: "Settings" })}

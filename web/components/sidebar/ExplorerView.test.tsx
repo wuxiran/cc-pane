@@ -190,12 +190,6 @@ describe("ExplorerView", () => {
     expect(screen.getByRole("button", { name: /launchTerminal/ })).toBeVisible();
   });
 
-  it("requests the new-workspace dialog from the pinned top action", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "newWorkspace" }));
-    expect(useDialogStore.getState().newWorkspaceRequested).toBe(true);
-  });
-
   it("has a single explorer mode: a plain title, no mode switch", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("explorer.title")).toBeVisible();
@@ -203,8 +197,7 @@ describe("ExplorerView", () => {
     expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
   });
 
-  it("only shows the new-workspace action on the workspaces tab", () => {
-    useExplorerSectionsStore.setState({ activeSection: "sessions" });
+  it("no longer has a separate new-workspace row (it lives in the workspace header)", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
   });

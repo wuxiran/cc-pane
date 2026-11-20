@@ -16,9 +16,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "@/components/ui/toast";
-import { ChevronDown, FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
+import { ChevronDown, FolderGit2, FolderTree, ListFilter, TerminalSquare, Plus } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -347,15 +346,19 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           >
             {treeMode === "projects" ? <FolderGit2 className="size-3.5" /> : <TerminalSquare className="size-3.5" />}
           </IconTooltipButton>
-          <IconTooltipButton label={t("agentChatsAutomations")} onClick={() => navigateToSettings({ paneId: "automations" })} className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-text-primary)]">
-            <CalendarClock className="size-3.5" />
-          </IconTooltipButton>
           <IconTooltipButton
             label={t("workspaceFilterToggle")}
             onClick={() => setFilterOpen((open) => !open)}
             className={`size-5 p-0 ${filterActive ? "text-[var(--app-accent)]" : filterOpen ? "text-[var(--app-text-secondary)]" : "text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100"}`}
           >
             <ListFilter className="size-3.5" />
+          </IconTooltipButton>
+          <IconTooltipButton
+            label={t("newWorkspace")}
+            onClick={actions.handleCreateWorkspace}
+            className="size-5 p-0 text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
+          >
+            <Plus className="size-3.5" />
           </IconTooltipButton>
           <IconTooltipButton
             label={t("workspaceNewGroup")}
