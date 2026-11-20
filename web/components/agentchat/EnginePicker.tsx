@@ -30,7 +30,7 @@ import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
 import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
-import CompactStartPage, { START_SUGGESTIONS } from "./CompactStartPage";
+import CompactStartPage from "./CompactStartPage";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
 import { usePendingDraft } from "./pendingDraft";
@@ -55,15 +55,12 @@ export interface EnginePickerProps {
   onPickCwd: (cwd: string) => void;
   /** 续接历史会话时采用该会话的 cwd（供后续 restart 使用）。 */
   onCwdAdopted: (cwd: string) => void;
-  onHistory?: () => void;
-  onCheckpoints?: () => void;
   /** 右侧面板窄版：只留输入框（项目 / 引擎 / 权限 / 发送），贴底。 */
   compact?: boolean;
 }
 
-export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints, compact = false }: EnginePickerProps) {
+export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, compact = false }: EnginePickerProps) {
   const { t } = useTranslation("panes");
-  const { t: runtimeT } = useTranslation("agentRuntime");
   const { t: reviewT } = useTranslation("review");
   const { t: codexT } = useTranslation("codexIntegration");
   const runtimeTools = useChatRuntimeTools();
@@ -359,7 +356,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
             <p className="text-sm leading-relaxed text-[var(--app-text-tertiary)]">{t("agentChatHeroSub")}</p>
           ) : null}
         </div>
-        {!cwd ? (
+        {!cwd && (
           <div className="flex justify-center">
             <StartProjectMenu
               cwd={cwd}
@@ -374,25 +371,6 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
                 </button>
               }
             />
-          </div>
-        ) : (
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {START_SUGGESTIONS.map(({ icon: Icon, labelKey, promptKey }) => (
-              <button
-                key={labelKey}
-                type="button"
-                className="flex items-center gap-2 rounded-full px-3.5 py-2 text-[length:var(--text-row)] leading-snug text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                onClick={() => {
-                  setDraft(t(promptKey));
-                  textareaRef.current?.focus();
-                }}
-              >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[var(--app-text-tertiary)]">
-                  <Icon className="h-4 w-4" />
-                </span>
-                {t(labelKey)}
-              </button>
-            ))}
           </div>
         )}
 
@@ -461,10 +439,6 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
         ) : null}
       </div>
 
-      {(onHistory || onCheckpoints) && <div className="flex justify-center gap-3 text-xs">
-        {onHistory && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onHistory}>{runtimeT("title")}</button>}
-        {onCheckpoints && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onCheckpoints}>{t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })}</button>}
-      </div>}
       {/* 最近会话：紧凑列表，点击续接（session/load） */}
       <StartRecentSessions
         entries={history}

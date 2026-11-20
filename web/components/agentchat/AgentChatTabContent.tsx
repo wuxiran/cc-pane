@@ -280,8 +280,6 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
           cwd={effectiveCwd}
           onPickCwd={setCwdOverride}
           onCwdAdopted={setCwdOverride}
-          onHistory={runtimeTools?.openHistory}
-          onCheckpoints={runtimeTools?.openCheckpoints}
           compact={compact}
         />
       </div>

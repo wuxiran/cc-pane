@@ -2,15 +2,8 @@
 // 卡片里左边权限、右边引擎/模型/语音/发送；项目只在问话里出现一次，不再重复挂条。
 // 控件本身由 EnginePicker 传入，这里只管排版——和窗格启动页共用同一套状态与行为。
 import type { ReactElement, ReactNode, RefObject } from "react";
-import { Bot, Bug, FolderOpen, Hammer, SearchCode, Telescope } from "lucide-react";
+import { Bot, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
-export const START_SUGGESTIONS = [
-  { icon: Telescope, labelKey: "agentChatSuggestExplore", promptKey: "agentChatSuggestExplorePrompt" },
-  { icon: Hammer, labelKey: "agentChatSuggestBuild", promptKey: "agentChatSuggestBuildPrompt" },
-  { icon: SearchCode, labelKey: "agentChatSuggestReview", promptKey: "agentChatSuggestReviewPrompt" },
-  { icon: Bug, labelKey: "agentChatSuggestFix", promptKey: "agentChatSuggestFixPrompt" },
-] as const;
 
 interface CompactStartPageProps {
   projectName: string | null;
