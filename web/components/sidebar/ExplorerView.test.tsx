@@ -46,6 +46,10 @@ vi.mock("@/components/sidebar/AgentChatSessionsView", () => ({
 }));
 
 // --- 简洁模式视图 stub：只验证模式切换，列表内容在它自己的测试里 ---
+vi.mock("@/components/bots/BotContactsView", () => ({
+  default: () => <div>bot-contacts-stub</div>,
+}));
+
 vi.mock("@/components/sidebar/simple/SimpleExplorerView", () => ({
   default: ({ hideTerminalActions }: { hideTerminalActions?: boolean }) => (
     <div data-testid="simple-explorer-stub" data-hide-terminal={hideTerminalActions ? "true" : "false"}>simple-explorer-stub</div>
@@ -118,7 +122,7 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the explorer header and three segmented tabs, workspaces active by default", () => {
+  it("renders the explorer header and four segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("explorer.title")).toBeVisible();
     expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
@@ -131,8 +135,9 @@ describe("ExplorerView", () => {
       "aria-selected",
       "false",
     );
-    // 文件 / Git 已迁往 RightDock，左侧不再有入口；第三个 tab 是 Agent 会话
-    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    // 文件 / Git 已迁往 RightDock，左侧不再有入口；第三个 tab 是 Agent 会话，第四个是联系人
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getByRole("tab", { name: "bots.tab" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
   });
 

@@ -106,6 +106,7 @@ use commands::{
     delete_acp_chat_history,
     delete_ai_panel,
     delete_automation,
+    delete_bot,
     delete_drama_episode,
     delete_drama_project,
     delete_drama_shot,
@@ -305,6 +306,7 @@ use commands::{
     list_all_claude_sessions,
     list_automation_runs,
     list_automations,
+    list_bots,
     // Provider 命令
     list_bundled_skills,
     list_claude_sessions,
@@ -368,6 +370,7 @@ use commands::{
     migrate_data_dir,
     minimize_window,
     move_project_skill,
+    new_bot_thread,
     open_browser_tab,
     open_in_codex,
     open_layout_switcher_window,
@@ -458,6 +461,7 @@ use commands::{
     runner_register_implicit_instance,
     runner_upsert_profile,
     save_automation,
+    save_bot,
     save_layout_snapshot,
     save_layout_switcher_snapshot,
     save_layout_switcher_state,
@@ -525,6 +529,7 @@ use commands::{
     ssh_fs_write_file,
     stage_terminal_task_queue_clipboard_image,
     start_acp_chat,
+    start_bot_chat,
     start_dsh_instance,
     start_launch_history_backfill,
     start_pi_rpc_session,
@@ -1780,6 +1785,11 @@ pub fn run() {
         acp_chat_service.clone(),
         app_paths.clone(),
     ));
+    let bot_service = Arc::new(services::BotService::new(
+        app_paths.data_dir().join("bots"),
+        acp_chat_service.clone(),
+        app_paths.clone(),
+    ));
     let acp_chat_notify = acp_chat_service.clone();
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
@@ -2058,6 +2068,7 @@ pub fn run() {
         .manage(acp_chat_service.checkpoint_service())
         .manage(acp_chat_service)
         .manage(automation_service.clone())
+        .manage(bot_service.clone())
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -3153,6 +3164,11 @@ pub fn run() {
             start_pi_rpc_session,
             start_acp_chat,
             fork_acp_chat,
+            list_bots,
+            save_bot,
+            delete_bot,
+            start_bot_chat,
+            new_bot_thread,
             list_automations,
             save_automation,
             delete_automation,

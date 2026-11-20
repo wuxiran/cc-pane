@@ -9,9 +9,11 @@
 //!
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
+mod admission;
 mod auth;
 pub(crate) mod edits;
 mod elicitation;
+mod event_tap;
 mod fork;
 pub(crate) mod journal;
 mod native;
@@ -31,6 +33,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tracing::{debug, warn};
+
+pub use admission::PromptAnnouncement;
+use admission::{Admission, Preambles};
+pub use event_tap::ChatEventStream;
+use event_tap::EventTap;
 
 use crate::services::process_guard::{self, ProcessGuard};
 use crate::utils::{AppError, AppResult};
@@ -250,6 +257,8 @@ struct AcpChatSession {
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
     active_run: std::sync::Mutex<Option<runtime::ActiveRun>>,
     client_writes: Arc<RwLock<()>>,
+    /// 进程内事件旁路（服务级共享）：Bot 运行时据此收集回复，不依赖 webview。
+    event_tap: EventTap,
 }
 
 impl AcpChatSession {
@@ -442,14 +451,15 @@ impl AcpChatSession {
     }
 
     fn emit_live(&self, kind: &str, payload: Value) {
-        if !crate::webview_reliability::webview_emits_allowed() {
-            return;
-        }
         let event = AcpChatEvent {
             chat_id: self.chat_id.clone(),
             kind: kind.to_string(),
             payload,
         };
+        self.event_tap.send(&event);
+        if !crate::webview_reliability::webview_emits_allowed() {
+            return;
+        }
         if let Err(error) = self.app.emit(ACP_CHAT_EVENT, &event) {
             debug!(chat_id = %self.chat_id, error = %error, "ACP chat event emit failed");
         }
@@ -489,6 +499,10 @@ pub struct AcpChatService {
     sidecar_resource_dir: std::sync::RwLock<Option<PathBuf>>,
     journal: journal::RunJournal,
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
+    event_tap: EventTap,
+    /// chatId → 下一条 prompt 的隐藏前言（Bot 人设在项目 cwd 模式下的注入口；
+    /// ACP 没有 system prompt 字段）。回合被接纳时才取走。
+    preambles: Arc<Preambles>,
 }
 
 impl AcpChatService {
@@ -506,7 +520,28 @@ impl AcpChatService {
             sidecar_resource_dir: std::sync::RwLock::new(None),
             journal,
             checkpoints,
+            event_tap: EventTap::default(),
+            preambles: Arc::new(Preambles::default()),
         }
+    }
+
+    /// 订阅某个 chat 的事件（与 `acp-chat-event` 同载荷，但不经 webview）。
+    /// 无界、按 chat 分发：别的会话再吵、这一轮再长也不丢事件。
+    pub fn subscribe_chat(&self, chat_id: &str) -> ChatEventStream {
+        self.event_tap.subscribe(chat_id)
+    }
+
+    pub(super) fn event_tap(&self) -> EventTap {
+        self.event_tap.clone()
+    }
+
+    /// 设置（或清除）该 chat 下一条 prompt 的隐藏前言。
+    pub fn set_next_prompt_preamble(&self, chat_id: &str, preamble: Option<String>) {
+        self.preambles.set(chat_id, preamble);
+    }
+
+    fn admission(&self, chat_id: &str, announce: Option<PromptAnnouncement>) -> Admission {
+        Admission::new(self.preambles.clone(), chat_id, announce)
     }
 
     async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -685,6 +720,7 @@ impl AcpChatService {
             checkpoints: self.checkpoints.clone(),
             active_run: std::sync::Mutex::new(None),
             client_writes: Arc::new(RwLock::new(())),
+            event_tap: self.event_tap.clone(),
         });
         self.sessions
             .write()
@@ -909,6 +945,7 @@ impl AcpChatService {
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
     pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+        let admission = self.admission(chat_id, None);
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
@@ -918,7 +955,7 @@ impl AcpChatService {
             }
             let (ack, accepted) = oneshot::channel();
             tokio::spawn(async move {
-                match session.admit(blocks).await {
+                match session.admit(blocks, admission).await {
                     Ok(done) => {
                         let _ = ack.send(Ok(()));
                         let _ = done.await;
@@ -936,7 +973,7 @@ impl AcpChatService {
         let session = self.session(chat_id).await?;
         let (ack, accepted) = oneshot::channel();
         tokio::spawn(async move {
-            match service.prepare_turn(session, blocks).await {
+            match service.prepare_turn(session, blocks, admission).await {
                 Ok((session, response)) => {
                     let _ = ack.send(Ok(()));
                     let _ = run_turn(&session, response).await;
@@ -957,10 +994,23 @@ impl AcpChatService {
         chat_id: &str,
         blocks: Vec<Value>,
     ) -> AppResult<String> {
+        self.prompt_and_wait_announced(chat_id, blocks, None).await
+    }
+
+    /// 同 `prompt_and_wait`，但「检查就绪 → 占回合 → 广播公告」是一个原子动作：
+    /// 回合进行中（例如界面里刚发了一条）直接拒绝 `ACP_TURN_IN_PROGRESS`，
+    /// 不会先广播再失败。外部提交（Bot / IM）走这里。
+    pub async fn prompt_and_wait_announced(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        announce: Option<PromptAnnouncement>,
+    ) -> AppResult<String> {
+        let admission = self.admission(chat_id, announce);
         if let Some(session) = self.native_session(chat_id).await {
             return tokio::spawn(async move {
                 session
-                    .admit(blocks)
+                    .admit(blocks, admission)
                     .await?
                     .await
                     .map_err(|error| AppError::from(error.to_string()))?
@@ -971,7 +1021,7 @@ impl AcpChatService {
         let service = self.clone();
         let session = self.session(chat_id).await?;
         tokio::spawn(async move {
-            let (session, response) = service.prepare_turn(session, blocks).await?;
+            let (session, response) = service.prepare_turn(session, blocks, admission).await?;
             run_turn(&session, response).await
         })
         .await

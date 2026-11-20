@@ -632,5 +632,8 @@
   "agentChatChangesBarFiles": "{{count}} file(s) changed",
   "agentChatChangesBarShow": "Show changes",
   "agentChatChangesBarHide": "Hide changes",
-  "agentChatChangesBarReview": "Review"
+  "agentChatChangesBarReview": "Review",
+  "agentChatFromIm": "via IM",
+  "botChatStarting": "Waking up {{name}}…",
+  "botChatRetry": "Retry"
 }

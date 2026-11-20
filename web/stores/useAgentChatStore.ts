@@ -77,7 +77,7 @@ interface AgentChatStoreState extends PromptSubmissionActions, ElicitationAction
   seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
   setCwdOverride: (chatId: string, cwd: string | null) => void;
-  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[]) => void;
+  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[], origin?: "im") => void;
   beginHistoryReplay: (chatId: string, acpSessionId: string) => void;
   finishHistoryReplay: (chatId: string, acpSessionId: string, commit: boolean) => void;
   preserveTranscriptPrefix: (chatId: string) => void;
@@ -242,7 +242,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         if (chat && !chat.replay) chat.transcriptStart = chat.items.length;
       }),
 
-    addUserMessage: (chatId, text, attachments, promptBlocks) =>
+    addUserMessage: (chatId, text, attachments, promptBlocks, origin) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
         const labels = (attachments ?? []).map((attachment) => attachment.name);
@@ -251,7 +251,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           id: nextItemId(),
           at: Date.now(),
           text,
-          ...(promptBlocks ? { promptBlocks } : {}),
+          ...(promptBlocks ? { promptBlocks } : {}), ...(origin ? { origin } : {}),
           ...(labels.length > 0 ? { attachmentLabels: labels, attachments } : {}),
         });
       }),

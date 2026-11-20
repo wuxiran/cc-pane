@@ -632,5 +632,8 @@
   "agentChatChangesBarFiles": "{{count}} 个文件已修改",
   "agentChatChangesBarShow": "展开改动",
   "agentChatChangesBarHide": "收起改动",
-  "agentChatChangesBarReview": "审阅"
+  "agentChatChangesBarReview": "审阅",
+  "agentChatFromIm": "来自 IM",
+  "botChatStarting": "正在唤醒 {{name}}…",
+  "botChatRetry": "重试"
 }

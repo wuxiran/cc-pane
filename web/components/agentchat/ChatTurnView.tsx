@@ -54,7 +54,14 @@ export default function ChatTurnView({
     return (
       <div className="agent-chat-turn-user flex min-w-0 flex-col items-end gap-1" data-testid="chat-turn-user">
         <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} onOpenAttachment={onOpenAttachment} />
-        <TimeStamp at={turn.at} className="pr-1" />
+        <span className="flex items-center gap-1.5">
+          {turn.item.origin === "im" && (
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]" data-testid="chat-turn-user-origin">
+              📱 {t("agentChatFromIm")}
+            </span>
+          )}
+          <TimeStamp at={turn.at} className="pr-1" />
+        </span>
       </div>
     );
   }

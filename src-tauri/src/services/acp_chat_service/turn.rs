@@ -7,7 +7,8 @@ impl AcpChatService {
     pub(super) async fn prepare_turn(
         &self,
         session: Arc<AcpChatSession>,
-        blocks: Vec<Value>,
+        mut blocks: Vec<Value>,
+        mut admission: Admission,
     ) -> AppResult<(Arc<AcpChatSession>, TurnResponse)> {
         if blocks.is_empty() {
             return Err(AppError::coded(
@@ -15,8 +16,17 @@ impl AcpChatService {
                 "ACP prompt cannot be empty",
             ));
         }
+        // 标题取用户原文（不含 Bot 前言）。
+        let title = blocks.iter().find_map(|block| {
+            (block.get("type").and_then(Value::as_str) == Some("text"))
+                .then(|| block.get("text").and_then(Value::as_str))
+                .flatten()
+                .map(str::to_string)
+        });
         let turn = session.turn_control.lock().await;
         let acp_session_id = claim_ready_turn(&session.snapshot).await?;
+        // 占到回合之后才取前言；被拒绝（含下面的记录失败）时 admission drop 放回。
+        admission.apply(&mut blocks);
         if let Err(error) = session.begin_recorded_turn(&acp_session_id, &blocks).await {
             session.set_phase(AcpChatPhase::Ready).await;
             session.emit_state().await;
@@ -24,14 +34,13 @@ impl AcpChatService {
         }
         session.pending_permissions.begin_turn().await;
         session.pending_elicitations.begin_turn().await;
-        if let Some(text) = blocks.iter().find_map(|block| {
-            (block.get("type").and_then(Value::as_str) == Some("text"))
-                .then(|| block.get("text").and_then(Value::as_str))
-                .flatten()
-        }) {
-            self.note_chat_title(&acp_session_id, text);
+        if let Some(text) = title {
+            self.note_chat_title(&acp_session_id, &text);
         }
         session.emit_state().await;
+        if let Some(announce) = admission.take_announcement() {
+            session.emit_live(&announce.kind, announce.payload);
+        }
         let response = session
             .send_request(
                 "session/prompt",
@@ -40,6 +49,9 @@ impl AcpChatService {
                 }),
             )
             .await;
+        if response.is_ok() {
+            admission.commit();
+        }
         drop(turn);
         // A transport failure still goes through run_turn's normal completion
         // events, preserving the interactive API's fire-and-forget contract.
