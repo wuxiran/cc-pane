@@ -20,7 +20,7 @@ vi.mock("@/services/filesystemService", () => ({
     writeFile: vi.fn(),
   },
 }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("./EditorToolbar", () => ({
   default: ({ onPreviewModeChange }: { onPreviewModeChange: (mode: "preview") => void }) => (
     <button type="button" onClick={() => onPreviewModeChange("preview")}>preview</button>

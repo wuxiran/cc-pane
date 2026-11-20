@@ -2,7 +2,7 @@ import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { settingsService } from "@/services";
 import type { ProxySettings } from "@/types";
 import ProxySection from "./ProxySection";
@@ -13,7 +13,7 @@ vi.mock("@/services/settingsService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

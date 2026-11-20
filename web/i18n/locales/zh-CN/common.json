@@ -10,6 +10,7 @@
   "create": "创建",
   "edit": "编辑",
   "close": "关闭",
+  "toastRegion": "提示",
   "back": "返回",
   "retry": "重试",
   "loading": "加载中...",

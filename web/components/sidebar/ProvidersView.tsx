@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Star, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useProvidersStore } from "@/stores";

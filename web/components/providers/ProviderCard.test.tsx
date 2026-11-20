@@ -6,11 +6,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { createSystemProvider, type Provider } from "@/types/provider";
 import ProviderCard from "./ProviderCard";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {

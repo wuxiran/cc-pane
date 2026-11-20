@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { usePanesStore } from "@/stores";
 import { usePaneEdgeDropStore } from "@/stores/usePaneEdgeDropStore";
 import type { Tab } from "@/types";

@@ -1,6 +1,6 @@
 import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThemeSettings } from "@/types/settings";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -8,7 +8,7 @@ import { FEATURED_THEME_IDS, THEME_PRESETS } from "@/theme/themePresets";
 import { FEATURED_THEME_SHAPES, THEME_SHAPES } from "@/theme/themeShapes";
 import ThemeSection from "./ThemeSection";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn() },
 }));
 

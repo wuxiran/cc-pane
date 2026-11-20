@@ -8,7 +8,7 @@ import { renderHook } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 
 const toastWarning = vi.fn();
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     warning: (...args: unknown[]) => toastWarning(...args),
     success: vi.fn(),

@@ -2,7 +2,7 @@ import i18n from "@/i18n";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
@@ -43,7 +43,7 @@ vi.mock("@/services/settingsService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

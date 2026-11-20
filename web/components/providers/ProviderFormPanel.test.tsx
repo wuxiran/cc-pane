@@ -35,11 +35,11 @@ vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({ tools: [] }),
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 /** Radix Select 交互：点 trigger 展开 listbox，再点选项（原生 selectOptions 不适用） */
 async function selectOption(

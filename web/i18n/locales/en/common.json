@@ -10,6 +10,7 @@
   "create": "Create",
   "edit": "Edit",
   "close": "Close",
+  "toastRegion": "Notifications",
   "back": "Back",
   "retry": "Retry",
   "loading": "Loading...",

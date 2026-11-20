@@ -1,7 +1,7 @@
 // 手动更新设备令牌（直连设备，或 SSH 设备不想重新部署时）。
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,

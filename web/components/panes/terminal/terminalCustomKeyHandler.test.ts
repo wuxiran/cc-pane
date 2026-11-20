@@ -11,7 +11,7 @@ vi.mock("../terminalViewHelpers", () => ({
 vi.mock("@/stores", () => ({ shouldTerminalHandleKey: vi.fn(() => true) }));
 vi.mock("@/utils", () => ({ getErrorMessage: (error: unknown) => String(error) }));
 vi.mock("../terminalClipboard", () => ({ copyTerminalSelection: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn() } }));
 
 const terminals: Terminal[] = [];
 let TerminalClass: typeof Terminal;

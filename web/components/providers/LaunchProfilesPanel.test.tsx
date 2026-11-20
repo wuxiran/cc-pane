@@ -13,7 +13,7 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     info: vi.fn(),

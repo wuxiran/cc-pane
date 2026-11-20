@@ -4,8 +4,8 @@ import { emitTo } from "@tauri-apps/api/event";
 import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { Toaster } from "sonner";
-import { TOASTER_OFFSET_CCCHAN, TOASTER_POSITION, toastErr, toastInfo, toastOk } from "@/lib/feedback";
+import { AppToaster } from "@/components/ui/toast";
+import { TOASTER_OFFSET_CCCHAN, toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useTerminalStatusStore } from "@/stores";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -518,7 +518,7 @@ export function CCChanApp() {
         />
       )}
 
-      <Toaster position={TOASTER_POSITION} offset={TOASTER_OFFSET_CCCHAN} richColors />
+      <AppToaster offset={TOASTER_OFFSET_CCCHAN.bottom} />
     </div>
   );
 }

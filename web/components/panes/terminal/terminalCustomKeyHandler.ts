@@ -1,7 +1,7 @@
 // xterm 自定义键盘事件处理：IME 守卫、粘贴/复制快捷键拦截、全局快捷键让路。
 // 从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
 import type { Terminal } from "@xterm/xterm";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/utils";
 import { shouldTerminalHandleKey } from "@/stores";
 import { copyTerminalSelection } from "../terminalClipboard";

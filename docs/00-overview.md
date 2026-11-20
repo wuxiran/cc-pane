@@ -19,7 +19,7 @@ CC-Panes 是一个跨平台的 Claude Code 多实例分屏管理桌面应用，�
 | 数据存储 | SQLite (rusqlite) | 本地持久化 |
 | 图标 | Lucide React | SVG 图标库 |
 | 分屏 | Allotment | 可拖拽分屏布局 |
-| 通知 | sonner | Toast 通知 |
+| 通知 | 自研 `web/components/ui/toast.tsx` | Toast 通知 |
 
 ## 项目结构
 

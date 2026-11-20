@@ -7,7 +7,7 @@
 
 | 通道 | 组件/入口 | 位置 | 生命周期 | 是否可回看 |
 |------|-----------|------|----------|------------|
-| Toast（瞬时提示） | sonner `<Toaster>`，业务经 `web/lib/feedback.ts` | 底部居中（`bottom-center`，offset 避开 StatusBar） | 自动消失（3–6s） | 否 |
+| Toast（瞬时提示） | `web/components/ui/toast.tsx` 的 `<AppToaster>`（唯一实现），业务经 `web/lib/feedback.ts` | 底部居中（offset 避开 StatusBar） | 自动消失（3–6s） | 否 |
 | 通知中心（异步事件） | `web/components/notifications/NotificationCenter.tsx` + `useNotificationStore` | 右下角卡片栈 + 历史面板 | 卡片自动消失（error/askInput 常驻），历史保留 | 是 |
 | Banner（阻断性告警） | `web/components/layout/AlertBannerShell.tsx`（RestoreRegressionBanner） | 主区顶部通栏 | 条件存续期间常驻，需用户处置或状态解除才消失 | 是（存续期间） |
 | Inline（表单/字段错误） | 各表单组件就地渲染 | 出错字段旁 | 随输入修正即时消除 | 是（存续期间） |
@@ -63,11 +63,13 @@ toastErr(t("popOutFailed", { ns: "panes", error: String(err) }));
 
 ### Toaster 挂载与位置
 
-- 主窗口：`web/components/layout/AppShell.tsx`，`position="bottom-center"`，`offset={TOASTER_OFFSET_MAIN}`。
+- 主窗口：`web/components/layout/AppShell.tsx`，`<AppToaster offset={TOASTER_OFFSET_MAIN.bottom} />`，固定底部居中。
   理由：右下是通知中心卡片栈（`fixed bottom-11 right-3`），顶部有 TitleBar 与 Banner，底部有 28px StatusBar；
   底部居中 + 40px offset（28px StatusBar + 12px 间距）三者都不遮挡。
-- ccchan 浮窗：`web/ccchan/CCChanApp.tsx`，同样 `bottom-center`，`offset={TOASTER_OFFSET_CCCHAN}`（浮窗无 StatusBar）。
-- 位置与 offset 常量由 `web/lib/feedback.ts` 导出（`TOASTER_POSITION` / `TOASTER_OFFSET_MAIN` / `TOASTER_OFFSET_CCCHAN`），不写裸 CSS hack。
+- ccchan 浮窗：`web/ccchan/CCChanApp.tsx`，`offset={TOASTER_OFFSET_CCCHAN.bottom}`（浮窗无 StatusBar）。独立设置窗口和浏览器弹窗各挂一个，用默认 offset。
+- offset 常量由 `web/lib/feedback.ts` 导出（`TOASTER_OFFSET_MAIN` / `TOASTER_OFFSET_CCCHAN`），不写裸 CSS hack。
+- toast 只有 `web/components/ui/toast.tsx` 这一份实现，不引入第三方 toast 库（`web/test/toastSingleSource.test.ts` 守着）。
+  它的定位写成内联样式：样式表没生效时提示只会没有装饰，不会掉进文档流。
 
 ### 通知中心
 

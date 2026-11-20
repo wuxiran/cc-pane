@@ -1,11 +1,10 @@
-// 反馈通道统一封装：toast 一律走这里，业务不裸调 sonner 的 toast()。
+// 反馈通道统一封装：toast 一律走这里，业务不直接调 @/components/ui/toast 的 toast()。
 // 通道判定矩阵（toast / 通知中心 / Banner / inline）见 docs/feedback-channels.md。
 import type { ReactNode } from "react";
-import { toast, type ExternalToast } from "sonner";
+import { toast, type ToastOptions } from "@/components/ui/toast";
 import { normalizeNotification, useNotificationStore } from "@/stores/useNotificationStore";
 
-/** 主窗口 Toaster 位置：底部居中——右下是通知中心栈，顶部有 TitleBar/Banner。 */
-export const TOASTER_POSITION = "bottom-center" as const;
+// Toaster 固定底部居中——右下是通知中心栈，顶部有 TitleBar/Banner。
 /** StatusBar 高 28px（h-[28px]）+ 1px 边框，40px 留出约 11px 视觉间距。 */
 export const TOASTER_OFFSET_MAIN = { bottom: 40 } as const;
 /** ccchan 浮窗没有 StatusBar，贴底留小边距即可。 */
@@ -18,22 +17,22 @@ export const TOAST_DURATION_WARN = 5_000;
 export const TOAST_DURATION_ERR = 6_000;
 
 /** 瞬时操作成功确认（保存成功、已复制等）。 */
-export function toastOk(message: ReactNode, options?: ExternalToast): string | number {
+export function toastOk(message: ReactNode, options?: ToastOptions): string | number {
   return toast.success(message, { duration: TOAST_DURATION_OK, ...options });
 }
 
 /** 一般提示（非成功也非错误）。 */
-export function toastInfo(message: ReactNode, options?: ExternalToast): string | number {
+export function toastInfo(message: ReactNode, options?: ToastOptions): string | number {
   return toast.info(message, { duration: TOAST_DURATION_INFO, ...options });
 }
 
 /** 降级/警告（操作完成但有注意事项）。 */
-export function toastWarn(message: ReactNode, options?: ExternalToast): string | number {
+export function toastWarn(message: ReactNode, options?: ToastOptions): string | number {
   return toast.warning(message, { duration: TOAST_DURATION_WARN, ...options });
 }
 
 /** 同步操作失败。需要翻译后端错误 + 写日志时仍走 handleError。 */
-export function toastErr(message: ReactNode, options?: ExternalToast): string | number {
+export function toastErr(message: ReactNode, options?: ToastOptions): string | number {
   return toast.error(message, { duration: TOAST_DURATION_ERR, ...options });
 }
 

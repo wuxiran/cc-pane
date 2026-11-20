@@ -15,7 +15,7 @@ import type {
   WorktreeRecentChange,
 } from "@/services";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     success: vi.fn(),
     info: vi.fn(),

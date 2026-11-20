@@ -1,12 +1,12 @@
 import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { THEME_OVERRIDES_STORAGE_KEY } from "@/theme/themeOverrides";
 import { ThemeEditor } from "./ThemeEditor";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

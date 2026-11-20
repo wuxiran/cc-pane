@@ -1,6 +1,6 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   Folder, FolderX, Trash2, Pencil, Clock, Globe,
   FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone,

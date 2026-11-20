@@ -64,13 +64,13 @@ vi.mock("@/services/runtime", async (importOriginal) => ({
   isTauriRuntime: () => false,
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 const { filesystemService } = await import("@/services/filesystemService");
 const { sshFileService } = await import("@/services/sshFileService");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const getEntryInfo = filesystemService.getEntryInfo as ReturnType<typeof vi.fn>;
 const readFile = filesystemService.readFile as ReturnType<typeof vi.fn>;
 const writeFile = filesystemService.writeFile as ReturnType<typeof vi.fn>;

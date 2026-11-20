@@ -7,7 +7,7 @@ import { useSshMachinesStore } from "@/stores";
 import type { WslDistro } from "@/types";
 import WslDiscoverDialog from "./WslDiscoverDialog";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("@/services/sshMachineService", () => ({
   discoverWslDistros: vi.fn(async () => []),
 }));
 
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { discoverWslDistros } from "@/services/sshMachineService";
 
 const mockDiscover = vi.mocked(discoverWslDistros);

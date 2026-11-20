@@ -11,7 +11,7 @@ import TerminalPathLinkDialog from "./TerminalPathLinkDialog";
 const isTauriRuntime = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("@/services/runtime", () => ({ isTauriRuntime }));
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

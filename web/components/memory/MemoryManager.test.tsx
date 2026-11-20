@@ -6,11 +6,11 @@ import { useMemoryStore } from "@/stores";
 import type { Memory } from "@/types";
 import MemoryManager from "./MemoryManager";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 const PROJECT = "D:/proj";
 

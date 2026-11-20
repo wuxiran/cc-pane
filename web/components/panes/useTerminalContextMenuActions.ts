@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 import { filesystemService, providerService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";

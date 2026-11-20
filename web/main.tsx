@@ -117,7 +117,7 @@ async function renderRoot() {
     // 装 WebGL 诊断台的开发者键盘和弦（Ctrl+Alt+Shift+R 录制 / G 打开诊断台）。
     const [{ installTerminalCastShortcuts }, { toast }] = await Promise.all([
       import("@/utils/terminalCast"),
-      import("sonner"),
+      import("@/components/ui/toast"),
     ]);
     installTerminalCastShortcuts((m) => toast(m));
     root.render(

@@ -6,7 +6,7 @@ import { useFileTreeStore } from "@/stores";
 import type { FileTreeNode, FsEntry } from "@/types/filesystem";
 import FileTreeContextMenu from "./FileTreeContextMenu";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@/services/runtime", () => ({
   isTauriRuntime: () => true,
 }));
 
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {

@@ -2,7 +2,7 @@ import "@/i18n";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { useWorkspaceActions } from "./useWorkspaceActions";
 import { useWorkspacesStore, usePanesStore, useDialogStore } from "@/stores";
 import { worktreeService } from "@/services";
@@ -12,7 +12,7 @@ import type { Workspace, WorkspaceProject } from "@/types";
 
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     info: vi.fn(),
     error: vi.fn(),

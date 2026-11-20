@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { createPanel } from "@/lib/paneTree";
 import { browserService } from "@/services/browserService";
@@ -10,7 +10,7 @@ import { usePanesStore } from "@/stores/usePanesStore";
 import type { Tab } from "@/types";
 import WorkbenchTabMenuItems from "./WorkbenchTabMenuItems";
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn() } }));
 vi.mock("@/services/terminalPathLinkService", () => ({ terminalPathLinkService: { openExternalUrl: vi.fn(async () => {}) } }));
 
 function setup(contentType: Tab["contentType"] = "browser") {

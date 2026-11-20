@@ -2,11 +2,11 @@ import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { ShortcutSettings } from "@/types";
 import ShortcutsSection from "./ShortcutsSection";
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     warning: vi.fn(),
   },

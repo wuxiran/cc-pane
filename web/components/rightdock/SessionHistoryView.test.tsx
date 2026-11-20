@@ -25,7 +25,7 @@ vi.mock("@/services/sessionIndexService", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { warning: mocks.warning, error: mocks.error },
 }));
 

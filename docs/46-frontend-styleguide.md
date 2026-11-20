@@ -22,7 +22,7 @@
 | 从边缘滑入的抽屉 | `Sheet` | 居中 Dialog |
 | 已知列表单选 | shadcn/Radix select 封装 `[目标态:补入 ui/]`；落地前用现有 DropdownMenu 单选模式 | 自造 listbox |
 | 带搜索的单选 | `Command`（cmdk）套 Popover | 无搜索 select |
-| 瞬态确认（“已保存/已复制”） | `sonner` toast | Dialog、内联横幅 |
+| 瞬态确认（“已保存/已复制”） | toast（`web/lib/feedback.ts`） | Dialog、内联横幅 |
 | 持久内联状态（“3 个错误”） | 内联文本 + `Badge` | toast（会消失） |
 | 列表空态 | `EmptyState`（必须给直接获取/配置数据的动作按钮） | 裸文本“暂无数据” |
 | 加载占位 | `skeleton` 拼贴 | 满屏 spinner |

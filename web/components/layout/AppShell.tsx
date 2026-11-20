@@ -1,8 +1,8 @@
 // 应用外壳：五区骨架 TitleBar → ActivityBar | Sidebar | Main → StatusBar。
 // 区域用明度分层划分（深色：主区最暗、外壳略浮，浮起面最亮；亮色：外壳灰、主区白），
 // 各区组件自绘背景但统一取对应 --app-* token；分区容器与边框归本壳所有。
-import { Toaster } from "sonner";
-import { TOASTER_OFFSET_MAIN, TOASTER_POSITION } from "@/lib/feedback";
+import { AppToaster } from "@/components/ui/toast";
+import { TOASTER_OFFSET_MAIN } from "@/lib/feedback";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "@/components/TitleBar";
 import ActivityBar from "@/components/ActivityBar";
@@ -18,7 +18,7 @@ import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
 import RestoreRegressionBanner from "@/components/RestoreRegressionBanner";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
 import FeatureTips from "@/components/tips/FeatureTips";
-import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
+import { useMiniModeStore, useWorkspacesStore } from "@/stores";
 import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
 import { useSuppressChromeContextMenu } from "@/hooks/useSuppressChromeContextMenu";
 import type { OpenTerminalOptions } from "@/types";
@@ -30,7 +30,6 @@ interface AppShellProps {
 }
 
 export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecentFiles }: AppShellProps) {
-  const isDark = useThemeStore((s) => s.isDark);
   const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
   useFollowActiveTerminalContext();
@@ -44,13 +43,8 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         className="app h-full flex flex-col relative z-[1]"
         data-shape-surface="app-shell"
       >
-        {/* Sonner Toast：bottom-center 避开右下通知中心栈，offset 抬到 StatusBar（28px）上方 */}
-        <Toaster
-          position={TOASTER_POSITION}
-          offset={TOASTER_OFFSET_MAIN}
-          theme={isDark ? "dark" : "light"}
-          richColors
-        />
+        {/* 全局 toast：底部居中， 避开右下通知中心栈，offset 抬到 StatusBar（28px）上方 */}
+        <AppToaster offset={TOASTER_OFFSET_MAIN.bottom} />
         {/* MCP 编排器故障走右下通知中心，此组件只负责发通知、不占通栏。 */}
         <OrchestratorAlertBanner />
         <RestoreRegressionBanner />

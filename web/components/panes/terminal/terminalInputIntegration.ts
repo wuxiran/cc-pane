@@ -3,7 +3,7 @@
 // 拖放、粘贴、原生菜单/文本域、IME 守卫与快捷键拦截集中在此装配。
 import type { Terminal } from "@xterm/xterm";
 import type { TFunction } from "i18next";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { createTerminalPasteHandlers } from "./terminalPaste";
 import { attachTerminalTextareaIntegration } from "./terminalTextareaIntegration";
 import { attachTerminalDragDropListener } from "./terminalDragDrop";

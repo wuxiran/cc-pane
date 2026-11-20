@@ -19,8 +19,8 @@ import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
-// LayoutDeleteDialog 依赖 tauri webviewWindow 与 sonner，测试环境不可用需 mock
-vi.mock("sonner", () => ({
+// LayoutDeleteDialog 依赖 tauri webviewWindow 与全局 toast，测试环境不可用需 mock
+vi.mock("@/components/ui/toast", () => ({
   toast: {
     success: vi.fn(),
     info: vi.fn(),
