@@ -1,4 +1,4 @@
-// Explorer 侧栏：标题下双按钮 segmented（工作空间 / 最近启动）单选切换。
+// Explorer 侧栏：标题旁图标 tab（工作空间 / 会话 / 联系人）单选切换。
 // 文件 / Git 视图已迁往右侧 RightDock（跟随激活终端、多根），左侧不再重复入口。
 // 工作空间树 keep-alive（display 翻转），保证其挂载的 Dialogs 在切换视图时不丢失。
 // 标题栏下常驻「启动终端」主操作行（Codex 式纯文本行，在滚动区之外，永远不被列表挤出视口）：
@@ -6,11 +6,10 @@
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
 import { useRowTypeAhead } from "@/hooks/useTypeAhead";
-import { Contact, History, LayoutGrid, MessagesSquare, Rocket } from "lucide-react";
+import { Contact, History, LayoutGrid, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
-import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
 import BotContactsView from "@/components/bots/BotContactsView";
 import {
   formatKeyCombo,
@@ -25,9 +24,8 @@ import type { OpenTerminalOptions } from "@/types";
 // IDEA 风格图标 tab：图标 + tooltip，紧凑不占宽
 const SECTIONS = [
   { id: "workspaces", labelKey: "explorer.tabWorkspaces", Icon: LayoutGrid },
-  // 「最近启动」原为 ActivityBar 竖排项，复用已有的 recentLaunches key（不新增 i18n）
-  { id: "sessions", labelKey: "recentLaunches", Icon: History },
-  { id: "agentChats", labelKey: "agentChatsTitle", Icon: MessagesSquare },
+  // 会话：CLI 启动记录和 Agent 对话合在一个入口，列表里每行用标签区分。
+  { id: "sessions", labelKey: "sessionsTitle", Icon: History },
   // Bot 联系人：常驻、有人设、长期记得对话的 Agent（可经 IM 收发）
   { id: "bots", labelKey: "bots.tab", Icon: Contact },
 ] as const satisfies ReadonlyArray<{
@@ -131,20 +129,12 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
       </div>
 
-      {/* 最近启动：keep-alive，隐藏而不卸载（保住 launchHistory 与 history-updated 监听，切走再切回不丢状态） */}
+      {/* 会话（CLI 启动记录 + Agent 对话）：keep-alive，隐藏而不卸载（保住 launchHistory 与 history-updated 监听，切走再切回不丢状态） */}
       <div
         className="min-h-0 flex-1"
         style={activeSection === "sessions" ? undefined : { display: "none" }}
       >
         <SessionsView onOpenTerminal={onOpenTerminal} />
-      </div>
-
-      {/* Agent 会话：跨项目最近 ACP 对话（点击自动续接） */}
-      <div
-        className="min-h-0 flex-1"
-        style={activeSection === "agentChats" ? undefined : { display: "none" }}
-      >
-        <AgentChatSessionsView />
       </div>
 
       {/* 联系人：keep-alive——挂着才能收到 Bot 经 IM 产生的对话事件 */}

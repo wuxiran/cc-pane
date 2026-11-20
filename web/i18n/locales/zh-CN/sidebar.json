@@ -75,7 +75,6 @@
   "borderlessMode": "无边框模式",
   "openTerminal": "打开终端",
   "newAgentChat": "新建 Agent 对话",
-  "agentChatsTitle": "Agent 会话",
   "agentChatsEmpty": "还没有 Agent 对话，开一个就会出现在这里。",
   "agentChatsAutomations": "自动化",
   "sessionJournal": "会话日志",
@@ -926,5 +925,9 @@
     "deleteConfirm": "删除 Bot「{{name}}」？对话记录仍保留在 agent 侧，但 Bot 本身无法恢复。",
     "busy": "正在回复…",
     "tab": "联系人"
-  }
+  },
+  "sessionsTitle": "会话",
+  "sessionFilterAll": "全部",
+  "sessionTagCli": "终端",
+  "sessionTagChat": "对话"
 }

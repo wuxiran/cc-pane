@@ -1,6 +1,6 @@
 import "@/i18n";
 import type { ReactElement } from "react";
-import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePanesStore, useSshMachinesStore, useTerminalStatusStore, useWorkspacesStore } from "@/stores";
@@ -76,15 +76,17 @@ describe("SessionsView", () => {
     usePanesStore.setState({ rootPane: createPanel([]) });
     mockTauriInvoke({
       list_launch_history: [],
+      list_acp_chat_history: [],
       clear_launch_history: undefined,
       delete_launch_history: undefined,
     });
   });
 
-  it("renders the SESSIONS header", async () => {
+  it("renders the sessions header with the kind filter", async () => {
     render(<SessionsView onOpenTerminal={vi.fn()} />);
 
-    expect(screen.getByText("SESSIONS")).toBeVisible();
+    expect(screen.getByText(/^Sessions$|^会话$/)).toBeVisible();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
     await waitFor(() => expect(screen.getByText(/No resumable sessions|无可恢复/i)).toBeVisible());
   });
 
@@ -142,5 +144,39 @@ describe("SessionsView", () => {
 
     expect(await screen.findByText("History Project")).toBeVisible();
     expect(screen.getByText("Alpha")).toBeVisible();
+  });
+
+  it("lists agent chats and CLI launches in one list, each row tagged, and filters by kind", async () => {
+    useWorkspacesStore.setState({
+      workspaces: [{ id: "w1", name: "Alpha", createdAt: "", projects: [{ id: "p1", path: "D:/work/history" }] }] as never,
+    });
+    mockTauriInvoke({
+      list_launch_history: [createRecord({ projectName: "History Project", cliTool: "claude" })],
+      list_acp_chat_history: [
+        { acpSessionId: "acp-1", engineId: "codex", cwd: "D:\\work\\history\\sub", title: "Fix the bug", createdAt: 1, updatedAt: Date.parse("2026-05-02T10:00:00Z") },
+        { acpSessionId: "acp-2", engineId: "claude", cwd: "/elsewhere", title: "Loose chat", createdAt: 1, updatedAt: 2 },
+      ],
+    });
+
+    render(<SessionsView onOpenTerminal={vi.fn()} />);
+
+    expect(await screen.findByText("History Project")).toBeVisible();
+    expect(await screen.findByText("Fix the bug")).toBeVisible();
+    // 对话按 cwd 归到所属工作空间；归不上的进「未分组」。
+    expect(screen.getAllByText("Alpha")).toHaveLength(1);
+    expect(screen.getByText(/Ungrouped|未分组/)).toBeVisible();
+    const kinds = () => Array.from(document.querySelectorAll("[data-session-kind]")).map((el) => el.getAttribute("data-session-kind"));
+    // Alpha 组内按时间倒序：对话（5/2）在启动记录（5/1）之前。
+    expect(kinds()).toEqual(["chat", "cli", "chat"]);
+    expect(document.querySelector('[data-session-kind="cli"]')?.textContent).toMatch(/(Terminal|终端) · claude/);
+    expect(document.querySelector('[data-session-kind="chat"]')?.textContent).toMatch(/(Chat|对话) · codex/);
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Chat$|^对话$/ }));
+    expect(kinds()).toEqual(["chat", "chat"]);
+    expect(screen.queryByText("History Project")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Terminal$|^终端$/ }));
+    expect(kinds()).toEqual(["cli"]);
+    expect(screen.queryByText("Fix the bug")).not.toBeInTheDocument();
   });
 });

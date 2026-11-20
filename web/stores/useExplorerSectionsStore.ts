@@ -1,14 +1,15 @@
-// Explorer 侧栏激活视图（工作区 / 最近启动 / Agent 会话 单选，纯 UI 偏好，持久化到 localStorage）
+// Explorer 侧栏激活视图（工作区 / 会话 / 联系人 单选，纯 UI 偏好，持久化到 localStorage）
 // 文件 / Git 已迁往 RightDock，旧持久化值需迁移回 workspaces
 // v4：资源管理器只留一种模式（原「简洁 / 完整」的切换下线）；「工作空间」分区头可折叠。
+// v5：「Agent 会话」并入「会话」（一份列表，行上打标签），旧值 agentChats 落到 sessions。
 // 默认上下文工作空间只是前端偏好，不动后端 workspace.json。
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ExplorerSectionId = "workspaces" | "sessions" | "agentChats" | "bots";
+export type ExplorerSectionId = "workspaces" | "sessions" | "bots";
 export type WorkspaceTreeMode = "projects" | "terminals";
 
-const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions", "agentChats", "bots"];
+const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions", "bots"];
 const TREE_MODES: readonly WorkspaceTreeMode[] = ["projects", "terminals"];
 
 interface ExplorerSectionsState {
@@ -39,7 +40,7 @@ export const useExplorerSectionsStore = create<ExplorerSectionsState>()(
     }),
     {
       name: "cc-panes-explorer-sections",
-      version: 4,
+      version: 5,
       partialize: (s) => ({
         activeSection: s.activeSection,
         workspaceTreeMode: s.workspaceTreeMode,
@@ -50,7 +51,8 @@ export const useExplorerSectionsStore = create<ExplorerSectionsState>()(
       // v3 → v4 丢掉简洁模式的字段（explorerMode / pinnedSessionKeys / collapsedSimpleProjects）
       migrate: (persisted) => {
         const state = persisted as Partial<ExplorerSectionsState> | undefined;
-        const active = state?.activeSection;
+        const stored = state?.activeSection as string | undefined;
+        const active = (stored === "agentChats" ? "sessions" : stored) as ExplorerSectionId | undefined;
         const mode = state?.workspaceTreeMode;
         const preferred = state?.preferredContextWorkspaceName;
         return {

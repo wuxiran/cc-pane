@@ -75,7 +75,6 @@
   "borderlessMode": "Borderless Mode",
   "openTerminal": "Open Terminal",
   "newAgentChat": "New Agent Chat",
-  "agentChatsTitle": "Agent Chats",
   "agentChatsEmpty": "No agent chats yet. Start one to see it here.",
   "agentChatsAutomations": "Automations",
   "sessionJournal": "Session Journal",
@@ -926,5 +925,9 @@
     "deleteConfirm": "Delete bot \"{{name}}\"? The conversation stays on the agent side, but the bot itself cannot be restored.",
     "busy": "Replying…",
     "tab": "Contacts"
-  }
+  },
+  "sessionsTitle": "Sessions",
+  "sessionFilterAll": "All",
+  "sessionTagCli": "Terminal",
+  "sessionTagChat": "Chat"
 }

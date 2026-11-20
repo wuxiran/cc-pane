@@ -40,11 +40,6 @@ vi.mock("@/components/sidebar/SessionsView", () => ({
   ),
 }));
 
-// --- AgentChatSessionsView stub：同为 keep-alive 常挂载，桩掉其历史加载 ---
-vi.mock("@/components/sidebar/AgentChatSessionsView", () => ({
-  default: () => <div>agent-chats-view-stub</div>,
-}));
-
 vi.mock("@/components/bots/BotContactsView", () => ({
   default: () => <div>bot-contacts-stub</div>,
 }));
@@ -115,7 +110,7 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the explorer header and four segmented tabs, workspaces active by default", () => {
+  it("renders the explorer header and three segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("explorer.title")).toBeVisible();
     expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
@@ -124,12 +119,12 @@ describe("ExplorerView", () => {
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "recentLaunches" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "sessionsTitle" })).toHaveAttribute(
       "aria-selected",
       "false",
     );
-    // 文件 / Git 已迁往 RightDock，左侧不再有入口；第三个 tab 是 Agent 会话，第四个是联系人
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    // 文件 / Git 已迁往 RightDock；Agent 会话并入「会话」，剩工作空间 / 会话 / 联系人
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
     expect(screen.getByRole("tab", { name: "bots.tab" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
   });
@@ -139,12 +134,21 @@ describe("ExplorerView", () => {
     // 未选中时已挂载但隐藏
     expect(screen.getByText("sessions-view-stub")).not.toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "recentLaunches" }));
+    fireEvent.click(screen.getByRole("tab", { name: "sessionsTitle" }));
 
     expect(useExplorerSectionsStore.getState().activeSection).toBe("sessions");
     expect(screen.getByText("sessions-view-stub")).toBeVisible();
     // 工作空间树同样 keep-alive，仅隐藏
     expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
+  });
+
+  it("has one sessions entry: CLI history and agent chats share a tab", () => {
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
+      "explorer.tabWorkspaces",
+      "sessionsTitle",
+      "bots.tab",
+    ]);
   });
 
   it("forwards onOpenTerminal from the recent-launches view", () => {

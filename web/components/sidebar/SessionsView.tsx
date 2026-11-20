@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { Terminal } from "lucide-react";
-import { useTerminalStatusStore, usePanesStore } from "@/stores";
+import { Plus, Terminal } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { agentChatService } from "@/services/agentChatService";
+import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
+import type { AcpChatHistoryEntry } from "@/types/agentChat";
+import { openNewAgentChat } from "./agentChatResume";
+import type { SessionKindFilter } from "./sessionEntries";
+import { useTerminalStatusStore, usePanesStore, useWorkspacesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +25,14 @@ function getAllPanels(pane: PaneNode): PanelType[] {
   return pane.children.flatMap(getAllPanels);
 }
 
+const FILTERS = [
+  { id: "all", labelKey: "sessionFilterAll" },
+  { id: "cli", labelKey: "sessionTagCli" },
+  { id: "chat", labelKey: "sessionTagChat" },
+] as const satisfies ReadonlyArray<{ id: SessionKindFilter; labelKey: string }>;
+/** 对话历史最多并进列表这么多条（与原 Agent 会话视图一致）。 */
+const MAX_CHATS = 50;
+
 interface SessionsViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
@@ -26,6 +41,9 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const rootPane = usePanesStore((s) => s.rootPane);
 
+  const { t } = useTranslation("sidebar");
+  const [filter, setFilter] = useState<SessionKindFilter>("all");
+  const [chats, setChats] = useState<AcpChatHistoryEntry[]>([]);
   const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const showHistorySkeleton = useDelayedLoading(!historyLoaded);
@@ -70,6 +88,30 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
     return () => { window.removeEventListener('cc-panes:history-updated', handler); };
   }, [fetchHistory]);
 
+  // Agent 对话历史：和 CLI 启动记录并在同一份列表里。
+  const reloadChats = useCallback(() => {
+    agentChatService
+      .listHistory()
+      .then((list) => setChats(list.filter((entry) => entry.acpSessionId).slice(0, MAX_CHATS)))
+      .catch((error) => handleErrorSilent(error, "list acp chat history"));
+  }, []);
+  useEffect(() => {
+    reloadChats();
+    // 切回本视图时靠 focus 兜底；agent 改标题（session_info_update）时即时重拉。
+    window.addEventListener("focus", reloadChats);
+    window.addEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, reloadChats);
+    return () => {
+      window.removeEventListener("focus", reloadChats);
+      window.removeEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, reloadChats);
+    };
+  }, [reloadChats]);
+
+  const openNewChat = () => {
+    const ws = useWorkspacesStore.getState();
+    const workspace = ws.workspaces.find((w) => w.id === ws.expandedWorkspaceId);
+    openNewAgentChat(workspace?.projects.find((project) => project.id === ws.expandedProjectId)?.path);
+  };
+
   // 收集活跃终端会话
   const allPanels = getAllPanels(rootPane);
   const activeSessions = allPanels.flatMap((panel) =>
@@ -87,20 +129,49 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* 视图标题栏 */}
-      <div className="flex items-center justify-between px-4 py-2 shrink-0">
-        <span
-          className="text-[length:var(--text-caption)] font-bold tracking-wider"
-          style={{ color: "var(--app-text-secondary)" }}
-        >
-          SESSIONS
+      {/* 视图标题栏：标题 + 新建对话；下面一排筛选（全部 / 终端 / 对话） */}
+      <div className="flex shrink-0 items-center gap-1 px-4 pt-2">
+        <span className="text-[length:var(--text-caption)] font-medium text-[var(--app-text-secondary)]">
+          {t("sessionsTitle")}
         </span>
+        <span className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("newAgentChat")}
+              className="rounded p-1 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+              onClick={openNewChat}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t("newAgentChat")}</TooltipContent>
+        </Tooltip>
+      </div>
+      <div className="flex shrink-0 items-center gap-1 px-4 py-2" role="radiogroup" aria-label={t("sessionsTitle")}>
+        {FILTERS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="radio"
+            aria-checked={filter === item.id}
+            className={`rounded-full px-2 py-0.5 text-[length:var(--text-micro)] transition-colors ${
+              filter === item.id
+                ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                : "text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)]"
+            }`}
+            onClick={() => setFilter(item.id)}
+          >
+            {t(item.labelKey)}
+          </button>
+        ))}
       </div>
 
       {/* relative：成为 RecentLaunches 列表的 offsetParent，scrollMargin 才能用 offsetTop 对齐 */}
       <div ref={setScrollElement} className="app-scrollbar relative flex-1 overflow-y-auto">
         {/* 活跃会话 */}
-        {activeSessions.length > 0 && (
+        {filter !== "chat" && activeSessions.length > 0 && (
           <div className="px-3 mb-3">
             <span className="text-[length:var(--text-micro)] font-bold uppercase tracking-wider px-1 text-[var(--app-text-tertiary)]">
               Active ({activeSessions.length})
@@ -130,6 +201,8 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
           {historyLoaded ? (
             <RecentLaunches
               launchHistory={launchHistory}
+              chats={chats}
+              filter={filter}
               onOpenTerminal={onOpenTerminal}
               onClearHistory={clearHistory}
               onDeleteRecord={deleteRecord}
