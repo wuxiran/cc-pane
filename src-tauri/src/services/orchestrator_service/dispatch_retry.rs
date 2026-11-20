@@ -198,11 +198,16 @@ fn retry_params(binding: &TaskBinding) -> Result<McpLaunchTaskParams, String> {
         TaskDispatchMode::Prompt => (binding.prompt.clone(), None, None),
         TaskDispatchMode::Resume => (None, envelope.resume_id.clone(), None),
         // A failed fork never produced a usable child: fork the same source again.
-        TaskDispatchMode::Fork => (
-            binding.prompt.clone(),
-            None,
-            envelope.fork_session_id.clone(),
-        ),
+        TaskDispatchMode::Fork => {
+            // The source ID is the task's identity. Without it a retry would silently become
+            // a brand-new prompt task that has none of the source conversation.
+            let source = envelope
+                .fork_session_id
+                .clone()
+                .filter(|id| cc_cli_adapters::is_valid_fork_session_id(id.trim()))
+                .ok_or("The original fork task has no source session to fork again")?;
+            (binding.prompt.clone(), None, Some(source))
+        }
     };
     if prompt
         .as_deref()
@@ -312,6 +317,14 @@ mod tests {
             Some("source-conversation")
         );
         assert!(retry.prompt.is_none());
+
+        // 记录残缺（有 prompt、mode 仍是 fork、但没有源 ID）：拒绝，不能悄悄变成新任务。
+        binding.prompt = Some("original task".into());
+        let envelope = &mut binding.metadata.as_mut().unwrap()["dispatchEnvelope"];
+        envelope.as_object_mut().unwrap().remove("forkSessionId");
+        assert!(retry_params(&binding).is_err());
+        binding.metadata.as_mut().unwrap()["dispatchEnvelope"]["forkSessionId"] = json!("--last");
+        assert!(retry_params(&binding).is_err());
     }
 
     #[test]

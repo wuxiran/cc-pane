@@ -5355,12 +5355,17 @@ impl McpToolHandler {
             Some(&plan.envelope.resolved_cli_tool),
             launch.runtime_kind.as_deref(),
             // A fork runs where its source lives, so the source ID picks the runtime too.
-            launch
+            // Use the planner's canonical (trimmed) IDs: the history lookup is an exact
+            // match, and the launch below resolves the runtime from the same values.
+            plan.envelope
                 .resume_id
                 .as_deref()
-                .or(launch.fork_session_id.as_deref()),
+                .or(plan.envelope.fork_session_id.as_deref()),
             &self.state,
         )?;
+        if let Some(fork_session_id) = plan.envelope.fork_session_id.as_deref() {
+            validate_fork_runtime(&self.state, fork_session_id, &runtime)?;
+        }
         let launch_profile_id = resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
             project_context.launch_profile_id.as_deref(),
@@ -6565,16 +6570,6 @@ impl McpToolHandler {
             .as_ref()
             .map(|_| cli_tool.as_id().to_string());
 
-        let prompt_delivery = prepare_launch_prompt(
-            &params.project_path,
-            &task_id,
-            if is_resume && !params.allow_resume_with_prompt {
-                None
-            } else {
-                params.prompt
-            },
-            self.state.terminal_backend.kind(),
-        );
         let runtime = match resolve_launch_runtime(
             &params.project_path,
             ws_name.as_deref(),
@@ -6606,8 +6601,8 @@ impl McpToolHandler {
                     cli_tool.as_id()
                 );
             }
-            if matches!(runtime.kind, LaunchRuntimeKind::Ssh) {
-                return "错误: 暂不支持分叉 SSH 上的会话".to_string();
+            if let Err(error) = validate_fork_runtime(&self.state, &fork_session_id, &runtime) {
+                return format!("错误: {}", error);
             }
             let options = params.adapter_options.get_or_insert_with(HashMap::new);
             options.insert(
@@ -6619,6 +6614,18 @@ impl McpToolHandler {
                 serde_json::Value::String(launch_cwd.clone()),
             );
         }
+
+        // 放在分叉校验之后：超长 prompt 会落盘，校验不过就不该留下没人清理的文件。
+        let prompt_delivery = prepare_launch_prompt(
+            &params.project_path,
+            &task_id,
+            if is_resume && !params.allow_resume_with_prompt {
+                None
+            } else {
+                params.prompt
+            },
+            self.state.terminal_backend.kind(),
+        );
 
         let launch_profile_id = match resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
@@ -10714,6 +10721,43 @@ fn select_launch_runtime_kind(
     }
 }
 
+/// 分叉必须在源会话所在的环境里启动：CLI 是到当前环境的会话库里按 ID 找历史的。
+fn validate_fork_runtime(
+    state: &AppState,
+    fork_session_id: &str,
+    runtime: &ResolvedLaunchRuntime,
+) -> std::result::Result<(), String> {
+    let source_runtime = state
+        .launch_history_service
+        .find_by_resume_session_id(fork_session_id)
+        .ok()
+        .flatten()
+        .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok());
+    match fork_runtime_conflict(source_runtime, runtime.kind) {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// `source` 是源会话启动记录里的环境（查不到记录时为 None，交给 CLI 自己判断）。
+fn fork_runtime_conflict(
+    source: Option<LaunchRuntimeKind>,
+    target: LaunchRuntimeKind,
+) -> Option<String> {
+    if target == LaunchRuntimeKind::Ssh {
+        return Some("暂不支持分叉 SSH 上的会话".to_string());
+    }
+    match source {
+        Some(source) if source != target => Some(format!(
+            "源会话在 {} 环境，不能在 {} 环境分叉；去掉 runtimeKind 或改成 {}",
+            source.as_str(),
+            target.as_str(),
+            source.as_str()
+        )),
+        _ => None,
+    }
+}
+
 fn resolve_launch_runtime(
     project_path: &str,
     workspace_name: Option<&str>,
@@ -10730,16 +10774,20 @@ fn resolve_launch_runtime(
         .filter(|runtime| !runtime.is_empty())
         .map(parse_launch_runtime_kind)
         .transpose()?;
+    // 源会话（resume / fork 的来源）的启动记录：没显式指定环境时它决定环境；
+    // 指定了 wsl 时它仍然决定发行版——会话库在记录的那个发行版里。
+    let history_record = resume_id.and_then(|id| {
+        state
+            .launch_history_service
+            .find_by_resume_session_id(id)
+            .ok()
+            .flatten()
+    });
+    let history_record_runtime = history_record
+        .as_ref()
+        .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok());
     let history_runtime = if explicit_runtime.is_none() {
-        resume_id
-            .and_then(|id| {
-                state
-                    .launch_history_service
-                    .find_by_resume_session_id(id)
-                    .ok()
-                    .flatten()
-            })
-            .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok())
+        history_record_runtime
     } else {
         None
     };
@@ -10798,7 +10846,19 @@ fn resolve_launch_runtime(
                 _ => "无法解析 WSL 路径。".to_string(),
             });
         }
-        resolved
+        let source_distro = history_record
+            .as_ref()
+            .filter(|_| history_record_runtime == Some(LaunchRuntimeKind::Wsl))
+            .and_then(|record| record.wsl_distro.clone())
+            .filter(|distro| !distro.trim().is_empty());
+        resolved.map(|mut info| {
+            // 同一个盘符项目可能在两个发行版里用过：按工作空间当前配置选发行版，
+            // 会到错的会话库里找源会话。
+            if let Some(distro) = source_distro {
+                info.distro = Some(distro);
+            }
+            info
+        })
     } else {
         None
     };
@@ -18417,6 +18477,23 @@ mod tests {
         assert!(request.plan_path.is_none());
         apply_dispatch_parent(&mut request, None);
         assert_eq!(request.role, Some(TaskBindingRole::Task));
+    }
+
+    #[test]
+    fn fork_must_launch_where_its_source_session_lives() {
+        use LaunchRuntimeKind::{Local, Ssh, Wsl};
+        // 查不到源会话记录：不拦，由 CLI 自己报找不到会话。
+        assert!(fork_runtime_conflict(None, Local).is_none());
+        assert!(fork_runtime_conflict(Some(Local), Local).is_none());
+        assert!(fork_runtime_conflict(Some(Wsl), Wsl).is_none());
+        // 源在 WSL、却要在宿主机起（或反过来）：会到错的会话库里找。
+        assert!(fork_runtime_conflict(Some(Wsl), Local)
+            .unwrap()
+            .contains("wsl"));
+        assert!(fork_runtime_conflict(Some(Local), Wsl).is_some());
+        // SSH 不管是显式传的还是推断出来的都拒绝。
+        assert!(fork_runtime_conflict(None, Ssh).unwrap().contains("SSH"));
+        assert!(fork_runtime_conflict(Some(Ssh), Ssh).is_some());
     }
 
     #[test]
