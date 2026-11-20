@@ -219,11 +219,13 @@ describe("ActivityBar", () => {
     const { container } = renderBar();
     const homeBtn = container.querySelectorAll("button")[0] as HTMLElement;
     const explorerBtn = container.querySelectorAll("button")[1] as HTMLElement;
-    expect(homeBtn.style.background).toContain("app-activity-item-active");
+    // 选中态是中性浅底 + 主文字色（实心图标上不用强调色）
+    expect(homeBtn.className).toContain("text-[var(--app-text-primary)]");
+    expect(homeBtn.className).toContain("bg-[color-mix(");
     // demo 式激活指示条：激活项左缘 3px accent 竖条
     const indicator = homeBtn.parentElement?.querySelector('span[aria-hidden]');
     expect(indicator).not.toBeNull();
-    expect(explorerBtn.style.background).toBe("");
+    expect(explorerBtn.className).not.toContain(" bg-[color-mix(");
     expect(explorerBtn.parentElement?.querySelector('span[aria-hidden]')).toBeNull();
   });
 });

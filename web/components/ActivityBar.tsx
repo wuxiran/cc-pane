@@ -14,6 +14,7 @@ import {
   SolidSettings,
   type SolidIcon,
 } from "@/components/icons/solidIcons";
+import { ACTIVITY_ICON_ACTIVE, ACTIVITY_ICON_IDLE } from "@/components/activityBarIconStyle";
 import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
@@ -96,15 +97,10 @@ function ActivityBarIcon({
           <button
             type="button"
             aria-label={label}
-            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
-              active
-                ? "text-[var(--app-accent)]"
-                : "text-[var(--app-icon-inactive)] hover:bg-[var(--app-activity-item-hover)] hover:text-[var(--app-icon-hover)]"
+            className={`relative flex h-8 w-8 items-center justify-center rounded-lg transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
+              active ? ACTIVITY_ICON_ACTIVE : ACTIVITY_ICON_IDLE
             }`}
-            style={{
-              background: active ? "var(--app-activity-item-active)" : undefined,
-              boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined,
-            }}
+            style={{ boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined }}
             onClick={onClick}
           >
             {icon}
