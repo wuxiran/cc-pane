@@ -1,14 +1,13 @@
-// 布局快捷簇：舒适档两行（上 Agent Chat，下星标/预设/自动化纯图标），紧凑档同一组并排。
-// 点 Agent / 星标切到对应布局；点预设弹出分屏网格；点自动化跳设置。浮层不再重复专用布局。
+// 布局快捷簇：星标/预设/自动化纯图标并排（舒适档垂直居中）。
+// 点星标切到星标布局；点预设弹出分屏网格；点自动化跳设置。
 // 复用 corner 模式选择器的 useFloatingPanelPosition 定位/夹紧逻辑，弹层方向改为按钮下方。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, MessagesSquare, Star } from "lucide-react";
+import { CalendarClock, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useActivityBarStore, usePanesStore } from "@/stores";
-import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import { isStarredLayout } from "@/stores/paneLayoutHelpers";
 import type { LayoutPresetId } from "@/types/pane";
 import { useFloatingPanelPosition } from "./useFloatingPanelPosition";
@@ -101,10 +100,8 @@ export default function LayoutPresetPicker({
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const [open, setOpen] = useState(false);
   const starredLayout = layouts.find(isStarredLayout);
-  const agentChatLayout = layouts.find(isAgentChatLayout);
   const onStarred = starredLayout?.id === currentLayoutId;
-  const onAgentChat = agentChatLayout?.id === currentLayoutId;
-  const presetActive = !onStarred && !onAgentChat && Boolean(matchedPreset);
+  const presetActive = !onStarred && Boolean(matchedPreset);
   const {
     rootRef,
     floatingRef,
@@ -114,7 +111,6 @@ export default function LayoutPresetPicker({
   } = useFloatingPanelPosition();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const chipHeight = stacked ? "h-[21px]" : "h-[26px]";
-  const chipClass = `flex min-w-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] ${chipHeight}`;
   const iconChipClass = `flex shrink-0 items-center justify-center rounded-md ${chipHeight} w-[30px] px-0 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]`;
 
   function positionBelowTrigger() {
@@ -183,21 +179,6 @@ export default function LayoutPresetPicker({
   }, [open]);
 
   const presetLabel = matchedPreset ? t(PRESET_LABEL_KEYS[matchedPreset]) : t("layoutPresets");
-
-  const agentButton = agentChatLayout ? (
-    <button
-      type="button"
-      data-testid="layout-special-agent-chat"
-      aria-label={t("layoutAgentChat")}
-      aria-pressed={onAgentChat}
-      className={`${chipClass} ${stacked ? "w-full" : ""}`}
-      style={chipStyle(onAgentChat)}
-      onClick={() => selectSpecialLayout(agentChatLayout.id)}
-    >
-      <MessagesSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="hidden truncate sm:inline">{t("layoutAgentChat")}</span>
-    </button>
-  ) : null;
 
   const starredButton = starredLayout ? (
     <Tooltip>
@@ -272,17 +253,13 @@ export default function LayoutPresetPicker({
         }
       >
         {stacked ? (
-          <>
-            {agentButton}
-            <div className="flex min-w-0 items-center gap-1">
-              {starredButton}
-              {presetButton}
-              {automationsButton}
-            </div>
-          </>
+          <div className="flex min-w-0 items-center gap-1">
+            {starredButton}
+            {presetButton}
+            {automationsButton}
+          </div>
         ) : (
           <>
-            {agentButton}
             {starredButton}
             {presetButton}
             {automationsButton}

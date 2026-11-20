@@ -164,10 +164,15 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       firstPrompts,
     );
   }, [treeMode, layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
-  // 默认工作空间不进列表：它是「没选项目时会话落在哪」的约定目录，位置在设置里改，不是用户要管理的条目。
+  // 默认工作空间与 Agent Chat 工作空间不进列表：它们是「没选项目时会话 / 新对话落在哪」的约定目录，
+  // 不是用户要管理的条目。例外：Agent Chat 工作空间里加过项目时照常列出，否则那些项目没有入口。
+  const listedWorkspaces = useMemo(
+    () => workspaces.filter((ws) => !ws.isDefault && (!ws.isAgentChat || ws.projects.length > 0)),
+    [workspaces],
+  );
   const visibleWorkspaces = useMemo(
-    () => filterWorkspaces(workspaces, workspaceFilter).filter((ws) => !ws.isDefault),
-    [workspaces, workspaceFilter],
+    () => filterWorkspaces(listedWorkspaces, workspaceFilter),
+    [listedWorkspaces, workspaceFilter],
   );
   const sectionCollapsed = useExplorerSectionsStore((s) => s.workspacesCollapsed);
   const toggleSection = useExplorerSectionsStore((s) => s.toggleWorkspacesCollapsed);
@@ -319,7 +324,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       {/* Section: 工作空间（Explorer 分区模式下由外层渲染分区头） */}
       {renderSectionHeader ? (
         renderSectionHeader({
-          count: workspaces.length,
+          count: listedWorkspaces.length,
           filterActive,
           filterOpen,
           onCreateWorkspace: actions.handleCreateWorkspace,
@@ -423,7 +428,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
               partition.ungrouped.map(renderWorkspace)
             )}
 
-            {workspaces.length === 0 && (
+            {listedWorkspaces.length === 0 && (
               <EmptyState
                 icon={FolderGit2}
                 title={t("noWorkspaces")} illustration="empty-folder"
@@ -431,7 +436,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
                 className="py-8"
               />
             )}
-            {workspaces.length > 0 && visibleWorkspaces.length === 0 ? (
+            {listedWorkspaces.length > 0 && visibleWorkspaces.length === 0 ? (
               <EmptyState
                 icon={ListFilter}
                 title={t("noWorkspaceMatches")} illustration="empty-search"

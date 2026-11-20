@@ -211,6 +211,16 @@ describe("WorkspaceTree component", () => {
     expect(screen.getByTestId("ws-item")).toHaveAttribute("data-cli-availability", "claude");
   });
 
+  it("只有默认与 Agent Chat 系统工作空间时显示 noWorkspaces 空态而不是筛选无结果", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "d", name: "default", isDefault: true }),
+      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true }),
+    ];
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    expect(screen.getByText("noWorkspaces")).toBeInTheDocument();
+    expect(screen.queryByText("noWorkspaceMatches")).not.toBeInTheDocument();
+  });
+
   it("空工作空间时显示 noWorkspaces，分区头不显示计数", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     expect(screen.getByText("noWorkspaces")).toBeInTheDocument();
@@ -230,13 +240,30 @@ describe("WorkspaceTree component", () => {
   it("行级拖拽监听只给用户工作空间，系统工作空间不可拖", () => {
     storeState.workspaces = [
       makeWorkspace({ id: "d", name: "default", isDefault: true }),
-      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true }),
+      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true, projects: [{ id: "p", path: "/p" }] as Workspace["projects"] }),
       makeWorkspace({ id: "a", name: "alpha" }),
     ];
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     const items = screen.getAllByTestId("ws-item");
-    // 默认工作空间不进列表；Agent Chat 工作空间在，但不可拖
+    // 默认工作空间不进列表；带项目的 Agent Chat 工作空间在，但不可拖
     expect(items.map((item) => item.getAttribute("data-draggable"))).toEqual(["false", "true"]);
+  });
+
+  it("Agent Chat 工作空间没有项目时不进列表，加过项目时照常列出", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true }),
+      makeWorkspace({ id: "a", name: "alpha" }),
+    ];
+    const { unmount } = render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    expect(screen.getAllByTestId("ws-item").map((item) => item.textContent)).toEqual(["alpha"]);
+    unmount();
+
+    storeState.workspaces = [
+      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true, projects: [{ id: "p", path: "/p" }] as Workspace["projects"] }),
+      makeWorkspace({ id: "a", name: "alpha" }),
+    ];
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
   });
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {

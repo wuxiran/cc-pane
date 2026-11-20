@@ -15,7 +15,6 @@ import {
 } from "@/stores";
 import { createPanel } from "@/lib/paneTree";
 import type { Panel, PaneNode, SplitPane, Tab, TerminalStatusInfo } from "@/types";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
@@ -43,7 +42,6 @@ vi.mock("@/components/settings/settingsNavigation", () => ({
 
 function resetStores(rootPane: PaneNode = createPanel()) {
   const starredRootPane = createPanel();
-  const agentChatRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
@@ -61,13 +59,6 @@ function resetStores(rootPane: PaneNode = createPanel()) {
         kind: "starred",
         rootPane: starredRootPane,
         activePaneId: starredRootPane.id,
-      },
-      {
-        id: AGENT_CHAT_LAYOUT_ID,
-        name: "Agent Chat",
-        kind: "normal",
-        rootPane: agentChatRootPane,
-        activePaneId: agentChatRootPane.id,
       },
     ],
     currentLayoutId: "layout-1",
@@ -149,12 +140,12 @@ describe("LayoutTopBar 布局预设浮层", () => {
     navigateToSettingsMock.mockClear();
   });
 
-  it("舒适档两行：上 Agent Chat，下星标 / 预设 / 自动化纯图标", () => {
+  it("舒适档：星标 / 预设 / 自动化纯图标，不再有 Agent Chat 固定入口", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
 
     const cluster = screen.getByTestId("layout-preset-cluster");
     expect(cluster).toHaveAttribute("data-density", "comfortable");
-    expect(within(cluster).getByTestId("layout-special-agent-chat")).toBeInTheDocument();
+    expect(within(cluster).queryByTestId("layout-special-agent-chat")).toBeNull();
     expect(within(cluster).getByTestId("layout-special-starred")).toBeInTheDocument();
     expect(within(cluster).getByTestId("layout-special-automations")).toBeInTheDocument();
     expect(within(cluster).getByRole("button", { name: /布局预设|Layout presets/i })).toBe(presetTrigger());
@@ -180,9 +171,8 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(options[0].getAttribute("aria-pressed")).toBe("true");
     expect(options[1].getAttribute("aria-pressed")).toBe("false");
     expect(within(options[1]).getByText(/^(左右分栏|Two columns)$/)).toBeInTheDocument();
-    // 星标 / Agent Chat 是簇上的常驻按钮，不再进浮层
+    // 星标是簇上的常驻按钮，不再进浮层
     expect(within(presetDialog()).queryByTestId("layout-special-starred")).toBeNull();
-    expect(within(presetDialog()).queryByTestId("layout-special-agent-chat")).toBeNull();
   });
 
   it("点选预设生效并关闭浮层", () => {
@@ -257,18 +247,24 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(screen.queryByRole("button", { name: /自动适配布局|Auto-fit layout/i })).toBeNull();
   });
 
-  it("顶栏卡片不展示星标和 Agent Chat，点簇上按钮可切过去", () => {
+  it("顶栏卡片不展示星标，点簇上按钮可切过去", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
     expect(screen.queryByRole("tab", { name: /星标|Starred/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Agent Chat/ })).toBeNull();
     expect(screen.getByRole("tab", { name: /布局 1/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("layout-special-starred"));
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-starred");
+  });
 
-    fireEvent.click(screen.getByTestId("layout-special-agent-chat"));
-    expect(usePanesStore.getState().currentLayoutId).toBe(AGENT_CHAT_LAYOUT_ID);
-    expect(screen.queryByRole("tab", { name: /Agent Chat/ })).toBeNull();
+  it("旧 Agent Chat 布局作为普通卡片出现在顶栏", () => {
+    const current = usePanesStore.getState();
+    const agentRoot = createPanel();
+    usePanesStore.setState({
+      layouts: [...current.layouts, { id: "layout-agent-chat", name: "Agent Chat", kind: "normal", rootPane: agentRoot, activePaneId: agentRoot.id }],
+    });
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(screen.getByRole("tab", { name: /Agent Chat/ }));
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-agent-chat");
   });
 
   it("点自动化跳到设置对应节", () => {

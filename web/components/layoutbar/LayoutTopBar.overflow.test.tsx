@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { createPanel } from "@/lib/paneTree";
 import { useActivityBarStore, useLayoutUiStore, usePanesStore, useTerminalStatusStore } from "@/stores";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import LayoutTopBar from "./LayoutTopBar";
 
 vi.mock("@/components/ui/toast", () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }));
@@ -21,8 +20,7 @@ describe("LayoutTopBar overflow integration", () => {
     const specialRoot = createPanel();
     usePanesStore.setState({
       layouts: [...layouts,
-        { id: "layout-starred", name: "星标", kind: "starred", rootPane: specialRoot, activePaneId: specialRoot.id },
-        { id: AGENT_CHAT_LAYOUT_ID, name: "Agent Chat", kind: "normal", rootPane: specialRoot, activePaneId: specialRoot.id }],
+        { id: "layout-starred", name: "星标", kind: "starred", rootPane: specialRoot, activePaneId: specialRoot.id }],
       currentLayoutId: layouts[0].id, rootPane: layouts[0].rootPane, activePaneId: layouts[0].activePaneId,
       poppedOutTabs: new Set(), closedTabs: [],
     });
@@ -41,7 +39,6 @@ describe("LayoutTopBar overflow integration", () => {
     expect(viewport).not.toContainElement(cluster);
     expect(viewport).not.toContainElement(screen.getByTestId("layout-view-trigger"));
     expect(viewport).not.toContainElement(add);
-    expect(cluster).toContainElement(screen.getByTestId("layout-special-agent-chat"));
     expect(cluster).toContainElement(screen.getByTestId("layout-special-starred"));
 
     viewport.scrollLeft = 2500;

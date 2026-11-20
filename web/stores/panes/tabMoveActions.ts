@@ -8,12 +8,10 @@ import {
   notifyTerminalLayoutChanged,
 } from "@/lib/paneTree";
 import type { Panel, SplitDirection, Tab } from "@/types";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import { isStarredLayout, layoutTree, syncWorkingCopyToCurrentLayout } from "../paneLayoutHelpers";
 import type { PanesState } from "../panesStoreTypes";
 import { findTabAcrossLayouts } from "./crossLayoutSearch";
 import { findLayout } from "./layoutTraversal";
-import { isAgentChatWorkbenchTab } from "./agentChatLayout";
 import { debugPanes, summarizePanel } from "./panesDebug";
 import type { PanesStoreAccess } from "./storeAccess";
 
@@ -126,11 +124,6 @@ export function createTabMoveActions({ set, get }: PanesStoreAccess): TabMoveAct
 
         const tabIndex = sourceLocation.panel.tabs.findIndex((tab) => tab.id === tabId);
         if (tabIndex === -1) return;
-
-        // 对话留在专用布局；文件与配置页可进入同一工作区，终端等类型仍隔离。
-        const movingTab = sourceLocation.panel.tabs[tabIndex];
-        if (movingTab.contentType === "agent-chat" && toLayoutId !== AGENT_CHAT_LAYOUT_ID) return;
-        if (toLayoutId === AGENT_CHAT_LAYOUT_ID && !isAgentChatWorkbenchTab(movingTab)) return;
 
         const [tab] = sourceLocation.panel.tabs.splice(tabIndex, 1);
         const insertAt =

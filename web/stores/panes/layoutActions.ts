@@ -7,11 +7,9 @@ import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import type { LayoutEntry } from "@/types";
 import { useFullscreenStore } from "../useFullscreenStore";
-import { isAgentChatLayout, enforceAgentChatLayoutPurity } from "./agentChatLayout";
 import {
   isNormalLayout,
   isStarredLayout,
-  isUserLayout,
   nextLayoutName,
   syncWorkingCopyToCurrentLayout,
 } from "../paneLayoutHelpers";
@@ -77,7 +75,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
       if (!trimmed) return;
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === id);
-        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
+        if (!layout || isStarredLayout(layout)) return;
         layout.name = trimmed;
       });
     },
@@ -89,9 +87,9 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         const index = findLayoutIndex(state.layouts, (layout) => layout.id === id);
         if (index === -1) return;
         const deletingLayout = state.layouts[index];
-        if (isStarredLayout(deletingLayout) || isAgentChatLayout(deletingLayout)) return;
-        // 用户布局至少留一套；Agent Chat 虽是 normal kind，但不算可删的工作布局。
-        if (filterLayouts(state.layouts, isUserLayout).length <= 1) return;
+        if (isStarredLayout(deletingLayout)) return;
+        // 普通布局至少留一套。
+        if (filterLayouts(state.layouts, isNormalLayout).length <= 1) return;
 
         syncWorkingCopyToCurrentLayout(state);
         const deletingCurrent = state.currentLayoutId === id;
@@ -109,12 +107,12 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
           .filter((tabId) => !survivors.has(tabId));
 
         if (deletingCurrent) {
-          const userLayouts = filterLayouts(state.layouts, isUserLayout);
-          const previousUser = userLayouts
+          const normalLayouts = filterLayouts(state.layouts, isNormalLayout);
+          const previousNormal = normalLayouts
             .slice()
             .reverse()
             .find((layout) => state.layouts.indexOf(layout) < index);
-          const nextLayout = previousUser ?? userLayouts[0] ?? filterLayouts(state.layouts, isNormalLayout)[0];
+          const nextLayout = previousNormal ?? normalLayouts[0];
           if (!nextLayout) return;
           state.currentLayoutId = nextLayout.id;
           state.rootPane = nextLayout.rootPane;
@@ -139,8 +137,6 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         target.lastActiveAt = Date.now();
         // zoom 是布局内临时态，切布局即失效（与全屏退出同口径）
         state.zoomedPaneId = null;
-        // 专用布局不变量（别名干净时机：工作副本刚对齐条目树）。
-        enforceAgentChatLayoutPurity(state);
       });
       useFullscreenStore.getState().exitFullscreen();
       notifyTerminalLayoutChanged("layout.switch");
@@ -169,7 +165,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
       if (!trimmed) return;
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === layoutId);
-        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
+        if (!layout || isStarredLayout(layout)) return;
         layout.workspaceName = trimmed;
       });
     },
@@ -177,7 +173,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
     unbindLayoutWorkspace: (layoutId) => {
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === layoutId);
-        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
+        if (!layout || isStarredLayout(layout)) return;
         layout.workspaceName = undefined;
       });
     },

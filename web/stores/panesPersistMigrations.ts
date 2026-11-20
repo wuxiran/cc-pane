@@ -2,9 +2,10 @@ import type { LayoutEntry, PaneNode, Tab } from "@/types";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { collectPanels, generateId } from "@/lib/paneTree";
 import { defaultLayoutName } from "./paneLayoutHelpers";
+import { migrateLegacyAgentChatLayout } from "./panes/legacyAgentChatLayout";
 
 /**
- * usePanesStore 持久化快照的版本迁移（v1 → v5）。
+ * usePanesStore 持久化快照的版本迁移（v1 → v6）。
  *
  * 从 store 抽出：这些是一次性的历史数据形状转换，与运行时行为无关，混在 store 里
  * 只会让本就很大的文件更难读。`syncTabTerminalState` 由调用方注入——它是 store 内部
@@ -94,6 +95,9 @@ export function migratePersistedPanes(
       if (layout?.rootPane) migrateLaunchIds(layout.rootPane);
     }
   }
+
+  // v6: 旧「Agent Chat 专用布局」退役——空壳删除，在用的原样留作普通布局。
+  if (version < 6) migrateLegacyAgentChatLayout(state);
 
   return state;
 }

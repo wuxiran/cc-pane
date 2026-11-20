@@ -20,7 +20,6 @@ export type {
   AutoSplitDirection,
   PaneContextAction,
 } from "./pane";
-export { AGENT_CHAT_LAYOUT_ID } from "./pane";
 export type {
   LayoutSnapshot,
   LayoutSnapshotPayload,

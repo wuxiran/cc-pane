@@ -9,7 +9,6 @@ import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, ty
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useActivityBarStore, useCanvasDisplayStore, useLayoutUiStore, usePanesStore } from "@/stores";
-import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
@@ -290,9 +289,9 @@ export function LayoutSelectorPanel({
                   startRename={startRename}
                   selectLayout={selectLayout}
                   requestDelete={requestDelete}
-                  deletingLastLayout={layout.kind !== "starred" && !isAgentChatLayout(layout) && deletingLastLayout}
+                  deletingLastLayout={layout.kind !== "starred" && deletingLastLayout}
                   isStarredLayout={layout.kind === "starred"}
-                  isReservedLayout={layout.kind === "starred" || isAgentChatLayout(layout)}
+                  isReservedLayout={layout.kind === "starred"}
                   handleContextMenuOpenChange={handleContextMenuOpenChange}
                   statusMap={statusMap}
                   onMouseEnter={openSelector}

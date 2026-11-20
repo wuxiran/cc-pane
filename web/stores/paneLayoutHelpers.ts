@@ -11,7 +11,6 @@ import type {
   PanesState,
 } from "./panesStoreTypes";
 import type { LayoutEntry, PaneNode } from "@/types";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 /** 遍历全部**普通**布局的树（跳过星标布局——它只是镜像，不是真实布局） */
 export function eachLayoutTree(
@@ -43,18 +42,8 @@ export function isNormalLayout(layout: Pick<LayoutEntry, "kind">): boolean {
   return !isStarredLayout(layout);
 }
 
-/** 用户可删改的工作布局：排除星标镜像与 Agent Chat 专用布局。 */
-export function isUserLayout(layout: Pick<LayoutEntry, "id" | "kind">): boolean {
-  return isNormalLayout(layout) && layout.id !== AGENT_CHAT_LAYOUT_ID;
-}
-
 export function firstNormalLayout(layouts: LayoutEntry[]): LayoutEntry | undefined {
   return layouts.find(isNormalLayout);
-}
-
-/** 第一个「CLI 可用」普通布局：排除 Agent Chat 专用布局与星标。 */
-export function firstCliLayout(layouts: LayoutEntry[]): LayoutEntry | undefined {
-  return layouts.find(isUserLayout);
 }
 
 export function activeLayout(

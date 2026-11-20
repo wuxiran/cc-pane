@@ -12,6 +12,27 @@ Markdown 气泡、工具调用卡、审批/提问卡、plan 面板、diff 内联
 是用户已装的 CLI（claude/codex/grok/gemini/…），经 **ACP（Agent Client
 Protocol，Zed 系标准）** 通信。与终端标签是并列关系，不替代 TUI。
 
+**落位（0.12.23 起）**：Agent Chat 标签与终端、浏览器、文件等标签一样开在**任意普通布局**里——
+所有入口都经 `openAgentChat`，落在 `options.layoutId`（缺省当前布局）的 `options.paneId`
+（缺省活动窗格），**不切布局**；标签可在布局间自由拖动。0.11.x 引入的「Agent Chat 专用
+固定布局」（`layout-agent-chat`：自动供给、不可删/改名/拖动，纯度 enforcer 把终端等赶回
+CLI 布局，rehydrate 时把散落的对话标签归拢进来）已取消。当初它是产品形态选择（对话
+单独一个空间），不是为了规避会话中断：ACP 会话活在后端子进程、对话状态在
+`useAgentChatStore`（按 tabId），标签组件随布局切换卸载/重挂本来就成立——专用布局自己
+也会被切走。它的 enforcer 修的「空白区 / 关闭路径混入终端标签」两类事故只是纯度规则
+本身的副产物，规则取消后不复存在。
+
+旧数据迁移（`cc-panes-layout` 持久化 v5 → v6，`stores/panes/legacyAgentChatLayout.ts`，只跑一次）：
+旧专用布局若是**空壳**——单个窗格（未分屏），没有标签或只有一个「空白新对话」——直接删除；
+否则原样保留为普通布局（id、名字不变，用户可自行删改）。「空白新对话」= `agent-chat`
+标签且无 `projectPath` / `agentEngineId` / `parentTabId` / `forkReviewId`、标题仍为默认
+「Agent Chat」（对话正文不随标签持久化，只能按标签字段判定）。删掉的若是当前布局，
+`currentLayoutId` 回落第一个普通布局；一个普通布局都不剩时 `ensureLayoutState` 补默认布局。
+
+Agent Chat 工作空间（`ensure_agent_chat_workspace`，`isAgentChat`）仍是没选项目时新对话的默认
+cwd，但和默认工作空间一样**不进侧边栏工作空间列表**；例外是用户往里加过项目
+（`projects` 非空）时照常列出，否则那些项目没有入口。启动页项目菜单里的显示不变。
+
 同族但不同物：`AgentChatView`（终端标签内的 Terminal⇄Chat 切换视图）是
 **只读 transcript 回看**（读 CLI 落盘的 jsonl），与本文的活会话标签是两条
 轨道，注意区分。

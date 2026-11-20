@@ -7,7 +7,6 @@ import { createPanel,  } from "@/lib/paneTree";
 import { createTab } from "@/stores/usePanesStore";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { LayoutEntry, Panel, PaneNode, Tab, TerminalPaneLeaf, TerminalPaneSplit } from "@/types";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 function resetPanesStore() {
   const rootPane = createPanel();
@@ -1007,10 +1006,7 @@ describe("usePanesStore layouts", () => {
       currentState,
     ) as typeof currentState;
 
-    // 专用 Agent Chat 布局也是 normal kind，兜底断言只数用户布局。
-    const mergedNormalLayouts = merged.layouts.filter(
-      (layout) => layout.kind !== "starred" && layout.id !== AGENT_CHAT_LAYOUT_ID,
-    );
+    const mergedNormalLayouts = merged.layouts.filter((layout) => layout.kind !== "starred");
     expect(mergedNormalLayouts).toHaveLength(1);
     expect(merged.layouts.some((layout) => layout.kind === "starred")).toBe(true);
     expect(merged.currentLayoutId).toBe(mergedNormalLayouts[0].id);

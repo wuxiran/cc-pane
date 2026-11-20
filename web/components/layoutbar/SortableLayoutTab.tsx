@@ -18,7 +18,6 @@ import {
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import type { LayoutBarDensity } from "@/stores";
-import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import LayoutStatusRow from "./LayoutStatusRow";
 import LayoutStatusGrid from "./LayoutStatusGrid";
@@ -106,7 +105,7 @@ export default function SortableLayoutTab({
   // 星标布局装不了终端 tab，当前布局落回自己是空操作——两者都不给反馈。
   const { active } = useDndContext();
   const draggingTab = active?.data.current?.type === "tab";
-  const reserved = layout.kind === "starred" || isAgentChatLayout(layout);
+  const reserved = layout.kind === "starred";
   const canAcceptTab = draggingTab && !reserved && !selected;
   const dropState = canAcceptTab ? (isOver ? "active" : "candidate") : undefined;
 

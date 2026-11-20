@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { collectPanels, createPanel } from "@/lib/paneTree";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import { usePanesStore } from "./usePanesStore";
-import { createAgentChatLayout } from "./panes/agentChatLayout";
 
 beforeEach(() => {
   const panel = createPanel();
-  const agent = createAgentChatLayout();
+  const other = createPanel();
   usePanesStore.setState({ rootPane: panel, activePaneId: panel.id, currentLayoutId: "cli", closedTabs: [],
-    layouts: [{ id: "cli", name: "CLI", rootPane: panel, activePaneId: panel.id }, agent] });
+    layouts: [
+      { id: "cli", name: "CLI", rootPane: panel, activePaneId: panel.id },
+      { id: "chat", name: "Chat", rootPane: other, activePaneId: other.id },
+    ] });
 });
 
 describe("review workbench tabs", () => {
@@ -24,7 +25,7 @@ describe("review workbench tabs", () => {
 
   it("places a review in the requested pane without changing another layout's view", () => {
     const store = usePanesStore.getState();
-    const reserved = store.layouts.find((layout) => layout.id === AGENT_CHAT_LAYOUT_ID)!;
+    const reserved = store.layouts.find((layout) => layout.id === "chat")!;
     const id = store.openReviewTab("/repo/worktree", { layoutId: reserved.id, paneId: reserved.activePaneId, checkpointChatId: "chat" });
     const after = usePanesStore.getState();
     expect(after.currentLayoutId).toBe("cli");
@@ -33,10 +34,11 @@ describe("review workbench tabs", () => {
     expect(pane.tabs.find((tab) => tab.id === id)).toMatchObject({ contentType: "review", projectPath: "/repo/worktree", reviewChatId: "chat" });
   });
 
-  it("persists a mixed Agent workbench without migrating pages or stopping the terminal", () => {
+  it("persists a layout mixing Agent Chat, terminal, browser and review tabs", () => {
     const store = usePanesStore.getState();
-    store.switchLayout(AGENT_CHAT_LAYOUT_ID);
+    store.switchLayout("chat");
     const paneId = usePanesStore.getState().activePaneId;
+    store.openAgentChat("/repo", { paneId });
     store.addTab(paneId, { projectId: "", projectPath: "/repo", cliTool: "none" });
     store.openBrowser("https://example.com", undefined, "browser", { paneId });
     const reviewId = store.openReviewTab("/repo", { paneId, checkpointChatId: "chat" });

@@ -6,14 +6,13 @@ import { usePanesStore } from "@/stores/usePanesStore";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { acquireChatDraft, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { createDefaultLayout } from "@/stores/panes/layoutLifecycle";
-import { createAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import { useChatFileActions } from "./useChatFileActions";
 
 vi.mock("@/services/filesystemService", () => ({ filesystemService: { getEntryInfo: vi.fn().mockResolvedValue({ isDir: false, isFile: true }) } }));
 
 beforeEach(() => {
   const normal = createDefaultLayout("CLI");
-  const chat = createAgentChatLayout();
+  const chat = createDefaultLayout("Chat");
   usePanesStore.setState({ layouts: [normal, chat], rootPane: normal.rootPane, activePaneId: normal.activePaneId, currentLayoutId: normal.id });
   useAgentChatStore.setState({ chats: {} });
   useAgentChatDraftStore.setState({ drafts: {} });
@@ -21,6 +20,8 @@ beforeEach(() => {
 
 it("reuses actual editor tabs while preserving chat session, draft and files through layout save/restore", async () => {
   const normalLayoutId = usePanesStore.getState().currentLayoutId;
+  const chatLayout = usePanesStore.getState().layouts.find((layout) => layout.id !== normalLayoutId && layout.kind !== "starred")!;
+  act(() => usePanesStore.getState().switchLayout(chatLayout.id));
   const chatId = usePanesStore.getState().openAgentChat("/project")!;
   const origin = usePanesStore.getState().findTabAcrossLayouts(chatId)!;
   const chatLayoutId = origin.layoutId;

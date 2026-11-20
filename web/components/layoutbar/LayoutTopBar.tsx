@@ -17,8 +17,7 @@ import {
   useTerminalStatusStore,
 } from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
-import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
-import { isUserLayout } from "@/stores/paneLayoutHelpers";
+import { isNormalLayout } from "@/stores/paneLayoutHelpers";
 import type { LayoutEntry } from "@/types";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
 import LayoutViewMenu from "./LayoutViewMenu";
@@ -52,7 +51,7 @@ export default function LayoutTopBar() {
     if (editingId) editInputRef.current?.select();
   }, [editingId]);
 
-  const stripLayouts = layouts.filter(isUserLayout);
+  const stripLayouts = layouts.filter(isNormalLayout);
   const deletingLastLayout = stripLayouts.length <= 1;
   const currentLayoutStarred =
     layouts.find((layout) => layout.id === currentLayoutId)?.kind === "starred";
@@ -74,7 +73,7 @@ export default function LayoutTopBar() {
   }
 
   function startRename(layout: LayoutEntry) {
-    if (layout.kind === "starred" || isAgentChatLayout(layout)) return;
+    if (layout.kind === "starred") return;
     setEditingId(layout.id);
     setEditingName(layout.name);
   }
@@ -93,7 +92,7 @@ export default function LayoutTopBar() {
   }
 
   function requestDelete(layout: LayoutEntry) {
-    if (layout.kind === "starred" || isAgentChatLayout(layout) || deletingLastLayout) return;
+    if (layout.kind === "starred" || deletingLastLayout) return;
     setDeleteSummary(summarizeLayoutDelete(layout));
   }
 
