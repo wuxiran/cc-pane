@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "CC-Panes path normalization across Windows, WSL and POSIX forms - zero internal dependencies"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 
 [dependencies]
 dunce = "1"

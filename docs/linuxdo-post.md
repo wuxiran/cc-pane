@@ -127,7 +127,7 @@ npm run tauri build
 先开源出来，欢迎感兴趣的佬试试看。Issue 和 PR 都欢迎，有问题也可以直接在帖子里说。
 
 **GitHub**: https://github.com/wuxiran/ccpane
-**协议**: GPL-3.0
+**协议**: MIT
 
 ---
 

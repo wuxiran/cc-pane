@@ -3,7 +3,7 @@ name = "cc-panes-daemon"
 version = "0.1.0"
 description = "CC-Panes local terminal daemon"
 authors = ["wuxiran"]
-license = "GPL-3.0"
+license = "MIT"
 edition = "2021"
 
 [dependencies]

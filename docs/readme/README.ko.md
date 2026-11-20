@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/wuxiran/cc-pane/releases/latest"><img src="https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&amp;sort=semver" alt="최신 릴리스" /></a>
   <a href="https://github.com/wuxiran/cc-pane/releases"><img src="https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&amp;color=success" alt="다운로드" /></a>
-  <img src="https://img.shields.io/badge/license-GPL--3.0-08C?style=flat" alt="GPL-3.0 라이선스" />
+  <img src="https://img.shields.io/badge/license-MIT-08C?style=flat" alt="MIT 라이선스" />
   <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-4493F8?style=flat-square" alt="Windows, macOS, Linux" />
 </p>
 
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## 라이선스
 
-CC-Panes는 [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 라이선스의 무료 오픈 소스입니다.
+CC-Panes는 [MIT](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 라이선스의 무료 오픈 소스입니다.
 
 ## 감사
 

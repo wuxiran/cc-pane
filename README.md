@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/wuxiran/cc-pane/releases/latest"><img src="https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&amp;sort=semver" alt="Latest release" /></a>
   <a href="https://github.com/wuxiran/cc-pane/releases"><img src="https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&amp;color=success" alt="Downloads" /></a>
-  <img src="https://img.shields.io/badge/license-GPL--3.0-08C?style=flat" alt="License: GPL-3.0" />
+  <img src="https://img.shields.io/badge/license-MIT-08C?style=flat" alt="License: MIT" />
   <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-4493F8?style=flat-square" alt="Windows, macOS, and Linux" />
 </p>
 
@@ -248,7 +248,7 @@ cargo test --workspace
 
 ## License
 
-CC-Panes is free and open source under the [GPL-3.0 license](LICENSE).
+CC-Panes is free and open source under the [MIT license](LICENSE).
 
 ## Acknowledgements
 
