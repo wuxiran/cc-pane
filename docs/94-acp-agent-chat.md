@@ -74,11 +74,28 @@ Orca 架构的必要之恶，不是我们的（docs/55 H6 数量竞赛不追的�
 - 启动阶段等待已选模式、模型及配置项应用完成，再开放手动输入和发送首条任务。
   缓存模式已不可用时明确报错；配置失败且进程仍可用时可改选本次广告的配置，再明确重启。
 - 历史：每个对话按 acpSessionId 落一个 meta JSON（engine/cwd/title/时间），
-  引擎选择页列出可筛选、可续接。消息本体不落盘——回放靠协议。标题三来源
+  引擎选择页列出可筛选、可续接。loadSession 引擎的正文回放靠协议；非 loadSession
+  引擎的兜底见下条「本地转写」。标题三来源
   （meta 的 `titleSource`）：`auto` = 首条 prompt 截 60 字；`agent` = 引擎经
   `session_info_update` 给的（claude/codex/copilot/cursor 实测首轮后发一次，
   覆盖 auto）；`user` = 手改，agent 不得覆盖，清空即放弃手改。前端收到
   `session_info_update` 时派发 `ccpanes:agent-chat-history-changed` 让侧栏即时重拉。
+- 本地转写（消息正文兜底）：前端在回合结束 / 会话退出 / 关标签时，把当前会话正文段
+  （`transcriptStart` 之后的渲染条目，去掉附件原文与 `promptBlocks`，>48K 字符的内嵌图片
+  降级为占位）经 `save_acp_chat_transcript` 交后端，按 acpSessionId 整段替换写到
+  `<data>/agent-chats/transcripts/<id>.json`（临时文件 + rename；只给有 meta 的会话写）。
+  续接时若引擎不广告 loadSession 或 `session/load` 被拒，后端在 `session/new` 成功后、
+  emit ready 之前推 `transcript_restore {fromAcpSessionId, acpSessionId, items, truncated}`
+  （`emit_live`，不进运行日志），前端把旧转写夹在「之前的对话记录（只读）」与「以下为恢复
+  后的新会话」两条分隔线之间放进只读前缀；同一标签原地重启（旧正文仍在画面上）不重复插入。
+  旧转写同时写成新会话文件的 `inherited` 段，前端之后只替换 `items` 段，所以链式降级
+  （S1→S2→S3）不丢更早记录。**loadSession 成功不推送**——协议回放是真相，不重复。
+  只读前缀内的 plan / tool_call 不会被新会话的更新就地改写（查找下界是 `transcriptStart`）。
+  有界：单会话 ≤2000 条、≤2MB（先淘汰 inherited 再淘汰最旧正文，`truncated` 让分隔线
+  注明「较早部分已截断」）、单字符串 ≤64KB；目录内转写文件 ≤200 个（按修改时间淘汰最旧，
+  不动 meta）；历史删除时 meta 与转写一起删。选文件而非 SQLite：meta 本就是同目录的
+  JSON 文件，单会话整段读写、无需查询，且不占 core DB 的 migration 版本号。
+  Codex 原生 App Server 会话走同一前端保存路径（有 meta 即落盘），恢复注入只在 ACP 降级路径实现。
 - 分叉：更多菜单 → 创建聊天分叉，选择同目录或独立 Git 工作树。仅向明确
   广告 `agentCapabilities.sessionCapabilities.fork` 的引擎调用 `session/fork`，
   校验返回的新会话 ID 与父会话不同。失败时不会退回加载父会话或新建空会话。
@@ -146,7 +163,9 @@ allow_once 并列 = 提问，不能替用户乱选）；通配 `*`（Automations
 - **gemini 报 unknown option**：老版本开关叫 `--experimental-acp`，升级
   gemini 或用 engines.json 覆写 args。
 - **恢复出的会话是空的**：看是否出现「未能续接」notice——引擎不广告
-  loadSession（或 load 被拒）时属预期降级，不是丢数据。
+  loadSession（或 load 被拒）时属预期降级，此时应紧跟本地转写的只读前缀；没有前缀
+  说明旧会话从未成功落盘（升级前的会话、只有 notice 的会话、或 `transcripts/<id>.json`
+  已被淘汰/随历史删除）。
 - **审批卡不出现**：先看 composer 权限下拉是否勾了该类（会有「已自动放行」
   留痕）；claude 还要看 `~/.claude/settings.json`——`defaultMode:
   bypassPermissions` + allow 列表会让 ACP 的 set_mode 失效，永远不弹（§6.1）。
@@ -157,10 +176,12 @@ allow_once 并列 = 提问，不能替用户乱选）；通配 `*`（Automations
 ## 8. 已知未做
 
 多题问答向导（ACP v1 无对应形状，等 v2；usage 已由 `usage_update` RFD 落地，
-composer 右下用量环，仅 claude/codex/qwen/opencode 上报）；消息本地落盘兜底
-（`acp_chat_service` 只落会话元数据——重命名/删除/列表——不存消息正文，非
-loadSession 引擎恢复后画面为空）；N10 跨 CLI 会话索引与 N3b 额度展示是独立战场
-（docs/83）。
+composer 右下用量环，仅 claude/codex/qwen/opencode 上报）；N10 跨 CLI 会话索引与
+N3b 额度展示是独立战场（docs/83）。恢复出的只读前缀没有客户端终端输出快照
+（`terminals` 不落盘），工具卡里的 terminal 块只剩标题。
+
+> 0.12.23 划掉：消息本地落盘兜底已落地（§5「本地转写」）——非 loadSession 引擎恢复后
+> 不再是空画面。
 
 > 2026-09 核对已划掉两条：语音输入已由 `ChatVoiceButton` 落地（与终端麦克风共用
 > `lib/voiceAudio`，经 `useVoiceInputStore` 互斥）；`@` 引用已有文件 picker

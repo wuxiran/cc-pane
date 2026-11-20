@@ -8,6 +8,7 @@ import type {
   AcpChatSnapshot,
   AcpEngineInfo,
   AcpElicitationResponse,
+  AgentChatItem,
 } from "@/types/agentChat";
 
 export const ACP_CHAT_EVENT = "acp-chat-event";
@@ -71,6 +72,11 @@ export function renameAcpChatHistory(acpSessionId: string, title: string): Promi
 /** 只删 CC-Panes 侧的历史记录；agent 侧对话数据不动，凭 id 仍可续接。 */
 export function deleteAcpChatHistory(acpSessionId: string): Promise<void> {
   return call("delete_acp_chat_history", { acpSessionId });
+}
+
+/** 保存会话的渲染层转写（整段替换；后端钳制大小并随历史删除一起回收）。 */
+export function saveAcpChatTranscript(acpSessionId: string, items: AgentChatItem[]): Promise<void> {
+  return call("save_acp_chat_transcript", { acpSessionId, items });
 }
 
 /** 行级文本 diff（复用 Local History diff 引擎）。 */
@@ -159,6 +165,7 @@ export const agentChatService = {
   listHistory: listAcpChatHistory,
   renameHistory: renameAcpChatHistory,
   deleteHistory: deleteAcpChatHistory,
+  saveTranscript: saveAcpChatTranscript,
   computeTextDiff,
   readImageAttachment: readAcpImageAttachment,
   listen: listenAgentChatEvents,

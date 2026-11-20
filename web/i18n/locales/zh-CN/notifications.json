@@ -125,7 +125,11 @@
   "agentChat": {
     "autoApprovedWith": "已自动放行 · {{title}}（{{kind}}）",
     "autoApproved": "已自动放行（{{kind}}）",
-    "resumeFallbackNotice": "未能续接原对话上下文，已开启全新会话"
+    "resumeFallbackNotice": "未能续接原对话上下文，已开启全新会话",
+    "restoredTranscriptHeader": "之前的对话记录（本地留存，只读；引擎未续接上下文）",
+    "restoredTranscriptHeaderTruncated": "之前的对话记录（本地留存，只读；较早部分已截断）",
+    "restoredTranscriptFooter": "以下为恢复后的新会话",
+    "transcriptImageOmitted": "[图片未保存到本地记录]"
   },
   "errors": {
     "notificationMissing": "通知不存在",
