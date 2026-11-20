@@ -12,7 +12,7 @@ description: How to use the {{app_name}} core MCP tools: dispatch, session I/O, 
 ## 派发与跟踪
 
 ```
-dispatch_task(projectPath, prompt | resumeId, cliTool?, parentBindingId?, parentSessionId?, …)
+dispatch_task(projectPath, prompt | resumeId | forkSessionId, cliTool?, parentBindingId?, parentSessionId?, …)
   → { taskId, bindingId, sessionId, status, cliTool, mcp, notice }
 get_task_status(bindingId)   → TaskBinding + 派发信封（父子关系、目标 CLI、mcp 能力）
 get_task_status(taskId)      → 只查启动事件，不代表任务进度
@@ -20,6 +20,7 @@ wait_for_session / get_session_output → 真正的进度
 ```
 
 - `prompt` 与 `resumeId` 互斥。恢复会话时不注入 prompt。
+- `forkSessionId` 分叉一个已有会话：新会话继承它的完整历史、拿到自己的会话 ID，原会话不受影响。可同时传 `prompt` 作为分支的第一条消息；与 `resumeId` 互斥。只支持 claude / codex，不支持 ssh。
 - 自己是 leader 时一定传 `parentBindingId`（没有 binding 就传 `parentSessionId`），worker 才能 `report_to_leader`。
 - 目标 CLI 不支持 MCP（返回值 `mcp.canControlOrchestration=false`）时，它收得到首条 prompt，但不会主动回报；用 `wait_for_session` + `get_session_output` 兜底。
 - `placement`：`beside` 在调用者旁边分屏并聚焦（默认，用户立刻能看到）；`tab` 作为标签加入调用者所在窗格，只在用户明确要求"后台 / 同一窗格"时用；`silent` 不切布局、不切视图、不弹提示。指定了 `paneId` 就按 `paneId` 落位，`placement` 忽略。默认前端**不会**为 agent 启动跳布局，只弹一条可跳转提示。
@@ -28,7 +29,8 @@ wait_for_session / get_session_output → 真正的进度
 - `runtimeKind`（local / wsl / ssh）高于工作空间默认环境。
 
 恢复会话：`list_launch_history(projectPath)` 或 `list_resume_sessions(cliTool, projectPath)` 拿 `resumeSessionId` / `sessionId`，
-再 `dispatch_task(resumeId=…, cliTool=…, runtimeKind=…)`。
+再 `dispatch_task(resumeId=…, cliTool=…, runtimeKind=…)`。分叉同理，把 ID 传给 `forkSessionId`；
+要分叉自己这个会话时，取 `list_launch_history` 里 `projectId` 等于环境变量 `CC_PANES_LAUNCH_ID` 的那条。
 
 ## 等待与读输出
 

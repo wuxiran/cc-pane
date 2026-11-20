@@ -42,13 +42,30 @@ impl TaskDispatchService {
             .map(str::trim)
             .filter(|resume_id| !resume_id.is_empty())
             .map(str::to_string);
-        let mode = match (&request.prompt, &resume_id) {
-            (Some(_), None) => TaskDispatchMode::Prompt,
-            (None, Some(_)) => TaskDispatchMode::Resume,
-            (Some(_), Some(_)) => {
+        let fork_session_id = request
+            .fork_session_id
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string);
+        if let Some(id) = fork_session_id.as_deref() {
+            if !cc_cli_adapters::is_valid_fork_session_id(id) {
+                return Err("forkSessionId is not a valid session ID".to_string());
+            }
+        }
+        // A fork may carry a prompt (the first message of the new branch); a resume may not.
+        let mode = match (&request.prompt, &resume_id, &fork_session_id) {
+            (_, Some(_), Some(_)) => {
+                return Err("resumeId and forkSessionId are mutually exclusive".to_string())
+            }
+            (_, None, Some(_)) => TaskDispatchMode::Fork,
+            (Some(_), None, None) => TaskDispatchMode::Prompt,
+            (None, Some(_), None) => TaskDispatchMode::Resume,
+            (Some(_), Some(_), None) => {
                 return Err("prompt and resumeId are mutually exclusive".to_string())
             }
-            (None, None) => return Err("must provide either prompt or resumeId".to_string()),
+            (None, None, None) => {
+                return Err("must provide prompt, resumeId or forkSessionId".to_string())
+            }
         };
 
         let requested_cli_tool = request
@@ -80,6 +97,22 @@ impl TaskDispatchService {
                 resolved_cli_tool
             ));
         }
+        if mode == TaskDispatchMode::Fork {
+            if !cc_cli_adapters::supports_session_fork(&resolved_cli_tool) {
+                return Err(format!(
+                    "CLI tool '{}' does not support fork dispatch (supported: claude, codex)",
+                    resolved_cli_tool
+                ));
+            }
+            // SSH conversations live on the remote host; the fork launch cannot reach them yet.
+            if request
+                .runtime_kind
+                .as_deref()
+                .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("ssh"))
+            {
+                return Err("fork dispatch is not supported over SSH yet".to_string());
+            }
+        }
         let mcp_supported = capabilities.supports_mcp;
         // project_path is an identity (including SSH URIs and WSL proxy paths).
         // Resolve an omitted cwd only after the orchestrator selects the runtime.
@@ -109,6 +142,7 @@ impl TaskDispatchService {
                 provider_selection: clean_optional(request.provider_selection),
                 mode,
                 resume_id,
+                fork_session_id,
                 skill_delivery_modes: adapter.skill_delivery_modes(),
                 mcp: TaskDispatchMcpCapability {
                     supported: mcp_supported,
@@ -361,6 +395,73 @@ mod tests {
             .plan(request(Some("not-a-cli")))
             .unwrap_err()
             .contains("Unknown cliTool"));
+    }
+
+    #[test]
+    fn fork_dispatch_keeps_the_source_and_allows_an_opening_prompt() {
+        let service = TaskDispatchService::default();
+        let mut with_prompt = request(Some("claude"));
+        with_prompt.fork_session_id = Some("  source-a  ".to_string());
+        let plan = service.plan(with_prompt).unwrap();
+        assert_eq!(plan.envelope.mode, TaskDispatchMode::Fork);
+        assert_eq!(plan.envelope.fork_session_id.as_deref(), Some("source-a"));
+        assert_eq!(plan.envelope.resume_id, None);
+
+        let mut bare = request(Some("codex"));
+        bare.prompt = None;
+        bare.fork_session_id = Some("source-b".to_string());
+        let plan = service.plan(bare).unwrap();
+        assert_eq!(plan.envelope.mode, TaskDispatchMode::Fork);
+
+        let json = serde_json::to_value(&plan.envelope).unwrap();
+        assert_eq!(json["mode"], "fork");
+        assert_eq!(json["forkSessionId"], "source-b");
+    }
+
+    #[test]
+    fn fork_dispatch_rejects_conflicts_and_unsupported_targets() {
+        let service = TaskDispatchService::default();
+        let fork = |cli: &str| {
+            let mut req = request(Some(cli));
+            req.fork_session_id = Some("source-a".to_string());
+            req
+        };
+
+        let mut both = fork("claude");
+        both.prompt = None;
+        both.resume_id = Some("resume-a".to_string());
+        assert!(service
+            .plan(both)
+            .unwrap_err()
+            .contains("mutually exclusive"));
+
+        assert!(service
+            .plan(fork("gemini"))
+            .unwrap_err()
+            .contains("does not support fork"));
+
+        let mut ssh = fork("claude");
+        ssh.runtime_kind = Some("ssh".to_string());
+        assert!(service.plan(ssh).unwrap_err().contains("SSH"));
+
+        for bad in ["", "   ", "--last"] {
+            let mut req = fork("claude");
+            req.fork_session_id = Some(bad.to_string());
+            assert!(
+                service.plan(req).unwrap_err().contains("forkSessionId"),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn envelopes_without_a_fork_source_still_deserialize() {
+        let plan = TaskDispatchService::default().plan(request(None)).unwrap();
+        let mut json = serde_json::to_value(&plan.envelope).unwrap();
+        assert!(json.get("forkSessionId").is_none());
+        json["mode"] = serde_json::json!("prompt");
+        let restored: TaskDispatchEnvelope = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.fork_session_id, None);
     }
 
     #[test]

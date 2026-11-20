@@ -2750,6 +2750,10 @@ struct McpLaunchTaskParams {
     /// 要恢复的会话 ID（list_resume_sessions / list_launch_history）
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
+    /// 要分叉的会话 ID：新会话继承它的完整历史、拿到自己的会话 ID，原会话不受影响。
+    /// 可同时传 prompt 作为分支的第一条消息；与 resumeId 互斥。仅 claude / codex，不支持 ssh。
+    #[serde(rename = "forkSessionId")]
+    fork_session_id: Option<String>,
     /// 目标面板 ID（list_panes）
     #[serde(rename = "paneId")]
     pane_id: Option<String>,
@@ -5445,6 +5449,7 @@ impl McpToolHandler {
             runtime_kind: launch.runtime_kind.clone(),
             prompt: launch.prompt.clone(),
             resume_id: launch.resume_id.clone(),
+            fork_session_id: launch.fork_session_id.clone(),
             parent_binding_id,
             parent_session_id,
         })?;
@@ -5465,9 +5470,18 @@ impl McpToolHandler {
             project_context.workspace_name.as_deref(),
             Some(&plan.envelope.resolved_cli_tool),
             launch.runtime_kind.as_deref(),
-            launch.resume_id.as_deref(),
+            // A fork runs where its source lives, so the source ID picks the runtime too.
+            // Use the planner's canonical (trimmed) IDs: the history lookup is an exact
+            // match, and the launch below resolves the runtime from the same values.
+            plan.envelope
+                .resume_id
+                .as_deref()
+                .or(plan.envelope.fork_session_id.as_deref()),
             &self.state,
         )?;
+        if let Some(fork_session_id) = plan.envelope.fork_session_id.as_deref() {
+            validate_fork_runtime(&self.state, fork_session_id, &runtime)?;
+        }
         let launch_profile_id = resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
             project_context.launch_profile_id.as_deref(),
@@ -6132,6 +6146,7 @@ impl McpToolHandler {
             plan.effort.as_deref(),
         );
         let launch = McpLaunchTaskParams {
+            fork_session_id: None,
             project_path: plan.workspace.clone(),
             prompt: Some(plan.prompt.clone()),
             provider_id: None,
@@ -6397,7 +6412,7 @@ async fn ensure_browser_webview(
 
 #[tool_router]
 impl McpToolHandler {
-    /// 派任务给任意已注册 CLI：新建会话（prompt）或恢复（resumeId），总是建 TaskBinding 便于跟踪；
+    /// 派任务给任意已注册 CLI：新建会话（prompt）、恢复（resumeId）或分叉（forkSessionId），总是建 TaskBinding 便于跟踪；
     /// 传 parentBindingId / parentSessionId 则成为子任务，worker 可 report_to_leader。
     #[tool]
     async fn dispatch_task(
@@ -6427,6 +6442,7 @@ impl McpToolHandler {
             cli_tool = ?launch.cli_tool,
             prompt_len,
             is_resume = launch.resume_id.is_some(),
+            is_fork = launch.fork_session_id.is_some(),
             "mcp::dispatch_task"
         );
 
@@ -6438,6 +6454,7 @@ impl McpToolHandler {
         // TaskDispatchService normalizes resume IDs for the durable envelope. Keep the
         // launcher input in lockstep so the PTY receives the same canonical session ID.
         launch.resume_id = plan.envelope.resume_id.clone();
+        launch.fork_session_id = plan.envelope.fork_session_id.clone();
         let binding = match self.create_dispatch_binding(&mut plan, &launch) {
             Ok(binding) => binding,
             Err(error) => return format!("错误: {}", error),
@@ -6586,8 +6603,18 @@ impl McpToolHandler {
         {
             return "错误: prompt 和 resumeId 互斥，不能同时提供".to_string();
         }
-        if params.prompt.is_none() && params.resume_id.is_none() {
-            return "错误: 必须提供 prompt 或 resumeId 其中之一".to_string();
+        if params.resume_id.is_some() && params.fork_session_id.is_some() {
+            return "错误: resumeId 和 forkSessionId 互斥，不能同时提供".to_string();
+        }
+        if params.prompt.is_none() && params.resume_id.is_none() && params.fork_session_id.is_none()
+        {
+            return "错误: 必须提供 prompt、resumeId 或 forkSessionId 其中之一".to_string();
+        }
+        if let Some(fork_session_id) = params.fork_session_id.as_mut() {
+            *fork_session_id = fork_session_id.trim().to_string();
+            if !cc_cli_adapters::is_valid_fork_session_id(fork_session_id) {
+                return "错误: forkSessionId 不是合法的会话 ID".to_string();
+            }
         }
         if params
             .prompt
@@ -6659,22 +6686,15 @@ impl McpToolHandler {
             .as_ref()
             .map(|_| cli_tool.as_id().to_string());
 
-        let prompt_delivery = prepare_launch_prompt(
-            &params.project_path,
-            &task_id,
-            if is_resume && !params.allow_resume_with_prompt {
-                None
-            } else {
-                params.prompt
-            },
-            self.state.terminal_backend.kind(),
-        );
         let runtime = match resolve_launch_runtime(
             &params.project_path,
             ws_name.as_deref(),
             Some(cli_tool.as_id()),
             params.runtime_kind.as_deref(),
-            params.resume_id.as_deref(),
+            params
+                .resume_id
+                .as_deref()
+                .or(params.fork_session_id.as_deref()),
             &self.state,
         ) {
             Ok(runtime) => runtime,
@@ -6687,6 +6707,41 @@ impl McpToolHandler {
                 Ok(cwd) => cwd,
                 Err(error) => return format!("错误: {}", error),
             };
+
+        // 分叉：适配器按 forkSessionId 生成原生分叉启动（claude `--resume <id> --fork-session`、
+        // codex `fork <id>`）。不设 resume_id——子会话有自己的 ID，重启时恢复的是子会话。
+        if let Some(fork_session_id) = params.fork_session_id.clone() {
+            if !cc_cli_adapters::supports_session_fork(cli_tool.as_id()) {
+                return format!(
+                    "错误: CLI '{}' 不支持分叉（目前支持 claude、codex）",
+                    cli_tool.as_id()
+                );
+            }
+            if let Err(error) = validate_fork_runtime(&self.state, &fork_session_id, &runtime) {
+                return format!("错误: {}", error);
+            }
+            let options = params.adapter_options.get_or_insert_with(HashMap::new);
+            options.insert(
+                "forkSessionId".to_string(),
+                serde_json::Value::String(fork_session_id),
+            );
+            options.insert(
+                "forkCwd".to_string(),
+                serde_json::Value::String(launch_cwd.clone()),
+            );
+        }
+
+        // 放在分叉校验之后：超长 prompt 会落盘，校验不过就不该留下没人清理的文件。
+        let prompt_delivery = prepare_launch_prompt(
+            &params.project_path,
+            &task_id,
+            if is_resume && !params.allow_resume_with_prompt {
+                None
+            } else {
+                params.prompt
+            },
+            self.state.terminal_backend.kind(),
+        );
 
         let launch_profile_id = match resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
@@ -10769,6 +10824,43 @@ fn select_launch_runtime_kind(
     }
 }
 
+/// 分叉必须在源会话所在的环境里启动：CLI 是到当前环境的会话库里按 ID 找历史的。
+fn validate_fork_runtime(
+    state: &AppState,
+    fork_session_id: &str,
+    runtime: &ResolvedLaunchRuntime,
+) -> std::result::Result<(), String> {
+    let source_runtime = state
+        .launch_history_service
+        .find_by_resume_session_id(fork_session_id)
+        .ok()
+        .flatten()
+        .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok());
+    match fork_runtime_conflict(source_runtime, runtime.kind) {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// `source` 是源会话启动记录里的环境（查不到记录时为 None，交给 CLI 自己判断）。
+fn fork_runtime_conflict(
+    source: Option<LaunchRuntimeKind>,
+    target: LaunchRuntimeKind,
+) -> Option<String> {
+    if target == LaunchRuntimeKind::Ssh {
+        return Some("暂不支持分叉 SSH 上的会话".to_string());
+    }
+    match source {
+        Some(source) if source != target => Some(format!(
+            "源会话在 {} 环境，不能在 {} 环境分叉；去掉 runtimeKind 或改成 {}",
+            source.as_str(),
+            target.as_str(),
+            source.as_str()
+        )),
+        _ => None,
+    }
+}
+
 fn resolve_launch_runtime(
     project_path: &str,
     workspace_name: Option<&str>,
@@ -10785,16 +10877,20 @@ fn resolve_launch_runtime(
         .filter(|runtime| !runtime.is_empty())
         .map(parse_launch_runtime_kind)
         .transpose()?;
+    // 源会话（resume / fork 的来源）的启动记录：没显式指定环境时它决定环境；
+    // 指定了 wsl 时它仍然决定发行版——会话库在记录的那个发行版里。
+    let history_record = resume_id.and_then(|id| {
+        state
+            .launch_history_service
+            .find_by_resume_session_id(id)
+            .ok()
+            .flatten()
+    });
+    let history_record_runtime = history_record
+        .as_ref()
+        .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok());
     let history_runtime = if explicit_runtime.is_none() {
-        resume_id
-            .and_then(|id| {
-                state
-                    .launch_history_service
-                    .find_by_resume_session_id(id)
-                    .ok()
-                    .flatten()
-            })
-            .and_then(|record| parse_launch_runtime_kind(&record.runtime_kind).ok())
+        history_record_runtime
     } else {
         None
     };
@@ -10853,7 +10949,19 @@ fn resolve_launch_runtime(
                 _ => "无法解析 WSL 路径。".to_string(),
             });
         }
-        resolved
+        let source_distro = history_record
+            .as_ref()
+            .filter(|_| history_record_runtime == Some(LaunchRuntimeKind::Wsl))
+            .and_then(|record| record.wsl_distro.clone())
+            .filter(|distro| !distro.trim().is_empty());
+        resolved.map(|mut info| {
+            // 同一个盘符项目可能在两个发行版里用过：按工作空间当前配置选发行版，
+            // 会到错的会话库里找源会话。
+            if let Some(distro) = source_distro {
+                info.distro = Some(distro);
+            }
+            info
+        })
     } else {
         None
     };
@@ -18548,6 +18656,23 @@ mod tests {
     }
 
     #[test]
+    fn fork_must_launch_where_its_source_session_lives() {
+        use LaunchRuntimeKind::{Local, Ssh, Wsl};
+        // 查不到源会话记录：不拦，由 CLI 自己报找不到会话。
+        assert!(fork_runtime_conflict(None, Local).is_none());
+        assert!(fork_runtime_conflict(Some(Local), Local).is_none());
+        assert!(fork_runtime_conflict(Some(Wsl), Wsl).is_none());
+        // 源在 WSL、却要在宿主机起（或反过来）：会到错的会话库里找。
+        assert!(fork_runtime_conflict(Some(Wsl), Local)
+            .unwrap()
+            .contains("wsl"));
+        assert!(fork_runtime_conflict(Some(Local), Wsl).is_some());
+        // SSH 不管是显式传的还是推断出来的都拒绝。
+        assert!(fork_runtime_conflict(None, Ssh).unwrap().contains("SSH"));
+        assert!(fork_runtime_conflict(Some(Ssh), Ssh).is_some());
+    }
+
+    #[test]
     fn dispatch_envelope_persists_before_and_after_session_creation() {
         let service = directive_test_service();
         let mut plan = TaskDispatchService::default()
@@ -18564,6 +18689,7 @@ mod tests {
                 runtime_kind: Some("local".to_string()),
                 prompt: Some("implement the task".to_string()),
                 resume_id: None,
+                fork_session_id: None,
                 parent_binding_id: Some("leader-a".to_string()),
                 parent_session_id: Some("leader-session".to_string()),
             })
