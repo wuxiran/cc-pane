@@ -2663,6 +2663,7 @@ impl TerminalService {
                 self.app_paths.data_dir(),
                 env_vars.get("CC_PANES_LAUNCH_ID").map(String::as_str),
             )?;
+            let mut ccpanes_configured = true;
             if let Some(proxy) = proxy.as_ref() {
                 super::wsl_mcp_proxy::push_codex_overrides(&mut codex_args, proxy);
             } else if let (Some(port), Some(token), Some(windows_host)) = (
@@ -2681,6 +2682,7 @@ impl TerminalService {
                     env_vars.get("CC_PANES_LAUNCH_ID").map(String::as_str),
                 );
             } else {
+                ccpanes_configured = false;
                 warn!(
                     distro = %wsl.distro,
                     has_port = env_vars.contains_key("CC_PANES_API_PORT"),
@@ -2688,6 +2690,10 @@ impl TerminalService {
                     has_windows_host = wsl.windows_host.is_some(),
                     "build_wsl_command: skipping ccpanes MCP CLI override because WSL MCP context is incomplete"
                 );
+            }
+            if ccpanes_configured && yolo_mode {
+                codex_args.push("-c".to_string());
+                codex_args.push(cc_cli_adapters::CCPANES_TOOLS_AUTO_APPROVE_OVERRIDE.to_string());
             }
 
             // 共享 MCP 在前、工作空间 / 项目层 HTTP MCP 在后：同名时后者覆盖（越窄越赢）。

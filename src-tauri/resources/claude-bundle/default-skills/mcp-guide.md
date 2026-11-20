@@ -43,6 +43,8 @@ wait_for_session / get_session_output → 真正的进度
 - **默认只返回尾部 50 行**（纯文本，ANSI 已剥）。要更多传 `lines`（100–500 常见），`lines: 0` 才是全部缓冲——别在循环里传 0。
 - 已退出会话能否读取取决于后端保留输出；若无可读归档，工具会返回无可读取的保留输出。
 - 判断任务是否完成看输出和 `get_session_status`，不要只看 `get_task_status(taskId)`。
+- worker 卡在审批框（如 Codex `Allow the ccpanes MCP server to run tool …?`）时，`get_session_status` / `list_sessions` 报 `waitingInput` 并带 `pendingApproval`（框里的问题原文），`currentToolName` 为待批工具。
+- `query_task_bindings` 返回体大时传 `fields: ["title","status","cliTool","updatedAt"]` 投影（`id` 恒保留），或 `compact: true` 截断 prompt。
 
 ## 打开普通终端标签
 
