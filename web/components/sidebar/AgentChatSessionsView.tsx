@@ -1,4 +1,5 @@
 // Explorer 侧栏「Agent 会话」区：跨项目的最近 ACP 对话列表（CodexHost 式
+import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 // 全局会话入口）。点击 = 开新 agent-chat 标签并自动续接（pendingResume 交接，
 // EnginePicker 挂载时领取）。顶部：新对话 + 自动化（跳设置对应节）。
 import { useCallback, useEffect, useState } from "react";
@@ -7,7 +8,6 @@ import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AcpChatHistoryEntry } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
-import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useWorkspacesStore } from "@/stores";
 import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -71,7 +71,7 @@ export default function AgentChatSessionsView() {
               type="button"
               aria-label={t("agentChatsAutomations")}
               className="rounded p-1 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
-              onClick={() => navigateToSettings({ paneId: "automations" })}
+              onClick={openAutomationsDialog}
             >
               <CalendarClock className="h-3.5 w-3.5" />
             </button>

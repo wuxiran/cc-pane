@@ -1,4 +1,5 @@
 import "@/i18n";
+import { useAutomationsDialogStore } from "@/stores/useAutomationsDialogStore";
 import type { ReactElement } from "react";
 import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -267,10 +268,11 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-agent-chat");
   });
 
-  it("点自动化跳到设置对应节", () => {
+  it("点自动化打开独立的自动化弹窗", () => {
+    useAutomationsDialogStore.setState({ open: false });
     render(<DndContext><LayoutTopBar /></DndContext>);
     fireEvent.click(screen.getByTestId("layout-special-automations"));
-    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "automations" });
+    expect(useAutomationsDialogStore.getState().open).toBe(true);
   });
 });
 

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import AutomationsDialog from "@/components/automations/AutomationsDialog";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WebAuthGate from "@/components/WebAuthGate";
@@ -150,6 +151,7 @@ function MainApp() {
       />
       {/* 全局唯一启动器弹窗（产物走 pendingLaunch，由上面的 useOpenTerminal 消费） */}
       <LauncherDialog />
+      <AutomationsDialog />
     </>
   );
 }

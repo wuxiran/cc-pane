@@ -6,7 +6,6 @@ import {
   Bell,
   Bot,
   Cable,
-  CalendarClock,
   Camera,
   Cloud,
   FlaskConical,
@@ -116,7 +115,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "quick-commands", "automations"],
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "quick-commands"],
   },
   {
     id: "system",
@@ -352,21 +351,6 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       descriptionKey: "quickCommands.description",
       keywordsKey: "searchKeywords.quickCommands",
       targetSectionId: "quick-commands-root",
-    }],
-  },
-  {
-    id: "automations",
-    icon: CalendarClock,
-    titleKey: "automations.title",
-    descriptionKey: "automations.description",
-    page: "ai-tools",
-    availability: "tauri",
-    searchEntries: [{
-      id: "schedules",
-      titleKey: "automations.title",
-      descriptionKey: "automations.description",
-      keywordsKey: "searchKeywords.automations",
-      targetSectionId: "automations-root",
     }],
   },
   { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", page: "system", searchEntries: [

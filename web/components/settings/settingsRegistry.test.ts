@@ -68,7 +68,6 @@ describe("settings registry", () => {
       "provider-credentials",
       "cli-launchers",
       "quick-commands",
-      "automations",
     ]);
   });
 

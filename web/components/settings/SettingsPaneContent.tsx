@@ -7,7 +7,6 @@ import { lazyWithRetry } from "@/lib/lazyRetry";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 const AboutSection = lazyWithRetry(() => import("./AboutSection"), "AboutSection");
-const AutomationsSection = lazyWithRetry(() => import("./AutomationsSection"), "AutomationsSection");
 const SetupGuideChecklist = lazyWithRetry(() => import("@/components/onboarding/SetupGuideChecklist"), "SetupGuideChecklist");
 const CCChanSettings = lazyWithRetry(() => import("./CCChanSettings"), "CCChanSettings");
 const CliLaunchersSection = lazyWithRetry(() => import("./CliLaunchersSection"), "CliLaunchersSection");
@@ -94,8 +93,6 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <ProxySection value={draft.proxy} onChange={(proxy) => updateDraft({ ...draft, proxy })} />;
     case "quick-commands":
       return <QuickCommandsSection />;
-    case "automations":
-      return <AutomationsSection />;
     case "terminal":
       return <TerminalSection value={draft.terminal} onChange={(terminal) => updateDraft({ ...draft, terminal })} />;
     case "performance":
@@ -134,7 +131,7 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["setup-guide", "theme", "theme-shape", "provider", "provider-credentials", "cli-launchers", "resource-center", "shared-mcp", "skills", "quick-commands", "automations", "experimental"].includes(props.paneId);
+  const hasOwnCardLayout = ["setup-guide", "theme", "theme-shape", "provider", "provider-credentials", "cli-launchers", "resource-center", "shared-mcp", "skills", "quick-commands", "experimental"].includes(props.paneId);
   const fillsAvailableHeight = ["provider", "provider-credentials", "skills", "quick-commands"].includes(props.paneId);
   return (
     <div

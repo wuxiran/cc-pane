@@ -1,7 +1,6 @@
 // 设置面板 ID。从 settingsRegistry 拆出，给注册表留出行数余量。
 export type SettingsPaneId =
   | "setup-guide"
-  | "automations"
   | "theme"
   | "theme-shape"
   | "general"
