@@ -5,13 +5,17 @@ import type { PopupTabData } from "@/services/popupWindowService";
 import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
 
+function findActiveLeaf(tab: Tab) {
+  if (!tab.terminalRootPane || !tab.activeTerminalPaneId) return null;
+  return collectTerminalLeaves(tab.terminalRootPane)
+    .find((leaf) => leaf.id === tab.activeTerminalPaneId) ?? null;
+}
+
 export function findActiveTerminalSessionId(tab: Tab): string | null {
   if (tab.contentType !== "terminal" || !tab.terminalRootPane || !tab.activeTerminalPaneId) {
     return tab.sessionId ?? null;
   }
-  const activeLeaf = collectTerminalLeaves(tab.terminalRootPane)
-    .find((leaf) => leaf.id === tab.activeTerminalPaneId);
-  return activeLeaf?.sessionId ?? null;
+  return findActiveLeaf(tab)?.sessionId ?? null;
 }
 
 /** 能弹出：活终端且尚未弹出。 */
@@ -39,6 +43,8 @@ export async function popOutTerminalTab(tab: Tab, paneId: string): Promise<void>
     providerSelection: tab.providerSelection,
     launchProfileId: tab.launchProfileId,
     workspacePath: tab.workspacePath,
+    cliTool: findActiveLeaf(tab)?.cliTool ?? tab.cliTool,
+    launchClaude: findActiveLeaf(tab)?.launchClaude ?? tab.launchClaude,
   };
   await popOutTab(data);
   terminalService.detachOutput(sessionId);

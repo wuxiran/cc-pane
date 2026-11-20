@@ -2,7 +2,7 @@
  * 弹出窗口服务 - 管理终端标签弹出为独立系统窗口
  */
 
-import type { LaunchProviderSelection } from "@/types";
+import type { CliTool, LaunchProviderSelection } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "./runtime";
 
 export interface PopupTabData {
@@ -20,6 +20,9 @@ export interface PopupTabData {
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;
+  /** 会话里跑的 CLI：决定渲染管线（claude/codex 的输出留在主缓冲区），缺了历史会显示不出来 */
+  cliTool?: CliTool;
+  launchClaude?: boolean;
 }
 
 /** 已弹出的 tabId -> window label 映射 */

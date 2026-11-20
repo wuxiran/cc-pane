@@ -177,6 +177,8 @@ export default function PopupTerminalWindow() {
         providerSelection={tabData.providerSelection}
         launchProfileId={tabData.launchProfileId}
         workspacePath={tabData.workspacePath}
+        cliTool={tabData.cliTool}
+        launchClaude={tabData.launchClaude}
         onSessionCreated={handleSessionCreated}
         onSessionExited={handleSessionExited}
       />

@@ -67,6 +67,7 @@ export function terminalTabDefaults(opts: CreateTabOptions): Partial<Tab> {
   const terminalLeaf = createTerminalLeaf(opts);
   return {
     title: deriveTerminalTitle(opts),
+    ...(opts.titleRenamed && opts.customTitle ? { titleRenamed: true } : {}),
     projectId: opts.projectId,
     projectPath: opts.projectPath,
     sessionId: terminalLeaf.sessionId,

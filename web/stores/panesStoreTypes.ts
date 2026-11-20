@@ -47,6 +47,8 @@ export interface CreateTabOptions {
   workspaceSnapshotId?: string;
   cliTool?: CliTool;
   customTitle?: string;
+  /** customTitle 视作用户命名（侧栏优先显示它，而不是 CLI 标题 / 首条输入）；分叉用 */
+  titleRenamed?: boolean;
   ssh?: SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;

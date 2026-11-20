@@ -93,7 +93,7 @@ export default function WorkspaceTerminalRowMenu({ tabId, children, onRename }: 
               {tab.pinned ? <PinOff /> : <Pin />} {tab.pinned ? t("terminalRowMenu.unpin") : t("terminalRowMenu.pin")}
             </ContextMenuItem>
             {forkSource && !forkSource.ssh && (
-              <ContextMenuItem onSelect={() => setForkOpen(true)}>
+              <ContextMenuItem onSelect={() => { if (focusAndLocate(tabId)) setForkOpen(true); }}>
                 <GitFork /> {t("terminalRowMenu.fork")}
               </ContextMenuItem>
             )}

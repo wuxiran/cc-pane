@@ -10,10 +10,23 @@ export async function forkWorkingDirectory(
   return (await forkReviewService.prepare({ cwd, mode })).cwd;
 }
 
+/**
+ * 分叉的默认名：父标签名 + 「 (n)」，n 取同名分叉里最小的空位（父名自带的 (n) 先剥掉，
+ * 分叉的分叉不会叠成 (1) (1)）。
+ */
+export function nextForkTitle(parentTitle: string, existingTitles: Iterable<string>): string {
+  const base = parentTitle.replace(/\s\(\d+\)$/, "").trim() || parentTitle;
+  const taken = new Set(existingTitles);
+  let n = 1;
+  while (taken.has(`${base} (${n})`)) n += 1;
+  return `${base} (${n})`;
+}
+
 export async function buildTerminalFork(
   tab: Tab,
   mode: ChatForkMode,
   leafId?: string,
+  existingTitles: Iterable<string> = [],
 ): Promise<CreateTabOptions> {
   const source = terminalForkSource(tab, leafId);
   if (!source)
@@ -48,6 +61,8 @@ export async function buildTerminalFork(
     launchProfileId: source.launchProfileId,
     workspacePath: mode === "worktree" ? undefined : source.workspacePath,
     cliTool: source.cliTool,
+    customTitle: nextForkTitle(tab.title, existingTitles),
+    titleRenamed: true,
     wsl: source.wsl,
     machineName: source.machineName,
     // Deliberately no sessionId/resumeId/savedSessionId: these belong to the parent.
