@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "@/components/ui/toast";
-import { ChevronDown, FolderGit2, FolderTree, ListFilter, TerminalSquare, Plus } from "lucide-react";
+import { ChevronDown, FolderGit2, FolderTree, ListFilter, Plus } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,7 +43,6 @@ import WorkspaceDialogs from "./WorkspaceDialogs";
 import WorkspaceItem from "./WorkspaceItem";
 import WorkspaceFilterBar from "./WorkspaceFilterBar";
 import WorkspaceGroupDropZone from "./WorkspaceGroupDropZone";
-import ProjectListView from "./ProjectListView";
 import {
   sidebarSectionHeaderClass,
   sidebarSectionTitleClass,
@@ -146,23 +145,21 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
   const [filterOpen, setFilterOpen] = useState(false);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
-  const treeMode = useExplorerSectionsStore((s) => s.workspaceTreeMode);
-  const setTreeMode = useExplorerSectionsStore((s) => s.setWorkspaceTreeMode);
-  // 终端模式的数据派生：只在该模式下订阅 panes/status，项目模式零开销
-  const layouts = usePanesStore((s) => (treeMode === "terminals" ? s.layouts : null));
-  const rootPane = usePanesStore((s) => (treeMode === "terminals" ? s.rootPane : null));
+  // 树里只列运行中的终端；项目列表在工作空间悬浮卡里
+  const layouts = usePanesStore((s) => s.layouts);
+  const rootPane = usePanesStore((s) => s.rootPane);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
-  const firstPrompts = useFirstPromptIndex(treeMode === "terminals");
+  const firstPrompts = useFirstPromptIndex(true);
   const workspaceTerminals = useMemo(() => {
-    if (treeMode !== "terminals" || !layouts || !rootPane) return null;
+    if (!layouts || !rootPane) return null;
     return deriveWorkspaceTerminals(
       { layouts, rootPane, currentLayoutId },
       workspaces,
       statusMap,
       firstPrompts,
     );
-  }, [treeMode, layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
+  }, [layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
   // 默认工作空间与 Agent Chat 工作空间不进列表：它们是「没选项目时会话 / 新对话落在哪」的约定目录，
   // 不是用户要管理的条目。例外：Agent Chat 工作空间里加过项目时照常列出，否则那些项目没有入口。
   const listedWorkspaces = useMemo(
@@ -282,30 +279,11 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         onClearPath={handleClearWorkspacePath}
         onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
         onOpenInFileBrowser={handleOpenInFileBrowser}
-        countOverride={treeMode === "terminals" ? terminalRows.length : undefined}
-        dimmed={treeMode === "terminals" && terminalRows.length === 0 && expandedWorkspaceId !== ws.id}
+        countOverride={terminalRows.length}
+        dimmed={terminalRows.length === 0 && expandedWorkspaceId !== ws.id}
         availableCliToolIds={availableCliToolIds}
       >
-        {treeMode === "terminals" ? (
-          <WorkspaceTerminalList workspaceName={ws.name} rows={terminalRows} />
-        ) : (
-          <ProjectListView
-            projects={ws.projects}
-            ws={ws}
-            gitBranches={actions.gitBranches}
-            worktreeCache={actions.worktreeCache}
-            projectPathStatus={actions.projectPathStatus}
-            onOpenTerminal={onOpenTerminal}
-            onRemoveProject={actions.handleRemoveProject}
-            onCleanupMissingProjects={actions.handleCleanupMissingProjects}
-            onSetProjectAlias={actions.handleSetAlias}
-            onImportProject={actions.handleImportProject}
-            onMigrateProject={actions.handleMigrateProject}
-            onOpenWorktreeManager={handleOpenWorktreeManager}
-            onOpenInFileBrowser={handleOpenInFileBrowser}
-            availableCliToolIds={availableCliToolIds}
-          />
-        )}
+        <WorkspaceTerminalList workspaceName={ws.name} rows={terminalRows} />
       </SortableWorkspaceItem>
     );
   };
@@ -337,15 +315,6 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           <ChevronDown className={`size-3 transition-transform ${sectionCollapsed ? "-rotate-90" : ""}`} strokeWidth={2} aria-hidden="true" />
         </button>
         <div className="flex items-center gap-0.5">
-          {/* 树模式：单按钮切换，图标表示当前模式，tooltip 表示点了会切到哪 */}
-          <IconTooltipButton
-            label={treeMode === "projects" ? t("treeModeTerminals") : t("treeModeProjects")}
-            aria-pressed={treeMode === "terminals"}
-            onClick={() => setTreeMode(treeMode === "projects" ? "terminals" : "projects")}
-            className="size-5 p-0 text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
-          >
-            {treeMode === "projects" ? <FolderGit2 className="size-3.5" /> : <TerminalSquare className="size-3.5" />}
-          </IconTooltipButton>
           <IconTooltipButton
             label={t("workspaceFilterToggle")}
             onClick={() => setFilterOpen((open) => !open)}
