@@ -628,5 +628,9 @@
     "title": "新标签页"
   },
   "reviewChanges": "审阅更改",
-  "agentChatCompactPlaceholder": "随心输入"
+  "agentChatCompactPlaceholder": "随心输入",
+  "agentChatChangesBarFiles": "{{count}} 个文件已修改",
+  "agentChatChangesBarShow": "展开改动",
+  "agentChatChangesBarHide": "收起改动",
+  "agentChatChangesBarReview": "审阅"
 }

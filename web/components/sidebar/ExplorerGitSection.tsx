@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, GitBranch, History, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, GitBranch, History, MessageSquareCode, RefreshCw } from "lucide-react";
 import {
   gitService,
   type GitChangedFile,
@@ -129,6 +129,7 @@ interface GitProjectGroupProps {
   loadDetails: GitDetailLoader;
   showHeader?: boolean;
   onSummaryChange?: (summary: GitProjectSummary) => void;
+  onAskReview?: (project: WorkspaceProject, name: string) => void;
 }
 
 function GitProjectGroup({
@@ -138,6 +139,7 @@ function GitProjectGroup({
   loadDetails,
   showHeader = true,
   onSummaryChange,
+  onAskReview,
 }: GitProjectGroupProps) {
   const { t } = useTranslation("sidebar");
   const [state, setState] = useState<GitProjectState>(LOADING_STATE);
@@ -266,13 +268,24 @@ function GitProjectGroup({
               {stateHint}
             </span>
           )}
+          {onAskReview && state.kind === "git" && state.changes.length > 0 && (
+            <button
+              type="button"
+              aria-label={t("rightDock.reviewWithChatHint", { name })}
+              title={t("rightDock.reviewWithChatHint", { name })}
+              onClick={(event) => { event.stopPropagation(); onAskReview(project, name); }}
+              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+            >
+              <MessageSquareCode className="h-3 w-3" />
+            </button>
+          )}
           {state.kind === "git" && (
             <button
               type="button"
               aria-label={t("explorer.gitTimeline")}
               title={t("explorer.gitTimeline")}
               onClick={handleOpenTimeline}
-              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+              className={`${onAskReview && state.changes.length > 0 ? "" : "ml-auto"} flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]`}
             >
               <History className="h-3 w-3" />
             </button>
@@ -347,6 +360,8 @@ interface ExplorerGitSectionProps {
   selectedProjectId: string | null;
   mode?: "workspace" | "project";
   onSelectedProjectSummaryChange?: (summary: GitProjectSummary | null) => void;
+  /** 右侧面板：项目有改动时在组头给一个「让对话审阅」入口。 */
+  onAskReview?: (project: WorkspaceProject, name: string) => void;
 }
 
 export default function ExplorerGitSection({
@@ -354,6 +369,7 @@ export default function ExplorerGitSection({
   selectedProjectId,
   mode = "workspace",
   onSelectedProjectSummaryChange,
+  onAskReview,
 }: ExplorerGitSectionProps) {
   const { t } = useTranslation("sidebar");
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
@@ -392,6 +408,7 @@ export default function ExplorerGitSection({
             onToggle={() => setOverrides((current) => ({ ...current, [project.id]: !expanded }))}
             showHeader={mode === "workspace"}
             onSummaryChange={mode === "project" ? onSelectedProjectSummaryChange : undefined}
+            onAskReview={onAskReview}
           />
         );
       })}

@@ -23,6 +23,7 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatRuntimeWorkspace, { useChatRuntimeTools } from "./ChatRuntimeWorkspace";
 import { transcriptMarkdown } from "./chatTranscript";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
+import ChatChangesBar from "./ChatChangesBar";
 import ChatComposer from "./ChatComposer";
 import ChatSessionHeader from "./ChatSessionHeader";
 import ChatTurnView from "./ChatTurnView";
@@ -429,6 +430,12 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
           onBeforeSend={() => setAtBottom(true)}
           toolbar={composerToolbar}
           usage={chat?.usage ?? null}
+          compact={compact}
+          header={compact ? (
+            <ChatChangesBar items={items ?? []} detailsOpen={showChanges}
+              onToggleDetails={() => setShowChanges((previous) => !previous)}
+              onReview={runtimeTools ? () => runtimeTools.openReview() : undefined} />
+          ) : undefined}
         />
       )}
     </div>

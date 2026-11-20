@@ -91,6 +91,17 @@ function physicalAlphanumericKey(code: string): string | null {
 }
 
 /**
+ * Windows/Linux 上 Ctrl+Alt 即 AltGr：德语等布局靠它打 { [ ] } @ 这类字符
+ * （AltGr+7 → "{"）。此时 e.key 是打出来的字符而不是键帽，parseKeyEvent 却按物理键
+ * 归成 "Ctrl+Alt+7"——不让行就会把用户的输入吞掉。mac 的 ⌥ 组字走 ⌘⌥，不受影响。
+ */
+export function isAltGraphText(e: KeyboardEvent, isMac: boolean = detectMac()): boolean {
+  if (isMac || !e.ctrlKey || !e.altKey || e.metaKey || e.key.length !== 1) return false;
+  const physical = physicalAlphanumericKey(e.code);
+  return physical !== null && e.key.toUpperCase() !== physical;
+}
+
+/**
  * 将 KeyboardEvent 转换为快捷键字符串
  */
 export function parseKeyEvent(e: KeyboardEvent): string {
@@ -250,6 +261,7 @@ export function handleKeydown(e: KeyboardEvent, isMac: boolean = detectMac()) {
   // IME 组合输入期间放行，避免全局捕获阶段打断中文/日文等输入法。
   if (e.isComposing || e.keyCode === 229) return;
 
+  if (isAltGraphText(e, isMac)) return;
   const combo = parseKeyEvent(e);
   if (!combo) return;
 
@@ -289,6 +301,7 @@ export function shouldTerminalHandleKey(e: KeyboardEvent, isMac: boolean = detec
   // 组合输入由 xterm 隐藏 textarea 和原生输入法协作完成，快捷键层不应介入。
   if (e.isComposing || e.keyCode === 229) return false;
 
+  if (isAltGraphText(e, isMac)) return true;
   const combo = parseKeyEvent(e);
   if (!combo) return true;
 

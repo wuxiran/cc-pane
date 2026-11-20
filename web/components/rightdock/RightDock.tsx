@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Folder, FolderOpen, FolderSync, GitBranch, MessageSquare } from "lucide-react";
+import { Folder, FolderOpen, FolderSync, GitBranch, MessageSquare, MessageSquareCode } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
@@ -8,6 +8,14 @@ import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
 import DockChatView from "./DockChatView";
 import DockRail, { type DockRailItem } from "./DockRail";
+import { askDockChatToReview } from "./dockChatReview";
+import {
+  TOGGLE_RIGHT_DOCK_COMMAND,
+  dockViewCommandId,
+  openDockRailView,
+  resolveDockModules,
+  resolveDockRailViews,
+} from "./dockRailViews";
 import SshRemoteFilesView from "./SshRemoteFilesView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { usePanelResize } from "@/hooks/usePanelResize";
@@ -23,16 +31,15 @@ import {
   selectActiveTerminalKey,
 } from "@/hooks/useFollowActiveTerminalContext";
 import type { OpenTerminalOptions, Workspace, WorkspaceProject } from "@/types";
-import { MODULE_CONSUMERS } from "@/modules/registry";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useDockChatStore } from "@/stores/useDockChatStore";
 import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
-
-/** 会话历史并进了对话视图的历史面板，不再单独占竖栏一格。 */
-const MODULES_MERGED_INTO_CHAT = new Set(["sessionHistory"]);
+import { useSettingsStore } from "@/stores/useSettingsStore";
+import { formatKeyCombo } from "@/stores/useShortcutsStore";
+import { getProjectName } from "@/utils/path";
 
 export function resolveRightDockProject(
   workspace: Workspace | null,
@@ -112,13 +119,12 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
   );
   const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
   const panelRef = useRef<HTMLDivElement>(null);
-  const dockModules = MODULE_CONSUMERS.rightDock.filter((module) => {
-    const preference = modulePreferences[module.id];
-    const fixedRightDock = module.id === "orchestration";
-    return (fixedRightDock || preference.enabled)
-      && (fixedRightDock || preference.position === "rightDock")
-      && module.surfaces.includes("rightDock");
-  });
+  const shortcutBindings = useSettingsStore((state) => state.settings?.shortcuts.bindings);
+  const shortcutOf = (commandId: string) => {
+    const combo = shortcutBindings?.[commandId];
+    return combo ? formatKeyCombo(combo) : undefined;
+  };
+  const dockModules = resolveDockModules(modulePreferences);
   const sshDocked = dockModules.some((module) => module.id === "ssh");
   const aiPanelDocked = dockModules.some((module) => module.id === "aiPanel");
   const orchestrationDocked = dockModules.some((module) => module.id === "orchestration");
@@ -133,25 +139,28 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
     const chat = state.chats[id];
     return Boolean(chat && (chat.pendingPermissions.length > 0 || chat.snapshot?.phase === "generating" || chat.pendingPrompt));
   }));
-  const railItems: DockRailItem[] = [
-    { id: "chat", icon: MessageSquare, label: t("rightDock.chat"), onSelect: () => setActiveView("chat"),
-      badge: dockChatBusy && resolvedActiveView !== "chat" ? "amber" : undefined },
-    { id: "files", icon: Folder, label: t("rightDock.files"), onSelect: () => setActiveView("files") },
-    { id: "git", icon: GitBranch, label: t("rightDock.git"), onSelect: () => setActiveView("git") },
-    ...(remoteMachineId
-      ? [{ id: "sshFiles", icon: FolderSync, label: t("rightDock.remoteFiles"), onSelect: () => setActiveView("sshFiles") }]
-      : []),
-    ...dockModules.filter((module) => !MODULES_MERGED_INTO_CHAT.has(module.id)).map((module): DockRailItem => {
-      const badge = module.badge?.({ bindings, aiPanelUnreadCount });
-      return {
-        id: module.id,
-        icon: module.icon,
-        label: t(module.titleKey as never),
-        onSelect: () => module.open("rightDock"),
-        badge: badge == null ? undefined : typeof badge === "number" ? "blue" : badge.tone,
-      };
-    }),
-  ];
+  const builtinRail = {
+    chat: { icon: MessageSquare, label: t("rightDock.chat"),
+      badge: dockChatBusy && resolvedActiveView !== "chat" ? "amber" as const : undefined },
+    files: { icon: Folder, label: t("rightDock.files") },
+    git: { icon: GitBranch, label: t("rightDock.git") },
+    sshFiles: { icon: FolderSync, label: t("rightDock.remoteFiles") },
+  };
+  const railItems: DockRailItem[] = resolveDockRailViews(dockModules, remoteMachineId).map((view, index) => {
+    const shortcut = index < 9 ? shortcutOf(dockViewCommandId(index)) : undefined;
+    if (view.kind === "builtin") {
+      return { id: view.id, ...builtinRail[view.id], shortcut, onSelect: () => openDockRailView(view) };
+    }
+    const badge = view.module.badge?.({ bindings, aiPanelUnreadCount });
+    return {
+      id: view.id,
+      icon: view.module.icon,
+      label: t(view.module.titleKey as never),
+      shortcut,
+      onSelect: () => openDockRailView(view),
+      badge: badge == null ? undefined : typeof badge === "number" ? "blue" : badge.tone,
+    };
+  });
 
 
   useEffect(() => {
@@ -228,8 +237,20 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
         />
       ) : (
       <>
-      <div className="flex h-10 shrink-0 items-center border-b px-3 text-xs font-medium" style={{ borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }}>
-        {railItems.find((item) => item.id === resolvedActiveView)?.label}
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b pl-3 pr-1.5 text-xs font-medium" style={{ borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }}>
+        <span className="min-w-0 flex-1 truncate">{railItems.find((item) => item.id === resolvedActiveView)?.label}</span>
+        {resolvedActiveView === "git" && selectedProject && (
+          <button
+            type="button"
+            data-testid="right-dock-review-with-chat"
+            title={t("rightDock.reviewWithChatHint", { name: selectedProject.alias || getProjectName(selectedProject.path) })}
+            onClick={() => askDockChatToReview(selectedProject.path, selectedProject.alias || getProjectName(selectedProject.path))}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 font-normal text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+          >
+            <MessageSquareCode className="size-3.5" />
+            {t("rightDock.reviewWithChat")}
+          </button>
+        )}
       </div>
       {resolvedActiveView === "sshFiles" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -256,6 +277,7 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
             <ExplorerGitSection
               workspace={workspace}
               selectedProjectId={selectedProject.id}
+              onAskReview={(project, name) => askDockChatToReview(project.path, name)}
             />
           </div>
           {resolvedActiveView === "files" && (
@@ -286,6 +308,7 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
         items={railItems}
         activeId={resolvedActiveView}
         collapseLabel={t("rightDock.collapse")}
+        collapseShortcut={shortcutOf(TOGGLE_RIGHT_DOCK_COMMAND)}
         onCollapse={() => setVisible(false)}
       />
     </div>

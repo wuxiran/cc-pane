@@ -36,7 +36,41 @@ export interface ChatComposerProps {
   toolbar?: ReactNode;
   /** 上下文用量（引擎不上报时为 null，不渲染环）。 */
   usage?: AcpUsage | null;
+  /** 右侧面板窄版：外观与 CompactStartPage 的输入卡一致（不挂全局 composer 样式）。 */
+  compact?: boolean;
+  /** 输入卡正上方的附加条（右侧面板的改动条）。 */
+  header?: ReactNode;
 }
+
+/**
+ * 两套外观。compact 故意不挂 agent-chat-composer* 类：那组全局样式（含 540px 容器查询）
+ * 是给窗格大输入框的，会把窄版的内边距、字号、按钮尺寸顶回去。
+ */
+const PANE_LOOK = {
+  host: "agent-chat-composer px-5 pb-5 pt-3",
+  column: "mx-auto flex w-full max-w-3xl flex-col gap-2",
+  shell: "agent-chat-composer-shell rounded-3xl border bg-[var(--app-chat-composer-bg)] px-4 pb-3 pt-4",
+  attachments: "mb-3",
+  input: "agent-chat-composer-input min-h-[4.25rem] text-[length:var(--text-title)]",
+  toolbar: "agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3",
+  options: "agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5",
+  actions: "agent-chat-composer-actions flex shrink-0 items-center gap-1.5",
+  button: "h-8 w-8 rounded-full",
+} as const;
+
+const COMPACT_LOOK = {
+  host: "px-3 pb-3 pt-1",
+  column: "flex w-full flex-col gap-1.5",
+  shell: "rounded-2xl border bg-[var(--app-sidebar)] px-3 pb-2 pt-2.5",
+  attachments: "mb-2",
+  input: "block min-h-11 px-1 text-[13px]",
+  toolbar: "mt-1.5 flex items-center gap-1",
+  options: "flex min-w-0 flex-1 items-center gap-0.5",
+  // 会话选择器（模型/模式/权限）在窄栏里只许收缩截断，不许换行把输入卡撑高。
+  controls: "flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden [&>*]:min-w-0 [&_button]:h-7 [&_button]:px-1.5",
+  actions: "flex shrink-0 items-center gap-0.5",
+  button: "size-7 rounded-full",
+} as const;
 
 export default function ChatComposer({
   chatId,
@@ -48,7 +82,10 @@ export default function ChatComposer({
   onOpenAttachment,
   toolbar,
   usage,
+  compact = false,
+  header,
 }: ChatComposerProps) {
+  const look = compact ? COMPACT_LOOK : PANE_LOOK;
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
   const lastUserMessage = useAgentChatStore((state) => {
@@ -252,8 +289,9 @@ export default function ChatComposer({
   });
 
   return (
-    <div ref={hostRef} className="agent-chat-composer px-5 pb-5 pt-3">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+    <div ref={hostRef} className={look.host} data-composer-look={compact ? "compact" : "pane"}>
+      <div className={look.column}>
+        {header}
         {slashMatches.length > 0 ? (
           <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-overlay)] py-1 shadow-md">
             {slashMatches.map((command, index) => (
@@ -283,7 +321,7 @@ export default function ChatComposer({
         ) : null}
         <div
           data-drop-active={dropHint || undefined}
-          className={`agent-chat-composer-shell rounded-3xl border bg-[var(--app-chat-composer-bg)] px-4 pb-3 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)] ${
+          className={`${look.shell} transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)] ${
             dropHint
               ? "border-[var(--app-accent)] shadow-[0_0_0_3px_var(--app-active-bg)]"
               : "border-[var(--app-border)]"
@@ -292,7 +330,7 @@ export default function ChatComposer({
           onDragOver={(event) => event.preventDefault()}
         >
           {attachments.length > 0 ? (
-            <div className="mb-3"><ChatAttachmentList attachments={attachments} onRemove={removeAttachment} onOpenAttachment={onOpenAttachment} /></div>
+            <div className={look.attachments}><ChatAttachmentList attachments={attachments} onRemove={removeAttachment} onOpenAttachment={onOpenAttachment} /></div>
           ) : null}
           <textarea
             ref={textareaRef}
@@ -351,28 +389,29 @@ export default function ChatComposer({
             }}
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
-            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[length:var(--text-title)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            className={`${look.input} max-h-48 w-full resize-none bg-transparent leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]`}
           />
-          <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
-            <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className={look.toolbar}>
+            <div className={look.options}>
               <ChatAddMenu chatId={chatId} cwd={cwd} phase={phase} generating={generating} blocked={submissionBlocked}
                 onFiles={attachFromDialog} onFolders={attachFoldersFromDialog} onProject={() => attachDirectory(cwd)}
                 onCapture={isTauriRuntime() && canCapture ? captureScreenshot : undefined} />
-              {isTauriRuntime() ? (
+              {/* 窄版里截图只走「+」菜单，省一个按钮位。 */}
+              {isTauriRuntime() && !compact ? (
                 <IconTooltipButton label={t(canCapture ? "agentChatCaptureScreenshot" : "agentChatCaptureUnavailable")} disabled={!canCapture} className="h-8 w-8 shrink-0 rounded-full"
                   onClick={captureScreenshot}>
                   <Camera className="h-4 w-4" />
                 </IconTooltipButton>
               ) : null}
-              {toolbar}
+              {compact && toolbar ? <div className={COMPACT_LOOK.controls}>{toolbar}</div> : toolbar}
             </div>
-            <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
+            <div className={look.actions}>
               {usage ? <ContextUsageRing usage={usage} /> : null}
               {lastUserMessage && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
                   disabled={phase !== "ready" || submissionBlocked}
-                  className="h-8 w-8 rounded-full"
+                  className={look.button}
                   onClick={retryLast}
                 >
                   <RotateCw className="h-3.5 w-3.5" />
@@ -381,13 +420,13 @@ export default function ChatComposer({
               <ChatVoiceButton
                 chatId={chatId}
                 variant="ghost"
-                sizeClass="h-8 w-8 rounded-full"
+                sizeClass={look.button}
                 onText={(text) => useAgentChatDraftStore.getState().appendText(chatId, draftToken, text)}
               />
               {generating ? (
                 <IconTooltipButton
                   label={t("agentChatStop")}
-                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
+                  className={`${look.button} bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85`}
                   onClick={cancel}
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -397,7 +436,7 @@ export default function ChatComposer({
                   label={t("agentChatSend")}
                   kbd="Enter"
                   disabled={!canSend}
-                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30"
+                  className={`${look.button} bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30`}
                   onClick={send}
                 >
                   <ArrowUp className="h-4 w-4" strokeWidth={2.5} />

@@ -23,7 +23,9 @@ import {
   useActivityBarStore,
   useBorderlessStore,
   useRightDockStore,
+  useSettingsStore,
   useWorkspacesStore,
+  formatKeyCombo,
 } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
@@ -56,6 +58,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   const toggleSidebar = useActivityBarStore((s) => s.toggleSidebar);
   const rightDockVisible = useRightDockStore((s) => s.visible);
   const toggleRightDock = useRightDockStore((s) => s.toggleVisible);
+  const rightDockCombo = useSettingsStore((s) => s.settings?.shortcuts.bindings["toggle-right-dock"]);
   const aiPanelUnreadCount = useAiPanelStore((s) => s.unreadPanelIds.length);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
@@ -254,6 +257,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
           label={
             rightDockVisible ? tSidebar("rightDock.collapse") : tSidebar("rightDock.expand")
           }
+          kbd={rightDockCombo ? formatKeyCombo(rightDockCombo) : undefined}
           side="bottom"
           className="relative mr-1 h-[26px] w-[26px] shrink-0 rounded-[6px] p-0"
           style={noDrag}

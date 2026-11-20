@@ -11,6 +11,8 @@ export interface DockRailItem {
   label: string;
   onSelect: () => void;
   badge?: DockRailBadgeTone;
+  /** 已格式化的快捷键（如 ⌥⌘1），悬停提示里显示。 */
+  shortcut?: string;
 }
 
 const BADGE_COLOR: Record<DockRailBadgeTone, string> = {
@@ -23,10 +25,26 @@ interface DockRailProps {
   items: readonly DockRailItem[];
   activeId: string;
   collapseLabel: string;
+  collapseShortcut?: string;
   onCollapse: () => void;
 }
 
-export default function DockRail({ items, activeId, collapseLabel, onCollapse }: DockRailProps) {
+function RailTooltip({ label, shortcut }: { label: string; shortcut?: string }) {
+  return (
+    <TooltipContent side="left">
+      <span className="flex items-center gap-1.5">
+        {label}
+        {shortcut && (
+          <kbd className="rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[length:var(--text-micro)] leading-none text-[var(--app-text-tertiary)]">
+            {shortcut}
+          </kbd>
+        )}
+      </span>
+    </TooltipContent>
+  );
+}
+
+export default function DockRail({ items, activeId, collapseLabel, collapseShortcut, onCollapse }: DockRailProps) {
   return (
     <nav
       data-testid="right-dock-rail"
@@ -34,7 +52,7 @@ export default function DockRail({ items, activeId, collapseLabel, onCollapse }:
       style={{ borderColor: "var(--app-border)" }}
     >
       <div className="flex flex-col items-center gap-1" role="tablist" aria-orientation="vertical" aria-label={items.map((item) => item.label).join(" / ")}>
-        {items.map(({ id, icon: Icon, label, onSelect, badge }) => {
+        {items.map(({ id, icon: Icon, label, onSelect, badge, shortcut }) => {
           const selected = id === activeId;
           return (
             <Tooltip key={id}>
@@ -66,7 +84,7 @@ export default function DockRail({ items, activeId, collapseLabel, onCollapse }:
                   )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left">{label}</TooltipContent>
+              <RailTooltip label={label} shortcut={shortcut} />
             </Tooltip>
           );
         })}
@@ -83,7 +101,7 @@ export default function DockRail({ items, activeId, collapseLabel, onCollapse }:
             <PanelRightClose className="size-4" strokeWidth={1.6} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="left">{collapseLabel}</TooltipContent>
+        <RailTooltip label={collapseLabel} shortcut={collapseShortcut} />
       </Tooltip>
     </nav>
   );

@@ -33,6 +33,7 @@ const actionI18nKeys: Record<string, string> = {
   "terminal-zoom-reset": "terminal-zoom-reset",
   "toggle-mini-mode": "toggle-mini-mode",
   "voice-input": "voice-input",
+  "toggle-right-dock": "toggle-right-dock",
 };
 
 export default function ShortcutsSection({ value, onChange }: ShortcutsSectionProps) {
@@ -50,6 +51,10 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
     const switchLayoutMatch = action.match(/^switch-layout-(\d+)$/);
     if (switchLayoutMatch) {
       return t("shortcuts:switch-layout", { index: switchLayoutMatch[1] });
+    }
+    const dockViewMatch = action.match(/^focus-dock-view-(\d+)$/);
+    if (dockViewMatch) {
+      return t("shortcuts:focus-dock-view", { index: dockViewMatch[1] });
     }
     // Other actions use the static mapping
     if (action in actionI18nKeys) {

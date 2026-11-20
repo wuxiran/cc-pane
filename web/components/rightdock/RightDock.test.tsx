@@ -17,13 +17,17 @@ import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 import { useDockChatStore } from "@/stores/useDockChatStore";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 import RightDock from "./RightDock";
+import { takePendingDraft } from "@/components/agentchat/pendingDraft";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 
 vi.mock("@/components/sidebar/ExplorerGitSection", () => ({
   default: ({
     selectedProjectId,
     onSelectedProjectSummaryChange,
+    onAskReview,
   }: {
     selectedProjectId: string | null;
+    onAskReview?: (project: { id: string; path: string }, name: string) => void;
     onSelectedProjectSummaryChange?: (summary: {
       kind: "git";
       branch: string;
@@ -37,7 +41,12 @@ vi.mock("@/components/sidebar/ExplorerGitSection", () => ({
         changeCount: 3,
       });
     }, [onSelectedProjectSummaryChange]);
-    return <div data-testid="right-dock-git">{selectedProjectId}</div>;
+    return (
+      <div data-testid="right-dock-git">
+        {selectedProjectId}
+        <button type="button" data-testid="git-group-review" onClick={() => onAskReview?.({ id: "project-2", path: "/workspace/beta" }, "Beta")} />
+      </div>
+    );
   },
 }));
 
@@ -344,5 +353,40 @@ describe("RightDock", () => {
       touchAction: "none",
     });
     expect(sash.querySelector("span")).toHaveClass("group-hover:bg-[var(--app-accent)]");
+  });
+
+  it("Git 视图顶栏「让对话审阅」切到对话并预填当前项目的审阅 prompt", () => {
+    renderDock();
+    fireEvent.click(screen.getByTestId("right-dock-review-with-chat"));
+    const dock = useDockChatStore.getState();
+    expect(useRightDockStore.getState().activeView).toBe("chat");
+    expect(dock.chats.find((chat) => chat.id === dock.activeId)?.cwd).toBe("/workspace/alpha");
+    expect(takePendingDraft(dock.activeId!)).toContain("Alpha");
+  });
+
+  it("Git 分组上的审阅入口针对该分组的项目", () => {
+    renderDock();
+    fireEvent.click(screen.getByTestId("git-group-review"));
+    const dock = useDockChatStore.getState();
+    expect(dock.chats.find((chat) => chat.id === dock.activeId)?.cwd).toBe("/workspace/beta");
+    expect(takePendingDraft(dock.activeId!)).toContain("Beta");
+  });
+
+  it("其他视图不显示审阅按钮", () => {
+    useRightDockStore.setState({ activeView: "files" });
+    renderDock();
+    expect(screen.queryByTestId("right-dock-review-with-chat")).not.toBeInTheDocument();
+  });
+
+  it("竖栏悬停提示带上视图快捷键", async () => {
+    const previous = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings: { shortcuts: { bindings: { "focus-dock-view-3": "Ctrl+Alt+3" } } } as never });
+    try {
+      renderDock();
+      await userEvent.hover(screen.getByRole("tab", { name: /Git/ }));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(/Git.*(Ctrl\+Alt\+3|⌥⌘3)/);
+    } finally {
+      useSettingsStore.setState({ settings: previous });
+    }
   });
 });

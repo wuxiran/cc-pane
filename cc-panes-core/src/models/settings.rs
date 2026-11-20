@@ -1365,6 +1365,11 @@ impl Default for ShortcutSettings {
         for i in 1..=9 {
             bindings.insert(format!("switch-layout-{}", i), format!("Alt+{}", i));
         }
+        // 右侧面板：显示/隐藏 + 按竖栏顺序切视图（mac 上即 ⌘⌥B / ⌘⌥1..9）。
+        bindings.insert("toggle-right-dock".to_string(), "Ctrl+Alt+B".to_string());
+        for i in 1..=9 {
+            bindings.insert(format!("focus-dock-view-{}", i), format!("Ctrl+Alt+{}", i));
+        }
         Self { bindings }
     }
 }

@@ -44,6 +44,9 @@ vi.mock("@/stores", () => ({
       visible: mockRightDockVisible(),
       toggleVisible: mockToggleRightDock,
     }),
+  useSettingsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ settings: { shortcuts: { bindings: { "toggle-right-dock": "Ctrl+Alt+B" } } } }),
+  formatKeyCombo: (combo: string) => combo,
 }));
 
 vi.mock("@/hooks/useWindowControl", () => ({
