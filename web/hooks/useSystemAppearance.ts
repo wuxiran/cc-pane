@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
+import { getCurrentWebviewWindowIfTauri, getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { isSettingsWindow } from "@/services/settingsWindowService";
 import { systemAppearanceService } from "@/services/systemAppearanceService";
 import { useSettingsStore } from "@/stores/useSettingsStore";
@@ -49,7 +49,9 @@ export function useSystemAppearance(): void {
     ).catch((error) => handleErrorSilent(error, "sync window theme"));
   }, [preference, isDark]);
   // 窗口底色跟随主题：WebView 还没重绘的区域（拖边缘、最大化/还原）露出的是窗口底色。
-  // tauri.conf.json 里写死的是深色，浅色主题下会闪黑条。系统材质生效时窗口是透明的，不设。
+  // tauri.conf.json 里写死的是深色，浅色主题下会闪黑条。
+  // - 原生窗口和 WebView 各有一层底色，必须一起改，只改窗口那层 WebView 仍是建窗时的颜色。
+  // - 系统材质生效时窗口是透明的，不设；材质状态查不到时也不设——写了不透明色就撤不回来。
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let disposed = false;
@@ -59,11 +61,15 @@ export function useSystemAppearance(): void {
         getComputedStyle(document.documentElement).getPropertyValue("--background"),
         isDark,
       );
-      Promise.resolve(getCurrentWindowIfTauri()?.setBackgroundColor(color))
+      Promise.resolve(getCurrentWebviewWindowIfTauri()?.setBackgroundColor(color))
         .catch((error) => handleErrorSilent(error, "sync window background"));
     };
     if (isSettingsWindow()) apply(false);
-    else systemAppearanceService.isMaterialActive().then((active) => apply(active === true)).catch(() => apply(false));
+    else {
+      systemAppearanceService.isMaterialActive()
+        .then((active) => apply(active === true))
+        .catch((error) => handleErrorSilent(error, "window material state"));
+    }
     return () => { disposed = true; };
   }, [isDark, themeId]);
   useEffect(() => {

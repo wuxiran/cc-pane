@@ -7,16 +7,15 @@ const REPLAY_BUDGET_MS = 8;
  * 把这种断头尾当正文打印，而 TUI 差量重绘不清未变单元格 → 乱码驻留屏幕。
  *
  * 判定保守：切不掉就原样返回——宁可偶发花屏一帧，不误吃正文。
- * - 带 `[` 的 CSI 残尾：必须含数字参数（排除 `[INFO]`），终结字节只认字母和 `@`、
- *   反引号、`~`（排除 `[12:30:01]`、`[1]` 这类以 `]` 收尾的日志前缀）。
- * - 丢了 `[` 的裸残尾：必须以 `;` / `?` 开头或含 `;` 分隔的多参数。单个数字加
- *   字母（`42ms`、`123abc`、`10K`）和正文无法区分，一律不切。
+ * - CSI 残尾（带不带 `[` 都一样）：必须以 `;` / `?` 开头，或含 `;` 分隔的多参数，
+ *   终结字节只认字母和 `@`、反引号、`~`。单参数形态（`42m`、`[42m`、`10K`）和正文
+ *   （`42ms elapsed`、`[42ms] done`、`[1] note`）无法区分，一律不切——真残尾 `[0m`
+ *   这时会留在屏幕上，是有意接受的漏检。
  * - OSC 残尾以 BEL 收尾且不含换行/ESC。
  */
-const CSI_TAIL_BRACKETED = /^\[[\d;:?]*\d[\d;:]*[A-Za-z@`~]/;
-const CSI_TAIL_BARE = /^(?=[;?]|[\d:]+;)[\d;:?]*\d[\d;:]*[A-Za-z@`~]/;
-// 后面紧跟下一个 ESC 的未终结残尾：同样要求 `[` 或 `;`，否则「数字 + 颜色复位」会被吃掉。
-const CSI_TAIL_OPEN_ENDED = /^(?:\[[\d;:?]+|[\d:?]*;[\d;:?]*)(?=\x1b)/;
+const CSI_TAIL = /^\[?(?=[;?]|[\d:]+;)[\d;:?]*\d[\d;:]*[A-Za-z@`~]/;
+// 后面紧跟下一个 ESC 的未终结残尾：同样要求多参数或 `?`，否则「数字 + 颜色复位」会被吃掉。
+const CSI_TAIL_OPEN_ENDED = /^\[?(?=[;?]|[\d:]+;)[\d;:?]+(?=\x1b)/;
 // OSC 残尾（`]0;title\x07` / `8;;url\x07` 丢头形态）必须先于 CSI 判定：
 // `8;;url` 的前缀同样满足 CSI 参数形态，会被误切到第一个字母。
 const OSC_TAIL = /^\]?\d+(?:;\d*)*?(?:;[^\x07\x1b\r\n]*)?\x07/;
@@ -24,7 +23,7 @@ const MAX_LEADING_TAIL = 4096;
 
 export function dropLeadingEscapeTail(chunk: string): string {
   if (!chunk || chunk.charCodeAt(0) === 0x1b) return chunk;
-  for (const pattern of [OSC_TAIL, CSI_TAIL_BRACKETED, CSI_TAIL_BARE, CSI_TAIL_OPEN_ENDED]) {
+  for (const pattern of [OSC_TAIL, CSI_TAIL, CSI_TAIL_OPEN_ENDED]) {
     const match = pattern.exec(chunk);
     if (match && match[0].length <= MAX_LEADING_TAIL) return chunk.slice(match[0].length);
   }

@@ -129,4 +129,20 @@ describe("recovery floor and backlog replay", () => {
     tracker.noteWritten("s", 108);
     expect(tracker.anchorCandidate("s")).toEqual({ anchorSeq: 108, checkpointEpoch: "e1" });
   });
+
+  it("does not treat a late frame the recovery already covers as a gap", async () => {
+    const tracker = await import("./terminalOutputSeqTracker");
+    tracker._resetSeqTrackersForTest();
+    tracker.reanchorSeq("s", 100, "e1");
+    tracker.noteReceived("s", 100); // 快照已包含、放闸后才送到的帧
+    tracker.noteReceived("s", 96);
+    expect(tracker.anchorCandidate("s")).toEqual({ anchorSeq: 100, checkpointEpoch: "e1" });
+
+    tracker.noteReceived("s", 110);
+    tracker.noteWritten("s", 110);
+    expect(tracker.anchorCandidate("s")).toEqual({ anchorSeq: 110, checkpointEpoch: "e1" });
+    // 越过恢复点之后，seq 倒退重新算作缺口。
+    tracker.noteReceived("s", 105);
+    expect(tracker.anchorCandidate("s")).toBeNull();
+  });
 });

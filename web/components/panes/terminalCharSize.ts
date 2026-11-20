@@ -52,3 +52,24 @@ export function bindTerminalFontLoadingDone(
   fonts.addEventListener("loadingdone", handleLoadingDone);
   return () => fonts.removeEventListener("loadingdone", handleLoadingDone);
 }
+
+/**
+ * 终端当前配置的字体还没加载完时才挂监听（已就绪返回 null）。
+ * 设置里切换到一个加载慢的字体：等待超时后先用回退字体量了格宽，而启动时那个监听
+ * 早已在上一个字体就绪时摘除——不重新挂的话，目标字体到达时没人重测。
+ */
+export function bindTerminalFontIfPending(
+  fonts: FontFaceSetLike,
+  getTerminal: () => Terminal | null,
+  onFontsLoaded: (term: Terminal) => void,
+): (() => void) | null {
+  const term = getTerminal();
+  if (!term) return null;
+  try {
+    if (fonts.check?.(`${term.options.fontSize}px ${term.options.fontFamily}`) ?? true) return null;
+  } catch {
+    return null;
+  }
+  return bindTerminalFontLoadingDone(fonts, getTerminal, onFontsLoaded);
+}
+

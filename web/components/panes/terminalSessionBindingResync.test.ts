@@ -35,13 +35,19 @@ vi.mock("./terminalCheckpointUpload", () => ({
 }));
 
 import { bindTerminalSessionCallbacks } from "./terminalSessionBinding";
-import { _resetSeqTrackersForTest, anchorCandidate } from "./terminalOutputSeqTracker";
+import { _resetSeqTrackersForTest, anchorCandidate, noteReceived, reanchorSeq } from "./terminalOutputSeqTracker";
 
 function snapshotOf(overrides: Partial<TerminalRecoverySnapshot>): TerminalRecoverySnapshot {
   return { checkpoint: null, delta: "", bufferMode: "normal", endSeq: 0, checkpointEpoch: "0", ...overrides };
 }
 
-async function bind() {
+interface BindOverrides {
+  writeTerminalData?: (data: string, onWritten?: () => void) => Promise<void>;
+  onSessionExit?: (sessionId: string, exitCode: number) => void;
+  pendingExitRef?: { current: { sessionId: string; exitCode: number } | null };
+}
+
+async function bind(overrides: BindOverrides = {}) {
   const writes: string[] = [];
   const renderTerminalData = vi.fn((data: string, _options?: { discontinuity?: boolean }) => data);
   const resyncActiveRef = { current: false };
@@ -57,17 +63,17 @@ async function bind() {
     keepCliOutputInNormalBuffer: false,
     renderTerminalData,
     renderCheckpointData: (data) => data,
-    writeTerminalData: async (data, onWritten) => {
+    writeTerminalData: overrides.writeTerminalData ?? (async (data, onWritten) => {
       writes.push(data);
       onWritten?.();
-    },
+    }),
     syncTrackedBufferType: () => {},
     unbindSessionCallbacks: () => {},
-    onSessionExit: () => {},
+    onSessionExit: overrides.onSessionExit ?? (() => {}),
     resyncActiveRef,
     overflowResyncRef: { current: null },
     flushHiddenWrites: async () => "ready",
-    pendingExitRef: { current: null },
+    pendingExitRef: overrides.pendingExitRef ?? { current: null },
     debugLog: () => {},
   });
   return { writes, renderTerminalData, resyncActiveRef };
@@ -143,5 +149,118 @@ describe("resync gate backlog reconciliation", () => {
     service.output!("one", 3);
     service.output!("two", 6);
     expect(writes).toEqual(["one", "two"]);
+  });
+
+  it("drops a frame the snapshot contains even when it arrives after the gate reopens", async () => {
+    const { writes } = await bind();
+    service.snapshot = async () => snapshotOf({ delta: "A", endSeq: 1, checkpointEpoch: "e1" });
+    expect(await service.desync!()).toBe(true);
+
+    // 这一帧在快照取走之前就进了后端回放缓冲，但卡在批处理/调度队列里，放闸后才送到。
+    noteReceived("s-gate", 1);
+    service.output!("A", 1);
+    expect(writes).toEqual(["<reset>", "A"]);
+
+    noteReceived("s-gate", 4);
+    service.output!("BCD", 4);
+    expect(writes).toEqual(["<reset>", "A", "BCD"]);
+    // 迟到帧不是缺口：账本没有被判失效，仍可拍 checkpoint。
+    expect(anchorCandidate("s-gate")).toEqual({ anchorSeq: 4, checkpointEpoch: "e1" });
+  });
+
+  it("does not rewrite the seq-less slices of a large frame the snapshot contains", async () => {
+    const { writes } = await bind();
+    let finishSnapshot!: (snapshot: TerminalRecoverySnapshot) => void;
+    service.snapshot = () => new Promise((resolve) => { finishSnapshot = resolve; });
+    const resync = service.desync!();
+
+    // 调度器把 20,000 字符的一帧拆成两片，只有最后一片带 endSeq。
+    service.output!("x".repeat(16_384));
+    service.output!("x".repeat(3_616), 20_000);
+    finishSnapshot(snapshotOf({ delta: "SNAP", endSeq: 20_000, checkpointEpoch: "e1" }));
+    await resync;
+
+    expect(writes).toEqual(["<reset>", "SNAP"]);
+  });
+
+  it("reconciles output buffered before the view subscribed (replay first, bind second)", async () => {
+    // attach / 唤醒：回放先完成并重锚到 50，然后才绑定输出回调。
+    reanchorSeq("s-gate", 50, "e1");
+    const { writes } = await bind();
+
+    service.output!("covered", 50);
+    service.output!("fresh", 55);
+    service.output!("later", 60);
+    expect(writes).toEqual(["fresh", "later"]);
+  });
+
+  it("shows the exit banner only after the reconciled backlog has reached xterm", async () => {
+    const order: string[] = [];
+    const pendingWrites: Array<() => void> = [];
+    const pendingExitRef = { current: null as { sessionId: string; exitCode: number } | null };
+    await bind({
+      pendingExitRef,
+      onSessionExit: () => order.push("exit"),
+      writeTerminalData: (data, onWritten) => new Promise<void>((resolve) => {
+        if (data.startsWith("TAIL")) {
+          pendingWrites.push(() => { order.push(data); onWritten?.(); resolve(); });
+        } else {
+          order.push(data);
+          onWritten?.();
+          resolve();
+        }
+      }),
+    });
+    let finishSnapshot!: (snapshot: TerminalRecoverySnapshot) => void;
+    service.snapshot = () => new Promise((resolve) => { finishSnapshot = resolve; });
+    const resync = service.desync!();
+    service.output!("TAIL1", 105);
+    service.output!("TAIL2", 110);
+    pendingExitRef.current = { sessionId: "s-gate", exitCode: 0 };
+    finishSnapshot(snapshotOf({ delta: "SNAP", endSeq: 100, checkpointEpoch: "e1" }));
+
+    await vi.waitFor(() => expect(pendingWrites).toHaveLength(2));
+    expect(order).not.toContain("exit");
+    pendingWrites.forEach((finish) => finish());
+    await resync;
+
+    expect(order).toEqual(["SNAP", "TAIL1", "TAIL2", "exit"]);
+  });
+
+  it("takes a fresh snapshot inside the same resync when the gate backlog overflows", async () => {
+    const { writes, resyncActiveRef } = await bind();
+    const resolvers: Array<(snapshot: TerminalRecoverySnapshot) => void> = [];
+    service.snapshot = () => new Promise((resolve) => { resolvers.push(resolve); });
+    let settled = false;
+    const resync = service.desync!().then((result) => { settled = true; return result; });
+    await vi.waitFor(() => expect(resolvers).toHaveLength(1));
+
+    service.output!("z".repeat(600_000), 600_000); // 超过暂存上限：中段已缺
+    resolvers[0](snapshotOf({ delta: "FIRST", endSeq: 10, checkpointEpoch: "e1" }));
+    await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+    // 第一轮写完了，但调用方还没拿到结果，闸门也没放开。
+    expect(settled).toBe(false);
+    expect(resyncActiveRef.current).toBe(true);
+
+    service.output!("tail", 600_004);
+    resolvers[1](snapshotOf({ delta: "SECOND", endSeq: 600_000, checkpointEpoch: "e1" }));
+    expect(await resync).toBe(true);
+
+    expect(writes).toEqual(["<reset>", "FIRST", "<reset>", "SECOND", "tail"]);
+    expect(resyncActiveRef.current).toBe(false);
+  });
+
+  it("keeps output gathered before the snapshot request when recovery fails", async () => {
+    const { writes } = await bind();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    service.snapshot = async () => { await held; return null; };
+    const resync = service.desync!();
+    service.output!("tail-1", 6);
+    service.output!("tail-2", 12);
+    release();
+    expect(await resync).toBe(false);
+
+    expect(writes.filter((entry) => entry.startsWith("tail"))).toEqual(["tail-1", "tail-2"]);
   });
 });

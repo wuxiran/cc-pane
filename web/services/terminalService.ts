@@ -20,8 +20,7 @@ import type {
   TerminalSessionOutput,
   TerminalAdoptionSnapshot,
 } from "@/types";
-import { invalidateSeq, noteReceived, takeRecoveryFloor } from "@/components/panes/terminalOutputSeqTracker";
-import { dropOutputCoveredBySnapshot } from "@/components/panes/terminalSnapshotOverlap";
+import { invalidateSeq, noteBacklogReplayed, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
 import { deliverTerminalDataWithDeferredCredit } from "@/components/panes/terminalDeliveryCredit";
 import { noteOutputConsumed } from "./terminalOutputAck";
 import { extractTerminalQueries } from "./terminalQuerySalvage";
@@ -723,21 +722,14 @@ export const terminalService = {
     // chunk 在 seq 账本里 received 永远大于 written，anchorCandidate 恒 null，
     // 该会话此后再也拍不出 checkpoint（terminalOutputSeqTracker.ts:109）。
     if (isFirstSubscriber) {
-      // 先回放快照、后注册回调的路径上，暂存的 chunk 可能已在快照里：按恢复下限去重，
-      // 否则同一段输出被解析两次（重叠/错行），还会被 seq 账本判成非单调而永久禁拍。
-      const pending = takePendingOutput(sessionId);
-      const buffered = pending.length > 0
-        ? dropOutputCoveredBySnapshot(pending, takeRecoveryFloor(sessionId))
-        : pending;
-      if (pending.length !== buffered.length) {
-        debugTerminalService("callback.flush.deduped", {
-          sessionId,
-          dropped: pending.length - buffered.length,
-        });
-      }
+      const buffered = takePendingOutput(sessionId);
       if (buffered.length > 0) {
         debugTerminalService("callback.flush.output", { sessionId, chunkCount: buffered.length });
         for (const chunk of buffered) {
+          // 这批在暂存时已记过 received，随后回放的重锚把它拉回了快照 endSeq。补投时
+          // 推回来，否则 received 落后于 written，这个会话停止输出后就再也拍不出
+          // checkpoint。快照已包含的帧由订阅方的对账器丢弃（terminalSnapshotOverlap.ts）。
+          if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
           scheduleOutputToSubscribers(sessionId, chunk.data, chunk.endSeq, true);
         }
       }

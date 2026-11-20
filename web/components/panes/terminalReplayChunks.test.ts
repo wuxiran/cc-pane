@@ -81,6 +81,9 @@ describe("dropLeadingEscapeTail（回放窗口断头尾清理）", () => {
     expect(dropLeadingEscapeTail("[1] footnote")).toBe("[1] footnote");
     expect(dropLeadingEscapeTail("10:30am standup")).toBe("10:30am standup");
     expect(dropLeadingEscapeTail("123\x1b[0m done")).toBe("123\x1b[0m done");
+    expect(dropLeadingEscapeTail("[42ms] done")).toBe("[42ms] done");
+    expect(dropLeadingEscapeTail("[2K rows]")).toBe("[2K rows]");
+    expect(dropLeadingEscapeTail("[12\x1b[0m")).toBe("[12\x1b[0m");
     expect(dropLeadingEscapeTail("")).toBe("");
   });
 

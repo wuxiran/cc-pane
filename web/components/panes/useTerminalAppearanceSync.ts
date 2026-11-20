@@ -1,5 +1,5 @@
-import { remeasureTerminalCharSize } from "./terminalCharSize";
-import { useEffect } from "react";
+import { bindTerminalFontIfPending, remeasureTerminalCharSize } from "./terminalCharSize";
+import { useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 
 import { applyTerminalElementTheme, waitForTerminalFont } from "./terminalViewHelpers";
@@ -38,6 +38,10 @@ export function useTerminalAppearanceSync({
   cursorBlink,
   scrollback,
 }: UseTerminalAppearanceSyncOptions): void {
+  // 切换字体后目标字体仍在加载时挂的监听；下次切换或卸载时摘除。
+  const lateFontUnbindRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => lateFontUnbindRef.current?.(), []);
+
   useEffect(() => {
     const term = terminalInstanceRef.current;
     if (!term) return;
@@ -81,6 +85,16 @@ export function useTerminalAppearanceSync({
           remeasureTerminalCharSize(term);
           rendererControllerRef.current?.clearTextureAtlas("settings.font-change");
           layoutSchedulerRef.current?.schedule("settings.font-change", { force: true });
+          // 等待有 1.5s 超时：超时返回时字体可能还没到，到了要再量一次。
+          lateFontUnbindRef.current?.();
+          lateFontUnbindRef.current =
+            typeof document === "undefined" || !document.fonts?.addEventListener
+              ? null
+              : bindTerminalFontIfPending(document.fonts, () => terminalInstanceRef.current, (current) => {
+                  remeasureTerminalCharSize(current);
+                  rendererControllerRef.current?.clearTextureAtlas("settings.font-change.late");
+                  layoutSchedulerRef.current?.schedule("settings.font-change.late", { force: true });
+                });
         })
         .catch(() => {
           // Font readiness is best-effort; the immediate refit below still runs.

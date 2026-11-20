@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
-import { bindTerminalFontLoadingDone, remeasureTerminalCharSize } from "./terminalCharSize";
+import {
+  bindTerminalFontIfPending,
+  bindTerminalFontLoadingDone,
+  remeasureTerminalCharSize,
+} from "./terminalCharSize";
 
 function fakeFonts(check: (font: string) => boolean) {
   const listeners = new Set<() => void>();
@@ -61,6 +65,26 @@ describe("bindTerminalFontLoadingDone", () => {
     fonts.fire();
     expect(onLoaded).not.toHaveBeenCalled();
     unbind();
+    expect(fonts.size()).toBe(0);
+  });
+});
+
+describe("bindTerminalFontIfPending", () => {
+  it("does not listen when the configured font is already loaded", () => {
+    const fonts = fakeFonts(() => true);
+    expect(bindTerminalFontIfPending(fonts, () => term, vi.fn())).toBeNull();
+    expect(fonts.size()).toBe(0);
+  });
+
+  it("listens until a font switched to after startup finally arrives", () => {
+    let ready = false;
+    const fonts = fakeFonts(() => ready);
+    const onLoaded = vi.fn();
+    const unbind = bindTerminalFontIfPending(fonts, () => term, onLoaded);
+    expect(unbind).not.toBeNull();
+    ready = true;
+    fonts.fire();
+    expect(onLoaded).toHaveBeenCalledTimes(1);
     expect(fonts.size()).toBe(0);
   });
 });

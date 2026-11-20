@@ -11,8 +11,8 @@ import {
 } from "./terminalOutputHandler";
 import { createTerminalDesyncHandler } from "./terminalResync";
 import { takeCurrentTerminalDeliveryCredit } from "./terminalDeliveryCredit";
-import { invalidateSeq, noteBacklogReplayed } from "./terminalOutputSeqTracker";
-import { createResyncGateBacklog, dropOutputCoveredBySnapshot } from "./terminalSnapshotOverlap";
+import { invalidateSeq, noteBacklogReplayed, takeRecoveryFloor } from "./terminalOutputSeqTracker";
+import { createResyncGateBacklog, createSnapshotReconciler, type SeqChunk } from "./terminalSnapshotOverlap";
 import type { TerminalRecoverySnapshot } from "@/types";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import type { TerminalLayoutScheduler } from "./terminalLayoutScheduler";
@@ -241,6 +241,8 @@ export async function bindTerminalSessionCallbacks(
   debugLog("session.bind-callbacks.begin", { bindSessionId: sessionId });
   unbindSessionCallbacks();
   const gateBacklog = createResyncGateBacklog();
+  /** 本轮快照请求发出前已暂存的片数（旧后端无 seq 时按它丢弃，见 onResyncSettled）。 */
+  let chunksBeforeRequest = 0;
   let lastRecoverySnapshot: TerminalRecoverySnapshot | null = null;
   const outputHandler = createTerminalOutputHandler({
     sessionId,
@@ -256,6 +258,22 @@ export async function bindTerminalSessionCallbacks(
     syncTrackedBufferType,
     debugLog,
   });
+  /** 对账后确定要写的一块：推进 seq 账本并交给正常写入管线。 */
+  const deliverReconciled = (chunk: SeqChunk): Promise<void> | undefined => {
+    if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
+    return outputHandler(chunk.data, chunk.endSeq);
+  };
+  // 快照已包含的输出不再写第二遍（terminalSnapshotOverlap.ts）。闸门期暂存、放闸之后
+  // 才迟到的帧、订阅前暂存的输出都过它；一帧越过快照边界后自动停用，回到直通。
+  const reconciler = createSnapshotReconciler({
+    onHoldTimeout: (chunk) => {
+      debugLog("output.reconcile.hold-timeout", { bindSessionId: sessionId, length: chunk.data.length });
+      void deliverReconciled(chunk);
+    },
+  });
+  // 先回放、后绑定的路径（attach / 唤醒）：回放的重锚留下了它覆盖到的 endSeq。
+  const attachFloorSeq = takeRecoveryFloor(sessionId);
+  if (attachFloorSeq !== null) reconciler.arm(attachFloorSeq);
   outputUnsubRef.current = await terminalService.registerOutput(
     sessionId,
     (data: string, endSeq?: number) => {
@@ -268,6 +286,15 @@ export async function bindTerminalSessionCallbacks(
         invalidateSeq(sessionId);
         // 流控信用照常归还：字节已进前端自有的有界暂存（见 terminalOutputHandler）。
         releaseCredit();
+        return;
+      }
+      if (reconciler.active()) {
+        // 对账中：这一片可能被丢弃（快照已包含）、被攒着等帧尾、或裁掉重叠后放行。
+        // 信用在这里归还——字节已由前端接手，不能等一个可能不会发生的写入回调。
+        const releaseCredit = takeCurrentTerminalDeliveryCredit() ?? (() => {});
+        const ready = reconciler.accept(data, endSeq);
+        releaseCredit();
+        for (const chunk of ready) void deliverReconciled(chunk);
         return;
       }
       outputHandler(data, endSeq);
@@ -302,34 +329,50 @@ export async function bindTerminalSessionCallbacks(
         resyncActiveRef.current = active;
       },
       onResyncStart: () => {
-        gateBacklog.reset();
         renderTerminalData("", { discontinuity: true });
+        // 上一轮对账攒着的片属于即将被快照替换的画面。
+        reconciler.disarm();
+        // 已溢出的暂存缺了中段，但缺的都在这轮快照之前，快照会包含：整段作废重收。
+        // 没溢出的留着——恢复失败时它们是唯一还在的尾部；成功时由 endSeq 对账裁掉。
+        if (gateBacklog.overflowed()) gateBacklog.reset();
+        chunksBeforeRequest = gateBacklog.count();
       },
+      consumeGateOverflow: () => gateBacklog.overflowed(),
       onResyncSettled: async (resynced) => {
         // 同步取出并补写：这段在 setResyncActive(false) 之后同一拍执行，新的实时
         // chunk 插不到它前面，字节顺序不乱。
         const { chunks, overflowed } = gateBacklog.take();
-        if (overflowed) {
-          // 闸门期输出超过暂存上限，中段已缺：再用一份新快照重建。
-          debugLog("output.gate.overflow-resync", { bindSessionId: sessionId });
-          void overflowResyncRef.current?.();
-          return;
-        }
         const snapshot = lastRecoverySnapshot;
         // epoch "0" = 旧后端无 seq 记账，endSeq 不可用；恢复失败时画面没被快照替换。
         const floorSeq = resynced && snapshot && snapshot.checkpointEpoch !== "0" ? snapshot.endSeq : null;
-        const fresh = dropOutputCoveredBySnapshot(chunks, floorSeq);
-        if (chunks.length > 0) {
+        if (floorSeq !== null) reconciler.arm(floorSeq);
+        // 旧后端恢复成功但没法对账：请求发出前暂存的片快照必然包含，丢弃；之后的保留。
+        const candidates = resynced && floorSeq === null ? chunks.slice(chunksBeforeRequest) : chunks;
+        chunksBeforeRequest = 0;
+        const writes: Array<Promise<void>> = [];
+        let written = 0;
+        for (const candidate of candidates) {
+          const ready = reconciler.active() ? reconciler.accept(candidate.data, candidate.endSeq) : [candidate];
+          for (const chunk of ready) {
+            written += 1;
+            const write = deliverReconciled(chunk);
+            if (write) writes.push(write);
+          }
+        }
+        if (chunks.length > 0 || overflowed) {
           debugLog("output.gate.replay", {
             bindSessionId: sessionId,
             received: chunks.length,
-            written: fresh.length,
+            written,
             floorSeq,
+            overflowed,
           });
         }
-        for (const chunk of fresh) {
-          if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
-          outputHandler(chunk.data, chunk.endSeq);
+        // 等补写落屏再往下走：挂起的 exit 横幅必须排在最后一段输出之后。
+        await Promise.all(writes);
+        if (overflowed && resynced) {
+          // 连续几轮都溢出（持续刷屏）：这一段输出确实缺了，明说，不装作完整。
+          void writeTerminalData(RESYNC_FAILED_NOTICE).catch(() => {});
         }
         const flushOutcome = await flushHiddenWrites("resync.settled");
         if (flushOutcome === "resync") return;
@@ -366,6 +409,8 @@ export async function bindTerminalSessionCallbacks(
   });
   desyncUnsubRef.current = () => {
     resyncHandler.dispose();
+    reconciler.disarm();
+    gateBacklog.reset();
     hiddenQueryUnsub();
     // 可选调用：测试替身的 registerDesync/registerCheckpointRequest 可能不返回
     // unsubscribe（真实实现恒返回函数）。

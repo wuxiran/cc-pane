@@ -23,13 +23,19 @@ interface SeqTrackerEntry {
   lastWrittenEndSeq: number | null;
   checkpointEpoch: string | null;
   valid: boolean;
+  /**
+   * 最近一次恢复覆盖到的 endSeq。恢复之后才送到的、seq 不超过它的帧是「快照已包含的
+   * 迟到帧」（卡在后端批处理/事件桥/调度队列里），不是缺口——不能因此判失效。
+   * 收到越过它的帧后清空。
+   */
+  recoveredThroughSeq: number | null;
 }
 
 const entries = new Map<string, SeqTrackerEntry>();
 
 /**
- * 最近一次快照恢复覆盖到的 endSeq。只给「订阅前暂存的输出」补投时去重用：
- * 先回放快照、后注册输出回调的路径上，暂存的 chunk 可能已在快照里。
+ * 最近一次快照恢复覆盖到的 endSeq。视图绑定输出回调时取走，用来给对账器设下限：
+ * 先回放快照、后注册输出回调的路径上，订阅前暂存的和迟到的帧可能已在快照里。
  * 取一次即清，且只在短时间内有效——daemon / PTY 重建后 seq 会从头计，
  * 陈旧的下限会把新流的开头误判成「已包含」。
  */
@@ -51,6 +57,7 @@ function entryOf(sessionId: string): SeqTrackerEntry {
       lastWrittenEndSeq: null,
       checkpointEpoch: null,
       valid: true,
+      recoveredThroughSeq: null,
     };
     entries.set(sessionId, entry);
   }
@@ -60,6 +67,10 @@ function entryOf(sessionId: string): SeqTrackerEntry {
 /** 收到带 endSeq 的输出 chunk（daemon 下发；轮询降级模式无 endSeq，不调本函数）。 */
 export function noteReceived(sessionId: string, endSeq: number): void {
   const entry = entryOf(sessionId);
+  if (entry.recoveredThroughSeq !== null) {
+    if (endSeq <= entry.recoveredThroughSeq) return;
+    entry.recoveredThroughSeq = null;
+  }
   if (entry.lastReceivedEndSeq !== null && endSeq <= entry.lastReceivedEndSeq) {
     // 非单调 = 缺口或会话重建：前端已无法自证连续，视同 desync 失效禁拍
     devDebugLog("seq-tracker", "non-monotonic received seq; invalidating", {
@@ -113,6 +124,7 @@ export function reanchorSeq(sessionId: string, endSeq: number, checkpointEpoch: 
     lastWrittenEndSeq: endSeq,
     checkpointEpoch,
     valid: true,
+    recoveredThroughSeq: endSeq,
   });
 }
 
@@ -123,6 +135,7 @@ export function noteEpoch(sessionId: string, checkpointEpoch: string): void {
     entry.valid = false;
     entry.lastReceivedEndSeq = null;
     entry.lastWrittenEndSeq = null;
+    entry.recoveredThroughSeq = null;
     recoveryFloors.delete(sessionId);
   }
   entry.checkpointEpoch = checkpointEpoch;

@@ -481,9 +481,15 @@ pub async fn open_settings_window(
         .map(|theme| theme == tauri::Theme::Dark)
         .unwrap_or(true);
     let (theme, background) = if dark {
-        (tauri::Theme::Dark, tauri::window::Color(0x17, 0x19, 0x1e, 0xff))
+        (
+            tauri::Theme::Dark,
+            tauri::window::Color(0x17, 0x19, 0x1e, 0xff),
+        )
     } else {
-        (tauri::Theme::Light, tauri::window::Color(0xf6, 0xf7, 0xf9, 0xff))
+        (
+            tauri::Theme::Light,
+            tauri::window::Color(0xf6, 0xf7, 0xf9, 0xff),
+        )
     };
     let window =
         WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))

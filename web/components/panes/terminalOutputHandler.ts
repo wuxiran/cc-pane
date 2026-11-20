@@ -98,7 +98,9 @@ export function createTerminalOutputHandler({
   writeTerminalData,
   syncTrackedBufferType,
   debugLog,
-}: CreateTerminalOutputHandlerOptions): (data: string, endSeq?: number) => void {
+}: CreateTerminalOutputHandlerOptions): (data: string, endSeq?: number) => Promise<void> | undefined {
+  // 返回值：这一块真的排进了 xterm 写队列时给出它的完成 Promise（永不 reject），
+  // 被丢弃或进了隐藏积压时为 undefined。需要「等它落屏」的调用方（重同步收尾）用。
   return (data: string, endSeq?: number) => {
     // 流控信用（B-5）：本视图消化完这一 chunk 才归还；多视图时上游要等最慢的那个。
     // **必须在下面每一条终止路径上都归还**——解析完算，被丢弃同样算。漏掉任何一条
@@ -131,7 +133,7 @@ export function createTerminalOutputHandler({
       // 数据被丢弃（xterm 不在）：锚点连续性破坏，禁拍直到统一恢复 reanchor。
       if (endSeq !== undefined) invalidateSeq(sessionId);
       releaseCredit();
-      return;
+      return undefined;
     }
 
     if (!renderedData) {
@@ -142,7 +144,7 @@ export function createTerminalOutputHandler({
       syncTrackedBufferType(
         transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty",
       );
-      return;
+      return undefined;
     }
 
     hiddenWriteBufferRef.current ??= createTerminalHiddenWriteBuffer({
@@ -173,10 +175,10 @@ export function createTerminalOutputHandler({
       // 运输层的责任已尽。这里若跟着 invalidate 一起扣住不还，后台标签的**每个**
       // chunk 都会扣住一份，ACK 永不推进，上游窗口关死、生产者永久暂停。
       releaseCredit();
-      return;
+      return undefined;
     }
 
-    void writeTerminalData(writableData, () => {
+    return writeTerminalData(writableData, () => {
       if (endSeq !== undefined) noteWritten(sessionId, endSeq);
       releaseCredit();
       if (transitions.length > 0) {
