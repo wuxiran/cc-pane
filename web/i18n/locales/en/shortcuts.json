@@ -55,5 +55,6 @@
   "palettePreviewFirstPrompt": "First prompt",
   "palettePreviewSummary": "Latest progress",
   "palettePreviewMessages": "{{count}} messages",
-  "palettePreviewNoContent": "No content has been read for this session yet."
+  "palettePreviewNoContent": "No content has been read for this session yet.",
+  "palettePreviewChatOnly": "Agent chats only preview their title and folder for now. Open one to see the full conversation."
 }

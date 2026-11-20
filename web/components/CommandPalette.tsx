@@ -189,7 +189,7 @@ export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps =
         })}
       />
       <div className="flex min-h-0">
-      <CommandList className="max-h-[min(440px,60vh)] min-w-0 flex-1">
+      <CommandList className="h-[min(460px,60vh)] max-h-none min-w-0 flex-1">
         <CommandEmpty>
           {t("commandPaletteEmpty", { ns: "shortcuts", defaultValue: "没有匹配的命令" })}
         </CommandEmpty>

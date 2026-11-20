@@ -177,12 +177,12 @@ describe("CommandPalette modules", () => {
     beforeEach(() => {
       onOpenTerminal.mockClear();
       mockTauriInvoke({
-        list_launch_history: [
-          { id: 1, projectId: "p", projectName: "demo", projectPath: "/repo/demo", launchedAt: "2026-05-01T10:00:00Z", resumeSessionId: "resume-1", cliTool: "claude", lastPrompt: "Fix login" },
-          { id: 2, projectId: "p", projectName: "no-resume", projectPath: "/repo/x", launchedAt: "2026-05-03T10:00:00Z" },
-        ],
+        refresh_session_index: { rootsScanned: 0, filesSeen: 0, filesParsed: 0, filesSkipped: 0, bytesRead: 0 },
         list_session_index: [
-          { sessionId: "resume-1", cliTool: "claude", filePath: "", cwd: "/repo/demo", projectPathNorm: "", projectName: "demo", workspaceName: null, firstPrompt: "Fix login\nplease check the token refresh", title: "Login token bug", lastSummary: "Patched the refresh path; tests pass.", messageCount: 42, mtimeMs: 0, size: 0, source: "local", wslDistro: null, updatedAt: "" },
+          { sessionId: "resume-1", cliTool: "claude", filePath: "", cwd: "/repo/demo", projectPathNorm: "", projectName: "demo", workspaceName: null, firstPrompt: "Fix login\nplease check the token refresh", title: "Login token bug", lastSummary: "Patched the refresh path; tests pass.", messageCount: 42, mtimeMs: Date.parse("2026-05-01T10:00:00Z"), size: 0, source: "local", wslDistro: null, updatedAt: "" },
+          // 读不出任何内容的会话不列
+          { sessionId: "empty-1", cliTool: "claude", filePath: "", cwd: "/repo/demo", projectPathNorm: "", projectName: "demo", workspaceName: null, firstPrompt: "", title: "", lastSummary: "", messageCount: 2, mtimeMs: Date.parse("2026-05-04T10:00:00Z"), size: 0, source: "local", wslDistro: null, updatedAt: "" },
+          { sessionId: "tagged-1", cliTool: "claude", filePath: "", cwd: "/repo/demo", projectPathNorm: "", projectName: "demo", workspaceName: null, firstPrompt: "<local-command-caveat>\n# Rename the store", title: "", lastSummary: "", messageCount: 3, mtimeMs: Date.parse("2026-04-01T10:00:00Z"), size: 0, source: "local", wslDistro: null, updatedAt: "" },
         ],
         list_acp_chat_history: [
           { acpSessionId: "acp-1", engineId: "codex", cwd: "/repo/demo", title: "Review report", createdAt: 1, updatedAt: Date.parse("2026-05-02T10:00:00Z") },
@@ -190,12 +190,12 @@ describe("CommandPalette modules", () => {
       });
     });
 
-    it("lists chats and resumable CLI launches together, newest first, each tagged", async () => {
+    it("lists chats and indexed terminal sessions together, newest first, titled by content", async () => {
       await openPalette();
-      await waitFor(() => expect(kinds()).toEqual(["chat", "cli"]));
+      await waitFor(() => expect(kinds()).toEqual(["chat", "cli", "cli"]));
+      expect(screen.getByText("Rename the store")).toBeInTheDocument();
       expect(screen.getByText("Review report")).toBeInTheDocument();
       expect(screen.getByText("Login token bug")).toBeInTheDocument();
-      expect(screen.queryByText("no-resume")).not.toBeInTheDocument();
       expect(document.querySelector('[data-session-kind="cli"]')?.textContent).toMatch(/demo · .* · claude/);
     });
 
@@ -219,14 +219,14 @@ describe("CommandPalette modules", () => {
 
     it("narrows the list with the category tabs", async () => {
       await openPalette();
-      await waitFor(() => expect(kinds()).toHaveLength(2));
+      await waitFor(() => expect(kinds()).toHaveLength(3));
       const tabs = screen.getAllByRole("tab");
       expect(tabs).toHaveLength(5);
       expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 
       fireEvent.click(tabs[2]); // 会话
-      expect(kinds()).toHaveLength(2);
-      expect(document.querySelectorAll("[cmdk-item]")).toHaveLength(2);
+      expect(kinds()).toHaveLength(3);
+      expect(document.querySelectorAll("[cmdk-item]")).toHaveLength(3);
 
       fireEvent.click(tabs[1]); // 操作
       expect(kinds()).toHaveLength(0);
