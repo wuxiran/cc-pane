@@ -34,13 +34,23 @@ export function listAcpEngines(): Promise<AcpEngineInfo[]> {
   return call("list_acp_engines");
 }
 
-/** autoApproveKinds：自动放行的 ACP ToolKind 集合（`*` = 全部），缺省每次都问。 */
+/** 远程启动目标：经系统 ssh 在已保存的 SSH 机器上跑引擎；os 缺省按 POSIX 处理。 */
+export interface AcpRemoteLaunch {
+  machineId: string;
+  os?: string | null;
+}
+
+/**
+ * autoApproveKinds：自动放行的 ACP ToolKind 集合（`*` = 全部），缺省每次都问。
+ * remote 存在时 cwd 是远端目录（`~`、`~/x`、绝对路径或 `C:\work`）。
+ */
 export function startAcpChat(
   chatId: string,
   engineId: string,
   cwd: string,
   resumeAcpSessionId?: string,
   autoApproveKinds?: string[],
+  remote?: AcpRemoteLaunch,
 ): Promise<AcpChatSnapshot> {
   return call("start_acp_chat", {
     chatId,
@@ -48,6 +58,7 @@ export function startAcpChat(
     cwd,
     resumeAcpSessionId,
     autoApproveKinds,
+    ...(remote ? { machineId: remote.machineId, remoteOs: remote.os ?? undefined } : {}),
   });
 }
 

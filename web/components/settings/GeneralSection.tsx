@@ -1,3 +1,4 @@
+import DefaultWorkspaceDirSetting from "./DefaultWorkspaceDirSetting";
 import { isSettingsWindow, sendActionToMainWindow } from "@/services/settingsWindowService";
 import { useState, useEffect } from "react";
 import { toastInfo, toastOk, toastErr } from "@/lib/feedback";
@@ -438,6 +439,7 @@ export default function GeneralSection({
         </p>
       </div>
       )}
+      {isDesktopRuntime && <DefaultWorkspaceDirSetting />}
 
       {/* 记忆库路径：允许 dev / release 共用一份记忆 */}
       <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>

@@ -17,5 +17,5 @@ export async function prepareLocalSessionCwd(
   const baseRef = worktree.baseRef?.trim() || "HEAD";
   if (!branch) throw new Error(i18n.t("worktreeBranchRequired", { ns: "launcher" }));
   const name = branch.replace(/[^\p{L}\p{N}_.-]+/gu, "-").replace(/^-+|-+$/g, "") || "cc-worktree";
-  return worktreeService.add(cwd, name, branch, baseRef, true);
+  return worktreeService.add(worktree.repoPath?.trim() || cwd, name, branch, baseRef, true);
 }

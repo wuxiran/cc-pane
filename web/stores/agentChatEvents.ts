@@ -18,6 +18,7 @@ import type {
 import { parentToolCallIdOf } from "@/types/agentChat";
 import { applyRestoredTranscript, persistAgentChatTranscript } from "./agentChatTranscript";
 import { contentText, useAgentChatStore } from "./useAgentChatStore";
+import { dropAgentChatRemote } from "./useAgentChatRemoteStore";
 
 const FLUSH_INTERVAL_MS = 16;
 
@@ -226,6 +227,7 @@ export function dropAgentChatState(chatId: string): void {
   flushChat(chatId);
   persistAgentChatTranscript(chatId);
   useAgentChatStore.getState().dropChat(chatId);
+  dropAgentChatRemote(chatId);
 }
 
 /**

@@ -1,4 +1,4 @@
-// 简洁模式的「编辑工作空间」对话框：显示名 + 项目文件夹（增 / 删）+ 移除工作空间。
+// 「编辑工作空间」对话框：显示名 + 项目文件夹（增 / 删）+ 移除工作空间。
 // 文件夹的增删先记在对话框里，点保存才落到后端——取消就什么都不动。
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,14 +11,14 @@ import { isTauriRuntime } from "@/services/runtime";
 import { useWorkspacesStore } from "@/stores";
 import type { Workspace } from "@/types";
 import { getErrorMessage, getProjectName } from "@/utils";
-import { normalizePath, primaryFolder, workspaceFolders } from "./simpleExplorerModel";
+import { normalizePath, primaryFolder, workspaceFolders } from "./workspaceFolders";
 
-interface SimpleWorkspaceEditDialogProps {
+interface WorkspaceEditDialogProps {
   workspace: Workspace | null;
   onOpenChange: (open: boolean) => void;
 }
 
-export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: SimpleWorkspaceEditDialogProps) {
+export default function WorkspaceEditDialog({ workspace, onOpenChange }: WorkspaceEditDialogProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const [name, setName] = useState("");
   const [removedIds, setRemovedIds] = useState<string[]>([]);
@@ -81,9 +81,9 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
   const removeWorkspace = async () => {
     setBusy(true);
     try {
-      // 归档而不是删除：不动磁盘上的任何东西，之后还能在完整模式的「含已归档」里恢复。
+      // 归档而不是删除：不动磁盘上的任何东西，之后还能在筛选的「含已归档」里恢复。
       await useWorkspacesStore.getState().setArchived(workspace.name, true);
-      toast.success(t("simple.workspaceRemoved", { name: workspace.alias || workspace.name }));
+      toast.success(t("workspaceEdit.removed", { name: workspace.alias || workspace.name }));
       onOpenChange(false);
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -96,10 +96,10 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
 
   return (
     <Dialog open onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
-      <DialogContent className="sm:max-w-md" data-testid="simple-workspace-edit">
+      <DialogContent className="sm:max-w-md" data-testid="workspace-edit">
         <DialogHeader>
-          <DialogTitle>{t("simple.editWorkspace")}</DialogTitle>
-          <DialogDescription className="sr-only">{t("simple.editWorkspaceHint")}</DialogDescription>
+          <DialogTitle>{t("workspaceEdit.title")}</DialogTitle>
+          <DialogDescription className="sr-only">{t("workspaceEdit.hint")}</DialogDescription>
         </DialogHeader>
 
         <label className="flex items-center overflow-hidden rounded-lg border border-[var(--app-border)] focus-within:border-[var(--app-text-tertiary)]">
@@ -107,7 +107,7 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
             <Folder className="size-4" aria-hidden="true" />
           </span>
           <input
-            aria-label={t("simple.workspaceName")}
+            aria-label={t("workspaceEdit.name")}
             value={name}
             disabled={busy}
             onChange={(event) => setName(event.target.value)}
@@ -116,21 +116,21 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
         </label>
 
         <div>
-          <p className="mb-1.5 text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">{t("simple.folders")}</p>
+          <p className="mb-1.5 text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">{t("workspaceEdit.folders")}</p>
           <ul className="divide-y divide-[var(--app-border)] overflow-hidden rounded-lg border border-[var(--app-border)]">
             {keptFolders.map((folder) => (
-              <li key={folder.id} className={rowClass} title={folder.path} data-testid="simple-edit-folder">
+              <li key={folder.id} className={rowClass} title={folder.path} data-testid="workspace-edit-folder">
                 <Folder className="size-4 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate">{folder.alias || getProjectName(folder.path)}</span>
                 {folder.id === primaryId && (
                   <span className="shrink-0 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
-                    {t("simple.primaryFolder")}
+                    {t("workspaceEdit.primaryFolder")}
                   </span>
                 )}
                 <button
                   type="button"
                   disabled={busy}
-                  aria-label={t("simple.removeFolder", { name: folder.alias || getProjectName(folder.path) })}
+                  aria-label={t("workspaceEdit.removeFolder", { name: folder.alias || getProjectName(folder.path) })}
                   className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                   onClick={() => setRemovedIds((current) => [...current, folder.id])}
                 >
@@ -139,13 +139,13 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
               </li>
             ))}
             {addedPaths.map((path) => (
-              <li key={path} className={rowClass} title={path} data-testid="simple-edit-folder">
+              <li key={path} className={rowClass} title={path} data-testid="workspace-edit-folder">
                 <Folder className="size-4 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate">{getProjectName(path)}</span>
                 <button
                   type="button"
                   disabled={busy}
-                  aria-label={t("simple.removeFolder", { name: getProjectName(path) })}
+                  aria-label={t("workspaceEdit.removeFolder", { name: getProjectName(path) })}
                   className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                   onClick={() => setAddedPaths((current) => current.filter((item) => item !== path))}
                 >
@@ -161,11 +161,11 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
                 onClick={() => void addFolder()}
               >
                 <FolderPlus className="size-4 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
-                {t("simple.addFolder")}
+                {t("workspaceEdit.addFolder")}
               </button>
             </li>
           </ul>
-          <p className="mt-1.5 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{t("simple.foldersHint")}</p>
+          <p className="mt-1.5 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{t("workspaceEdit.foldersHint")}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export default function SimpleWorkspaceEditDialog({ workspace, onOpenChange }: S
             disabled={busy}
             onClick={() => (confirmingRemove ? void removeWorkspace() : setConfirmingRemove(true))}
           >
-            {t(confirmingRemove ? "simple.removeWorkspaceConfirm" : "simple.removeWorkspace")}
+            {t(confirmingRemove ? "workspaceEdit.removeWorkspaceConfirm" : "workspaceEdit.removeWorkspace")}
           </Button>
           <span className="flex-1" />
           <Button variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>

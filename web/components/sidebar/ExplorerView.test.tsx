@@ -45,15 +45,8 @@ vi.mock("@/components/sidebar/AgentChatSessionsView", () => ({
   default: () => <div>agent-chats-view-stub</div>,
 }));
 
-// --- 简洁模式视图 stub：只验证模式切换，列表内容在它自己的测试里 ---
 vi.mock("@/components/bots/BotContactsView", () => ({
   default: () => <div>bot-contacts-stub</div>,
-}));
-
-vi.mock("@/components/sidebar/simple/SimpleExplorerView", () => ({
-  default: ({ hideTerminalActions }: { hideTerminalActions?: boolean }) => (
-    <div data-testid="simple-explorer-stub" data-hide-terminal={hideTerminalActions ? "true" : "false"}>simple-explorer-stub</div>
-  ),
 }));
 
 // --- FileTree stub ---
@@ -113,7 +106,7 @@ describe("ExplorerView", () => {
       hasChanges: null,
       message: null,
     });
-    useExplorerSectionsStore.setState({ activeSection: "workspaces", explorerMode: "full" });
+    useExplorerSectionsStore.setState({ activeSection: "workspaces" });
     useDialogStore.setState({ launcherOpen: false, launcherContext: null, newWorkspaceRequested: false });
     useWorkspacesStore.setState({
       workspaces: [],
@@ -203,18 +196,11 @@ describe("ExplorerView", () => {
     expect(useDialogStore.getState().newWorkspaceRequested).toBe(true);
   });
 
-  it("simple mode hides the tabs and the full-mode action rows, shows the simple view", () => {
-    useExplorerSectionsStore.setState({ explorerMode: "simple" });
+  it("has a single explorer mode: a plain title, no mode switch", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByTestId("simple-explorer-stub")).toBeVisible();
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /launchTerminal/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
-    // 旧视图仍 keep-alive，只是隐藏
-    expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
-    expect(screen.getByText("sessions-view-stub")).not.toBeVisible();
-    // 标题下拉在两种模式下都在
-    expect(screen.getByTestId("explorer-mode-trigger")).toBeVisible();
+    expect(screen.getByText("explorer.title")).toBeVisible();
+    expect(screen.queryByTestId("explorer-mode-trigger")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
   });
 
   it("only shows the new-workspace action on the workspaces tab", () => {

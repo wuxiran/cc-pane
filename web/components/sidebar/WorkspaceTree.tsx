@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "@/components/ui/toast";
-import { FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
+import { ChevronDown, FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
@@ -164,10 +164,13 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       firstPrompts,
     );
   }, [treeMode, layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
+  // 默认工作空间不进列表：它是「没选项目时会话落在哪」的约定目录，位置在设置里改，不是用户要管理的条目。
   const visibleWorkspaces = useMemo(
-    () => filterWorkspaces(workspaces, workspaceFilter),
+    () => filterWorkspaces(workspaces, workspaceFilter).filter((ws) => !ws.isDefault),
     [workspaces, workspaceFilter],
   );
+  const sectionCollapsed = useExplorerSectionsStore((s) => s.workspacesCollapsed);
+  const toggleSection = useExplorerSectionsStore((s) => s.toggleWorkspacesCollapsed);
   const partition = useMemo(
     () => partitionWorkspaces(visibleWorkspaces),
     [visibleWorkspaces],
@@ -325,7 +328,10 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       ) : (
       <>
       <div className={sidebarSectionHeaderClass}>
-        <span className={sidebarSectionTitleClass}>{t("workspaces")}</span>
+        <button type="button" aria-expanded={!sectionCollapsed} onClick={toggleSection} className={`${sidebarSectionTitleClass} -ml-1 flex items-center gap-0.5 rounded px-1 hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]`}>
+          {t("workspaces")}
+          <ChevronDown className={`size-3 transition-transform ${sectionCollapsed ? "-rotate-90" : ""}`} strokeWidth={2} aria-hidden="true" />
+        </button>
         <div className="flex items-center gap-0.5">
           {/* 树模式：单按钮切换，图标表示当前模式，tooltip 表示点了会切到哪 */}
           <IconTooltipButton
@@ -358,7 +364,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       </>
       )}
 
-      {!collapsed && (
+      {!collapsed && !sectionCollapsed && (
       <>
       {filterOpen ? <WorkspaceFilterBar /> : null}
       <DndContext

@@ -248,6 +248,37 @@ pub fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<Ac
         resume_acp_session_id: None,
         fork_acp_session_id: None,
         auto_approve_kinds: Vec::new(),
+        remote: None,
+    })
+}
+
+/// 把本机启动描述改写成「在 SSH 机器上跑」：远端解析绝对 cwd，再用 ssh 包住引擎命令。
+/// 远端会话不注入 MCP（本机 orchestrator 地址对方连不到）。
+async fn remote_engine_launch(
+    engine: &ResolvedEngine,
+    machine: &cc_panes_core::models::ssh_machine::SshMachine,
+    remote_os: Option<&str>,
+    cwd: &str,
+) -> AppResult<AcpLaunchSpec> {
+    use crate::services::acp_remote as remote;
+    let target = remote::remote_target(machine, remote_os)
+        .map_err(|message| AppError::coded("ACP_REMOTE_UNSUPPORTED", message))?;
+    let absolute_cwd = remote::resolve_remote_cwd(&target, cwd)
+        .await
+        .map_err(|message| AppError::coded("ACP_REMOTE_CWD_INVALID", message))?;
+    let script = remote::launch_script(&target, &absolute_cwd, &engine.executable, &engine.args);
+    let mut args = target.ssh_args.clone();
+    args.push(script);
+    Ok(AcpLaunchSpec {
+        engine_id: engine.id.clone(),
+        command: "ssh".to_string(),
+        args,
+        cwd: absolute_cwd,
+        mcp_servers: Vec::new(),
+        resume_acp_session_id: None,
+        fork_acp_session_id: None,
+        auto_approve_kinds: Vec::new(),
+        remote: Some(target),
     })
 }
 
@@ -297,21 +328,41 @@ pub async fn start_acp_chat(
     app: AppHandle,
     service: State<'_, Arc<AcpChatService>>,
     app_paths: State<'_, Arc<AppPaths>>,
+    machines: State<'_, Arc<cc_panes_core::services::SshMachineService>>,
     chat_id: String,
     engine_id: String,
     cwd: String,
     resume_acp_session_id: Option<String>,
     auto_approve_kinds: Option<Vec<String>>,
+    machine_id: Option<String>,
+    remote_os: Option<String>,
 ) -> AppResult<AcpChatSnapshot> {
     let engine = engine_spec(&app_paths, &engine_id)?;
-    let mcp_servers = ccpanes_mcp_servers(&app_paths);
-    let mut spec = tauri::async_runtime::spawn_blocking({
-        let cwd = cwd.clone();
-        move || resolve_engine_launch(&engine, &cwd)
-    })
-    .await
-    .map_err(|error| AppError::from(error.to_string()))??;
-    spec.mcp_servers = mcp_servers;
+    let machine_id = machine_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    let mut spec = match machine_id {
+        Some(machine_id) => {
+            let machine = machines.get(&machine_id).ok_or_else(|| {
+                AppError::coded(
+                    "ACP_REMOTE_UNSUPPORTED",
+                    format!("SSH machine '{machine_id}' not found"),
+                )
+            })?;
+            remote_engine_launch(&engine, &machine, remote_os.as_deref(), &cwd).await?
+        }
+        None => {
+            let mcp_servers = ccpanes_mcp_servers(&app_paths);
+            let mut spec = tauri::async_runtime::spawn_blocking({
+                let cwd = cwd.clone();
+                move || resolve_engine_launch(&engine, &cwd)
+            })
+            .await
+            .map_err(|error| AppError::from(error.to_string()))??;
+            spec.mcp_servers = mcp_servers;
+            spec
+        }
+    };
     spec.resume_acp_session_id = resume_acp_session_id;
     // 交互式 chat 的按类自动放行（用户在权限下拉里勾选；与 Automations 同一条
     // 会话级通道，命中的权限请求不再弹卡）。

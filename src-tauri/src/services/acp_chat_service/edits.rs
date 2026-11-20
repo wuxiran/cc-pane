@@ -198,6 +198,12 @@ impl AcpChatService {
                 "This complete edit is unavailable or has already been undone",
             ));
         }
+        if session.remote {
+            return Err(AppError::coded(
+                "ACP_EDIT_UNAVAILABLE",
+                "Edits made on a remote device cannot be undone from here",
+            ));
+        }
         let root = session.cwd.clone();
         let edit = request.clone();
         tokio::task::spawn_blocking(move || {

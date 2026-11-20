@@ -17,6 +17,7 @@ mod event_tap;
 mod fork;
 pub(crate) mod journal;
 mod native;
+pub(crate) mod remote;
 mod runtime;
 mod transcript;
 
@@ -226,6 +227,8 @@ pub struct AcpLaunchSpec {
     /// 选第一个 allow 选项，不弹审批卡。`*` = 全部（Automations 的 headless
     /// 会话）；交互式 chat 由用户在权限下拉里按类勾选，空 = 每次都问。
     pub auto_approve_kinds: Vec<String>,
+    /// 在 SSH 机器上跑（`command`/`args` 已改写成 ssh 调用，`cwd` 是远端绝对路径）。
+    pub remote: Option<remote::AcpRemoteTarget>,
 }
 
 type PendingResult = Result<Value, Value>;
@@ -259,8 +262,10 @@ struct AcpChatSession {
     turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
     /// agent 经 `terminal/*` 开的子进程（客户端能力），会话结束时全部回收。
     terminals: Arc<super::acp_client_ops::AcpTerminalManager>,
-    /// 会话 cwd（`terminal/create` 不带 cwd 时的默认目录）。
+    /// 会话 cwd（`terminal/create` 不带 cwd 时的默认目录）。远端会话里是对方机器上的路径。
     cwd: PathBuf,
+    /// 远端会话：本机文件读写、终端、检查点、撤销编辑一律不可用。
+    remote: bool,
     journal: journal::RunJournal,
     checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
     active_run: std::sync::Mutex<Option<runtime::ActiveRun>>,
@@ -640,7 +645,7 @@ impl AcpChatService {
         // portable-pty style silent-HOME-fallback bug class: validate cwd
         // before spawning so the agent never runs in the wrong repository.
         let cwd = Path::new(&spec.cwd);
-        if !cwd.is_dir() {
+        if spec.remote.is_none() && !cwd.is_dir() {
             return Err(AppError::coded_with_params(
                 "ACP_CWD_INVALID",
                 format!(
@@ -651,6 +656,12 @@ impl AcpChatService {
             ));
         }
         let _lifecycle = self.lock_chat_lifecycle(&chat_id).await;
+        if spec.engine_id == native::ENGINE && spec.remote.is_some() {
+            return Err(AppError::coded(
+                "ACP_REMOTE_UNSUPPORTED",
+                "The built-in engine runs on this computer only; pick another engine for a remote device",
+            ));
+        }
         if spec.engine_id == native::ENGINE {
             return self.start_native(app, chat_id_trimmed, spec).await;
         }
@@ -669,9 +680,14 @@ impl AcpChatService {
         }
 
         let mut command = no_window_tokio_command(&spec.command);
+        // 远端会话的 cwd 在对方机器上；本机 ssh 进程放在家目录跑即可。
+        let local_cwd = match &spec.remote {
+            Some(_) => dirs::home_dir().unwrap_or_else(std::env::temp_dir),
+            None => cwd.to_path_buf(),
+        };
         command
             .args(&spec.args)
-            .current_dir(cwd)
+            .current_dir(&local_cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -684,7 +700,7 @@ impl AcpChatService {
         // 不会 MCP 也能经 CLI 触达 cc-panes；与下面的 stdio MCP 降级共用逃生阀
         // CCPANES_SESSION_CTL_ENV（关掉则两者同时消失）。解析失败静默跳过——
         // 控制通道缺失绝不该阻断会话启动。
-        let ctl_path = self.ctl_env_path();
+        let ctl_path = spec.remote.is_none().then(|| self.ctl_env_path()).flatten();
         if let Some(ctl) = &ctl_path {
             command.env(cc_panes_core::services::SESSION_CTL_ENV_KEY, ctl);
         }
@@ -748,6 +764,7 @@ impl AcpChatService {
             turn_notifier: self.turn_notifier.clone(),
             terminals: Arc::new(super::acp_client_ops::AcpTerminalManager::default()),
             cwd: cwd.to_path_buf(),
+            remote: spec.remote.is_some(),
             journal: self.journal.clone(),
             checkpoints: self.checkpoints.clone(),
             active_run: std::sync::Mutex::new(None),
@@ -795,9 +812,10 @@ impl AcpChatService {
                     "protocolVersion": ACP_PROTOCOL_VERSION,
                     // 客户端能力（acp_client_ops.rs 兑现）：agent 经我们读写文件、跑
                     // 命令，工具卡才能拿到实时终端输出与 diff 前后文。
+                    // 远端会话不声明：这些请求会落到本机文件系统上，路径却是对方机器的。
                     "clientCapabilities": {
-                        "fs": {"readTextFile": true, "writeTextFile": true},
-                        "terminal": true,
+                        "fs": {"readTextFile": !session.remote, "writeTextFile": !session.remote},
+                        "terminal": !session.remote,
                         "elicitation": {"form": {}},
                         // claude-agent-acp 的扩展能力：转发子 agent 的正文/思维链（条目
                         // 带 `_meta.claudeCode.parentToolUseId`），不声明则适配器一律剥掉，
@@ -1800,6 +1818,12 @@ async fn handle_client_request(
     params: &Value,
 ) -> super::acp_client_ops::RpcResult {
     use super::acp_client_ops as ops;
+    if session.remote {
+        return Err(json!({
+            "code": JSONRPC_METHOD_NOT_FOUND,
+            "message": format!("'{method}' is unavailable in a remote session"),
+        }));
+    }
     match method {
         "fs/read_text_file" => ops::fs_read_text_file(params).await,
         "fs/write_text_file" => ops::fs_write_text_file(params).await,

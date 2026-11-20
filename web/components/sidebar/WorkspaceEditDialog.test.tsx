@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspacesStore } from "@/stores";
 import type { Workspace } from "@/types";
-import SimpleWorkspaceEditDialog from "./SimpleWorkspaceEditDialog";
+import WorkspaceEditDialog from "./WorkspaceEditDialog";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string, options?: { name?: string }) => (options?.name ? `${key}:${options.name}` : key) }),
@@ -31,11 +31,11 @@ const actions = {
 };
 
 function renderDialog(onOpenChange = vi.fn()) {
-  render(<SimpleWorkspaceEditDialog workspace={workspace} onOpenChange={onOpenChange} />);
+  render(<WorkspaceEditDialog workspace={workspace} onOpenChange={onOpenChange} />);
   return onOpenChange;
 }
 
-describe("SimpleWorkspaceEditDialog", () => {
+describe("WorkspaceEditDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useWorkspacesStore.setState(actions as never);
@@ -43,19 +43,19 @@ describe("SimpleWorkspaceEditDialog", () => {
 
   it("lists active folders and marks the one at the workspace root as primary", () => {
     renderDialog();
-    const folders = screen.getAllByTestId("simple-edit-folder");
+    const folders = screen.getAllByTestId("workspace-edit-folder");
     expect(folders.map((row) => row.getAttribute("title"))).toEqual(["/repos/tools", "/repos/main"]);
-    expect(folders[1]).toHaveTextContent("simple.primaryFolder");
-    expect(folders[0]).not.toHaveTextContent("simple.primaryFolder");
+    expect(folders[1]).toHaveTextContent("workspaceEdit.primaryFolder");
+    expect(folders[0]).not.toHaveTextContent("workspaceEdit.primaryFolder");
   });
 
   it("changes nothing until Save, then applies alias, removals and additions", async () => {
     vi.spyOn(window, "prompt").mockReturnValue("/repos/new");
     const onOpenChange = renderDialog();
-    fireEvent.change(screen.getByLabelText("simple.workspaceName"), { target: { value: "Panes" } });
-    fireEvent.click(screen.getByLabelText("simple.removeFolder:tools"));
-    fireEvent.click(screen.getByText("simple.addFolder"));
-    await waitFor(() => expect(screen.getAllByTestId("simple-edit-folder")).toHaveLength(2));
+    fireEvent.change(screen.getByLabelText("workspaceEdit.name"), { target: { value: "Panes" } });
+    fireEvent.click(screen.getByLabelText("workspaceEdit.removeFolder:tools"));
+    fireEvent.click(screen.getByText("workspaceEdit.addFolder"));
+    await waitFor(() => expect(screen.getAllByTestId("workspace-edit-folder")).toHaveLength(2));
     expect(actions.removeProject).not.toHaveBeenCalled();
     expect(actions.addProject).not.toHaveBeenCalled();
 
@@ -68,7 +68,7 @@ describe("SimpleWorkspaceEditDialog", () => {
 
   it("cancel discards staged changes", () => {
     const onOpenChange = renderDialog();
-    fireEvent.click(screen.getByLabelText("simple.removeFolder:tools"));
+    fireEvent.click(screen.getByLabelText("workspaceEdit.removeFolder:tools"));
     fireEvent.click(screen.getByText("cancel"));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(actions.removeProject).not.toHaveBeenCalled();
@@ -77,16 +77,16 @@ describe("SimpleWorkspaceEditDialog", () => {
   it("does not add a folder that is already in the workspace", async () => {
     vi.spyOn(window, "prompt").mockReturnValue("/repos/main/");
     renderDialog();
-    fireEvent.click(screen.getByText("simple.addFolder"));
+    fireEvent.click(screen.getByText("workspaceEdit.addFolder"));
     await Promise.resolve();
-    expect(screen.getAllByTestId("simple-edit-folder")).toHaveLength(2);
+    expect(screen.getAllByTestId("workspace-edit-folder")).toHaveLength(2);
   });
 
   it("asks twice before removing the workspace, and archives rather than deletes", async () => {
     const onOpenChange = renderDialog();
-    fireEvent.click(screen.getByText("simple.removeWorkspace"));
+    fireEvent.click(screen.getByText("workspaceEdit.removeWorkspace"));
     expect(actions.setArchived).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("simple.removeWorkspaceConfirm"));
+    fireEvent.click(screen.getByText("workspaceEdit.removeWorkspaceConfirm"));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(actions.setArchived).toHaveBeenCalledWith("cc-pane", true);
   });
@@ -94,7 +94,7 @@ describe("SimpleWorkspaceEditDialog", () => {
   it("keeps the dialog open and reports the error when saving fails", async () => {
     actions.removeProject.mockRejectedValueOnce(new Error("locked"));
     const onOpenChange = renderDialog();
-    fireEvent.click(screen.getByLabelText("simple.removeFolder:tools"));
+    fireEvent.click(screen.getByLabelText("workspaceEdit.removeFolder:tools"));
     fireEvent.click(screen.getByText("save"));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(onOpenChange).not.toHaveBeenCalled();

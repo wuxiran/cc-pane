@@ -46,6 +46,7 @@ import type {
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 import WorkspaceBadges from "./WorkspaceBadges";
+import WorkspaceHoverCard from "./WorkspaceHoverCard";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
 import WorkspaceDangerItems from "./WorkspaceDangerItems";
 import { sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
@@ -402,6 +403,7 @@ export default function WorkspaceItem({
   return (
     <div>
       <ContextMenu>
+        <WorkspaceHoverCard workspace={workspace} disabled={isDefaultWorkspace || isAgentChatWorkspace || isDragging}>
         <ContextMenuTrigger asChild>
           <div
             role="button"
@@ -452,6 +454,7 @@ export default function WorkspaceItem({
             ) : null}
           </div>
         </ContextMenuTrigger>
+        </WorkspaceHoverCard>
 
         <ContextMenuContent className="w-56">
           <ContextMenuItem disabled>
@@ -574,7 +577,7 @@ export default function WorkspaceItem({
               checked={preferredContextName === workspace.name}
               onCheckedChange={(checked) => setPreferredContext(checked === true ? workspace.name : null)}
             >
-              <Check /> {t("simple.setDefaultContext")}
+              <Check /> {t("workspaceSetDefaultContext")}
             </ContextMenuCheckboxItem>
           )}
 

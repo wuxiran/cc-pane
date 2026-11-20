@@ -17,6 +17,10 @@ impl AcpChatSession {
         session_id: &str,
         blocks: &[Value],
     ) -> AppResult<()> {
+        // 检查点是本机仓库快照，远端会话的 cwd 在对方机器上，不记运行记录。
+        if self.remote {
+            return Ok(());
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let service = self.checkpoints.clone();
         let chat = self.chat_id.clone();

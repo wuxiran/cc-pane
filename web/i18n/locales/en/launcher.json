@@ -103,5 +103,17 @@
   "worktreeCleanBaseHint": "Creates from the selected committed revision. Uncommitted edits stay in the original directory.",
   "worktreeCurrentBranchHint": "This directory keeps its current branch. Enable a new worktree to choose a different base branch.",
   "worktreeBranchRequired": "Enter a branch name for the new worktree",
-  "worktreeNewSessionOnly": "New worktrees are for new sessions. Resume sessions in their original directory."
+  "worktreeNewSessionOnly": "New worktrees are for new sessions. Resume sessions in their original directory.",
+  "remoteEnvPasswordUnsupported": "Password-auth machines can't run remote chats yet",
+  "remoteEnvRoutedUnsupported": "Machines behind a proxy or jump host can't run remote chats yet",
+  "remoteEnvEmpty": "No SSH machines yet. Add one in the Devices view.",
+  "remoteEnvDirectory": "Remote directory",
+  "remoteEnvChecking": "Checking remote system…",
+  "remoteEnvReachable": "Reachable · {{os}}",
+  "remoteEnvUnknownOs": "unknown OS",
+  "remoteEnvUnreachable": "Connectivity check failed: {{message}}. You can still try to start.",
+  "worktreeProject": "Project",
+  "worktreeProjectPlaceholder": "Choose a project",
+  "worktreeProjectOption": "{{name}} ({{branch}})",
+  "worktreePickProject": "The workspace root isn't a Git repository. Choose one of its projects for the worktree."
 }

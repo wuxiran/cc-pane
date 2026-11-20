@@ -103,5 +103,17 @@
   "worktreeCleanBaseHint": "从所选分支的已提交内容创建；当前目录的未提交修改保留在原处。",
   "worktreeCurrentBranchHint": "当前目录沿用现有分支。开启新工作树后，可选择其他基准分支。",
   "worktreeBranchRequired": "请输入新工作树的分支名称",
-  "worktreeNewSessionOnly": "新工作树仅用于新会话；续接会话请使用原工作目录"
+  "worktreeNewSessionOnly": "新工作树仅用于新会话；续接会话请使用原工作目录",
+  "remoteEnvPasswordUnsupported": "密码认证的机器暂不支持远程对话",
+  "remoteEnvRoutedUnsupported": "经代理或跳板机连接的机器暂不支持远程对话",
+  "remoteEnvEmpty": "还没有 SSH 机器，可在「设备」视图添加",
+  "remoteEnvDirectory": "远程目录",
+  "remoteEnvChecking": "正在检测远端系统…",
+  "remoteEnvReachable": "已连通 · {{os}}",
+  "remoteEnvUnknownOs": "系统未知",
+  "remoteEnvUnreachable": "连通检测失败：{{message}}。仍可尝试启动。",
+  "worktreeProject": "项目",
+  "worktreeProjectPlaceholder": "选择项目",
+  "worktreeProjectOption": "{{name}}（{{branch}}）",
+  "worktreePickProject": "工作空间根目录不是 Git 仓库，选择其中一个项目创建 worktree"
 }

@@ -643,5 +643,8 @@
   "agentChatChangesBarReview": "Review",
   "agentChatFromIm": "via IM",
   "botChatStarting": "Waking up {{name}}…",
-  "botChatRetry": "Retry"
+  "botChatRetry": "Retry",
+  "agentChatRemoteTarget": "{{machine}} · {{path}}",
+  "agentChatRemoteTargetTip": "Running on {{host}}: {{path}}",
+  "agentChatRemoteFileUnavailable": "This file is on the remote machine and can't be opened locally"
 }

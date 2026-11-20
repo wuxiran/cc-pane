@@ -12,8 +12,6 @@ import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
 import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
 import BotContactsView from "@/components/bots/BotContactsView";
-import ExplorerModeMenu from "@/components/sidebar/ExplorerModeMenu";
-import SimpleExplorerView from "@/components/sidebar/simple/SimpleExplorerView";
 import {
   formatKeyCombo,
   useDialogStore,
@@ -52,7 +50,6 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   const newTabBinding = useSettingsStore((s) => s.settings?.shortcuts.bindings["new-tab"] ?? "Ctrl+T");
   const activeSection = useExplorerSectionsStore((s) => s.activeSection);
   const setActiveSection = useExplorerSectionsStore((s) => s.setActiveSection);
-  const simpleMode = useExplorerSectionsStore((s) => s.explorerMode === "simple");
   // Agent Chat 专用布局里不放终端类入口（启动器按钮隐藏，Ctrl+T 由命令层回落）。
   const isAgentChatLayout = usePanesStore((s) => s.currentLayoutId === AGENT_CHAT_LAYOUT_ID);
   const workspace = useWorkspacesStore(
@@ -72,10 +69,10 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 视图标题栏：标题是模式下拉（简洁 / 完整）；完整模式右侧放 IDEA 风格图标 tab */}
+      {/* 视图标题栏：标题 + 右侧 IDEA 风格图标 tab */}
       <div className="flex shrink-0 items-center px-4 pt-3 pb-2">
-        <ExplorerModeMenu />
-        {!simpleMode && <div
+        <span className="text-[length:var(--text-caption)] font-semibold text-[var(--app-text-tertiary)]">{t("explorer.title")}</span>
+        <div
           className="ml-auto flex items-center gap-0.5"
           role="tablist"
           aria-label={t("explorer.title")}
@@ -110,18 +107,11 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
               </Tooltip>
             );
           })}
-        </div>}
+        </div>
       </div>
 
-      {/* 简洁模式：单列表承载操作行与会话；三个旧视图留在下面 keep-alive */}
-      {simpleMode && (
-        <div className="min-h-0 flex-1">
-          <SimpleExplorerView onOpenTerminal={onOpenTerminal} hideTerminalActions={isAgentChatLayout} />
-        </div>
-      )}
-
       {/* 主操作行（Codex 式纯文本行）：shrink-0，在滚动区之外 */}
-      {!simpleMode && (!isAgentChatLayout || activeSection === "workspaces") && (
+      {(!isAgentChatLayout || activeSection === "workspaces") && (
         <div className="shrink-0 px-3">
           {!isAgentChatLayout && (
             <button
@@ -153,7 +143,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* 工作空间视图：keep-alive，隐藏而不卸载（WorkspaceDialogs 挂在树内） */}
       <div
         className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2"
-        style={!simpleMode && activeSection === "workspaces" ? undefined : { display: "none" }}
+        style={activeSection === "workspaces" ? undefined : { display: "none" }}
         onKeyDown={onTreeTypeAhead}
       >
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
@@ -162,7 +152,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* 最近启动：keep-alive，隐藏而不卸载（保住 launchHistory 与 history-updated 监听，切走再切回不丢状态） */}
       <div
         className="min-h-0 flex-1"
-        style={!simpleMode && activeSection === "sessions" ? undefined : { display: "none" }}
+        style={activeSection === "sessions" ? undefined : { display: "none" }}
       >
         <SessionsView onOpenTerminal={onOpenTerminal} />
       </div>
@@ -170,7 +160,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* Agent 会话：跨项目最近 ACP 对话（点击自动续接） */}
       <div
         className="min-h-0 flex-1"
-        style={!simpleMode && activeSection === "agentChats" ? undefined : { display: "none" }}
+        style={activeSection === "agentChats" ? undefined : { display: "none" }}
       >
         <AgentChatSessionsView />
       </div>
@@ -178,7 +168,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* 联系人：keep-alive——挂着才能收到 Bot 经 IM 产生的对话事件 */}
       <div
         className="min-h-0 flex-1"
-        style={!simpleMode && activeSection === "bots" ? undefined : { display: "none" }}
+        style={activeSection === "bots" ? undefined : { display: "none" }}
       >
         <BotContactsView />
       </div>

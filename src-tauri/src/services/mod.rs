@@ -48,6 +48,7 @@ mod web_access_lifecycle;
 
 pub use acp_chat_service::edits::UndoAcpFileEdit;
 pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};
+pub(crate) use acp_chat_service::remote as acp_remote;
 pub use acp_chat_service::{
     AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, ChatEventStream,
     PermissionBinding, PromptAnnouncement, AUTO_APPROVE_ALL,

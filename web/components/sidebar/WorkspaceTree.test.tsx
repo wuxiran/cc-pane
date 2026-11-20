@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliToolInfo, Workspace } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
+import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
 import WorkspaceTree from "./WorkspaceTree";
 import { getReorderedWorkspaceNames } from "./workspaceDnd";
 
@@ -176,6 +177,7 @@ describe("getReorderedWorkspaceNames", () => {
 
 describe("WorkspaceTree component", () => {
   beforeEach(() => {
+    useExplorerSectionsStore.setState({ workspacesCollapsed: false });
     handleCreateWorkspace.mockClear();
     vi.mocked(useCliTools).mockReturnValue({ tools: [], loading: false,
       refresh: vi.fn(), getToolById: vi.fn(), installedTools: [] });
@@ -233,7 +235,8 @@ describe("WorkspaceTree component", () => {
     ];
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     const items = screen.getAllByTestId("ws-item");
-    expect(items.map((item) => item.getAttribute("data-draggable"))).toEqual(["false", "false", "true"]);
+    // 默认工作空间不进列表；Agent Chat 工作空间在，但不可拖
+    expect(items.map((item) => item.getAttribute("data-draggable"))).toEqual(["false", "true"]);
   });
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {
@@ -257,7 +260,8 @@ describe("WorkspaceTree component", () => {
     expect(screen.getByText("2")).toBeVisible();
     // 未分组项必须有自己的头，否则视觉上会被吸进上一个分组
     expect(screen.getByText("ungrouped")).toBeVisible();
-    expect(screen.getAllByTestId("ws-item")).toHaveLength(4);
+    // 三个用户工作空间；默认工作空间不进列表
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(3);
   });
 
   it("没有任何分组时不渲染未分组组头", () => {
@@ -301,7 +305,7 @@ describe("WorkspaceTree component", () => {
     expect(screen.getByText("charlie")).toBeVisible();
   });
 
-  it("筛选时仍置顶显示默认工作空间", () => {
+  it("默认工作空间不出现在列表里，筛选时也不出现", () => {
     storeState.workspaces = [
       makeWorkspace({ id: "default", name: "default", isDefault: true }),
       makeWorkspace({ id: "api", name: "api", group: "Backend", color: "green" }),
@@ -311,10 +315,23 @@ describe("WorkspaceTree component", () => {
 
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
 
-    expect(screen.getAllByTestId("ws-item").map((item) => item.textContent)).toEqual([
-      "default",
-      "api",
-    ]);
+    expect(screen.getAllByTestId("ws-item").map((item) => item.textContent)).toEqual(["api"]);
+  });
+
+  it("点「工作空间」分区头收起和展开整个列表，状态记在 store 里", () => {
+    storeState.workspaces = [makeWorkspace({ id: "a", name: "alpha" })];
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    const header = screen.getByRole("button", { name: "workspaces" });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(1);
+
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("ws-item")).not.toBeInTheDocument();
+    expect(useExplorerSectionsStore.getState().workspacesCollapsed).toBe(true);
+
+    fireEvent.click(header);
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(1);
   });
 
   it("点击筛选图标显示筛选条", () => {

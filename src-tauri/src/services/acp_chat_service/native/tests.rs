@@ -120,6 +120,7 @@ impl Fixture {
             resume_acp_session_id: None,
             fork_acp_session_id: None,
             auto_approve_kinds: vec![],
+            remote: None,
         };
         let service = Arc::new(AcpChatService::new(temp.path().join("data/agent-chats")));
         Self {
