@@ -11,7 +11,7 @@ describe("buildOscColorReply", () => {
 
   it("replies to background color queries", () => {
     expect(buildOscColorReply(11, "?", DARK_TERMINAL_THEME)).toBe(
-      "\x1b]11;rgb:1717/1919/1e1e\x1b\\"
+      "\x1b]11;rgb:1818/1818/1818\x1b\\"
     );
   });
 
@@ -34,7 +34,7 @@ describe("resolveOscColorQuery", () => {
       preserveTransparentBackground: true,
     })).toEqual({
       handled: true,
-      response: "\x1b]11;rgb:1717/1919/1e1e\x1b\\",
+      response: "\x1b]11;rgb:1818/1818/1818\x1b\\",
     });
   });
 

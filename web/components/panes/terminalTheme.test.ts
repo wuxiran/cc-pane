@@ -119,7 +119,7 @@ describe("terminalTheme", () => {
     it("alpha < 1 时 background 转 rgba，其余字段不动", () => {
       const themed = withTerminalBackgroundAlpha(DARK_TERMINAL_THEME, 0.85);
       expect(themed).not.toBe(DARK_TERMINAL_THEME);
-      expect(themed.background).toBe("rgba(23, 25, 30, 0.85)");
+      expect(themed.background).toBe("rgba(24, 24, 24, 0.85)");
       // cursorAccent 保持不透明（块状光标下字符会糊）
       expect(themed.cursorAccent).toBe(DARK_TERMINAL_THEME.cursorAccent);
       expect(themed.foreground).toBe(DARK_TERMINAL_THEME.foreground);
@@ -127,7 +127,7 @@ describe("terminalTheme", () => {
 
     it("getTerminalTheme 第三参传 alpha；不传保持恒等引用", () => {
       expect(getTerminalTheme(true, "followApp", 0.5).background).toBe(
-        "rgba(23, 25, 30, 0.5)",
+        "rgba(24, 24, 24, 0.5)",
       );
       expect(getTerminalTheme(true, "followApp", 1)).toBe(DARK_TERMINAL_THEME);
       expect(getTerminalTheme(true)).toBe(DARK_TERMINAL_THEME);
@@ -138,8 +138,8 @@ describe("terminalTheme", () => {
     it("alpha < 1 时 xterm 侧 background 全透明并保留逻辑底色的 RGB", () => {
       const container = getTerminalTheme(true, "followApp", 0.3);
       const xterm = withTransparentTerminalBackground(container, 0.3);
-      expect(container.background).toBe("rgba(23, 25, 30, 0.3)");
-      expect(xterm.background).toBe("rgba(23, 25, 30, 0)");
+      expect(container.background).toBe("rgba(24, 24, 24, 0.3)");
+      expect(xterm.background).toBe("rgba(24, 24, 24, 0)");
       // 只动 background，字色/光标不变
       expect(xterm.foreground).toBe(container.foreground);
       expect(xterm.cursorAccent).toBe(container.cursorAccent);
@@ -164,9 +164,9 @@ describe("terminalTheme", () => {
 
     it("terminalOpacity=0 时容器与 xterm 都不画底色，字直接浮在壁纸上", () => {
       const container = getTerminalTheme(true, "followApp", 0);
-      expect(container.background).toBe("rgba(23, 25, 30, 0)");
+      expect(container.background).toBe("rgba(24, 24, 24, 0)");
       expect(withTransparentTerminalBackground(container, 0).background).toBe(
-        "rgba(23, 25, 30, 0)",
+        "rgba(24, 24, 24, 0)",
       );
     });
   });

@@ -37,7 +37,7 @@ const ALLOWLIST: Record<string, string[]> = {
   ],
   // ANSI 16 色与透明背景算法由 xterm 专用调色板管理，不属于应用 chrome。
   "panes/terminalTheme.ts": [
-    "#17191E",
+    "#181818",
     "#f5f5f7",
     "#0a84ff",
     "#ff453a",

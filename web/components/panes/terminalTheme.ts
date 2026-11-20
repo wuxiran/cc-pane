@@ -28,14 +28,14 @@ export interface TerminalThemePalette {
 }
 
 export const DARK_TERMINAL_THEME: TerminalThemePalette = {
-  background: "#17191E",
+  background: "#181818",
   foreground: "#f5f5f7",
   cursor: "#0a84ff",
-  cursorAccent: "#17191E",
+  cursorAccent: "#181818",
   selectionBackground: "#526e96",
   selectionInactiveBackground: "#526e96",
   selectionForeground: "#f5f5f7",
-  black: "#17191E",
+  black: "#181818",
   red: "#ff453a",
   green: "#30d158",
   yellow: "#ffd60a",

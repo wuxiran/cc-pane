@@ -36,7 +36,7 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     id: "deep-ink",
     group: "dark",
     labelKey: "theme.presets.deepInk",
-    swatches: ["#17191e", "#26282d", "#4c8df5"],
+    swatches: ["#181818", "#262626", "#4c8df5"],
   },
   {
     id: "cyber-purple",

@@ -483,7 +483,7 @@ pub async fn open_settings_window(
     let (theme, background) = if dark {
         (
             tauri::Theme::Dark,
-            tauri::window::Color(0x17, 0x19, 0x1e, 0xff),
+            tauri::window::Color(0x18, 0x18, 0x18, 0xff),
         )
     } else {
         (

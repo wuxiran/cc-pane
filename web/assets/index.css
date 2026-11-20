@@ -483,26 +483,26 @@
   --sh-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.38);
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
-  /* shadcn 语义变量 — 冷调近黑,靠明度分层而非边框。
-     2026-11 阶梯反向（docs/46 §5，对标 macOS 深色与 Codex 桌面版）：
-     内容区最暗 #1A1C20（与终端 #17191E 同档，开终端不再跳 22 个灰阶）
-     < 外壳 #202226 < 卡片 #24272C < 弹层/浮起面 #2A2D33 < 浮起面 hover #32363D。
-     此前「主区最亮 #2E3137」那一版（2026-09 提亮）整体作废。 */
-  --background: #1A1C20;
-  --foreground: #ECEDEF;
-  --card: #24272C;
-  --card-foreground: #ECEDEF;
-  --popover: #2A2D33;
-  --popover-foreground: #ECEDEF;
+  /* shadcn 语义变量 — 中性近黑（不带蓝调），靠明度分层而非边框。
+     2026-11 对标 Codex 桌面版深色取样：标题栏 / 最左图标栏 #282828（外壳，最亮）
+     > 侧边栏 #1E1E1E > 内容区 #181818（最暗，终端同色）；
+     浮起面：卡片 #262626 < 弹层 #2F2F2F < 浮起面 hover #383838。
+     选中态用中性提亮（白 9%），不再用带蓝的底色。 */
+  --background: #181818;
+  --foreground: #ECECEC;
+  --card: #262626;
+  --card-foreground: #ECECEC;
+  --popover: #2F2F2F;
+  --popover-foreground: #ECECEC;
   --primary: #4C8DF5;
   --primary-foreground: #ffffff;
-  --secondary: #2A2D33;
-  --secondary-foreground: #ECEDEF;
+  --secondary: #2F2F2F;
+  --secondary-foreground: #ECECEC;
   /* --muted 与 --card 同档；muted-foreground 在其上 5.6 ≥4.5 */
-  --muted: #24272C;
-  --muted-foreground: #A0A6AE;
-  --accent: #32363D;
-  --accent-foreground: #ECEDEF;
+  --muted: #262626;
+  --muted-foreground: #A6A6A6;
+  --accent: #383838;
+  --accent-foreground: #ECECEC;
   --destructive: #F85149;
   --border: rgba(255, 255, 255, 0.09);
   --input: rgba(255, 255, 255, 0.12);
@@ -514,23 +514,23 @@
   --chart-4: #A371F7;
   --chart-5: #F85149;
 
-  --sidebar: #202226;
-  --sidebar-foreground: #ECEDEF;
+  --sidebar: #1E1E1E;
+  --sidebar-foreground: #ECECEC;
   --sidebar-primary: #4C8DF5;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2A2D33;
-  --sidebar-accent-foreground: #ECEDEF;
+  --sidebar-accent: #2F2F2F;
+  --sidebar-accent-foreground: #ECECEC;
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #4C8DF5;
 
   /* 自定义应用层级变量 — 实色明度分层（阶梯方向见上：内容最暗、外壳次之、浮起面最亮） */
-  --app-menubar: #202226;
-  --app-sidebar: #202226;
-  --app-tabbar: #1A1C20;
-  --app-content: #1A1C20;
-  --app-bg-deep: #1A1C20;
-  --app-bg-sidebar-deep: #202226;
-  --app-overlay: #2A2D33;
+  --app-menubar: #282828;
+  --app-sidebar: #1E1E1E;
+  --app-tabbar: #181818;
+  --app-content: #181818;
+  --app-bg-deep: #181818;
+  --app-bg-sidebar-deep: #282828;
+  --app-overlay: #2F2F2F;
   --app-accent: #5E99F6;
   --app-tag-red: #FF7B72;
   --app-tag-amber: #E3B341;
@@ -540,18 +540,18 @@
   --app-tag-pink: #FF9BCE;
   --app-tag-cyan: #56D4DD;
   --app-tag-gray: #A6ADB7;
-  /* 正文不取纯白：#F2F2F2 在 #1A1C20 上 15:1 偏刺眼（终端旁长时间看），#ECEDEF 约 13:1。 */
-  --app-text-primary: #ECEDEF;
-  --app-text-secondary: #A0A6AE;
-  /* 对比度修正：panel/sidebar 上 ≥4.5（check-theme-contrast 强约束），#8E949C 在 #202226 上 5.2 */
-  --app-text-tertiary: #8E949C;
+  /* 正文不取纯白：#F2F2F2 在 #181818 上 15:1 偏刺眼（终端旁长时间看），#ECECEC 约 13:1。 */
+  --app-text-primary: #ECECEC;
+  --app-text-secondary: #A6A6A6;
+  /* 对比度修正：panel/sidebar 上 ≥4.5（check-theme-contrast 强约束），#969696 在 #1E1E1E 上 5.2 */
+  --app-text-tertiary: #969696;
   --app-border: rgba(255, 255, 255, 0.09);
   --app-hover: rgba(255, 255, 255, 0.06);
-  --app-active-bg: rgba(76, 141, 245, 0.14);
+  --app-active-bg: rgba(255, 255, 255, 0.09);
 
   /* Glass 变量 — Dark 保留但收敛（降饱和/降模糊,精致工具不要太炫） */
-  --app-glass-bg: rgba(38, 40, 45, 0.60);
-  --app-glass-bg-heavy: rgba(30, 32, 36, 0.72);
+  --app-glass-bg: rgba(40, 40, 40, 0.60);
+  --app-glass-bg-heavy: rgba(30, 30, 30, 0.72);
   --app-glass-bg-light: rgba(255, 255, 255, 0.03);
   --app-glass-border: rgba(255, 255, 255, 0.08);
   --app-glass-shadow: var(--sh-lg);
@@ -580,20 +580,20 @@
   --app-tab-highlight: rgba(255, 255, 255, 0.10);
 
   /* Editor 专用变量 */
-  --editor-bg: #1A1C20;
-  --editor-tab-bar-bg: #1E2024;
-  --editor-tab-active-bg: #1A1C20;
-  --editor-tab-inactive-bg: #26282D;
-  --editor-tab-active-fg: #E6E8EB;
-  --editor-tab-inactive-fg: #767C85;
+  --editor-bg: #181818;
+  --editor-tab-bar-bg: #1E1E1E;
+  --editor-tab-active-bg: #181818;
+  --editor-tab-inactive-bg: #262626;
+  --editor-tab-active-fg: #E8E8E8;
+  --editor-tab-inactive-fg: #7C7C7C;
   --editor-tab-border: rgba(255, 255, 255, 0.08);
-  --editor-breadcrumb-bg: #1A1C20;
-  --editor-breadcrumb-fg: #9BA1A9;
-  --editor-breadcrumb-fg-active: #E6E8EB;
+  --editor-breadcrumb-bg: #181818;
+  --editor-breadcrumb-fg: #A0A0A0;
+  --editor-breadcrumb-fg-active: #E8E8E8;
   --editor-selection-bg: rgba(76, 141, 245, 0.22);
   --editor-line-highlight: rgba(255, 255, 255, 0.05);
-  --checkerboard-color: #32363E;
-  --checkerboard-bg: #26282D;
+  --checkerboard-color: #383838;
+  --checkerboard-bg: #262626;
 
   /* Warning / Input 变量 */
   --app-status-warning: #D6A625;
@@ -601,7 +601,7 @@
   --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.04);
   /* 输入框是浮起面，取卡片档，不与内容区同色 */
-  --app-chat-composer-bg: #24272C;
+  --app-chat-composer-bg: #2C2C2C;
   --app-status-success: #3FB950;
   /* 绑定约束为最亮的 nord-frost panel（4.56），deep-ink 自身余量更大 */
   --app-status-danger: #FA7D76; /* 对比度修正：仅提明度，五暗色上下文共用此值 */
@@ -615,7 +615,7 @@
   --app-canvas-pipe-primary: #4C8DF5;
   --app-canvas-pipe-secondary: #79C0FF;
   --app-canvas-pipe-highlight: #DCEBFF;
-  --app-canvas-pipe-channel: #1E2024;
+  --app-canvas-pipe-channel: #1E1E1E;
   /* 身份色（暗色亮化） */
   --app-identity-wsl: #FCD34D;
   --app-identity-ssh: #67E8F9;
@@ -634,7 +634,7 @@
   /*
    * Provider 身份色暗色套：只有对暗底不成立的两个改值（cursor / config_profile），
    * 其余品牌色本就是「深底白字」，提亮反而伤对比度，故与亮色同值。
-   * cursor #111827 在 #1E2024 上几乎隐形 → #4B5563（白字对比 7.6:1）；
+   * cursor #111827 在 #1E1E1E 上几乎隐形 → #4B5563（白字对比 7.6:1）；
    * config_profile #6B7280 亮暗都发灰 → #8892A4（白字 3.1:1，对底色 4.7:1）。
    * 同值项不能省：colorGuard 要求 :root 与 .dark 的 token 清单全等。
    */
@@ -655,19 +655,19 @@
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);
 
-  /* 组件级变量 —— 明度阶梯（2026-11 反向）：主区最暗(#1A1C20) < 活动栏/侧栏(#202226)。
+  /* 组件级变量 —— 明度阶梯：主区最暗(#181818) < 侧栏(#1E1E1E) < 活动栏/标题栏(#282828)。
      内容区沉下去、外壳略浮，是 macOS 深色（Finder/Notes）与 Codex 桌面版的方向；
      开启系统材质时外壳再被材质拉亮一档，方向一致。 */
   --app-activity-bar-bg: var(--app-bg-sidebar-deep);
-  --app-sidebar-bg: #202226;
-  --app-panel-bg: #1A1C20;
-  --app-icon-active: #ECEDEF;
-  --app-icon-inactive: #767C85;
-  --app-icon-hover: #9BA1A9;
+  --app-sidebar-bg: #1E1E1E;
+  --app-panel-bg: #181818;
+  --app-icon-active: #ECECEC;
+  --app-icon-inactive: #7C7C7C;
+  --app-icon-hover: #A0A0A0;
   --app-close-btn-hover-bg: #F85149;
   --app-close-btn-hover-fg: #FFFFFF;
   --app-tab-active-border: #4C8DF5;
-  --app-terminal-bg: #17191E;
+  --app-terminal-bg: #181818;
   --app-terminal-fg: #f5f5f7;
   --app-terminal-cursor: #0a84ff;
   --app-terminal-selection: rgba(10, 132, 255, 0.3);
@@ -679,10 +679,10 @@
 
   /* Notch Tab 变量 — 浮在深色终端上 */
   --notch-tab-active-bg: rgba(255, 255, 255, 0.08);
-  --notch-tab-active-fg: #E6E8EB;
+  --notch-tab-active-fg: #E8E8E8;
   --notch-tab-inactive-fg: rgba(255, 255, 255, 0.42);
   --notch-tab-hover-bg: rgba(255, 255, 255, 0.06);
-  --notch-tab-hover-fg: #C9D1D9;
+  --notch-tab-hover-fg: #D0D0D0;
   --notch-tab-border: rgba(255, 255, 255, 0.09);
 }
 
