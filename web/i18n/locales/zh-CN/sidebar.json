@@ -929,5 +929,18 @@
   "sessionFilterAll": "全部",
   "sessionTagCli": "终端",
   "sessionTagChat": "对话",
-  "explorer.search": "搜索"
+  "explorer.search": "搜索",
+  "terminalRowMenu": {
+    "rename": "重命名",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "fork": "分叉",
+    "copy": "复制",
+    "copySessionId": "复制会话 ID",
+    "copyWorkingDir": "复制工作目录",
+    "copied": "已复制",
+    "popOut": "在新窗口中打开",
+    "close": "关闭",
+    "popOutFailed": "弹出窗口失败: {{error}}"
+  }
 }

@@ -24,6 +24,10 @@ export interface WorkspaceTerminalRow {
   firstPrompt: string | null;
   /** CLI 自己起的会话标题（优先级高于首条输入）；没有则 null */
   sessionTitle: string | null;
+  /** 用户手动重命名过标签：行名直接用 title */
+  titleRenamed: boolean;
+  /** 固定（置顶）的标签：列表里排在最前 */
+  pinned: boolean;
   /** 各 leaf 中最严重的状态（无状态记录时为 null） */
   status: TerminalStatusType | null;
   /** toolRunning 时的工具名（取自状态最严重的那个 leaf） */
@@ -133,6 +137,8 @@ export function deriveWorkspaceTerminals(
         layoutId: layout.id,
         title: tab.title,
         ...lookupSessionLabel(tab, firstPrompts),
+        titleRenamed: tab.titleRenamed === true,
+        pinned: tab.pinned === true,
         status,
         toolName,
         oscProgress,

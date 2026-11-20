@@ -1,4 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { usePanesStore } from "@/stores";
+import type { Tab } from "@/types";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -29,6 +31,8 @@ function row(overrides: Partial<WorkspaceTerminalRow> = {}): WorkspaceTerminalRo
     title: "cc-book (Claude)",
     firstPrompt: null,
     sessionTitle: null,
+    titleRenamed: false,
+    pinned: false,
     status: "thinking",
     toolName: null,
     oscProgress: null,
@@ -90,6 +94,54 @@ describe("WorkspaceTerminalList", () => {
     const item = screen.getByRole("button", { name: /起草授权委托书/ });
     expect(item).toHaveTextContent("起草授权委托书");
     expect(item).toHaveAttribute("title", expect.stringContaining("帮我做个空白的授权委托书"));
+  });
+
+  it("a manual rename beats the CLI title", () => {
+    render(
+      <WorkspaceTerminalList
+        workspaceName="ws-alpha"
+        rows={[row({ title: "我的命名", titleRenamed: true, sessionTitle: "自动标题" })]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /我的命名/ })).toBeInTheDocument();
+    expect(screen.queryByText("自动标题")).not.toBeInTheDocument();
+  });
+
+  it("lists pinned terminals first", () => {
+    render(
+      <WorkspaceTerminalList
+        workspaceName="ws-alpha"
+        rows={[row({ tabId: "a", title: "普通" }), row({ tabId: "b", title: "置顶的", pinned: true })]}
+      />,
+    );
+    const names = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(names[0]).toContain("置顶的");
+  });
+
+  it("right-click offers the session actions and rename edits inline", async () => {
+    const tab = { id: "tab-1", title: "cc-book (Claude)", contentType: "terminal", projectId: "p", projectPath: "/w/cc-book", sessionId: "s1", resumeId: "cli-1" } as Tab;
+    const renameTab = vi.fn();
+    const original = usePanesStore.getState();
+    usePanesStore.setState({
+      findTabAcrossLayouts: () => ({ tab, panel: { id: "pane-1" }, layoutId: "l1" }) as never,
+      renameTab,
+    });
+    focusTab.mockReturnValue(true);
+    try {
+      render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
+      fireEvent.contextMenu(screen.getByRole("button", { name: /cc-book/ }));
+      expect(await screen.findByRole("menuitem", { name: /重命名|Rename/ })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: /置顶|Pin/ })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: /关闭|Close/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("menuitem", { name: /重命名|Rename/ }));
+      const input = await screen.findByRole("textbox");
+      fireEvent.change(input, { target: { value: "新名字" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(renameTab).toHaveBeenCalledWith("pane-1", "tab-1", "新名字");
+    } finally {
+      usePanesStore.setState({ findTabAcrossLayouts: original.findTabAcrossLayouts, renameTab: original.renameTab });
+    }
   });
 
   it("falls back to tab title when no first prompt is known", () => {

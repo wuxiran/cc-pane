@@ -929,5 +929,18 @@
   "sessionFilterAll": "All",
   "sessionTagCli": "Terminal",
   "sessionTagChat": "Chat",
-  "explorer.search": "Search"
+  "explorer.search": "Search",
+  "terminalRowMenu": {
+    "rename": "Rename",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "fork": "Fork",
+    "copy": "Copy",
+    "copySessionId": "Copy session ID",
+    "copyWorkingDir": "Copy working directory",
+    "copied": "Copied",
+    "popOut": "Open in new window",
+    "close": "Close",
+    "popOutFailed": "Failed to open window: {{error}}"
+  }
 }

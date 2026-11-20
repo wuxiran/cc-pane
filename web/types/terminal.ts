@@ -268,6 +268,8 @@ export interface Tab {
   browserUrl?: string;
   /** User label stays independent of the page's changing document title. */
   browserManualTitle?: string;
+  /** 用户手动重命名过：侧栏终端列表优先显示 title，而不是 CLI 生成的标题 / 首条输入。 */
+  titleRenamed?: boolean;
   browserPageTitle?: string;
   browserFaviconUrl?: string;
   dirty?: boolean;

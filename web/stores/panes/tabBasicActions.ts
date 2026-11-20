@@ -86,6 +86,8 @@ export function createTabBasicActions({ set, get }: PanesStoreAccess): TabBasicA
           tab.title = newTitle;
           if (tab.contentType === "browser" || tab.contentType === "dsh") {
             tab.browserManualTitle = newTitle;
+          } else {
+            tab.titleRenamed = true;
           }
         }
       });

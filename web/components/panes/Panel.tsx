@@ -15,12 +15,10 @@ import {
   useSshMachineDialogStore,
   useWorkspacesStore,
 } from "@/stores";
-import { terminalService, popOutTab } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
-import type { PopupTabData } from "@/services/popupWindowService";
+import { popOutTerminalTab } from "./popOutTerminalTab";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
-import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { collectPanels } from "@/lib/paneTree";
 import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
@@ -36,14 +34,6 @@ interface PanelProps {
   pane: PanelType;
 }
 
-function findActiveTerminalSessionId(tab: Tab): string | null {
-  if (tab.contentType !== "terminal" || !tab.terminalRootPane || !tab.activeTerminalPaneId) {
-    return tab.sessionId ?? null;
-  }
-  const activeLeaf = collectTerminalLeaves(tab.terminalRootPane)
-    .find((leaf) => leaf.id === tab.activeTerminalPaneId);
-  return activeLeaf?.sessionId ?? null;
-}
 
 export default memo(function Panel({ pane }: PanelProps) {
   const { t } = useTranslation("panes");
@@ -64,7 +54,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     splitAndMoveTab, splitTerminalPane, removeTerminalLeafInternal,
     moveTab, moveTabToLayoutPane,
     setActivePane, updateTabSession, reconnectTab,
-    setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
+    setTabDisconnected, isTabPoppedOut,
   } = usePanesStore(useShallow((s) => ({
     selectTab: s.selectTab,
     togglePinTab: s.togglePinTab,
@@ -80,7 +70,6 @@ export default memo(function Panel({ pane }: PanelProps) {
     updateTabSession: s.updateTabSession,
     reconnectTab: s.reconnectTab,
     setTabDisconnected: s.setTabDisconnected,
-    markTabPoppedOut: s.markTabPoppedOut,
     isTabPoppedOut: s.isTabPoppedOut,
   })));
 
@@ -346,38 +335,19 @@ export default memo(function Panel({ pane }: PanelProps) {
     openWorkspaceEnvironment(workspace.id);
   }, [getWorkspaceForTab, openWorkspaceEnvironment]);
 
-  // 弹出标签为独立窗口
+  // 弹出标签为独立窗口（与侧栏终端行菜单共用 popOutTerminalTab）
   const handlePopOutTab = useCallback(
     async (tabId: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
-      const sessionId = tab ? findActiveTerminalSessionId(tab) : null;
-      if (!tab || tab.contentType !== "terminal" || !sessionId) return;
-      if (isTabPoppedOut(tabId)) return;
-      const data: PopupTabData = {
-        tabId,
-        paneId: pane.id,
-        sessionId,
-        projectPath: tab.projectPath,
-        title: tab.title,
-        workspaceName: tab.workspaceName,
-        providerId: tab.providerId,
-        modelId: tab.modelId,
-        providerSelection: tab.providerSelection,
-        launchProfileId: tab.launchProfileId,
-        workspacePath: tab.workspacePath,
-      };
+      if (!tab) return;
       try {
-        // 先创建弹出窗口，成功后再断开主窗口 + 标记弹出
-        await popOutTab(data);
-        terminalService.detachOutput(sessionId);
-        terminalService.detachExit(sessionId);
-        markTabPoppedOut(tabId);
+        await popOutTerminalTab(tab, pane.id);
       } catch (err) {
         console.error("Failed to pop out tab:", err);
         toast.error(t("popOutFailed", { error: String(err) }));
       }
     },
-    [pane.id, pane.tabs, markTabPoppedOut]
+    [pane.id, pane.tabs, t]
   );
 
   // 保存 terminal ref
