@@ -53,6 +53,38 @@ pub struct SessionCostSnapshot {
     pub agent_session_id: Option<String>,
     pub observed_at: i64,
     pub diagnostic_code: Option<String>,
+    /// Latest subscription usage-limit observation found in this session's log.
+    /// None when the CLI does not record one (Claude transcripts, API-key Codex).
+    #[serde(default)]
+    pub rate_limits: Option<RateLimitSnapshot>,
+}
+
+/// One usage-limit window as reported by the CLI's own backend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindow {
+    /// Slot the CLI reported it in, e.g. `primary` / `secondary`.
+    pub slot: String,
+    /// 0-100, as reported (not derived).
+    pub used_percent: f64,
+    pub window_minutes: Option<u64>,
+    /// Epoch milliseconds. None when the CLI gave no reset time.
+    pub resets_at: Option<i64>,
+}
+
+/// Subscription usage limits observed in a CLI session log. Account-wide on the
+/// vendor side, but only as fresh as the session's last request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitSnapshot {
+    /// Where the numbers came from, e.g. `codex-session-log`.
+    pub source: String,
+    pub windows: Vec<RateLimitWindow>,
+    pub plan_type: Option<String>,
+    /// Set by the CLI when a limit has been hit.
+    pub limit_reached_type: Option<String>,
+    /// Epoch milliseconds of the log event; None when the line had no timestamp.
+    pub observed_at: Option<i64>,
 }
 
 impl ContextUsageSnapshot {

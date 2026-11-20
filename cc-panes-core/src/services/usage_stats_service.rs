@@ -630,6 +630,7 @@ impl UsageStatsService {
             );
         }
         let totals = entry.ledger.totals();
+        let rate_limits = entry.ledger.rate_limits().cloned();
         // 读文件期间身份可能变了（/clear、resume），旧账不能显示给新会话。
         let unchanged = self
             .context_request(pty_session_id, observed_at)
@@ -655,6 +656,7 @@ impl UsageStatsService {
                 observed_at,
             );
             snapshot.agent_session_id = Some(request.resume_id);
+            snapshot.rate_limits = rate_limits;
             return snapshot;
         }
         SessionCostSnapshot {
@@ -670,6 +672,7 @@ impl UsageStatsService {
             agent_session_id: Some(request.resume_id),
             observed_at,
             diagnostic_code: None,
+            rate_limits,
         }
     }
 
@@ -1665,6 +1668,7 @@ fn empty_session_cost(
         agent_session_id: None,
         observed_at,
         diagnostic_code: Some(diagnostic_code.to_string()),
+        rate_limits: None,
     }
 }
 
@@ -2132,6 +2136,49 @@ mod tests {
                     },
                 })
             )
+        }
+
+        #[test]
+        fn codex_rate_limits_ride_along_with_the_cost_snapshot() {
+            let temp = tempfile::tempdir().unwrap();
+            let rollout = temp.path().join(format!("rollout-{RESUME}.jsonl"));
+            let limits_only = json!({
+                "timestamp": "2026-11-06T00:53:50.319Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": null,
+                    "rate_limits": {
+                        "primary": {"used_percent": 35.0, "window_minutes": 10080, "resets_at": 1_794_212_338},
+                        "secondary": null,
+                        "plan_type": "pro",
+                    },
+                },
+            });
+            fs::write(&rollout, format!("{limits_only}\n")).unwrap();
+            let service = service_with_launch("codex", Some(RESUME));
+            seed_transcript(&service, &rollout, RESUME);
+
+            let waiting = service.session_cost_for_pty(PTY);
+            assert_eq!(waiting.status, ContextUsageStatus::Waiting);
+            let limits = waiting
+                .rate_limits
+                .expect("limits before the first priced call");
+            assert_eq!(limits.plan_type.as_deref(), Some("pro"));
+            assert_eq!(limits.windows[0].used_percent, 35.0);
+            assert_eq!(limits.windows[0].resets_at, Some(1_794_212_338_000));
+        }
+
+        #[test]
+        fn claude_cost_snapshot_has_no_rate_limits() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join(format!("{RESUME}.jsonl"));
+            fs::write(&main, assistant_line("msg_1", 10)).unwrap();
+            let service = service_with_launch("claude", Some(RESUME));
+            seed_transcript(&service, &main, RESUME);
+            let snapshot = service.session_cost_for_pty(PTY);
+            assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+            assert!(snapshot.rate_limits.is_none());
         }
 
         #[test]

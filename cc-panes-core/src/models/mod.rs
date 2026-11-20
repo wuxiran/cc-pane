@@ -54,7 +54,8 @@ pub use agent_transcript::{
     TranscriptMessage, TranscriptRole, DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
 };
 pub use context_usage::{
-    ContextUsageSnapshot, ContextUsageStatus, SessionCostModelEntry, SessionCostSnapshot,
+    ContextUsageSnapshot, ContextUsageStatus, RateLimitSnapshot, RateLimitWindow,
+    SessionCostModelEntry, SessionCostSnapshot,
 };
 pub use cursor_bridge::{
     CursorBridgeAction, CursorBridgeModelPref, CursorBridgeModelPreferences,
