@@ -44,6 +44,11 @@ enum Command {
         #[command(subcommand)]
         command: BindingsCommand,
     },
+    /// SSH machines saved in the Devices view: list, check (OS / running CC-Panes), open a shell.
+    Machines {
+        #[command(subcommand)]
+        command: MachinesCommand,
+    },
     /// Launch a registered project through the orchestrator.
     #[command(group(
         ArgGroup::new("launch_input")
@@ -105,6 +110,30 @@ enum Command {
         launch_id: Option<String>,
         #[arg(long, default_value_t = 3000)]
         startup_wait_ms: u64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum MachinesCommand {
+    /// List saved SSH machines (no credentials).
+    List,
+    /// Test SSH reachability, detect the remote OS and a running CC-Panes.
+    Check {
+        /// Machine id or name.
+        machine: String,
+    },
+    /// Open a shell tab on the machine in CC-Panes.
+    Open {
+        /// Machine id or name.
+        machine: String,
+        /// Remote directory (default: the machine's default path, else ~).
+        #[arg(long)]
+        cwd: Option<String>,
+        /// One-line command to submit once the shell is ready.
+        #[arg(long)]
+        command: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
     },
 }
 
@@ -297,6 +326,16 @@ pub fn execute(cli: Cli) -> Result<(), CliExit> {
             runtime,
             title,
         } => commands::launch(&context, &project, prompt, resume, cli, runtime, title),
+        Command::Machines { command } => match command {
+            MachinesCommand::List => commands::machines::list(&context),
+            MachinesCommand::Check { machine } => commands::machines::check(&context, &machine),
+            MachinesCommand::Open {
+                machine,
+                cwd,
+                command,
+                title,
+            } => commands::machines::open(&context, &machine, cwd, command, title),
+        },
         Command::Tools { schema } => commands::tools(&context, schema.as_deref()),
         Command::Call {
             tool,

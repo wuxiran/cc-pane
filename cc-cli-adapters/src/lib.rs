@@ -1346,6 +1346,8 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "list_projects",
     "list_launch_profiles",
     "open_terminal_tab",
+    "list_ssh_machines",
+    "check_ssh_machine",
     "open_browser_tab",
     "browser_list_tabs",
     "browser_navigate",

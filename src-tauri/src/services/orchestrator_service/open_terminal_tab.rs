@@ -33,6 +33,10 @@ pub(super) struct McpOpenTerminalTabParams {
     /// local（默认）/ wsl / ssh；wsl/ssh 目标按项目所在工作空间的运行环境配置解析
     #[serde(rename = "runtimeKind")]
     pub(super) runtime_kind: Option<String>,
+    /// SSH 机器 ID（list_ssh_machines）：在这台机器上开 shell，cwd 为远端目录（省略用机器默认目录或 ~），
+    /// 不需要已注册项目；与 runtimeKind 非 ssh 冲突
+    #[serde(rename = "machineId")]
+    pub(super) machine_id: Option<String>,
     /// 目标面板 ID（list_panes）
     #[serde(rename = "paneId")]
     pub(super) pane_id: Option<String>,
@@ -389,6 +393,17 @@ fn registered_project_paths(state: &AppState) -> Vec<String> {
     paths
 }
 
+/// What `open_terminal_tab_with_runtime` needs once the target is settled.
+/// `runtime: Some` = a fixed runtime (machineId); `None` = resolve from the workspace config.
+struct OpenTerminalPlan {
+    project_path: String,
+    requested_cwd: Option<String>,
+    runtime_kind: LaunchRuntimeKind,
+    runtime: Option<ResolvedLaunchRuntime>,
+    placement: &'static str,
+    command: Option<String>,
+}
+
 /// Project + requested cwd after applying the documented fallbacks.
 struct OpenTerminalTarget {
     project_path: String,
@@ -468,15 +483,73 @@ impl McpToolHandler {
             Ok(command) => command,
             Err(error) => return format!("错误: {}", error),
         };
+        if let Some(machine_id) = trimmed_non_empty(params.machine_id.as_deref()) {
+            if runtime_kind == LaunchRuntimeKind::Wsl
+                || (runtime_kind == LaunchRuntimeKind::Local && params.runtime_kind.is_some())
+            {
+                return "错误: machineId 只能配合 runtimeKind=ssh（或省略 runtimeKind）"
+                    .to_string();
+            }
+            let Some(machine) = self.state.ssh_machine_service.get(machine_id) else {
+                return format!(
+                    "错误: 找不到 SSH 机器 '{}'（先用 list_ssh_machines 查 id）",
+                    machine_id
+                );
+            };
+            let (project_path, runtime) =
+                ssh_machine_tools::machine_runtime(&machine, params.cwd.as_deref());
+            return self
+                .open_terminal_tab_with_runtime(
+                    params,
+                    extensions,
+                    OpenTerminalPlan {
+                        project_path,
+                        requested_cwd: None,
+                        runtime_kind: LaunchRuntimeKind::Ssh,
+                        runtime: Some(runtime),
+                        placement,
+                        command,
+                    },
+                )
+                .await;
+        }
         let target = match self.resolve_open_terminal_target(&params, runtime_kind, &extensions) {
             Ok(target) => target,
             Err(error) => return format!("错误: {}", error),
         };
-        let project_path = target.project_path;
+        self.open_terminal_tab_with_runtime(
+            params,
+            extensions,
+            OpenTerminalPlan {
+                project_path: target.project_path,
+                requested_cwd: target.requested_cwd,
+                runtime_kind,
+                runtime: None,
+                placement,
+                command,
+            },
+        )
+        .await
+    }
+
+    async fn open_terminal_tab_with_runtime(
+        &self,
+        params: McpOpenTerminalTabParams,
+        extensions: Extensions,
+        plan: OpenTerminalPlan,
+    ) -> String {
+        let OpenTerminalPlan {
+            project_path,
+            requested_cwd,
+            runtime_kind,
+            runtime: fixed_runtime,
+            placement,
+            command,
+        } = plan;
         // 只记工具名、cwd 与是否带命令：命令文本是用户输入，与 submit_to_session 同样不落日志。
         info!(
             project = %project_path,
-            cwd = ?target.requested_cwd,
+            cwd = ?requested_cwd,
             runtime = runtime_kind.as_str(),
             has_command = command.is_some(),
             placement,
@@ -489,29 +562,31 @@ impl McpToolHandler {
             None,
             &self.state.workspace_service,
         );
-        let runtime = match resolve_launch_runtime(
-            &project_path,
-            context.workspace_name.as_deref(),
-            Some(CliTool::None.as_id()),
-            Some(runtime_kind.as_str()),
-            None,
-            &self.state,
-        ) {
-            Ok(runtime) => runtime,
-            Err(error) => return format!("错误: {}", error),
-        };
-        let launch_cwd = match resolve_runtime_launch_cwd(
-            &project_path,
-            target.requested_cwd.as_deref(),
-            &runtime,
-        ) {
-            Ok(cwd) if runtime.kind == LaunchRuntimeKind::Local => match validate_local_cwd(&cwd) {
-                Ok(cwd) => cwd,
+        let runtime = match fixed_runtime {
+            Some(runtime) => runtime,
+            None => match resolve_launch_runtime(
+                &project_path,
+                context.workspace_name.as_deref(),
+                Some(CliTool::None.as_id()),
+                Some(runtime_kind.as_str()),
+                None,
+                &self.state,
+            ) {
+                Ok(runtime) => runtime,
                 Err(error) => return format!("错误: {}", error),
             },
-            Ok(cwd) => cwd,
-            Err(error) => return format!("错误: {}", error),
         };
+        let launch_cwd =
+            match resolve_runtime_launch_cwd(&project_path, requested_cwd.as_deref(), &runtime) {
+                Ok(cwd) if runtime.kind == LaunchRuntimeKind::Local => {
+                    match validate_local_cwd(&cwd) {
+                        Ok(cwd) => cwd,
+                        Err(error) => return format!("错误: {}", error),
+                    }
+                }
+                Ok(cwd) => cwd,
+                Err(error) => return format!("错误: {}", error),
+            };
         let title = trimmed_non_empty(params.title.as_deref())
             .map(str::to_string)
             .unwrap_or_else(|| default_open_terminal_title(runtime.ssh.as_ref(), &launch_cwd));

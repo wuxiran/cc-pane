@@ -66,6 +66,20 @@ describe("AddDeviceDialog", () => {
     await waitFor(() => expect(onAdded).toHaveBeenCalledWith(direct, false));
   });
 
+  it("opens in pairing mode with a prefilled address", async () => {
+    render(
+      <AddDeviceDialog
+        open
+        onOpenChange={() => {}}
+        onAdded={() => {}}
+        initialKind="direct"
+        initialBaseUrl="http://192.168.2.182:18081"
+      />,
+    );
+    expect(screen.getByPlaceholderText(/tailnet/)).toHaveValue("http://192.168.2.182:18081");
+    expect(screen.getByTestId("device-pairing-code")).toBeInTheDocument();
+  });
+
   it("warns about plain HTTP on a LAN address and can fall back to a token", async () => {
     const user = userEvent.setup();
     render(<AddDeviceDialog open onOpenChange={() => {}} onAdded={() => {}} />);

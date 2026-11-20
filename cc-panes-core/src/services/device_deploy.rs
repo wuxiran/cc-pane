@@ -116,8 +116,17 @@ pub fn probe_platform(session: &Session) -> Result<RemotePlatform> {
     let basics = remote_exec(
         session,
         "uname -s; uname -m; printf '%s\\n' \"$HOME\"; id -un",
-    )?
-    .ok("Detect remote platform")?;
+    )?;
+    if basics.status != 0
+        && crate::services::ssh_machine_probe::detect_remote_os(session).as_deref()
+            == Some("windows")
+    {
+        bail!(
+            "The remote machine runs Windows; one-click deploy only supports Linux and macOS. \
+             Install the CC-Panes desktop app there and connect to it with a pairing code instead."
+        );
+    }
+    let basics = basics.ok("Detect remote platform")?;
     let mut lines = basics.lines();
     let os = normalize_os(lines.next().unwrap_or_default());
     let arch = normalize_arch(lines.next().unwrap_or_default());

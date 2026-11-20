@@ -70,4 +70,17 @@ export interface SshConnectivityResult {
   reachable: boolean;
   message: string;
   latencyMs: number | null;
+  /** 远端系统（小写：linux / macos / windows / 其他）；仅连通时给出，旧后端缺失 */
+  os?: string | null;
+  /** 机器 host 上探测到正在运行的 CC-Panes web 服务端；旧后端缺失 */
+  ccPanes?: SshCcPanesProbe | null;
+}
+
+/** 连通性检测时在远端探测到的 CC-Panes 服务端 */
+export interface SshCcPanesProbe {
+  /** 例如 "http://192.168.2.182:18081" */
+  baseUrl: string;
+  port: number;
+  /** false = 对方版本低于 0.12.22，不支持配对 */
+  pairingSupported: boolean;
 }

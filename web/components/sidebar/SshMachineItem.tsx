@@ -5,7 +5,9 @@ import {
   CloudUpload,
   FolderOpen,
   KeyRound,
+  Link2,
   LockKeyhole,
+  Monitor,
   MoreHorizontal,
   Pencil,
   Radio,
@@ -16,7 +18,6 @@ import {
   Trash2,
   Wifi,
   WifiOff,
-  type LucideIcon,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -31,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { SshConnectivityResult, SshMachine } from "@/types";
+import type { SshCcPanesProbe, SshMachine } from "@/types";
 import {
   sidebarEntityActionsClass,
   sidebarEntityBadgeClass,
@@ -41,53 +42,9 @@ import {
   sidebarEntityRowClass,
   sidebarEntityTitleClass,
 } from "./sidebarStyles";
+import { detectedCcPanes, osLabelKey, type ConnectivityState } from "./sshMachineProbe";
 
-export type ConnectivityState = null | "checking" | SshConnectivityResult;
-
-export function FilterButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[length:var(--text-micro)] transition-colors"
-      style={{
-        color: active ? "var(--app-accent)" : "var(--app-text-secondary)",
-        background: active ? "var(--app-accent-muted)" : "transparent",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-export function SummaryMetric({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  icon?: LucideIcon;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="flex items-center gap-1 text-sm font-semibold text-[var(--app-text-primary)]">
-        {Icon && <Icon className="h-3 w-3 text-[var(--app-text-muted)]" />}
-        {value}
-      </span>
-      <span className="text-[length:var(--text-nano)] text-[var(--app-text-muted)]">{label}</span>
-    </div>
-  );
-}
+export type { ConnectivityState } from "./sshMachineProbe";
 
 function StatusDot({ state }: { state: ConnectivityState }) {
   const { t } = useTranslation("sidebar");
@@ -133,6 +90,8 @@ interface MachineItemProps {
   onToggleFavorite: (machineId: string) => void;
   /** 合并视图：这台主机还没有部署 CC-Panes 时，菜单里提供「部署 CC-Panes」 */
   onDeployCcPanes?: (machine: SshMachine) => void;
+  /** 合并视图：探测到这台主机上在跑 CC-Panes 且尚未添加时，菜单里提供「连接」 */
+  onConnectCcPanes?: (machine: SshMachine, ccPanes: SshCcPanesProbe) => void;
   /** 合并视图：挂在这台主机上的 CC-Panes（渲染在行下方，不在可点击行内） */
   children?: ReactNode;
 }
@@ -155,8 +114,13 @@ function MachineMenuItems({
   onCheckConnectivity,
   onToggleFavorite,
   onDeployCcPanes,
+  onConnectCcPanes,
+  ccPanes,
   dropdown = false,
-}: Omit<MachineItemProps, "connectivity" | "selected" | "onSelect" | "children"> & { dropdown?: boolean }) {
+}: Omit<MachineItemProps, "connectivity" | "selected" | "onSelect" | "children"> & {
+  ccPanes: SshCcPanesProbe | null;
+  dropdown?: boolean;
+}) {
   const { t } = useTranslation("sidebar");
   const Item = dropdown ? DropdownMenuItem : ContextMenuItem;
   return (
@@ -173,6 +137,23 @@ function MachineMenuItems({
         <Item onClick={() => onDeployCcPanes(machine)}>
           <CloudUpload className="mr-2 h-3.5 w-3.5" />
           {t("machines.deployCcPanes")}
+        </Item>
+      )}
+      {onConnectCcPanes && ccPanes && (
+        <Item
+          disabled={!ccPanes.pairingSupported}
+          data-testid="machine-connect-ccpanes"
+          onClick={() => onConnectCcPanes(machine, ccPanes)}
+        >
+          <Link2 className="mr-2 h-3.5 w-3.5 shrink-0" />
+          <span className="flex min-w-0 flex-col">
+            <span>{t("machines.connectCcPanes")}</span>
+            {!ccPanes.pairingSupported && (
+              <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
+                {t("machines.ccPanesUpgradeHint")}
+              </span>
+            )}
+          </span>
         </Item>
       )}
       <Item onClick={() => onToggleFavorite(machine.id)}>
@@ -255,6 +236,8 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
         ? { label: t("ssh.statusOffline", { defaultValue: "Unavailable" }), icon: WifiOff }
         : { label: t("ssh.statusUnknown", { defaultValue: "Not checked" }), icon: Radio };
   const StatusIcon = status.icon;
+  const osKey = osLabelKey(connectivity);
+  const ccPanes = detectedCcPanes(connectivity);
   const menuProps = {
     machine,
     favorite,
@@ -266,6 +249,8 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
     onCheckConnectivity: props.onCheckConnectivity,
     onToggleFavorite: props.onToggleFavorite,
     onDeployCcPanes: props.onDeployCcPanes,
+    onConnectCcPanes: props.onConnectCcPanes,
+    ccPanes,
   };
 
   return (
@@ -303,6 +288,14 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
                 <span className={sidebarEntityTitleClass}>
                   {machine.name}
                 </span>
+                {ccPanes && (
+                  <span
+                    data-testid={`machine-ccpanes-badge-${machine.id}`}
+                    className={`${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-status-success)_14%,transparent)] text-[var(--app-status-success)]`}
+                  >
+                    {t("machines.ccPanesRunning")}
+                  </span>
+                )}
                 {machine.tags.map((tag) => (
                   <span
                     key={tag}
@@ -390,6 +383,12 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
               <StatusIcon className="h-3 w-3" />
               {status.label}
             </span>
+            {osKey && (
+              <span className="inline-flex shrink-0 items-center gap-1" data-testid={`machine-os-${machine.id}`}>
+                <Monitor className="h-3 w-3" />
+                {t(osKey)}
+              </span>
+            )}
             {machine.defaultPath && (
               <span className="inline-flex min-w-0 items-center gap-1 truncate">
                 <FolderOpen className="h-3 w-3 shrink-0" />

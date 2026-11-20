@@ -17,10 +17,13 @@ mod open_terminal_tab;
 pub(crate) mod pending_approval;
 #[path = "orchestrator_service/report_delivery_cache.rs"]
 mod report_delivery_cache;
+#[path = "orchestrator_service/ssh_machine_tools.rs"]
+mod ssh_machine_tools;
 #[path = "orchestrator_service/worker_report_requests.rs"]
 mod worker_report_requests;
 use open_terminal_tab::McpOpenTerminalTabParams;
 use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCache};
+use ssh_machine_tools::McpCheckSshMachineParams;
 
 use crate::ccchan_service::CCChanService;
 use crate::models::task_binding::{
@@ -7975,6 +7978,24 @@ impl McpToolHandler {
         extensions: Extensions,
     ) -> String {
         self.open_terminal_tab_impl(params, extensions).await
+    }
+
+    /// 列出「设备」视图里保存的 SSH 机器（id、名称、地址、用户、标签、默认目录；不含凭据）。
+    /// 在某台机器上开终端：open_terminal_tab 传 machineId。
+    #[tool]
+    async fn list_ssh_machines(&self) -> String {
+        debug!("mcp::list_ssh_machines");
+        self.list_ssh_machines_impl()
+    }
+
+    /// 检测一台 SSH 机器：能否连上、延迟、远端系统（linux/macos/windows），以及对方是否在跑 CC-Panes
+    /// （ccPanes.baseUrl / pairingSupported）。canDeploy=true 表示可在 UI 里一键部署 CC-Panes。
+    #[tool]
+    async fn check_ssh_machine(
+        &self,
+        Parameters(params): Parameters<McpCheckSshMachineParams>,
+    ) -> String {
+        self.check_ssh_machine_impl(params).await
     }
 
     /// 在 CC-Panes 中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。

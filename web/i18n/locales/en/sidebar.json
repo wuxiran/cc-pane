@@ -379,9 +379,6 @@
   "ssh.unfavorite": "Remove from Favorites",
   "ssh.noMatches": "No matching machines",
   "ssh.connectMachine": "Connect to {{name}}",
-  "ssh.summaryMachines": "Machines",
-  "ssh.summaryOnline": "Online",
-  "ssh.summaryFavorites": "Favorites",
   "ssh.ungrouped": "Ungrouped",
   "ssh.statusChecking": "Checking",
   "ssh.statusOnline": "Online",
@@ -809,7 +806,13 @@
     "deployCcPanes": "Deploy CC-Panes…",
     "ccPanes": "CC-Panes",
     "ccPanesNamed": "CC-Panes · {{name}}",
-    "port": "Port {{port}}"
+    "port": "Port {{port}}",
+    "connectCcPanes": "Connect to CC-Panes on this computer…",
+    "ccPanesUpgradeHint": "The remote CC-Panes is too old; upgrade it to 0.12.22+ to pair",
+    "ccPanesRunning": "CC-Panes running",
+    "osLinux": "Linux",
+    "osMacos": "macOS",
+    "osWindows": "Windows"
   },
   "devices": {
     "refresh": "Refresh",

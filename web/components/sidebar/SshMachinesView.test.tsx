@@ -79,6 +79,19 @@ function createMachine(overrides: Partial<SshMachine> = {}): SshMachine {
   };
 }
 
+/** 补足机器数让筛选条出现（标签与名字都不和用例里的机器冲突） */
+function fillerMachines(count: number): SshMachine[] {
+  return Array.from({ length: count }, (_, index) =>
+    createMachine({ id: `f-${index}`, name: `filler-${index}`, host: `f${index}.local`, tags: ["zz-filler"] }),
+  );
+}
+
+function manyMachines(count: number): SshMachine[] {
+  return Array.from({ length: count }, (_, index) =>
+    createMachine({ id: `m-${index + 1}`, name: `box-${index + 1}`, host: `b${index + 1}.local` }),
+  );
+}
+
 function renderView(machines: SshMachine[] = []) {
   const onOpenTerminal = vi.fn();
   const loadMock = vi.fn(async () => undefined);
@@ -189,12 +202,12 @@ describe("SshMachinesView", () => {
     });
   });
 
-  it("shows machine metrics and groups untagged machines", () => {
+  it("has no stats row and groups untagged machines", () => {
     renderView([createMachine({ tags: [] })]);
 
     expect(screen.queryByRole("textbox", { name: /Search machines|搜索机器/ })).toBeNull();
-    expect(screen.getAllByText(/Machines|机器/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Favorites|收藏/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^(Machines|机器)$/)).toBeNull();
+    expect(screen.queryByText(/^(Online|在线)$/)).toBeNull();
     expect(screen.getByRole("region", { name: /Ungrouped|未分组/ })).toBeVisible();
     expect(screen.getByText(/Key|密钥/)).toBeVisible();
     expect(screen.getByText(/Not checked|未检测/)).toBeVisible();
@@ -318,6 +331,35 @@ describe("SshMachinesView", () => {
     });
   });
 
+  it("hides the filter row with five or fewer machines", () => {
+    renderView(manyMachines(5));
+    expect(screen.queryByTestId("ssh-machine-filters")).toBeNull();
+  });
+
+  it("shows the filter row without a visible scrollbar above five machines", () => {
+    renderView(manyMachines(6));
+    expect(screen.getByTestId("ssh-machine-filters")).toHaveClass("no-scrollbar");
+  });
+
+  it("auto-checks every machine once on mount, two at a time", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    mockCheck.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { reachable: true, message: "ok", latencyMs: 1 };
+    });
+    renderView(manyMachines(4));
+
+    await waitFor(() => expect(mockCheck).toHaveBeenCalledTimes(4));
+    expect(peak).toBe(2);
+    expect(new Set(mockCheck.mock.calls.map(([id]) => id))).toEqual(
+      new Set(["m-1", "m-2", "m-3", "m-4"]),
+    );
+  });
+
   it("filters machines by tags", async () => {
     const user = userEvent.setup();
     const otherMachine = createMachine({
@@ -326,7 +368,7 @@ describe("SshMachinesView", () => {
       host: "staging.local",
       tags: ["staging"],
     });
-    renderView([createMachine(), otherMachine]);
+    renderView([createMachine(), otherMachine, ...fillerMachines(4)]);
 
     expect(screen.getByText("stagingbox")).toBeVisible();
     expect(screen.getByText("devbox")).toBeVisible();
@@ -343,7 +385,7 @@ describe("SshMachinesView", () => {
   it("favorites a machine and filters by favorites", async () => {
     const user = userEvent.setup();
     const otherMachine = createMachine({ id: "m-2", name: "stagingbox" });
-    renderView([createMachine(), otherMachine]);
+    renderView([createMachine(), otherMachine, ...fillerMachines(4)]);
 
     await user.click(
       screen.getAllByRole("button", { name: /Add to Favorites|添加到收藏/ })[0],

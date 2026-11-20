@@ -18,6 +18,8 @@ export type AddDeviceKind = "ssh" | "direct";
 export interface AddDeviceRequest {
   kind: AddDeviceKind;
   machineId?: string;
+  /** 直连时预填的地址（SSH 主机上探测到的 CC-Panes） */
+  baseUrl?: string;
 }
 
 export function useDevicesController() {

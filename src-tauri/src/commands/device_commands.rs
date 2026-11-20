@@ -681,10 +681,12 @@ pub async fn device_pair(
             code => format!("Pairing failed (HTTP {code}): {body}"),
         }));
     }
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| AppError::from(error.to_string()))?;
+    // 0.12.22 之前没有配对接口，老版本对未知 /api 路径回 SPA 的 HTML，而不是 404。
+    let json: serde_json::Value = response.json().await.map_err(|_| {
+        AppError::from(
+            "The other computer runs an older CC-Panes without device pairing (needs 0.12.22 or later)",
+        )
+    })?;
     let token = json
         .get("token")
         .and_then(|value| value.as_str())

@@ -46,6 +46,7 @@ vi.mock("@/services/deviceService", () => ({
 }));
 
 import * as deviceService from "@/services/deviceService";
+import { checkSshConnectivity } from "@/services/sshMachineService";
 import { useDevicesStore } from "@/stores/useDevicesStore";
 import { openRemoteSession } from "./openRemoteSession";
 import DevicesView from "./DevicesView";
@@ -132,6 +133,7 @@ describe("DevicesView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetStore([gpuBox]);
+    vi.mocked(checkSshConnectivity).mockResolvedValue({ reachable: true, message: "ok", latencyMs: 5 });
   });
 
   it("shows the merged empty state when there are no SSH hosts and no devices", async () => {
@@ -198,17 +200,79 @@ describe("DevicesView", () => {
     expect(screen.getByTestId("machine-entry-m2")).not.toContainElement(screen.queryByTestId("device-card-d1"));
   });
 
-  it("offers Deploy CC-Panes on a bare SSH host and opens the add dialog preset to it", async () => {
+  async function openMachineMenu(machineId: string) {
+    const user = userEvent.setup();
+    const entry = await screen.findByTestId(`machine-entry-${machineId}`);
+    await user.click(within(entry).getByRole("button", { name: /更多操作|More actions/ }));
+    await screen.findAllByRole("menuitem");
+    return user;
+  }
+
+  it("auto-checks connectivity for every machine when the view mounts", async () => {
+    resetStore([gpuBox, plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    renderView();
+    await waitFor(() => expect(checkSshConnectivity).toHaveBeenCalledTimes(2));
+    expect(checkSshConnectivity).toHaveBeenCalledWith("m1");
+    expect(checkSshConnectivity).toHaveBeenCalledWith("m2");
+  });
+
+  it("offers Deploy CC-Panes on a bare Linux host and opens the add dialog preset to it", async () => {
     resetStore([plainHost]);
     vi.mocked(deviceService.listDevices).mockResolvedValue([]);
-    const user = userEvent.setup();
+    vi.mocked(checkSshConnectivity).mockResolvedValue({ reachable: true, message: "ok", latencyMs: 5, os: "linux" });
     renderView();
 
-    const entry = await screen.findByTestId("machine-entry-m2");
-    await user.click(within(entry).getByRole("button", { name: /更多操作|More actions/ }));
-    await user.click(await screen.findByRole("menuitem", { name: /部署 CC-Panes|Deploy CC-Panes/ }));
+    expect(await screen.findByTestId("machine-os-m2")).toHaveTextContent("Linux");
+    const user = await openMachineMenu("m2");
+    await user.click(screen.getByRole("menuitem", { name: /部署 CC-Panes|Deploy CC-Panes/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(/添加设备|Add device/);
     expect(screen.getByTestId("device-machine-select")).toHaveTextContent("bare-host");
+  });
+
+  it("hides Deploy CC-Panes for Windows hosts", async () => {
+    resetStore([plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    vi.mocked(checkSshConnectivity).mockResolvedValue({ reachable: true, message: "ok", latencyMs: 5, os: "windows" });
+    renderView();
+
+    expect(await screen.findByTestId("machine-os-m2")).toHaveTextContent("Windows");
+    await openMachineMenu("m2");
+    expect(screen.queryByRole("menuitem", { name: /部署 CC-Panes|Deploy CC-Panes/ })).toBeNull();
+    expect(screen.queryByTestId("machine-connect-ccpanes")).toBeNull();
+  });
+
+  it("offers connecting to a detected CC-Panes and prefills its address in pairing mode", async () => {
+    resetStore([plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    vi.mocked(checkSshConnectivity).mockResolvedValue({
+      reachable: true, message: "ok", latencyMs: 5, os: "linux",
+      ccPanes: { baseUrl: "http://192.168.2.182:18081", port: 18081, pairingSupported: true },
+    });
+    renderView();
+
+    expect(await screen.findByTestId("machine-ccpanes-badge-m2")).toHaveTextContent(/CC-Panes 运行中|CC-Panes running/);
+    const user = await openMachineMenu("m2");
+    expect(screen.queryByRole("menuitem", { name: /部署 CC-Panes|Deploy CC-Panes/ })).toBeNull();
+    await user.click(screen.getByTestId("machine-connect-ccpanes"));
+    expect(await screen.findByTestId("device-pairing-code")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/tailnet/)).toHaveValue("http://192.168.2.182:18081");
+  });
+
+  it("disables the connect item with an upgrade hint when the remote cannot pair", async () => {
+    resetStore([plainHost]);
+    vi.mocked(deviceService.listDevices).mockResolvedValue([]);
+    vi.mocked(checkSshConnectivity).mockResolvedValue({
+      reachable: true, message: "ok", latencyMs: 5, os: "linux",
+      ccPanes: { baseUrl: "http://192.168.2.182:18081", port: 18081, pairingSupported: false },
+    });
+    renderView();
+
+    await screen.findByTestId("machine-ccpanes-badge-m2");
+    await openMachineMenu("m2");
+    const item = screen.getByTestId("machine-connect-ccpanes");
+    expect(item).toHaveAttribute("data-disabled");
+    expect(item).toHaveTextContent(/0\.12\.22/);
   });
 
   it("has a single add entry that asks for the type first", async () => {

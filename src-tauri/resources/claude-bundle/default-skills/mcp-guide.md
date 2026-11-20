@@ -53,7 +53,7 @@ wait_for_session / get_session_output → 真正的进度
 需要一个**用户看得见**的普通 shell（不是 AI CLI）时用 `open_terminal_tab`，例如在标签里 `ssh heze`、跑 dev server、看日志：
 
 ```
-open_terminal_tab(cwd?, command?, title?, runtimeKind?, projectPath?, paneId?, layoutId?, layoutName?, placement?)
+open_terminal_tab(cwd?, command?, title?, runtimeKind?, projectPath?, machineId?, paneId?, layoutId?, layoutName?, placement?)
   → { success, sessionId, taskId, tabId, terminalPaneId, paneId, cwd, runtimeKind, commandSent, commandError? }
 ```
 
@@ -63,6 +63,13 @@ open_terminal_tab(cwd?, command?, title?, runtimeKind?, projectPath?, paneId?, l
 - `command` 是**单行**命令，shell 出现提示符后才发送（和 `submit_to_session` 同一机制）。`commandSent=false` 时看 `commandError`：提示符超时、shell 已退出，或者 shell 正停在密码 / 确认提示——这些情况都**不会**发送，等用户处理完再 `submit_to_session`。
 - 之后用 `submit_to_session` / `get_session_output` / `wait_for_session` / `kill_session` 操作这个 `sessionId`。普通 shell 没有 AI CLI 的 hook 状态上报，判断命令是否跑完以 `get_session_output` 为准。
 - 只想后台跑命令、不需要用户看见：用 `start_runner`（管理台）。
+
+### 在「设备」里保存的 SSH 机器上开终端
+
+- `list_ssh_machines()` → `{ machines: [{ id, name, host, port, user, tags, description, defaultPath, routed }] }`（不含凭据）。
+- `check_ssh_machine(machineId)` → `{ reachable, message, latencyMs, os, ccPanes, canDeploy }`：`os` 为 `linux` / `macos` / `windows`；`ccPanes` 非空表示对方已在跑 CC-Panes（`baseUrl`、`pairingSupported`）。
+- `open_terminal_tab(machineId, cwd?, command?)`：直接在这台机器上开 shell，不需要已注册项目；`cwd` 是远端目录（`/…` 或 `~…`），省略用机器默认目录或 `~`。Windows 主机的远端 shell 可能是 cmd 或 PowerShell，`command` 按对方 shell 写。
+- 机器的增删改只在 UI 里做。命令行同样可用：`cc-panes-ctl machines list|check <id或名称>|open <id或名称>`。
 
 ## 往会话里写东西
 

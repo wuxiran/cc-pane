@@ -12,7 +12,6 @@
   "components/providers/LaunchProfilesPanel.tsx": 516,
   "components/providers/ProviderFormPanel.tsx": 575,
   "components/sidebar/SshMachineDialog.tsx": 603,
-  "components/sidebar/SshMachinesView.tsx": 525,
   "components/sidebar/WorkspaceEnvironmentPanel.tsx": 925,
   "components/sidebar/WorkspaceItem.tsx": 710,
   "components/todo/TodoEditor.tsx": 614,

@@ -1,3 +1,4 @@
+pub(crate) mod machines;
 pub(crate) mod run;
 
 use std::collections::HashSet;

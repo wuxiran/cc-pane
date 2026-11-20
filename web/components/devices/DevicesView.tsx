@@ -89,8 +89,9 @@ export default function DevicesView({ onOpenTerminal }: DevicesViewProps) {
       { id: "direct", label: t("machines.addOtherComputer"), onSelect: addDirect },
     ],
     renderForMachine: (machine) => byMachine.get(machine.id)?.map((device) => renderCard(device, machine.name)),
-    canDeploy: (machineId) => !byMachine.has(machineId),
+    hasLinkedDevice: (machineId) => byMachine.has(machineId),
     onDeploy: (machine) => openAdd({ kind: "ssh", machineId: machine.id }),
+    onConnectCcPanes: (_machine, ccPanes) => openAdd({ kind: "direct", baseUrl: ccPanes.baseUrl }),
     onRefreshAll: () => void refreshAll(),
     refreshing: Object.values(refreshing).some(Boolean),
     emptyState: (
@@ -134,6 +135,7 @@ export default function DevicesView({ onOpenTerminal }: DevicesViewProps) {
         onOpenChange={controller.setAddOpen}
         initialKind={controller.addRequest.kind}
         initialMachineId={controller.addRequest.machineId}
+        initialBaseUrl={controller.addRequest.baseUrl}
         onAdded={controller.handleAdded}
       />
       <DeviceTokenDialog device={controller.tokenDevice} onClose={() => controller.setTokenDevice(null)} />

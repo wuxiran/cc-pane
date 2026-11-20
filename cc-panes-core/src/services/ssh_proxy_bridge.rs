@@ -78,11 +78,34 @@ pub(crate) fn open_tcp_stream(address: &str) -> Result<TcpStream> {
         .rsplit_once(':')
         .map(|(host, _)| host.trim_start_matches('[').trim_end_matches(']'))
         .unwrap_or(address);
-    address
+    let mut last_error = None;
+    for socket in address
         .to_socket_addrs()
         .with_context(|| format!("Failed to resolve {host}"))?
-        .find_map(|socket| TcpStream::connect_timeout(&socket, BRIDGE_CONNECT_TIMEOUT).ok())
-        .with_context(|| format!("Failed to connect to {address}"))
+    {
+        match TcpStream::connect_timeout(&socket, BRIDGE_CONNECT_TIMEOUT) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    // 带上最后一个系统错误：「No route to host」在 macOS 上常是本地网络权限，与「超时」「拒绝」的处理完全不同。
+    match last_error {
+        Some(error) => {
+            let hint = local_network_hint(&error);
+            Err(error).with_context(|| format!("Failed to connect to {address}{hint}"))
+        }
+        None => anyhow::bail!("Failed to connect to {address}: no addresses resolved"),
+    }
+}
+
+/// macOS 的「本地网络」隐私权限没给时，连局域网地址报的是 EHOSTUNREACH（65），
+/// 而系统自带的 `ssh` / `nc` 不受限，看着像「终端能连、应用连不上」。直接告诉用户去哪开。
+fn local_network_hint(error: &std::io::Error) -> &'static str {
+    if cfg!(target_os = "macos") && error.raw_os_error() == Some(65) {
+        " (on macOS, allow CC-Panes under System Settings > Privacy & Security > Local Network)"
+    } else {
+        ""
+    }
 }
 
 /// 经代理打通到 `target_host:target_port` 的 TCP 隧道。

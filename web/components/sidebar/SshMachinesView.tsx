@@ -8,12 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
-import {
-  Server,
-  Star,
-  Radio,
-  Wifi,
-} from "lucide-react";
+import { Server } from "lucide-react";
 import {
   useRightDockStore,
   useSshMachinePreferencesStore,
@@ -25,40 +20,29 @@ import { waitForTauri, getErrorMessage } from "@/utils";
 import { checkSshConnectivity } from "@/services/sshMachineService";
 import SshPasswordDialog from "@/components/ssh/SshPasswordDialog";
 import SshMachineDialog from "./SshMachineDialog";
-import MachineItem, {
-  FilterButton,
-  SummaryMetric,
+import MachineItem from "./SshMachineItem";
+import SshMachineFilterRow from "./SshMachineFilterRow";
+import {
+  AUTO_PROBE_CONCURRENCY,
+  resolveMachineCcPanesAction,
+  runWithConcurrency,
   type ConnectivityState,
-} from "./SshMachineItem";
+} from "./sshMachineProbe";
 import SshMachinesHeader, { type HeaderAddOption } from "./SshMachinesHeader";
 import WslDiscoverDialog from "./WslDiscoverDialog";
 import type {
+  SshCcPanesProbe,
   SshMachine,
   OpenTerminalOptions,
 } from "@/types";
-import type { SshConnectionInfo } from "@/types/workspace";
+import { buildTerminalOpts } from "./sshMachineTerminal";
 import { nativeConfirm } from "@/services/nativeDialog";
 
 /** 检测当前是否为 Windows 平台 */
 const isWindows = navigator.platform?.startsWith("Win") ?? false;
 
-/** 从 SshMachine 构造 OpenTerminalOptions */
-function buildTerminalOpts(m: SshMachine): OpenTerminalOptions {
-  const remotePath = m.defaultPath || "~";
-  const ssh: SshConnectionInfo = {
-    host: m.host,
-    port: m.port,
-    user: m.user,
-    remotePath,
-    identityFile: m.identityFile,
-    machineId: m.id,
-    authMethod: m.authMethod,
-  };
-  const userPart = m.user ? `${m.user}@` : "";
-  const portPart = m.port !== 22 ? `:${m.port}` : "";
-  const path = `ssh://${userPart}${m.host}${portPart}/${remotePath}`;
-  return { path, ssh, machineName: m.name };
-}
+/** 机器达到这个数（即多于 5 台）才显示标签筛选条；少量机器时它只是噪音 */
+const FILTER_ROW_MIN_MACHINES = 6;
 
 /**
  * 「设备」合并视图注入的部分（docs/111）：每台 SSH 主机下挂它的 CC-Panes，
@@ -70,9 +54,12 @@ export interface MachineDevicesSlot {
   otherCount: number;
   addOptions: readonly HeaderAddOption[];
   renderForMachine: (machine: SshMachine) => ReactNode;
-  /** 这台主机还没部署 CC-Panes 时，机器菜单提供「部署 CC-Panes」 */
-  canDeploy: (machineId: string) => boolean;
+  /** 这台主机下是否已挂了 CC-Panes 设备（已挂则菜单不再给部署 / 连接） */
+  hasLinkedDevice: (machineId: string) => boolean;
+  /** 探测到 Linux / macOS 且未在跑 CC-Panes 时，菜单提供「部署 CC-Panes」 */
   onDeploy: (machine: SshMachine) => void;
+  /** 探测到对方已在跑 CC-Panes 时，菜单提供「连接」（配对直连） */
+  onConnectCcPanes: (machine: SshMachine, ccPanes: SshCcPanesProbe) => void;
   onRefreshAll: () => void;
   refreshing: boolean;
   /** 机器与其他电脑都为空时显示 */
@@ -118,7 +105,10 @@ export default function SshMachinesView({
   const abortRef = useRef(false);
   // generation 计数：组件卸载时递增，防止 stale 请求回写 state
   const generationRef = useRef(0);
-  const autoCheckedRef = useRef(false);
+  // 已自动检测过的机器：每台只自动测一次，手动「检测连通性」不受影响
+  const autoProbedRef = useRef<Set<string>>(new Set());
+  const connectivityRef = useRef(connectivity);
+  connectivityRef.current = connectivity;
 
   useEffect(() => {
     waitForTauri().then((ready) => {
@@ -164,35 +154,37 @@ export default function SshMachinesView({
     }
   }, []);
 
-  /** 检测所有机器连通性（串行，避免并发 SSH 爆发） */
+  /** 检测所有机器连通性（限并发，避免 SSH 连接爆发） */
   const checkAll = useCallback(async () => {
     if (checkingAll || machines.length === 0) return;
     setCheckingAll(true);
     abortRef.current = false;
-    for (const m of machines) {
-      if (abortRef.current) break;
-      await checkOne(m.id);
-    }
+    const ids = machines.map((m) => m.id);
+    await runWithConcurrency(ids, AUTO_PROBE_CONCURRENCY, checkOne, () => abortRef.current);
     if (!abortRef.current) setCheckingAll(false);
   }, [checkingAll, machines, checkOne]);
 
-  // 机器列表加载后自动检测一次在线状态
+  // 进入视图 / 新增机器后，自动检测还没有结果的机器（系统 + 是否在跑 CC-Panes 都靠它）
   useEffect(() => {
-    if (machines.length > 0 && !autoCheckedRef.current && !checkingAll) {
-      autoCheckedRef.current = true;
-      const timer = setTimeout(() => checkAll(), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [machines.length, checkingAll, checkAll]);
+    const pending = machines
+      .map((m) => m.id)
+      .filter((id) => !autoProbedRef.current.has(id) && !connectivityRef.current[id]);
+    if (pending.length === 0) return;
+    const timer = setTimeout(() => {
+      for (const id of pending) autoProbedRef.current.add(id);
+      void runWithConcurrency(pending, AUTO_PROBE_CONCURRENCY, checkOne, () => abortRef.current);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [machines, checkOne]);
 
-  // 组件卸载时中止 + 递增 generation
-  useEffect(
-    () => () => {
+  // 挂载时复位（严格模式双挂载会先跑一次清理）；卸载时中止 + 递增 generation
+  useEffect(() => {
+    abortRef.current = false;
+    return () => {
       abortRef.current = true;
       generationRef.current += 1;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const handleAdd = useCallback(() => {
     setEditMachine(null);
@@ -300,11 +292,15 @@ export default function SshMachinesView({
       ),
     [machines],
   );
+  // 筛选条隐藏时筛选一并失效，免得机器删到 5 台以下后还残留看不见的筛选
+  const showFilters = machines.length >= FILTER_ROW_MIN_MACHINES;
+  const effectiveTag = showFilters ? activeTag : null;
+  const effectiveFavoritesOnly = showFilters && favoritesOnly;
   const visibleMachines = useMemo(() => {
     return machines
       .filter((machine) => {
-        if (favoritesOnly && !favoriteMachineIdSet.has(machine.id)) return false;
-        if (activeTag && !machine.tags.includes(activeTag)) return false;
+        if (effectiveFavoritesOnly && !favoriteMachineIdSet.has(machine.id)) return false;
+        if (effectiveTag && !machine.tags.includes(effectiveTag)) return false;
         return true;
       })
       .sort((left, right) => {
@@ -313,11 +309,11 @@ export default function SshMachinesView({
           Number(favoriteMachineIdSet.has(left.id));
         return favoriteDifference || left.name.localeCompare(right.name);
       });
-  }, [activeTag, favoriteMachineIdSet, favoritesOnly, machines]);
+  }, [effectiveTag, favoriteMachineIdSet, effectiveFavoritesOnly, machines]);
   const groupedMachines = useMemo(() => {
     const groups = new Map<string, SshMachine[]>();
     for (const machine of visibleMachines) {
-      const group = activeTag || machine.tags[0] || "__untagged__";
+      const group = effectiveTag || machine.tags[0] || "__untagged__";
       groups.set(group, [...(groups.get(group) ?? []), machine]);
     }
     return [...groups.entries()].sort(([left], [right]) => {
@@ -325,18 +321,21 @@ export default function SshMachinesView({
       if (right === "__untagged__") return -1;
       return left.localeCompare(right);
     });
-  }, [activeTag, visibleMachines]);
-  const onlineMachineCount = useMemo(
-    () =>
-      machines.filter((machine) => {
-        const state = connectivity[machine.id];
-        return state !== "checking" && !!state?.reachable;
-      }).length,
-    [connectivity, machines],
-  );
+  }, [effectiveTag, visibleMachines]);
   const favoriteCount = favoriteMachineIds.filter((id) =>
     machines.some((machine) => machine.id === id),
   ).length;
+
+  const ccPanesHandlers = (machine: SshMachine) => {
+    if (!devices) return {};
+    const action = resolveMachineCcPanesAction(
+      devices.hasLinkedDevice(machine.id),
+      connectivity[machine.id] ?? null,
+    );
+    if (action?.kind === "deploy") return { onDeployCcPanes: devices.onDeploy };
+    if (action?.kind === "connect") return { onConnectCcPanes: devices.onConnectCcPanes };
+    return {};
+  };
 
   const selectAllMachines = useCallback(() => {
     setFavoritesOnly(false);
@@ -393,48 +392,18 @@ export default function SshMachinesView({
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <div
-              className="grid grid-cols-3 border-y py-1.5"
-              style={{ borderColor: "var(--app-border)" }}
-            >
-              <SummaryMetric
-                label={t("ssh.summaryMachines", { defaultValue: "Machines" })}
-                value={machines.length}
+            {showFilters && (
+              <SshMachineFilterRow
+                machineCount={machines.length}
+                favoriteCount={favoriteCount}
+                tags={tags}
+                activeTag={activeTag}
+                favoritesOnly={favoritesOnly}
+                onSelectAll={selectAllMachines}
+                onSelectFavorites={selectFavorites}
+                onSelectTag={selectTag}
               />
-              <SummaryMetric
-                label={t("ssh.summaryOnline", { defaultValue: "Online" })}
-                value={onlineMachineCount}
-                icon={onlineMachineCount > 0 ? Wifi : Radio}
-              />
-              <SummaryMetric
-                label={t("ssh.summaryFavorites", { defaultValue: "Favorites" })}
-                value={favoriteCount}
-                icon={Star}
-              />
-            </div>
-            <div
-              className="flex gap-1 overflow-x-auto pb-0.5"
-              aria-label={t("ssh.filters", { defaultValue: "Machine filters" })}
-            >
-              <FilterButton active={!favoritesOnly && activeTag === null} onClick={selectAllMachines}>
-                {t("ssh.filterAll", { defaultValue: "All" })}
-                <span>{machines.length}</span>
-              </FilterButton>
-              <FilterButton active={favoritesOnly} onClick={selectFavorites}>
-                <Star className="h-3 w-3" fill={favoriteCount > 0 ? "currentColor" : "none"} />
-                {t("ssh.favorites", { defaultValue: "Favorites" })}
-                <span>{favoriteCount}</span>
-              </FilterButton>
-              {tags.map((tag) => (
-                <FilterButton
-                  key={tag}
-                  active={!favoritesOnly && activeTag === tag}
-                  onClick={() => selectTag(tag)}
-                >
-                  {tag}
-                </FilterButton>
-              ))}
-            </div>
+            )}
             {visibleMachines.length === 0 ? (
               <p
                 className="py-6 text-center text-xs"
@@ -480,7 +449,7 @@ export default function SshMachinesView({
                           onCopy={handleCopyConnectionInfo}
                           onCheckConnectivity={checkOne}
                           onToggleFavorite={toggleFavorite}
-                          onDeployCcPanes={devices?.canDeploy(machine.id) ? devices.onDeploy : undefined}
+                          {...ccPanesHandlers(machine)}
                         >
                           {devices?.renderForMachine(machine)}
                         </MachineItem>

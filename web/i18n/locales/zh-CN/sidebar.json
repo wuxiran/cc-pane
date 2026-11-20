@@ -379,9 +379,6 @@
   "ssh.unfavorite": "取消收藏",
   "ssh.noMatches": "没有匹配的机器",
   "ssh.connectMachine": "连接到 {{name}}",
-  "ssh.summaryMachines": "机器",
-  "ssh.summaryOnline": "在线",
-  "ssh.summaryFavorites": "收藏",
   "ssh.ungrouped": "未分组",
   "ssh.statusChecking": "检测中",
   "ssh.statusOnline": "在线",
@@ -809,7 +806,13 @@
     "deployCcPanes": "部署 CC-Panes…",
     "ccPanes": "CC-Panes",
     "ccPanesNamed": "CC-Panes · {{name}}",
-    "port": "端口 {{port}}"
+    "port": "端口 {{port}}",
+    "connectCcPanes": "连接这台电脑上的 CC-Panes…",
+    "ccPanesUpgradeHint": "对方 CC-Panes 版本过旧，升级到 0.12.22 及以上才能配对",
+    "ccPanesRunning": "CC-Panes 运行中",
+    "osLinux": "Linux",
+    "osMacos": "macOS",
+    "osWindows": "Windows"
   },
   "devices": {
     "refresh": "刷新",

@@ -1,6 +1,9 @@
 use crate::models::ssh_machine::{
     AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest,
 };
+use crate::services::ssh_machine_probe::{
+    detect_remote_cc_panes, detect_remote_os, http_probe_host, RemoteCcPanes,
+};
 use crate::services::{SshConnectionService, SshCredentialService};
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -15,6 +18,12 @@ pub struct SshConnectivityResult {
     pub reachable: bool,
     pub message: String,
     pub latency_ms: Option<u64>,
+    /// 远端系统（`linux` / `macos` / `windows` / 其他 uname 小写）；没连上或没认出来时为空。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// 对方主机上答话的 CC-Panes Web 服务。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_panes: Option<RemoteCcPanes>,
 }
 
 /// SSH 机器管理服务 — JSON 文件存储 + Mutex 内存状态
@@ -497,11 +506,15 @@ impl SshMachineService {
                     message: "SSH host reachable; enter a password to validate authentication"
                         .to_string(),
                     latency_ms: Some(latency),
+                    os: None,
+                    cc_panes: Self::probe_cc_panes(&machine).await,
                 },
                 Err(error) => SshConnectivityResult {
                     reachable: false,
                     message: format!("{error:#}"),
                     latency_ms: None,
+                    os: None,
+                    cc_panes: None,
                 },
             });
         }
@@ -510,26 +523,35 @@ impl SshMachineService {
         let connection_machine = machine.clone();
         let connection_result = tokio::task::spawn_blocking(move || {
             let session = connection_service.connect_machine(&connection_machine)?;
+            let latency = start.elapsed().as_millis() as u64;
+            let os = detect_remote_os(&session);
             // libssh2 disconnect/drop can perform I/O too; keep cleanup off async workers.
             let _ = session.disconnect(None, "connectivity check complete", None);
-            Ok::<(), anyhow::Error>(())
+            Ok::<_, anyhow::Error>((latency, os))
         })
         .await
         .context("SSH connectivity check task failed")?;
-        let latency = start.elapsed().as_millis() as u64;
 
         match connection_result {
-            Ok(()) => Ok(SshConnectivityResult {
+            Ok((latency, os)) => Ok(SshConnectivityResult {
                 reachable: true,
                 message: format!("Connected in {}ms", latency),
                 latency_ms: Some(latency),
+                os,
+                cc_panes: Self::probe_cc_panes(&machine).await,
             }),
             Err(error) => Ok(SshConnectivityResult {
                 reachable: false,
                 message: format!("{error:#}"),
                 latency_ms: None,
+                os: None,
+                cc_panes: None,
             }),
         }
+    }
+
+    async fn probe_cc_panes(machine: &SshMachine) -> Option<RemoteCcPanes> {
+        detect_remote_cc_panes(&http_probe_host(machine)?).await
     }
 }
 

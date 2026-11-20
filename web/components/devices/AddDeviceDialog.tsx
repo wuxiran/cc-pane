@@ -39,6 +39,8 @@ interface AddDeviceDialogProps {
   initialKind?: Kind;
   /** 从某台 SSH 主机的「部署 CC-Panes」进入时预选该主机 */
   initialMachineId?: string;
+  /** 从某台 SSH 主机的「连接这台电脑上的 CC-Panes」进入时预填的地址 */
+  initialBaseUrl?: string;
 }
 
 type Kind = "ssh" | "direct";
@@ -49,6 +51,7 @@ export default function AddDeviceDialog({
   onAdded,
   initialKind = "ssh",
   initialMachineId = "",
+  initialBaseUrl = "",
 }: AddDeviceDialogProps) {
   const { t } = useTranslation("sidebar");
   const machines = useSshMachinesStore((s) => s.machines);
@@ -74,12 +77,12 @@ export default function AddDeviceDialog({
     setMachineId(initialMachineId);
     setRemotePort(String(DEFAULT_REMOTE_PORT));
     setDeployNow(true);
-    setBaseUrl("");
+    setBaseUrl(initialBaseUrl);
     setToken("");
     setPairingCode("");
     setUseToken(false);
     loadMachines().catch(() => {});
-  }, [open, loadMachines, initialKind, initialMachineId]);
+  }, [open, loadMachines, initialKind, initialMachineId, initialBaseUrl]);
 
   const machine = machines.find((item) => item.id === machineId);
   const port = Number(remotePort);

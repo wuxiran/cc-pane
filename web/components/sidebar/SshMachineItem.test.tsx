@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -82,5 +82,27 @@ describe("SshMachineItem keyboard accessibility", () => {
 
     await user.dblClick(row);
     expect(props.onConnect).toHaveBeenCalledWith(props.machine);
+  });
+});
+
+describe("SshMachineItem probe display", () => {
+  it("shows nothing extra before a probe result exists", () => {
+    renderItem();
+    expect(screen.queryByTestId("machine-os-m-1")).toBeNull();
+    expect(screen.queryByTestId("machine-ccpanes-badge-m-1")).toBeNull();
+  });
+
+  it("shows the remote system and a running CC-Panes badge", () => {
+    renderItem({
+      connectivity: {
+        reachable: true,
+        message: "ok",
+        latencyMs: 4,
+        os: "macos",
+        ccPanes: { baseUrl: "http://devbox.local:18081", port: 18081, pairingSupported: true },
+      },
+    });
+    expect(screen.getByTestId("machine-os-m-1")).toHaveTextContent("macOS");
+    expect(screen.getByTestId("machine-ccpanes-badge-m-1")).toHaveTextContent(/CC-Panes 运行中|CC-Panes running/);
   });
 });

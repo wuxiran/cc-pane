@@ -272,6 +272,7 @@ export type {
   SshMachine,
   AuthMethod,
   SshConnectivityResult,
+  SshCcPanesProbe,
   SshMachineUpsertRequest,
   SshProxyKind,
   SshProxyConfig,
