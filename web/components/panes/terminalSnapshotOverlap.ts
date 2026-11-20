@@ -54,6 +54,13 @@ interface SnapshotReconcilerOptions {
   clearTimer?: (handle: unknown) => void;
   /** 攒着的片超时放行时调用，参数就是这些片拼成的内容。 */
   onHoldTimeout?: (chunk: SeqChunk) => void;
+  /**
+   * 越过下限的第一帧并不紧接着快照：`(floorSeq, frameStartSeq)` 这段本视图没收到
+   * （典型是副视图回放期间，这段输出只发给了当时已订阅的主视图）。
+   * 返回真 = 调用方会重新取快照重建（新快照包含这一帧），这一帧不放行；
+   * 返回假 = 不重建，这一帧照常放行（带着缺口总比再丢一帧好）。
+   */
+  onGap?: (floorSeq: number, frameStartSeq: number) => boolean;
 }
 
 export function createSnapshotReconciler(options: SnapshotReconcilerOptions = {}): SnapshotReconciler {
@@ -117,6 +124,7 @@ export function createSnapshotReconciler(options: SnapshotReconcilerOptions = {}
       floorSeq = null;
       const bytes = encoder.encode(frame);
       const overlap = boundary - (endSeq - bytes.length);
+      if (overlap < 0 && options.onGap?.(boundary, endSeq - bytes.length)) return [];
       if (overlap <= 0) return [{ data: frame, endSeq }];
       return [{ data: decoder.decode(bytes.subarray(overlap)), endSeq }];
     },

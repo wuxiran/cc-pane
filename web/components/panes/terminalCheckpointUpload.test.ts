@@ -34,6 +34,15 @@ beforeEach(() => {
 });
 
 describe("captureAndUploadCheckpoint", () => {
+  it("never uploads a checkpoint from a secondary view (mirror / popup)", async () => {
+    const { markSecondaryTerminalView } = await import("./terminalViewOwnership");
+    const mirror = fakeTerm();
+    markSecondaryTerminalView(mirror);
+    const result = await captureAndUploadCheckpoint("s1", mirror, serializeAddon, { reason: "daemon-request", nowMs: 1000 });
+    expect(result).toBe("skipped-no-terminal");
+    expect(uploadCheckpoint).not.toHaveBeenCalled();
+  });
+
   it("checkpoints newly recovered output without waiting for the periodic debounce", async () => {
     reanchorSeq("s1", 100, "117232978312953918");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });

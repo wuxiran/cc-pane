@@ -1,5 +1,6 @@
 import type { TerminalRecoverySnapshot } from "@/types";
 import { reanchorSeq } from "./terminalOutputSeqTracker";
+import { isSecondaryTerminalView, recordRecoveryFloor } from "./terminalViewOwnership";
 import { writeTerminalReplay } from "./terminalReplayChunks";
 import { writeTerminalDeltaReplay } from "./terminalReplayDelta";
 import { restoreReplayBufferMode } from "./terminalReplayBufferMode";
@@ -23,12 +24,19 @@ interface ReplayAttachedSessionOptions {
   debugLog: ReplayLogger;
 }
 
-/** epoch≠0 时用恢复响应重锚 seq 记账（旧 daemon 回落 epoch=0 无记账能力，不动）。 */
+/**
+ * epoch≠0 时记下这次恢复覆盖到哪（旧 daemon 回落 epoch=0 无记账能力，不动）：
+ * - 每个视图：记自己的恢复下限，供随后的对账用；
+ * - 只有主视图：重锚共享的 seq 账本（副视图不碰，见 terminalViewOwnership.ts）。
+ */
 export function reanchorAfterRecovery(
+  term: object,
   sessionId: string,
   snapshot: TerminalRecoverySnapshot,
 ): void {
   if (snapshot.checkpointEpoch === "0") return;
+  recordRecoveryFloor(term, snapshot.endSeq);
+  if (isSecondaryTerminalView(term)) return;
   reanchorSeq(sessionId, snapshot.endSeq, snapshot.checkpointEpoch);
 }
 
@@ -64,7 +72,7 @@ async function restoreAttachedSnapshot({
       bufferMode: snapshot.bufferMode,
     });
     // 空会话也要重锚：endSeq/epoch 有效，attach 后上传链路即可转活。
-    reanchorAfterRecovery(sessionId, snapshot);
+    reanchorAfterRecovery(term, sessionId, snapshot);
     return snapshot;
   }
 
@@ -87,7 +95,7 @@ async function restoreAttachedSnapshot({
     await writeTerminalDeltaReplay(term, snapshot, writeData, canWrite);
   }
   syncTrackedBufferType("session.attach-existing.replay");
-  reanchorAfterRecovery(sessionId, snapshot);
+  reanchorAfterRecovery(term, sessionId, snapshot);
   checkpointRecoveredTerminal(term, sessionId);
 
   debugLog("session.attach-existing.replay.end", {

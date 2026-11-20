@@ -152,7 +152,7 @@ async function restoreSnapshot({
     await writeTerminalDeltaReplay(term, snapshot, writeData, canWrite);
   }
   syncTrackedBufferType(`terminal.resync.${reason}`);
-  reanchorAfterRecovery(sessionId, snapshot);
+  reanchorAfterRecovery(term, sessionId, snapshot);
   checkpointRecoveredTerminal(term, sessionId);
 
   debugLog("terminal.resync.end", {

@@ -27,6 +27,11 @@ export interface CreateTerminalOutputHandlerOptions {
   isRenderVisible: () => boolean;
   /** 当前 CLI 是否剥离 alt-screen，只用于日志归因。 */
   keepCliOutputInNormalBuffer: boolean;
+  /**
+   * 本视图是否拥有这个会话的 seq 账本（主视图为真，镜像 / 弹窗为假）。
+   * 为假时不 noteWritten / invalidateSeq——见 terminalViewOwnership.ts。缺省为真。
+   */
+  ownsSeqLedger?: () => boolean;
   /** alt-screen 剥离等写入前的数据变换。 */
   renderTerminalData: (data: string) => string;
   writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
@@ -98,9 +103,16 @@ export function createTerminalOutputHandler({
   writeTerminalData,
   syncTrackedBufferType,
   debugLog,
+  ownsSeqLedger = () => true,
 }: CreateTerminalOutputHandlerOptions): (data: string, endSeq?: number) => Promise<void> | undefined {
   // 返回值：这一块真的排进了 xterm 写队列时给出它的完成 Promise（永不 reject），
   // 被丢弃或进了隐藏积压时为 undefined。需要「等它落屏」的调用方（重同步收尾）用。
+  const markWritten = (endSeq: number) => {
+    if (ownsSeqLedger()) noteWritten(sessionId, endSeq);
+  };
+  const markInvalid = () => {
+    if (ownsSeqLedger()) invalidateSeq(sessionId);
+  };
   return (data: string, endSeq?: number) => {
     // 流控信用（B-5）：本视图消化完这一 chunk 才归还；多视图时上游要等最慢的那个。
     // **必须在下面每一条终止路径上都归还**——解析完算，被丢弃同样算。漏掉任何一条
@@ -131,7 +143,7 @@ export function createTerminalOutputHandler({
         transitions,
       });
       // 数据被丢弃（xterm 不在）：锚点连续性破坏，禁拍直到统一恢复 reanchor。
-      if (endSeq !== undefined) invalidateSeq(sessionId);
+      if (endSeq !== undefined) markInvalid();
       releaseCredit();
       return undefined;
     }
@@ -139,7 +151,7 @@ export function createTerminalOutputHandler({
     if (!renderedData) {
       // 整段被剥掉（如 alt-screen 序列）：该 chunk 的渲染效果就是"空"，
       // 视同写完——否则最后一个 chunk 恰好为空时 in-flight 永不闭合、恒禁拍。
-      if (endSeq !== undefined) noteWritten(sessionId, endSeq);
+      if (endSeq !== undefined) markWritten(endSeq);
       releaseCredit();
       syncTrackedBufferType(
         transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty",
@@ -170,7 +182,7 @@ export function createTerminalOutputHandler({
       // 保守禁拍（M3b-2 设计裁决）：chunk 进了隐藏积压后，flush 是拼接整段
       // 补投（drain 合并），无法把 onWritten 逐 chunk 归属回 endSeq；溢出更是
       // 整段缺口。进入积压即 invalidate，直到统一恢复路径 reanchor（M3b-3）。
-      invalidateSeq(sessionId);
+      markInvalid();
       // 但流控信用照常归还：字节已交给前端自有的有界积压（或被其溢出策略丢弃），
       // 运输层的责任已尽。这里若跟着 invalidate 一起扣住不还，后台标签的**每个**
       // chunk 都会扣住一份，ACK 永不推进，上游窗口关死、生产者永久暂停。
@@ -179,7 +191,7 @@ export function createTerminalOutputHandler({
     }
 
     return writeTerminalData(writableData, () => {
-      if (endSeq !== undefined) noteWritten(sessionId, endSeq);
+      if (endSeq !== undefined) markWritten(endSeq);
       releaseCredit();
       if (transitions.length > 0) {
         debugLog("output.alternate-sequence.applied", {
@@ -194,7 +206,7 @@ export function createTerminalOutputHandler({
       );
     }).catch((error) => {
       // 写入失败 = 该 chunk 未必落屏：锚点连续性存疑，禁拍。
-      if (endSeq !== undefined) invalidateSeq(sessionId);
+      if (endSeq !== undefined) markInvalid();
       // 同上：写失败也要还信用。写队列被 reset 时未完成的 Promise 会走到这里
       // （TerminalView.tsx cleanup 先 reset 后置 null），不还就是永久债务。
       releaseCredit();
