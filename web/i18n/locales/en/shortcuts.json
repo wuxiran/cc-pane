@@ -5,7 +5,7 @@
   "close-tab": "Close Tab",
   "reopen-closed-tab": "Restore Closed Tab",
   "settings": "Open Settings",
-  "command-palette": "Command Palette",
+  "command-palette": "Search",
   "toggle-layouts": "Open Layouts",
   "split-right": "Split Right",
   "split-down": "Split Down",
@@ -41,10 +41,15 @@
   "worktree-manager": "Worktree Manager",
   "git-timeline": "Git Timeline",
   "session-cleaner": "Session Cleaner",
-  "commandPalettePlaceholder": "Type a command, workspace, or layout name...",
-  "commandPaletteEmpty": "No matching commands",
+  "commandPalettePlaceholder": "Search sessions, commands, workspaces…",
+  "commandPaletteEmpty": "No matching results",
   "commandGroupWorkspaces": "Workspaces",
   "commandGroupLayouts": "Layouts",
   "toggle-right-dock": "Toggle Right Panel",
-  "focus-dock-view": "Right Panel: View {{index}}"
+  "focus-dock-view": "Right Panel: View {{index}}",
+  "paletteQuickActions": "Quick actions",
+  "paletteSessions": "Sessions",
+  "paletteTabAll": "All",
+  "paletteTabActions": "Actions",
+  "paletteTabSettings": "Settings"
 }

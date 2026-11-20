@@ -5,7 +5,7 @@
   "close-tab": "关闭标签",
   "reopen-closed-tab": "恢复已关闭标签",
   "settings": "打开设置",
-  "command-palette": "命令面板",
+  "command-palette": "搜索",
   "toggle-layouts": "打开布局面板",
   "split-right": "向右分屏",
   "split-down": "向下分屏",
@@ -41,10 +41,15 @@
   "worktree-manager": "Worktree 管理",
   "git-timeline": "Git 时间线",
   "session-cleaner": "会话清理",
-  "commandPalettePlaceholder": "输入命令、工作空间或布局名…",
-  "commandPaletteEmpty": "没有匹配的命令",
+  "commandPalettePlaceholder": "搜索会话、命令、工作空间…",
+  "commandPaletteEmpty": "没有匹配的结果",
   "commandGroupWorkspaces": "工作空间",
   "commandGroupLayouts": "布局",
   "toggle-right-dock": "显示/隐藏右侧面板",
-  "focus-dock-view": "切到右侧面板第 {{index}} 个视图"
+  "focus-dock-view": "切到右侧面板第 {{index}} 个视图",
+  "paletteQuickActions": "快捷操作",
+  "paletteSessions": "会话",
+  "paletteTabAll": "全部",
+  "paletteTabActions": "操作",
+  "paletteTabSettings": "设置"
 }

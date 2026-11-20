@@ -6,9 +6,9 @@ import { experimentalFeatureEnabled } from "@/lib/experimentalGate";
  * 侧栏视图。`"ssh"` 是「设备」视图（SSH 主机与其他电脑上的 CC-Panes 合并后的唯一入口），
  * 沿用旧 id 以兼容模块偏好、右侧面板与布局作用域里对它的引用。
  */
-export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
+export type ActivityView = "explorer" | "sessions" | "contacts" | "files" | "ssh" | "process" | "orchestration";
 
-const ACTIVITY_VIEWS: readonly ActivityView[] = ["explorer", "sessions", "files", "ssh", "process", "orchestration"];
+const ACTIVITY_VIEWS: readonly ActivityView[] = ["explorer", "sessions", "contacts", "files", "ssh", "process", "orchestration"];
 
 /** 持久化的旧视图 id → 现视图：0.12.23 前「设备」是独立的 `"devices"` 视图。未知值回到资源管理器。 */
 export function normalizeActivityView(value: unknown): ActivityView {

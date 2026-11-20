@@ -1,4 +1,4 @@
-import { Boxes, CalendarClock, Clapperboard, FolderTree, House, Library, Settings } from "lucide-react";
+import { Boxes, CalendarClock, Clapperboard, Contact, FolderTree, House, Library, Settings } from "lucide-react";
 import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
@@ -258,6 +258,13 @@ export default function ActivityBar() {
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
+            />
+            {/* 通讯录：常驻、有人设的 Bot 联系人（原在资源管理器标题旁） */}
+            <ActivityBarIcon
+              icon={<Contact className="h-[18px] w-[18px]" strokeWidth={1.5} />}
+              label={t("bots.tab")}
+              active={activeView === "contacts" && sidebarVisible && appViewMode === "panes"}
+              onClick={() => toggleView("contacts")}
             />
             <ActivityBarIcon
               icon={<Boxes className="h-[18px] w-[18px]" strokeWidth={1.5} />}

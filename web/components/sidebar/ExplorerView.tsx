@@ -1,41 +1,15 @@
-// Explorer 侧栏：标题旁图标 tab（工作空间 / 会话 / 联系人）单选切换。
-// 文件 / Git 视图已迁往右侧 RightDock（跟随激活终端、多根），左侧不再重复入口。
-// 工作空间树 keep-alive（display 翻转），保证其挂载的 Dialogs 在切换视图时不丢失。
-// 标题栏下常驻「启动终端」主操作行（Codex 式纯文本行，在滚动区之外，永远不被列表挤出视口）：
-// 只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
-// 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
+// Explorer 侧栏：标题 + 搜索按钮，下面就是工作空间树。
+// 会话（CLI 启动记录 + Agent 对话）收进搜索面板（Ctrl+K），通讯录移到最左侧图标栏，
+// 「启动终端」是搜索面板里的快捷操作（也可以用快捷键或标签栏的 +）。
+// 文件 / Git 视图在右侧 RightDock（跟随激活终端、多根），左侧不重复入口。
 import { useTranslation } from "react-i18next";
+import { Search } from "lucide-react";
 import { useRowTypeAhead } from "@/hooks/useTypeAhead";
-import { Contact, History, LayoutGrid, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
-import SessionsView from "@/components/sidebar/SessionsView";
-import BotContactsView from "@/components/bots/BotContactsView";
-import {
-  formatKeyCombo,
-  useDialogStore,
-  useExplorerSectionsStore,
-  useSettingsStore,
-  useWorkspacesStore,
-  type ExplorerSectionId,
-} from "@/stores";
+import { toggleCommandPalette } from "@/lib/commands/paletteEvents";
+import { formatKeyCombo, useSettingsStore } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
-
-// IDEA 风格图标 tab：图标 + tooltip，紧凑不占宽
-const SECTIONS = [
-  { id: "workspaces", labelKey: "explorer.tabWorkspaces", Icon: LayoutGrid },
-  // 会话：CLI 启动记录和 Agent 对话合在一个入口，列表里每行用标签区分。
-  { id: "sessions", labelKey: "sessionsTitle", Icon: History },
-  // Bot 联系人：常驻、有人设、长期记得对话的 Agent（可经 IM 收发）
-  { id: "bots", labelKey: "bots.tab", Icon: Contact },
-] as const satisfies ReadonlyArray<{
-  id: ExplorerSectionId;
-  labelKey: string;
-  Icon: typeof LayoutGrid;
-}>;
-
-const ACTION_ROW_CLASS =
-  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[length:var(--text-row)] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]";
 
 interface ExplorerViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -44,105 +18,33 @@ interface ExplorerViewProps {
 export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   const { t } = useTranslation("sidebar");
   const onTreeTypeAhead = useRowTypeAhead();
-  const newTabBinding = useSettingsStore((s) => s.settings?.shortcuts.bindings["new-tab"] ?? "Ctrl+T");
-  const activeSection = useExplorerSectionsStore((s) => s.activeSection);
-  const setActiveSection = useExplorerSectionsStore((s) => s.setActiveSection);
-  const workspace = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === s.expandedWorkspaceId) ?? null,
-  );
-  const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
-
-  // 底部启动入口携带的上下文：当前展开的工作空间 +（若有）当前展开的项目
-  const openLauncherWithContext = () => {
-    const projectPath = workspace?.projects.find((p) => p.id === expandedProjectId)?.path;
-    const ctx = {
-      ...(workspace ? { workspaceName: workspace.name } : {}),
-      ...(projectPath ? { projectPath } : {}),
-    };
-    useDialogStore.getState().openLauncher(Object.keys(ctx).length > 0 ? ctx : undefined);
-  };
+  const paletteBinding = useSettingsStore((s) => s.settings?.shortcuts.bindings["command-palette"]);
+  const searchLabel = t("explorer.search");
 
   return (
     <div className="flex h-full flex-col">
-      {/* 视图标题栏：标题 + 右侧 IDEA 风格图标 tab */}
       <div className="flex shrink-0 items-center px-4 pt-3 pb-2">
         <span className="text-[length:var(--text-caption)] font-semibold text-[var(--app-text-tertiary)]">{t("explorer.title")}</span>
-        <div
-          className="ml-auto flex items-center gap-0.5"
-          role="tablist"
-          aria-label={t("explorer.title")}
-        >
-          {SECTIONS.map(({ id, labelKey, Icon }) => {
-            const selected = id === activeSection;
-            return (
-              <Tooltip key={id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    aria-label={t(labelKey)}
-                    onClick={() => setActiveSection(id)}
-                    className={`flex h-[26px] w-[28px] items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] ${
-                      selected ? "" : "hover:bg-[var(--app-hover)]"
-                    }`}
-                    style={
-                      selected
-                        ? {
-                            background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-                            color: "var(--app-accent)",
-                          }
-                        : { color: "var(--app-text-secondary)" }
-                    }
-                  >
-                    <Icon className="h-[15px] w-[15px]" strokeWidth={1.8} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t(labelKey)}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={searchLabel}
+              data-testid="explorer-search"
+              onClick={toggleCommandPalette}
+              className="ml-auto flex h-[26px] w-[28px] items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+            >
+              <Search className="h-[15px] w-[15px]" strokeWidth={1.8} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {searchLabel}{paletteBinding ? ` (${formatKeyCombo(paletteBinding)})` : ""}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* 主操作行（Codex 式纯文本行）：shrink-0，在滚动区之外 */}
-      <div className="shrink-0 px-3">
-        <button
-          type="button"
-          onClick={openLauncherWithContext}
-          className={ACTION_ROW_CLASS}
-        >
-          <Rocket className="size-4 shrink-0" strokeWidth={1.6} />
-          {t("launchTerminal")}
-          <kbd className="ml-auto text-[length:var(--text-micro)] font-normal tabular-nums text-[var(--app-text-tertiary)]">
-            {formatKeyCombo(newTabBinding)}
-          </kbd>
-        </button>
-      </div>
-
-      {/* 工作空间视图：keep-alive，隐藏而不卸载（WorkspaceDialogs 挂在树内） */}
-      <div
-        className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2"
-        style={activeSection === "workspaces" ? undefined : { display: "none" }}
-        onKeyDown={onTreeTypeAhead}
-      >
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2" onKeyDown={onTreeTypeAhead}>
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
-      </div>
-
-      {/* 会话（CLI 启动记录 + Agent 对话）：keep-alive，隐藏而不卸载（保住 launchHistory 与 history-updated 监听，切走再切回不丢状态） */}
-      <div
-        className="min-h-0 flex-1"
-        style={activeSection === "sessions" ? undefined : { display: "none" }}
-      >
-        <SessionsView onOpenTerminal={onOpenTerminal} />
-      </div>
-
-      {/* 联系人：keep-alive——挂着才能收到 Bot 经 IM 产生的对话事件 */}
-      <div
-        className="min-h-0 flex-1"
-        style={activeSection === "bots" ? undefined : { display: "none" }}
-      >
-        <BotContactsView />
       </div>
     </div>
   );

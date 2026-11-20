@@ -10,6 +10,7 @@ import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import DevicesView from "@/components/devices/DevicesView";
+import BotContactsView from "@/components/bots/BotContactsView";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import {
@@ -80,6 +81,10 @@ export default function Sidebar({
         {activeView === "sessions" && (
           <SessionsView onOpenTerminal={onOpenTerminal} />
         )}
+        {/* 通讯录：keep-alive（隐藏而不卸载）——挂着才能收到 Bot 经 IM 产生的对话事件 */}
+        <div className="min-h-0 flex-1" style={activeView === "contacts" ? undefined : { display: "none" }}>
+          <BotContactsView />
+        </div>
         {activeView === "files" && (
           <FileBrowserView />
         )}

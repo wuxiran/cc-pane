@@ -517,7 +517,6 @@
   "launchTerminal": "启动终端",
   "explorer.git": "Git",
   "explorer.title": "资源管理器",
-  "explorer.tabWorkspaces": "工作空间",
   "workspaceEdit.title": "编辑工作空间",
   "workspaceEdit.hint": "修改显示名，增删项目文件夹，或移除这个工作空间。",
   "workspaceEdit.name": "工作空间名称",
@@ -929,5 +928,6 @@
   "sessionsTitle": "会话",
   "sessionFilterAll": "全部",
   "sessionTagCli": "终端",
-  "sessionTagChat": "对话"
+  "sessionTagChat": "对话",
+  "explorer.search": "搜索"
 }

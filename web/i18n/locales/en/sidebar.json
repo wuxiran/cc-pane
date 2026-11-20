@@ -517,7 +517,6 @@
   "launchTerminal": "Launch Terminal",
   "explorer.git": "Git",
   "explorer.title": "Explorer",
-  "explorer.tabWorkspaces": "Workspaces",
   "workspaceEdit.title": "Edit workspace",
   "workspaceEdit.hint": "Change the display name, add or remove project folders, or remove this workspace.",
   "workspaceEdit.name": "Workspace name",
@@ -929,5 +928,6 @@
   "sessionsTitle": "Sessions",
   "sessionFilterAll": "All",
   "sessionTagCli": "Terminal",
-  "sessionTagChat": "Chat"
+  "sessionTagChat": "Chat",
+  "explorer.search": "Search"
 }

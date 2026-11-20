@@ -37,7 +37,7 @@ function CommandDialog({ title, children, ...props }: CommandDialogProps) {
       <DialogContent
         showCloseButton={false}
         // 键盘唤起的高频面板：零动画（Raycast 式），出现/消失都即时
-        className="overflow-hidden p-0 top-[20%] translate-y-0 max-w-[560px] border-[var(--app-border)] bg-[var(--app-overlay)] shadow-[var(--sh-lg)] data-[state=open]:animate-none data-[state=closed]:animate-none"
+        className="overflow-hidden p-0 top-[20%] translate-y-0 max-w-[680px] border-[var(--app-border)] bg-[var(--app-overlay)] shadow-[var(--sh-lg)] data-[state=open]:animate-none data-[state=closed]:animate-none"
       >
         <DialogTitle className="sr-only">{resolvedTitle}</DialogTitle>
         <DialogDescription className="sr-only">{resolvedTitle}</DialogDescription>

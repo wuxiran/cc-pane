@@ -13,6 +13,7 @@ import SelfChatPanel from "@/components/SelfChatPanel";
 import AiPanelDialog from "@/components/aipanel/AiPanelDialog";
 import RecentFilesPicker from "@/components/RecentFilesPicker";
 import CommandPalette from "@/components/CommandPalette";
+import type { OpenTerminalOptions } from "@/types";
 import ShortcutCheatsheet from "@/components/ShortcutCheatsheet";
 import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
 import TrayQuitConfirmDialog from "@/components/tray/TrayQuitConfirmDialog";
@@ -25,9 +26,10 @@ const GitTimelinePanel = lazyWithRetry(() => import("@/components/GitTimelinePan
 interface AppDialogsProps {
   recentFilesOpen: boolean;
   onCloseRecentFiles: () => void;
+  onOpenTerminal?: (opts: OpenTerminalOptions) => void;
 }
 
-export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppDialogsProps) {
+export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles, onOpenTerminal }: AppDialogsProps) {
   const settingsOpen = useDialogStore((s) => s.settingsOpen);
   const journalOpen = useDialogStore((s) => s.journalOpen);
   const journalWorkspaceName = useDialogStore((s) => s.journalWorkspaceName);
@@ -135,7 +137,7 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
       <RecentFilesPicker open={recentFilesOpen} onClose={onCloseRecentFiles} />
 
       {/* 命令面板（Ctrl+K，终端聚焦时放行给终端） */}
-      <CommandPalette />
+      <CommandPalette onOpenTerminal={onOpenTerminal} />
 
       {/* 快捷键速查表（Ctrl+/，从命令注册中心生成） */}
       <ShortcutCheatsheet />

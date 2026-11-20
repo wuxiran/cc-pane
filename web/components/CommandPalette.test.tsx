@@ -1,5 +1,6 @@
 import "@/i18n";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { mockTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -162,5 +163,59 @@ describe("CommandPalette modules", () => {
     await user.click(await screen.findByTestId("module-command-todo"));
 
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+  });
+
+  describe("search panel: sessions, quick actions and category tabs", () => {
+    const openPalette = async () => {
+      render(<CommandPalette onOpenTerminal={onOpenTerminal} />);
+      act(() => { window.dispatchEvent(new Event(COMMAND_PALETTE_TOGGLE_EVENT)); });
+      await screen.findByRole("tablist");
+    };
+    const onOpenTerminal = vi.fn();
+    const kinds = () => Array.from(document.querySelectorAll("[data-session-kind]")).map((el) => el.getAttribute("data-session-kind"));
+
+    beforeEach(() => {
+      onOpenTerminal.mockClear();
+      mockTauriInvoke({
+        list_launch_history: [
+          { id: 1, projectId: "p", projectName: "demo", projectPath: "/repo/demo", launchedAt: "2026-05-01T10:00:00Z", resumeSessionId: "resume-1", cliTool: "claude", lastPrompt: "Fix login" },
+          { id: 2, projectId: "p", projectName: "no-resume", projectPath: "/repo/x", launchedAt: "2026-05-03T10:00:00Z" },
+        ],
+        list_acp_chat_history: [
+          { acpSessionId: "acp-1", engineId: "codex", cwd: "/repo/demo", title: "Review report", createdAt: 1, updatedAt: Date.parse("2026-05-02T10:00:00Z") },
+        ],
+      });
+    });
+
+    it("lists chats and resumable CLI launches together, newest first, each tagged", async () => {
+      await openPalette();
+      await waitFor(() => expect(kinds()).toEqual(["chat", "cli"]));
+      expect(screen.getByText("Review report")).toBeInTheDocument();
+      expect(screen.getByText("Fix login")).toBeInTheDocument();
+      expect(screen.queryByText("no-resume")).not.toBeInTheDocument();
+      expect(document.querySelector('[data-session-kind="cli"]')?.textContent).toMatch(/demo · .* · claude/);
+    });
+
+    it("resumes a CLI session through onOpenTerminal", async () => {
+      await openPalette();
+      fireEvent.click(await screen.findByText("Fix login"));
+      await waitFor(() => expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({ path: "/repo/demo", resumeId: "resume-1" })));
+    });
+
+    it("narrows the list with the category tabs", async () => {
+      await openPalette();
+      await waitFor(() => expect(kinds()).toHaveLength(2));
+      const tabs = screen.getAllByRole("tab");
+      expect(tabs).toHaveLength(5);
+      expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+
+      fireEvent.click(tabs[2]); // 会话
+      expect(kinds()).toHaveLength(2);
+      expect(document.querySelectorAll("[cmdk-item]")).toHaveLength(2);
+
+      fireEvent.click(tabs[1]); // 操作
+      expect(kinds()).toHaveLength(0);
+      expect(document.querySelector('[cmdk-item][data-value*="quick-launch-terminal"]')).not.toBeNull();
+    });
   });
 });

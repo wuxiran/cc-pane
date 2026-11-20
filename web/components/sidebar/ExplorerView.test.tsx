@@ -2,9 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExplorerView from "./ExplorerView";
-import { useDialogStore, useExplorerSectionsStore, useWorkspacesStore } from "@/stores";
+import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/lib/commands/paletteEvents";
 import { gitService } from "@/services/gitService";
-import type { OpenTerminalOptions, Workspace } from "@/types";
+import type { OpenTerminalOptions } from "@/types";
 
 // --- i18n: t 直接回 key，便于断言 ---
 vi.mock("react-i18next", () => ({
@@ -26,22 +26,6 @@ vi.mock("@/components/sidebar/WorkspaceTree", () => ({
       workspace-tree-stub
     </button>
   ),
-}));
-
-// --- SessionsView stub：keep-alive 下始终挂载，桩掉其 history/PTY 依赖 ---
-vi.mock("@/components/sidebar/SessionsView", () => ({
-  default: ({ onOpenTerminal }: WorkspaceTreeStubProps) => (
-    <button
-      type="button"
-      onClick={() => onOpenTerminal({ path: "/tmp/from-sessions" } as OpenTerminalOptions)}
-    >
-      sessions-view-stub
-    </button>
-  ),
-}));
-
-vi.mock("@/components/bots/BotContactsView", () => ({
-  default: () => <div>bot-contacts-stub</div>,
 }));
 
 // --- FileTree stub ---
@@ -72,26 +56,6 @@ vi.mock("@/services/filesystemService", () => ({
   filesystemService: { getGitFileStatuses: vi.fn(async () => ({})) },
 }));
 
-function makeWorkspace(): Workspace {
-  return {
-    id: "ws-1",
-    name: "alpha",
-    path: null,
-    projects: [
-      { id: "proj-1", path: "D:/repos/demo" },
-      { id: "proj-2", path: "D:/repos/other" },
-    ],
-  } as unknown as Workspace;
-}
-
-function selectWorkspaceWithProject(projectId: string | null = "proj-1") {
-  useWorkspacesStore.setState({
-    workspaces: [makeWorkspace()],
-    expandedWorkspaceId: "ws-1",
-    expandedProjectId: projectId,
-  });
-}
-
 describe("ExplorerView", () => {
   beforeEach(() => {
     vi.mocked(gitService.getRepoInfo).mockResolvedValue({
@@ -101,62 +65,28 @@ describe("ExplorerView", () => {
       hasChanges: null,
       message: null,
     });
-    useExplorerSectionsStore.setState({ activeSection: "workspaces" });
-    useDialogStore.setState({ launcherOpen: false, launcherContext: null, newWorkspaceRequested: false });
-    useWorkspacesStore.setState({
-      workspaces: [],
-      expandedWorkspaceId: null,
-      expandedProjectId: null,
-    });
   });
 
-  it("renders the explorer header and three segmented tabs, workspaces active by default", () => {
+  it("is just a title, a search button and the workspace tree", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("explorer.title")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /launchTerminal/ })).toHaveLength(1);
-    expect(screen.getByRole("tab", { name: "explorer.tabWorkspaces" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.getByRole("tab", { name: "sessionsTitle" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
-    // 文件 / Git 已迁往 RightDock；Agent 会话并入「会话」，剩工作空间 / 会话 / 联系人
-    expect(screen.getAllByRole("tab")).toHaveLength(3);
-    expect(screen.getByRole("tab", { name: "bots.tab" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
+    // 会话进了搜索面板、通讯录进了左侧图标栏：标题旁不再有视图切换
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    // 「启动终端」主操作行已去掉（搜索面板的快捷操作 / 快捷键 / 标签栏 + 仍可启动）
+    expect(screen.queryByRole("button", { name: /launchTerminal/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("explorer-mode-trigger")).not.toBeInTheDocument();
   });
 
-  it("switches to the recent-launches tab and keeps both views mounted (keep-alive)", () => {
+  it("opens the search panel from the header search button", () => {
+    const onToggle = vi.fn();
+    window.addEventListener(COMMAND_PALETTE_TOGGLE_EVENT, onToggle);
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    // 未选中时已挂载但隐藏
-    expect(screen.getByText("sessions-view-stub")).not.toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "sessionsTitle" }));
+    fireEvent.click(screen.getByRole("button", { name: "explorer.search" }));
 
-    expect(useExplorerSectionsStore.getState().activeSection).toBe("sessions");
-    expect(screen.getByText("sessions-view-stub")).toBeVisible();
-    // 工作空间树同样 keep-alive，仅隐藏
-    expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
-  });
-
-  it("has one sessions entry: CLI history and agent chats share a tab", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
-      "explorer.tabWorkspaces",
-      "sessionsTitle",
-      "bots.tab",
-    ]);
-  });
-
-  it("forwards onOpenTerminal from the recent-launches view", () => {
-    const onOpenTerminal = vi.fn();
-    useExplorerSectionsStore.setState({ activeSection: "sessions" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={onOpenTerminal} /></TooltipProvider>);
-    fireEvent.click(screen.getByText("sessions-view-stub"));
-    expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-sessions" });
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    window.removeEventListener(COMMAND_PALETTE_TOGGLE_EVENT, onToggle);
   });
 
   it("forwards onOpenTerminal from the workspace tree", () => {
@@ -164,41 +94,6 @@ describe("ExplorerView", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={onOpenTerminal} /></TooltipProvider>);
     fireEvent.click(screen.getByText("workspace-tree-stub"));
     expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-tree" });
-  });
-
-  it("opens the global launcher from the pinned top action with the workspace context", () => {
-    selectWorkspaceWithProject(null);
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    fireEvent.click(screen.getByRole("button", { name: /launchTerminal/ }));
-
-    expect(useDialogStore.getState().launcherOpen).toBe(true);
-    expect(useDialogStore.getState().launcherContext).toEqual({ workspaceName: "alpha" });
-  });
-
-  it("includes the expanded project path in the launcher context", () => {
-    selectWorkspaceWithProject("proj-2");
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    fireEvent.click(screen.getByRole("button", { name: /launchTerminal/ }));
-
-    expect(useDialogStore.getState().launcherContext).toEqual({
-      workspaceName: "alpha",
-      projectPath: "D:/repos/other",
-    });
-  });
-
-  it("keeps the pinned launch action mounted while the sessions tab is active", () => {
-    useExplorerSectionsStore.setState({ activeSection: "sessions" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByRole("button", { name: /launchTerminal/ })).toBeVisible();
-  });
-
-  it("has a single explorer mode: a plain title, no mode switch", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByText("explorer.title")).toBeVisible();
-    expect(screen.queryByTestId("explorer-mode-trigger")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
   });
 
   it("no longer has a separate new-workspace row (it lives in the workspace header)", () => {

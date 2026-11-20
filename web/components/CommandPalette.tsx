@@ -1,4 +1,5 @@
-// 命令面板（Ctrl+K）：聚合已注册快捷键动作 / 工作空间跳转 / 布局切换。
+// 搜索面板（Ctrl+K，原命令面板）：快捷操作 / 历史会话 / 工作空间 / 命令 / 设置，
+// 底部一排分类标签收窄范围。侧栏不再有单独的会话列表，找回会话走这里。
 // 打开入口走 shortcuts 体系（action id: command-palette），终端聚焦时放行给终端。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,13 +36,40 @@ import {
   executeQuickCommand,
   getQuickCommandSessionId,
 } from "@/lib/quickCommandExecution";
-import type { ScopedQuickCommand } from "@/types";
+import type { OpenTerminalOptions, ScopedQuickCommand } from "@/types";
+import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/lib/commands/paletteEvents";
+import { PaletteQuickActions, PaletteSessionsGroup, RECENT_SESSION_LIMIT, usePaletteSessions } from "@/components/commandPalette/PaletteSessions";
 
-export const COMMAND_PALETTE_TOGGLE_EVENT = "cc-panes:command-palette-toggle";
+export { COMMAND_PALETTE_TOGGLE_EVENT };
 
-export default function CommandPalette() {
+type PaletteScope = "all" | "actions" | "sessions" | "workspaces" | "settings";
+const SCOPES = [
+  { id: "all", labelKey: "paletteTabAll" },
+  { id: "actions", labelKey: "paletteTabActions" },
+  { id: "sessions", labelKey: "paletteSessions" },
+  { id: "workspaces", labelKey: "commandGroupWorkspaces" },
+  { id: "settings", labelKey: "paletteTabSettings" },
+] as const satisfies ReadonlyArray<{ id: PaletteScope; labelKey: string }>;
+
+interface CommandPaletteProps {
+  /** 恢复 CLI 会话用；全应用只有 App 一处持有，从外面传进来。 */
+  onOpenTerminal?: (opts: OpenTerminalOptions) => void;
+}
+
+export default function CommandPalette({ onOpenTerminal }: CommandPaletteProps = {}) {
   const { t } = useTranslation(["shortcuts", "sidebar", "common", "settings", "panes"]);
   const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<PaletteScope>("all");
+  const [query, setQuery] = useState("");
+  const sessions = usePaletteSessions(open);
+  // 每次打开都回到「全部」+ 空关键字。
+  useEffect(() => {
+    if (open) return;
+    setScope("all");
+    setQuery("");
+  }, [open]);
+  const inScope = (...scopes: PaletteScope[]) => scope === "all" || scopes.includes(scope);
+  const listedSessions = scope === "all" && !query.trim() ? sessions.slice(0, RECENT_SESSION_LIMIT) : sessions;
 
   useEffect(() => {
     const toggle = () => setOpen((prev) => !prev);
@@ -149,17 +177,36 @@ export default function CommandPalette() {
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t("command-palette", { ns: "shortcuts", defaultValue: "命令面板" })}>
       <CommandInput
+        value={query}
+        onValueChange={setQuery}
         placeholder={t("commandPalettePlaceholder", {
           ns: "shortcuts",
           defaultValue: "输入命令、工作空间或布局名…",
         })}
       />
-      <CommandList>
+      <CommandList className="max-h-[min(440px,60vh)]">
         <CommandEmpty>
           {t("commandPaletteEmpty", { ns: "shortcuts", defaultValue: "没有匹配的命令" })}
         </CommandEmpty>
 
-        {groupedCommands.map(({ group, headingKey, items }) => (
+        {inScope("actions") && <PaletteQuickActions run={runAndClose} newTabShortcut={bindings?.["new-tab"] ? formatKeyCombo(bindings["new-tab"]) : undefined} />}
+        {inScope("sessions") && <PaletteSessionsGroup sessions={listedSessions} run={runAndClose} onOpenTerminal={onOpenTerminal} />}
+        {inScope("workspaces") && workspaces.length > 0 && (
+          <CommandGroup heading={t("commandGroupWorkspaces", { ns: "shortcuts", defaultValue: "工作空间" })}>
+            {workspaces.filter((ws) => !ws.hidden).map((ws) => (
+              <CommandItem
+                key={ws.id}
+                value={`workspace ${ws.alias || ws.name}`}
+                onSelect={() => jumpToWorkspace(ws.id)}
+              >
+                <FolderOpen strokeWidth={1.5} />
+                <span className="truncate">{ws.alias || ws.name}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {inScope("actions") && groupedCommands.map(({ group, headingKey, items }) => (
           <CommandGroup
             key={group}
             heading={t(headingKey as never, { ns: "shortcuts", defaultValue: group })}
@@ -202,7 +249,7 @@ export default function CommandPalette() {
           </CommandGroup>
         ))}
 
-        <CommandGroup heading={t("modules.commandGroup", { ns: "settings" })}>
+        {inScope("actions") && <CommandGroup heading={t("modules.commandGroup", { ns: "settings" })}>
           {MODULE_CONSUMERS.commandPalette.map((module) => {
             const Icon = module.icon;
             const moduleName = t(module.titleKey as never, { ns: "sidebar" });
@@ -222,9 +269,9 @@ export default function CommandPalette() {
               </CommandItem>
             );
           })}
-        </CommandGroup>
+        </CommandGroup>}
 
-        {visibleQuickCommands.length > 0 && (
+        {inScope("actions") && visibleQuickCommands.length > 0 && (
           <CommandGroup heading={t("quickCommands.commandGroup", { ns: "settings" })}>
             {visibleQuickCommands.map((command) => {
               const disabledReason = quickCommandDisabledReason(command);
@@ -247,7 +294,7 @@ export default function CommandPalette() {
           </CommandGroup>
         )}
 
-        <CommandGroup heading={t("searchCommandGroup", { ns: "settings" })}>
+        {inScope("settings") && <CommandGroup heading={t("searchCommandGroup", { ns: "settings" })}>
           {getSettingsCommandTargets(settingsPanes).map(({ pane, entry }) => {
             const Icon = pane.icon;
             const paneTitle = t(pane.titleKey as never, { ns: "settings" });
@@ -273,24 +320,9 @@ export default function CommandPalette() {
               </CommandItem>
             );
           })}
-        </CommandGroup>
+        </CommandGroup>}
 
-        {workspaces.length > 0 && (
-          <CommandGroup heading={t("commandGroupWorkspaces", { ns: "shortcuts", defaultValue: "工作空间" })}>
-            {workspaces.filter((ws) => !ws.hidden).map((ws) => (
-              <CommandItem
-                key={ws.id}
-                value={`workspace ${ws.alias || ws.name}`}
-                onSelect={() => jumpToWorkspace(ws.id)}
-              >
-                <FolderOpen strokeWidth={1.5} />
-                <span className="truncate">{ws.alias || ws.name}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-
-        {layouts.length > 1 && (
+        {inScope("actions") && layouts.length > 1 && (
           <CommandGroup heading={t("commandGroupLayouts", { ns: "shortcuts", defaultValue: "布局" })}>
             {layouts.map((layout, index) => (
               <CommandItem
@@ -309,6 +341,27 @@ export default function CommandPalette() {
           </CommandGroup>
         )}
       </CommandList>
+      {/* 分类标签：收窄到一类（同 ChatGPT 桌面端搜索面板底部那一排） */}
+      <div className="flex shrink-0 items-center gap-1 border-t border-[var(--app-border)] px-2 py-1.5" role="tablist" aria-label={t("command-palette", { ns: "shortcuts" })}>
+        {SCOPES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={scope === item.id}
+            // 点标签不抢输入框的焦点，方向键和回车照常作用于列表。
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setScope(item.id)}
+            className={`rounded-full px-2.5 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] ${
+              scope === item.id
+                ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                : "text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-secondary)]"
+            }`}
+          >
+            {t(item.labelKey, { ns: "shortcuts" })}
+          </button>
+        ))}
+      </div>
     </CommandDialog>
   );
 }

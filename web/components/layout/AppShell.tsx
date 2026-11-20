@@ -87,7 +87,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <ImportConfirmDialog onOpenTerminal={onOpenTerminal} />
 
         {/* Dialog 组件 */}
-        <AppDialogs recentFilesOpen={recentFilesOpen} onCloseRecentFiles={onCloseRecentFiles} />
+        <AppDialogs recentFilesOpen={recentFilesOpen} onCloseRecentFiles={onCloseRecentFiles} onOpenTerminal={onOpenTerminal} />
 
         {/* 新手引导 */}
         <OnboardingGuide onOpenTerminal={onOpenTerminal} />
