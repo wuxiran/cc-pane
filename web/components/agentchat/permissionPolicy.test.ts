@@ -5,6 +5,8 @@ import {
   enabledGroupCount,
   isGroupEnabled,
   normalize,
+  presetKinds,
+  presetOf,
   toggleAll,
   toggleGroup,
 } from "./permissionPolicy";
@@ -59,3 +61,30 @@ describe("permissionPolicy", () => {
     expect(normalize(["read", "read", AUTO_APPROVE_ALL])).toEqual(["read"]);
   });
 });
+
+describe("三档预设", () => {
+  it("空集合是「请求批准」，通配是「完全访问」", () => {
+    expect(presetOf([])).toBe("ask");
+    expect(presetOf([AUTO_APPROVE_ALL])).toBe("full");
+    expect(presetOf(["read", AUTO_APPROVE_ALL])).toBe("full");
+  });
+
+  it("「帮我批准」放行读和改，不放行执行命令、联网和其它工具", () => {
+    const kinds = presetKinds("assist");
+    expect(presetOf(kinds)).toBe("assist");
+    expect(presetOf([...kinds].reverse())).toBe("assist");
+    for (const risky of ["execute", "fetch", "other"]) expect(kinds).not.toContain(risky);
+    for (const safe of ["read", "search", "edit"]) expect(kinds).toContain(safe);
+  });
+
+  it("对不上任何一档的集合是自定义", () => {
+    expect(presetOf(["read", "search"])).toBeNull();
+    expect(presetOf([...presetKinds("assist"), "execute"])).toBeNull();
+  });
+
+  it("presetKinds 返回的是副本，改它不会污染预设", () => {
+    presetKinds("assist").push("execute");
+    expect(presetKinds("assist")).not.toContain("execute");
+  });
+});
+

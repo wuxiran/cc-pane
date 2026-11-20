@@ -65,3 +65,35 @@ export function toggleAll(kinds: readonly string[]): string[] {
 export function enabledGroupCount(kinds: readonly string[]): number {
   return PERMISSION_GROUPS.filter((group) => isGroupEnabled(kinds, group)).length;
 }
+
+// ── 三档预设 ────────────────────────────────────────────────
+// 面向用户的是三档，不是一张类别勾选表：每次都问 / 低风险的自动放行 / 全部放行。
+// 逐类勾选收在「自定义」里，命中不了任何预设的集合显示为自定义。
+
+export type PermissionPresetId = "ask" | "assist" | "full";
+
+/** 「帮我批准」自动放行的类别：读、搜索、改文件、思考、切换模式。执行命令、联网和其它工具仍然询问。 */
+const ASSIST_KINDS: readonly string[] = ["read", "search", "edit", "delete", "move", "think", "switch_mode"];
+
+export const PERMISSION_PRESETS: Record<PermissionPresetId, readonly string[]> = {
+  ask: [],
+  assist: ASSIST_KINDS,
+  full: [AUTO_APPROVE_ALL],
+};
+
+function sameKinds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((kind) => b.includes(kind));
+}
+
+/** 当前集合对应哪一档；对不上任何一档返回 null（自定义）。 */
+export function presetOf(kinds: readonly string[]): PermissionPresetId | null {
+  if (isAutoApproveAll(kinds)) return "full";
+  const unique = Array.from(new Set(kinds.filter(Boolean)));
+  if (unique.length === 0) return "ask";
+  return sameKinds(unique, ASSIST_KINDS) ? "assist" : null;
+}
+
+export function presetKinds(preset: PermissionPresetId): string[] {
+  return [...PERMISSION_PRESETS[preset]];
+}
+
