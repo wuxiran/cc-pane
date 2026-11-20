@@ -1435,5 +1435,13 @@
   "terminalColorHint": "Leave empty to follow the theme. Low contrast colors are adjusted for visible marks and readable text. Try the DOM renderer if the cursor or selection is still missing.",
   "autoCloseCompletedTasks": "Allow completed tasks to close automatically",
   "autoCloseCompletedTasksHint": "Off by default. Opt in separately from each task menu. Tabs close after the task completes, the process exits, and a result summary is saved, with a 30-second grace period. Results remain in task details.",
-  "mcpArgsHelp": "Separate arguments with spaces. Quote values containing spaces; use \"\" for an empty argument. Single quotes preserve Windows backslashes. Inside double quotes, escape quotes and backslashes with a backslash. Variables and commands are never expanded."
+  "mcpArgsHelp": "Separate arguments with spaces. Quote values containing spaces; use \"\" for an empty argument. Single quotes preserve Windows backslashes. Inside double quotes, escape quotes and backslashes with a backslash. Variables and commands are never expanded.",
+  "imInboundEnabled": "Receive messages and let a bot reply",
+  "imInboundHint": "Messages you send to this Telegram bot go to a bot in Contacts on the desktop, and the reply comes back. Only messages in the numeric Chat ID above, from the allowed users below, are accepted; send /help for commands.",
+  "imInboundConfirm": "Allowed senders will be able to make the bot read and write files and run commands on this computer (within the bot's auto-approve setting). By default only you, in a private chat, are accepted; if the Chat ID is a group, only the users you list under Allowed user IDs are. Turn this on?",
+  "imInboundDefaultBot": "Default bot",
+  "imInboundAllowedUsers": "Allowed user IDs",
+  "imInboundAllowedUsersHint": "Numeric Telegram user IDs, comma-separated. Leave empty to accept only yourself in a private chat (the Chat ID is your user ID); group chats must list users here.",
+  "imInboundNeedsNumericChatId": "Receiving messages needs a numeric Chat ID (such as 123456789 or -100…). @usernames can be taken over after a rename and are not accepted.",
+  "imInboundDefaultBotFirst": "First bot"
 }

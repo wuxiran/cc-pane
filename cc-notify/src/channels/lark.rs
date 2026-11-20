@@ -65,6 +65,9 @@ mod tests {
             chat_id: None,
             events: vec![],
             enabled: true,
+            inbound_enabled: false,
+            default_bot_id: None,
+            inbound_allowed_user_ids: vec![],
         }
     }
 

@@ -4,6 +4,7 @@ use super::*;
 pub(super) struct PendingRequest {
     id: Value,
     kind: RequestKind,
+    tool_call_id: Option<String>,
 }
 #[derive(Clone)]
 enum RequestKind {
@@ -218,8 +219,18 @@ impl Session {
                 )
                 .await;
         };
-        self.queue_request(key, PendingRequest { id, kind }, payload, auto_kind)
-            .await
+        let tool_call_id = params["itemId"].as_str().map(str::to_string);
+        self.queue_request(
+            key,
+            PendingRequest {
+                id,
+                kind,
+                tool_call_id,
+            },
+            payload,
+            auto_kind,
+        )
+        .await
     }
 
     async fn queue_request(
@@ -263,6 +274,18 @@ impl Session {
             json!({"requestKey":key,"params":payload}),
         );
         Ok(())
+    }
+
+    pub(in crate::services::acp_chat_service) async fn permission_binding(
+        &self,
+        key: &str,
+    ) -> Option<PermissionBinding> {
+        let pending = self.pending.lock().await;
+        let request = pending.get(key)?;
+        matches!(request.kind, RequestKind::Approval { .. }).then(|| PermissionBinding {
+            instance_id: self.instance_id.clone(),
+            tool_call_id: request.tool_call_id.clone(),
+        })
     }
 
     pub(in crate::services::acp_chat_service) async fn respond_permission(

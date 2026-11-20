@@ -10,6 +10,8 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 pub(super) struct PendingPermissions {
     requests: Mutex<HashMap<String, Value>>,
+    /// requestKey → 请求里的 toolCallId（IM 审批按钮点按时据此核对是不是同一个请求）。
+    tool_calls: Mutex<HashMap<String, Option<String>>>,
     /// True from the cancellation fence until the next admitted prompt.
     responding: Mutex<bool>,
 }
@@ -27,6 +29,7 @@ impl PendingPermissions {
         // A new prompt starts a new ACP turn. Any unresolved approval from the
         // previous turn must not be selectable in the new one.
         self.requests.lock().await.clear();
+        self.tool_calls.lock().await.clear();
     }
 
     /// Registration, automatic replies and cancellation share one fence. A
@@ -67,6 +70,23 @@ impl PendingPermissions {
 
     pub(super) async fn clear(&self) {
         self.requests.lock().await.clear();
+        self.tool_calls.lock().await.clear();
+    }
+
+    /// 记下仍在等待的请求属于哪个 toolCall。
+    pub(super) async fn bind_tool_call(&self, key: &str, tool_call_id: Option<String>) {
+        self.tool_calls
+            .lock()
+            .await
+            .insert(key.to_string(), tool_call_id);
+    }
+
+    /// 仍在等待时返回 `Some(toolCallId)`；已处理 / 已取消返回 None。
+    pub(super) async fn pending_tool_call(&self, key: &str) -> Option<Option<String>> {
+        if !self.requests.lock().await.contains_key(key) {
+            return None;
+        }
+        Some(self.tool_calls.lock().await.get(key).cloned().flatten())
     }
 
     pub(super) async fn respond<F, Fut>(&self, key: &str, reply: F) -> AppResult<()>
@@ -205,6 +225,24 @@ mod tests {
             Some("ACP_PERMISSION_NOT_PENDING")
         );
     }
+    #[tokio::test]
+    async fn tool_call_identity_is_only_reported_while_pending() {
+        let pending = PendingPermissions::default();
+        pending.insert("n7".into(), json!("n7")).await;
+        pending.bind_tool_call("n7", Some("tool-1".into())).await;
+        assert_eq!(
+            pending.pending_tool_call("n7").await,
+            Some(Some("tool-1".into()))
+        );
+        pending.respond("n7", |_, _| async { Ok(()) }).await.unwrap();
+        assert_eq!(pending.pending_tool_call("n7").await, None);
+        // 新回合清空：旧 toolCall 身份不会挂到同 key 的新请求上。
+        pending.bind_tool_call("n8", Some("tool-2".into())).await;
+        pending.begin_turn().await;
+        pending.insert("n8".into(), json!("n8")).await;
+        assert_eq!(pending.pending_tool_call("n8").await, Some(None));
+    }
+
     #[tokio::test]
     async fn cancellation_overrides_late_automatic_approval_until_next_turn() {
         let pending = PendingPermissions::default();
