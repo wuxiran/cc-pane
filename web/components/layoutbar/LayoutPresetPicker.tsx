@@ -1,10 +1,9 @@
 // 布局快捷簇：星标/预设/自动化纯图标并排（舒适档垂直居中）。
-import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 // 点星标切到星标布局；点预设弹出分屏网格；点自动化跳设置。
 // 复用 corner 模式选择器的 useFloatingPanelPosition 定位/夹紧逻辑，弹层方向改为按钮下方。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useActivityBarStore, usePanesStore } from "@/stores";
@@ -224,24 +223,6 @@ export default function LayoutPresetPicker({
     </Tooltip>
   );
 
-  const automationsButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          data-testid="layout-special-automations"
-          aria-label={t("layoutAutomations")}
-          className={iconChipClass}
-          style={{ color: "var(--app-text-primary)" }}
-          onClick={openAutomationsDialog}
-        >
-          <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{t("layoutAutomations")}</TooltipContent>
-    </Tooltip>
-  );
-
   return (
     <>
       <div
@@ -256,13 +237,11 @@ export default function LayoutPresetPicker({
           <div className="flex min-w-0 items-center gap-1">
             {starredButton}
             {presetButton}
-            {automationsButton}
           </div>
         ) : (
           <>
             {starredButton}
             {presetButton}
-            {automationsButton}
           </>
         )}
       </div>

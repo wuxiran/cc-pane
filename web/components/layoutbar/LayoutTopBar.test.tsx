@@ -1,5 +1,4 @@
 import "@/i18n";
-import { useAutomationsDialogStore } from "@/stores/useAutomationsDialogStore";
 import type { ReactElement } from "react";
 import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -148,7 +147,8 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(cluster).toHaveAttribute("data-density", "comfortable");
     expect(within(cluster).queryByTestId("layout-special-agent-chat")).toBeNull();
     expect(within(cluster).getByTestId("layout-special-starred")).toBeInTheDocument();
-    expect(within(cluster).getByTestId("layout-special-automations")).toBeInTheDocument();
+    // 自动化入口只在左侧活动栏，布局条不再重复放
+    expect(within(cluster).queryByTestId("layout-special-automations")).toBeNull();
     expect(within(cluster).getByRole("button", { name: /布局预设|Layout presets/i })).toBe(presetTrigger());
     expect(within(presetTrigger()).queryByText(/^(单格|Single|布局预设|Layout presets)$/)).not.toBeInTheDocument();
     expect(within(cluster).getByTestId("layout-special-starred")).not.toHaveTextContent(/星标|Starred/);
@@ -268,12 +268,6 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-agent-chat");
   });
 
-  it("点自动化打开独立的自动化弹窗", () => {
-    useAutomationsDialogStore.setState({ open: false });
-    render(<DndContext><LayoutTopBar /></DndContext>);
-    fireEvent.click(screen.getByTestId("layout-special-automations"));
-    expect(useAutomationsDialogStore.getState().open).toBe(true);
-  });
 });
 
 describe("LayoutTopBar 布局条密度", () => {
