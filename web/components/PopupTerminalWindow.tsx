@@ -7,6 +7,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import TerminalView, { type TerminalViewHandle } from "@/components/panes/TerminalView";
+import { AppToaster } from "@/components/ui/toast";
 import { getPopupTabData } from "@/services/popupWindowService";
 import type { PopupTabData } from "@/services/popupWindowService";
 import { hideQuickTerminal, reportQuickTerminalSession } from "@/services/quickTerminalService";
@@ -161,6 +162,8 @@ export default function PopupTerminalWindow() {
 
   return (
     <div className="h-screen w-screen overflow-hidden" style={{ background: "var(--app-terminal-bg)" }}>
+      {/* 弹出窗口是独立 WebView：不挂 toaster 的话，右键「清空缓冲区」那条带确认按钮的提示显示不出来。 */}
+      <AppToaster />
       <TerminalView
         ref={isQuick ? terminalHandleRef : undefined}
         sessionId={tabData.sessionId}

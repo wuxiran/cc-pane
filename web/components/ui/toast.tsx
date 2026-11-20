@@ -164,26 +164,39 @@ export function AppToaster({ offset = 16 }: AppToasterProps) {
   );
 }
 
-function ToastRow({ item, closeLabel }: { item: ToastItem; closeLabel: string }) {
-  const [paused, setPaused] = useState(false);
-  const remainingRef = useRef(item.duration);
-  const revisionRef = useRef(item.revision);
+function subscribeDocumentVisibility(listener: () => void) {
+  document.addEventListener("visibilitychange", listener);
+  return () => document.removeEventListener("visibilitychange", listener);
+}
 
-  // 同 id 更新：重新计时。
-  if (revisionRef.current !== item.revision) {
-    revisionRef.current = item.revision;
-    remainingRef.current = item.duration;
-  }
+function isDocumentHidden() {
+  return document.visibilityState === "hidden";
+}
+
+function ToastRow({ item, closeLabel }: { item: ToastItem; closeLabel: string }) {
+  // 三个暂停原因各自记账，全部解除才继续计时：指针在行上、键盘焦点在行内（指针移开
+  // 时焦点可能还在「前往」按钮上）、窗口不可见（回到窗口时提示和它的操作入口还得在）。
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
+  const documentHidden = useSyncExternalStore(subscribeDocumentVisibility, isDocumentHidden, () => false);
+  const paused = hovered || focusWithin || documentHidden;
+  // 剩余时间绑在 revision 上。同 id 更新时旧 effect 的 cleanup 先跑，它扣的是旧
+  // revision 那份预算；新 revision 在 effect 里另起一份完整的。
+  const budgetRef = useRef({ revision: item.revision, ms: item.duration });
 
   useEffect(() => {
-    if (paused || !Number.isFinite(remainingRef.current)) return;
+    if (budgetRef.current.revision !== item.revision) {
+      budgetRef.current = { revision: item.revision, ms: item.duration };
+    }
+    const budget = budgetRef.current;
+    if (paused || !Number.isFinite(budget.ms)) return;
     const startedAt = Date.now();
-    const timer = window.setTimeout(() => dismiss(item.id), remainingRef.current);
+    const timer = window.setTimeout(() => dismiss(item.id), budget.ms);
     return () => {
       window.clearTimeout(timer);
-      remainingRef.current = Math.max(0, remainingRef.current - (Date.now() - startedAt));
+      budget.ms = Math.max(0, budget.ms - (Date.now() - startedAt));
     };
-  }, [item.id, item.revision, paused]);
+  }, [item.id, item.revision, item.duration, paused]);
 
   const style = KIND_STYLE[item.kind];
   const urgent = item.kind === "error" || item.kind === "warning";
@@ -196,10 +209,13 @@ function ToastRow({ item, closeLabel }: { item: ToastItem; closeLabel: string })
       aria-live={urgent ? "assertive" : "polite"}
       style={{ pointerEvents: "auto", maxWidth: "100%" }}
       className="relative flex items-start gap-2 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] py-2 pl-3.5 pr-2 shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in motion-safe:duration-[var(--dur-slow)] motion-safe:ease-[var(--ease-out)]"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocus={() => setPaused(true)}
-      onBlur={() => setPaused(false)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocusWithin(true)}
+      onBlur={(event) => {
+        // 焦点在行内的按钮之间移动不算离开。
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);
+      }}
     >
       {style.color && (
         <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px]" style={{ background: style.color }} />

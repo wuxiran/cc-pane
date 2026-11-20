@@ -92,4 +92,70 @@ describe("AppToaster", () => {
     expect(screen.queryByText("t0")).toBeNull();
     expect(screen.getByText(`t${TOAST_MAX_VISIBLE + 1}`)).toBeTruthy();
   });
+
+  it("gives an updated toast its full duration, not what the previous version had left", () => {
+    render(<AppToaster />);
+    act(() => {
+      toast.info("first", { id: "job", duration: 4000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+    act(() => {
+      toast.info("second", { id: "job", duration: 4000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(3900);
+    });
+    expect(screen.getByText("second")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.queryByText("second")).toBeNull();
+  });
+
+  it("stays while keyboard focus is still on its action after the pointer leaves", () => {
+    render(<AppToaster />);
+    act(() => {
+      toast.info("go there", { duration: 1000, action: { label: "Go", onClick: () => {} } });
+    });
+    const row = screen.getByTestId("app-toast");
+    const action = screen.getByText("Go");
+    fireEvent.mouseEnter(row);
+    fireEvent.focus(action);
+    fireEvent.mouseLeave(row);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("go there")).toBeTruthy();
+
+    fireEvent.blur(action, { relatedTarget: document.body });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByText("go there")).toBeNull();
+  });
+
+  it("does not expire while the window is hidden", () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    visibility.mockReturnValue("hidden");
+    render(<AppToaster />);
+    act(() => {
+      toast.info("background event", { duration: 1000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText("background event")).toBeTruthy();
+
+    visibility.mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByText("background event")).toBeNull();
+    visibility.mockRestore();
+  });
 });
