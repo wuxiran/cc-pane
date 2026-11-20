@@ -64,7 +64,7 @@ async function renderRoot() {
       // Web mode and older hosts may not expose this optional diagnostics command.
     }
   }
-  if (mode === "ccchan" || mode === "popup" || mode === "browser-popup" || mode === "webgl-lab") {
+  if (mode === "ccchan" || mode === "island" || mode === "popup" || mode === "browser-popup" || mode === "webgl-lab") {
     isolateSpecialWindowShape();
   }
   const root = ReactDOM.createRoot(document.getElementById("root")!);
@@ -99,6 +99,10 @@ async function renderRoot() {
         <CCChanApp />
       </ErrorBoundary>,
     );
+  } else if (mode === "island") {
+    // 灵动岛：透明置顶小窗，数据全部来自主窗口事件桥。
+    const { default: IslandApp } = await import("./island/IslandApp");
+    root.render(<IslandApp />);
   } else if (mode === "popup") {
     const { default: PopupTerminalWindow } = await import("@/components/PopupTerminalWindow");
     root.render(<PopupTerminalWindow />);

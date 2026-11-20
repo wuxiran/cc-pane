@@ -14,6 +14,7 @@ const CliLaunchersSection = lazyWithRetry(() => import("./CliLaunchersSection"),
 const ExperimentalSection = lazyWithRetry(() => import("./ExperimentalSection"), "ExperimentalSection");
 const GeneralSection = lazyWithRetry(() => import("./GeneralSection"), "GeneralSection");
 const ImSection = lazyWithRetry(() => import("./ImSection"), "ImSection");
+const IslandSection = lazyWithRetry(() => import("./IslandSection"), "IslandSection");
 const ModulesSection = lazyWithRetry(() => import("./ModulesSection"), "ModulesSection");
 const NotificationSection = lazyWithRetry(() => import("./NotificationSection"), "NotificationSection");
 const PerformanceSection = lazyWithRetry(() => import("./PerformanceSection"), "PerformanceSection");
@@ -68,6 +69,8 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <ThemeSection view="shape" value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
     case "notification":
       return <NotificationSection value={draft.notification} onChange={(notification) => updateDraft({ ...draft, notification })} />;
+    case "island":
+      return <IslandSection value={draft.island} onChange={(island) => updateDraft({ ...draft, island })} />;
     case "im-bridge":
       return <ImSection value={draft.im} onChange={(im) => updateDraft({ ...draft, im })} />;
     case "modules":

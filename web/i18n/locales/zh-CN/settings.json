@@ -39,7 +39,8 @@
     "voice": "语音 录音 转写 麦克风 whisper 自定义",
     "ccchan": "cc酱 宠物 伙伴 浮窗",
     "experimental": "实验 预览 测试 beta feature flag",
-    "about": "版本 更新 日志 卸载 清理"
+    "about": "版本 更新 日志 卸载 清理",
+    "island": "灵动岛 刘海 dynamic island 置顶 胶囊 状态 审批 额度"
   },
   "groups": {
     "application": "应用",
@@ -1443,5 +1444,7 @@
   "imInboundAllowedUsers": "允许的用户 ID",
   "imInboundAllowedUsersHint": "Telegram 数字用户 id，逗号分隔。留空 = 只接受私聊里的本人（Chat ID 就是你的用户 id）；群聊必须在这里列出。",
   "imInboundNeedsNumericChatId": "接收消息需要数字 Chat ID（例如 123456789 或 -100…），@用户名 可被改名抢注，不会被接收。",
-  "imInboundDefaultBotFirst": "第一个 Bot"
+  "imInboundDefaultBotFirst": "第一个 Bot",
+  "islandTitle": "灵动岛",
+  "islandDesc": "屏幕顶部的会话状态胶囊：谁在跑、谁在等你、额度还剩多少。"
 }

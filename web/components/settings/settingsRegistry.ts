@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Mic,
   Palette,
+  PanelTop,
   PanelsTopLeft,
   Settings,
   SquareTerminal,
@@ -122,7 +123,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Globe,
     titleKey: "pages.system.title",
     group: "services",
-    paneIds: ["proxy", "web-access", "notification", "im-bridge", "screenshot", "voice", "performance"],
+    paneIds: ["proxy", "web-access", "notification", "island", "im-bridge", "screenshot", "voice", "performance"],
   },
   {
     id: "ccchan",
@@ -370,6 +371,9 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", page: "system", searchEntries: [
     { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
+  ] },
+  { id: "island", icon: PanelTop, titleKey: "islandTitle", descriptionKey: "islandDesc", page: "system", availability: "tauri", searchEntries: [
+    { id: "island", titleKey: "islandTitle", descriptionKey: "islandDesc", keywordsKey: "searchKeywords.island", targetSectionId: "island-root" },
   ] },
   { id: "im-bridge", icon: MessageSquare, titleKey: "imBridge", descriptionKey: "imBridgeDescription", page: "system", availability: "tauri", searchEntries: [
     { id: "channels", titleKey: "imBridgeTitle", descriptionKey: "imBridgeDescription", keywordsKey: "searchKeywords.imBridge", targetSectionId: "im-bridge-root" },

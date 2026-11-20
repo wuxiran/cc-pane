@@ -2089,6 +2089,7 @@ pub fn run() {
         .manage(notification_service)
         .manage(turn_notify_registry)
         .manage(ccchan_service)
+        .manage(Arc::new(services::island_window::IslandWindowManager::default()))
         .manage(todo_service)
         .manage(task_binding_service)
         .manage(task_verification_service)
@@ -2590,6 +2591,12 @@ pub fn run() {
                         warn!("[ccchan] failed to persist startup visibility: {}", error);
                     }
                 }
+
+                // 灵动岛：开启时建窗 + 启动环境探测；关闭时只记下设置。
+                app.state::<Arc<services::island_window::IslandWindowManager>>()
+                    .inner()
+                    .clone()
+                    .sync(&app_handle, settings_svc.get_settings().island);
 
                 // ---- 启动 workspace 目录监控 ----
                 let ws_svc = app.state::<Arc<WorkspaceService>>();
@@ -3161,6 +3168,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            // 灵动岛
+            commands::island_get_state,
+            commands::island_set_layout,
+            commands::island_activate_session,
+            commands::get_terminal_pending_approval,
             // 项目命令
             list_projects,
             add_project,

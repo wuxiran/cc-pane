@@ -39,7 +39,8 @@
     "voice": "voice recording transcription microphone whisper custom",
     "ccchan": "cc-chan pet companion window",
     "experimental": "experimental preview beta feature flag",
-    "about": "version update logs uninstall cleanup"
+    "about": "version update logs uninstall cleanup",
+    "island": "dynamic island notch always on top capsule status approval quota"
   },
   "groups": {
     "application": "Application",
@@ -1443,5 +1444,7 @@
   "imInboundAllowedUsers": "Allowed user IDs",
   "imInboundAllowedUsersHint": "Numeric Telegram user IDs, comma-separated. Leave empty to accept only yourself in a private chat (the Chat ID is your user ID); group chats must list users here.",
   "imInboundNeedsNumericChatId": "Receiving messages needs a numeric Chat ID (such as 123456789 or -100…). @usernames can be taken over after a rename and are not accepted.",
-  "imInboundDefaultBotFirst": "First bot"
+  "imInboundDefaultBotFirst": "First bot",
+  "islandTitle": "Dynamic Island",
+  "islandDesc": "A session status capsule at the top of the screen: what is running, who needs you, quota left."
 }

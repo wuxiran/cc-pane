@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 // OrchestratorSettings 已拆到独立模块（settings.rs 触到行数棘轮上限），
 // 在此重导出以保持既有 import 路径不变。
+pub use super::island_settings::IslandSettings;
 pub use super::orchestrator_settings::OrchestratorSettings;
 pub use super::performance_settings::PerformanceSettings;
 pub use super::quick_terminal_settings::QuickTerminalSettings;
@@ -66,6 +67,9 @@ pub struct AppSettings {
     /// 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊。
     #[serde(default)]
     pub performance: PerformanceSettings,
+    /// 灵动岛（屏幕顶部会话状态胶囊）；默认关闭。
+    #[serde(default)]
+    pub island: IslandSettings,
 }
 
 /// 实验功能开关。Release 默认全关，用户在「设置 → 实验功能」显式勾选后入口才
@@ -165,6 +169,7 @@ impl AppSettings {
         self.wallpaper.merge_missing_defaults();
         self.quick_terminal.merge_missing_defaults();
         self.performance.merge_missing_defaults();
+        self.island.merge_missing_defaults();
     }
 }
 
