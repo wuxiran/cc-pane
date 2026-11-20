@@ -99,15 +99,22 @@ async fn read_line() -> Option<String> {
     let (sender, receiver) = oneshot::channel();
     // A dedicated OS thread lets cancellation exit without waiting for blocking
     // stdin. Do not use spawn_blocking, which the Tokio runtime waits on at exit.
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let result = std::io::stdin()
-            .read_line(&mut line)
-            .ok()
-            .filter(|count| *count > 0)
-            .map(|_| line);
-        let _ = sender.send(result);
-    });
+    // Spawn failure drops the sender, so the read resolves to None instead of panicking.
+    let spawned = std::thread::Builder::new()
+        .name("ctl-stdin-line".into())
+        .spawn(move || {
+            let mut line = String::new();
+            let result = std::io::stdin()
+                .read_line(&mut line)
+                .ok()
+                .filter(|count| *count > 0)
+                .map(|_| line);
+            let _ = sender.send(result);
+        });
+    if let Err(error) = spawned {
+        eprintln!("cc-panes-ctl: stdin reader unavailable: {error}");
+        return None;
+    }
     receiver.await.ok().flatten()
 }
 

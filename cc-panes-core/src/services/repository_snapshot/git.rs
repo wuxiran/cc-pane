@@ -1,3 +1,4 @@
+use crate::pty::thread::spawn_named;
 use crate::utils::{AppError, AppResult};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -49,9 +50,9 @@ fn run_with_timeout(mut command: Command, input: Vec<u8>, timeout: Duration) -> 
     let mut stdin = child.stdin.take().ok_or("Git stdin is unavailable")?;
     let stdout = child.stdout.take().ok_or("Git stdout is unavailable")?;
     let stderr = child.stderr.take().ok_or("Git stderr is unavailable")?;
-    let writer = background(move || stdin.write_all(&input));
-    let output_reader = background(move || read_bounded(stdout));
-    let error_reader = background(move || read_bounded(stderr));
+    let writer = background("snapshot-git-stdin", move || stdin.write_all(&input));
+    let output_reader = background("snapshot-git-stdout", move || read_bounded(stdout));
+    let error_reader = background("snapshot-git-stderr", move || read_bounded(stderr));
     let start = Instant::now();
     let result = (|| {
         let status = wait_for_exit(&mut child, start, timeout)?;
@@ -85,13 +86,19 @@ fn wait_for_exit(child: &mut Child, start: Instant, timeout: Duration) -> AppRes
     }
 }
 
+/// Thread exhaustion is reported as this command's I/O error (issue #64), never a
+/// process-wide panic; the caller then terminates the Git child.
 fn background<T: Send + 'static>(
+    name: &str,
     work: impl FnOnce() -> std::io::Result<T> + Send + 'static,
 ) -> Receiver<std::io::Result<T>> {
     let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
+    let failure = sender.clone();
+    if let Err(error) = spawn_named(name, move || {
         let _ = sender.send(work());
-    });
+    }) {
+        let _ = failure.send(Err(error));
+    }
     receiver
 }
 
@@ -141,6 +148,28 @@ pub(super) fn oid(value: &str) -> AppResult<()> {
         return Err("Invalid repository snapshot object ID".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod spawn_failure_tests {
+    use super::*;
+
+    #[test]
+    fn thread_creation_failure_is_a_command_error_not_a_panic() {
+        crate::pty::thread::fail_next_spawn();
+        let receiver = background("fixture", || Ok(7));
+        let error = receive(receiver, Instant::now(), Duration::from_secs(1))
+            .expect_err("spawn failure must surface as an error");
+        assert!(error
+            .to_string()
+            .contains("injected thread creation failure"));
+        // The next spawn is unaffected.
+        let receiver = background("fixture", || Ok(7));
+        assert_eq!(
+            receive(receiver, Instant::now(), Duration::from_secs(1)).unwrap(),
+            7
+        );
+    }
 }
 
 #[cfg(all(test, unix))]

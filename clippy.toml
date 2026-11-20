@@ -1,0 +1,8 @@
+# Issue #64: `std::thread::spawn` panics when the OS refuses a thread (e.g. Windows
+# commit-limit exhaustion, os error 1455) and takes every pane down with it.
+# Production code must use `std::thread::Builder::spawn` (or
+# `cc_panes_core::pty::thread::spawn_named`) and handle the error. Tests are exempt:
+# CI runs clippy without `--all-targets`.
+disallowed-methods = [
+    { path = "std::thread::spawn", reason = "panics on thread creation failure; use std::thread::Builder::spawn / pty::thread::spawn_named and handle the io::Error (issue #64)" },
+]

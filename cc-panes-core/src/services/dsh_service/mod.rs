@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -309,13 +309,21 @@ impl DshService {
     /// Windows 上 npm 分发的是 `.cmd` 批处理 shim，`CreateProcess` 起不来裸名，
     /// 交给 `which` 按 PATHEXT 解析。
     fn resolve_executable(&self) -> Result<PathBuf, String> {
-        if let Some(cached) = self.executable.lock().unwrap().clone() {
+        if let Some(cached) = self
+            .executable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
             return Ok(cached);
         }
         let found = which::which("dsh").map_err(|_| {
             "dsh not found on PATH — install it with `npm i -g @deepseek-ai/dsh`".to_string()
         })?;
-        *self.executable.lock().unwrap() = Some(found.clone());
+        *self
+            .executable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(found.clone());
         Ok(found)
     }
 
@@ -368,7 +376,7 @@ impl DshService {
         // 取该工作空间的启动闸门。持有它的整段里只允许一个 spawn，
         // 但不同工作空间互不阻塞。
         let gate = {
-            let mut starting = self.starting.lock().unwrap();
+            let mut starting = self.starting.lock().unwrap_or_else(PoisonError::into_inner);
             starting
                 .entry(key.clone())
                 .or_insert_with(|| Arc::new(Mutex::new(())))
@@ -380,7 +388,7 @@ impl DshService {
         // 前一个调用方可能刚把实例建好。放在闸门外只挡得住「同时进入」，
         // 挡不住「排队等到之后仍去 spawn」。
         {
-            let mut running = self.running.lock().unwrap();
+            let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
 
             // 先查这个 tab 是不是已经挂在**别的** key 上。
             //
@@ -545,7 +553,7 @@ impl DshService {
         let mut tabs = std::collections::HashSet::new();
         tabs.insert(tab_id.to_string());
 
-        let mut running = self.running.lock().unwrap();
+        let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(previous) = running.remove(&key) {
             // 走到这里说明启动闸门之后仍有同 key 条目——闸门内的复用检查本该
             // 拦住，能到这里就是并发形态变了（或将来有人绕过闸门）。
@@ -593,7 +601,7 @@ impl DshService {
     /// 子进程。优雅路径让它自己 dispose，兜底走整棵树。
     pub fn stop(&self, tab_id: &str) -> Result<bool, String> {
         let mut runtime = {
-            let mut running = self.running.lock().unwrap();
+            let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(key) = running
                 .iter()
                 .find(|(_, rt)| rt.tabs.contains(tab_id))
@@ -718,6 +726,21 @@ fn kill_tree(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panic_in_one_tab_does_not_poison_every_other_dsh_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(Some(temp.path().to_string_lossy().into_owned()));
+        let service = Arc::new(DshService::new(&paths));
+        let poisoner = service.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.running.lock().unwrap();
+            panic!("simulated panic while holding the dsh registry");
+        })
+        .join();
+        assert!(service.running.is_poisoned());
+        assert_eq!(service.stop("other-tab"), Ok(false));
+    }
 
     #[test]
     fn parses_the_startup_line_dsh_actually_prints() {
