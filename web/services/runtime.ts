@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { error as logError, info as logInfo } from "@tauri-apps/plugin-log";
 
@@ -40,6 +41,11 @@ export async function listenWebviewIfTauri<T>(
 
 export function getCurrentWindowIfTauri() {
   return isTauriRuntime() ? getCurrentWindow() : null;
+}
+
+/** 窗口 + 它的 WebView 一起操作的句柄（底色这类要两层同步的设置用）。 */
+export function getCurrentWebviewWindowIfTauri() {
+  return isTauriRuntime() ? getCurrentWebviewWindow() : null;
 }
 
 export async function logInfoSafe(message: string): Promise<void> {

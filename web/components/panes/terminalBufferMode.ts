@@ -343,6 +343,11 @@ export interface TerminalDataRenderContext {
 export interface TerminalDataRenderer {
   /** 把一个 PTY chunk 变换成可以写进 xterm 的数据。 */
   render(data: string, context: TerminalDataRenderContext): string;
+  /**
+   * 字节流断点（快照重放前）：丢弃扣留中的不完整序列尾。它属于断点之前的实时流，
+   * 留着会被拼到重放首块头上——吞掉重放开头的字符，或把它解释成光标移动。
+   */
+  discardPending(): void;
 }
 
 export interface TerminalDataRendererOptions {
@@ -414,6 +419,10 @@ export function createTerminalDataRenderer(
 
       stripper ??= createAlternateBufferStripper(options?.onStrippedTransition);
       return carry + stripper.push(rendered);
+    },
+    discardPending(): void {
+      stripper?.takePending();
+      backgroundStripper?.takePending();
     },
   };
 }

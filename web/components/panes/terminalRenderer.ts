@@ -260,6 +260,13 @@ export function decideTerminalRenderer(
         ...probeDiagnostics,
       };
     }
+  }
+
+  // 软件光栅化的 WebGL 比 DOM 渲染器更慢：流式输出掉帧、输入延迟、CPU 占满。
+  // 不限平台——Windows 的远程桌面 / 虚拟机 / 被拉黑的显卡驱动会落到 WARP
+  // （"Microsoft Basic Render Driver"）或 SwiftShader，探测照样返回 supported。
+  // 拿不到 renderer 身份时不猜（只有 Linux 在上面按缺失处理）。
+  if (webglProbe.hasRendererIdentity) {
     const identity = `${webglProbe.vendor ?? ""} ${webglProbe.renderer ?? ""}`;
     if (SOFTWARE_RENDERER_PATTERN.test(identity)) {
       return {

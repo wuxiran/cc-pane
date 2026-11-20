@@ -292,6 +292,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(style).not.toMatch(/--app-panel-bg-effective:\s*transparent\b/);
     // 玻璃模糊 token 仍由壁纸设置接管
     expect(style).toMatch(/--app-glass-blur:\s*8px/);
+    expect(style).toMatch(/--app-pane-backdrop:\s*blur\(8px\)/);
   });
 
   it("浅色主题下垫层提浓到 80%，避免壁纸被洗成残影", () => {
@@ -312,6 +313,8 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
     expect(style).not.toContain("--app-panel-bg-effective");
     expect(style).not.toContain("--app-glass-blur");
+    // 没有壁纸时窗格不挂 backdrop-filter（Panel 回落到 none）
+    expect(style).not.toContain("--app-pane-backdrop");
   });
 });
 

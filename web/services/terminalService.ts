@@ -20,7 +20,7 @@ import type {
   TerminalSessionOutput,
   TerminalAdoptionSnapshot,
 } from "@/types";
-import { invalidateSeq, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
+import { invalidateSeq, noteBacklogReplayed, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
 import { deliverTerminalDataWithDeferredCredit } from "@/components/panes/terminalDeliveryCredit";
 import { noteOutputConsumed } from "./terminalOutputAck";
 import { extractTerminalQueries } from "./terminalQuerySalvage";
@@ -726,6 +726,10 @@ export const terminalService = {
       if (buffered.length > 0) {
         debugTerminalService("callback.flush.output", { sessionId, chunkCount: buffered.length });
         for (const chunk of buffered) {
+          // 这批在暂存时已记过 received，随后回放的重锚把它拉回了快照 endSeq。补投时
+          // 推回来，否则 received 落后于 written，这个会话停止输出后就再也拍不出
+          // checkpoint。快照已包含的帧由订阅方的对账器丢弃（terminalSnapshotOverlap.ts）。
+          if (chunk.endSeq !== undefined) noteBacklogReplayed(sessionId, chunk.endSeq);
           scheduleOutputToSubscribers(sessionId, chunk.data, chunk.endSeq, true);
         }
       }

@@ -73,6 +73,17 @@ describe("dropLeadingEscapeTail（回放窗口断头尾清理）", () => {
     expect(dropLeadingEscapeTail("[INFO] building rest")).toBe("[INFO] building rest");
     expect(dropLeadingEscapeTail("2026-09-14 log line")).toBe("2026-09-14 log line");
     expect(dropLeadingEscapeTail("hello world")).toBe("hello world");
+    // 数字开头的正文、日志时间戳、带颜色的数字都不是残尾。
+    expect(dropLeadingEscapeTail("42ms elapsed")).toBe("42ms elapsed");
+    expect(dropLeadingEscapeTail("123abc")).toBe("123abc");
+    expect(dropLeadingEscapeTail("10K files")).toBe("10K files");
+    expect(dropLeadingEscapeTail("[12:30:01] started")).toBe("[12:30:01] started");
+    expect(dropLeadingEscapeTail("[1] footnote")).toBe("[1] footnote");
+    expect(dropLeadingEscapeTail("10:30am standup")).toBe("10:30am standup");
+    expect(dropLeadingEscapeTail("123\x1b[0m done")).toBe("123\x1b[0m done");
+    expect(dropLeadingEscapeTail("[42ms] done")).toBe("[42ms] done");
+    expect(dropLeadingEscapeTail("[2K rows]")).toBe("[2K rows]");
+    expect(dropLeadingEscapeTail("[12\x1b[0m")).toBe("[12\x1b[0m");
     expect(dropLeadingEscapeTail("")).toBe("");
   });
 

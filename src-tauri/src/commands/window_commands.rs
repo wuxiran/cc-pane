@@ -473,9 +473,29 @@ pub async fn open_settings_window(
     if let Some(section) = &section_id {
         url.push_str(&format!("&section={section}"));
     }
+    // 底色和标题栏明暗在建窗时就定好：前端加载完才 setTheme 的话，暗色主题下每次
+    // 打开都会先弹一个白窗口。主窗口的外观由前端同步成应用主题，直接沿用。
+    let dark = app
+        .get_webview_window("main")
+        .and_then(|main| main.theme().ok())
+        .map(|theme| theme == tauri::Theme::Dark)
+        .unwrap_or(true);
+    let (theme, background) = if dark {
+        (
+            tauri::Theme::Dark,
+            tauri::window::Color(0x17, 0x19, 0x1e, 0xff),
+        )
+    } else {
+        (
+            tauri::Theme::Light,
+            tauri::window::Color(0xf6, 0xf7, 0xf9, 0xff),
+        )
+    };
     let window =
         WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))
             .title("Settings")
+            .theme(Some(theme))
+            .background_color(background)
             .inner_size(1040.0, 720.0)
             .min_inner_size(760.0, 520.0)
             .center()

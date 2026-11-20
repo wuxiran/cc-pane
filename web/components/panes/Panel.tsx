@@ -402,8 +402,11 @@ export default memo(function Panel({ pane }: PanelProps) {
       }`}
       style={{
         background: "var(--app-panel-bg-effective)",
-        backdropFilter: `blur(var(--app-glass-blur))`,
-        WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
+        // 只有壁纸激活且模糊值大于 0 时 MainViewSwitcher 才给出这个 token。
+        // 常驻的 blur(0px) 没有视觉效果，却让每个窗格（连同里面的终端 canvas）
+        // 各占一个合成层，多窗格在核显上掉帧。
+        backdropFilter: "var(--app-pane-backdrop, none)",
+        WebkitBackdropFilter: "var(--app-pane-backdrop, none)",
       }}
       onClick={handlePanelClick}
     >

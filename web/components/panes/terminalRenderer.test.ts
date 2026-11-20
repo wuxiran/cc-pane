@@ -119,6 +119,37 @@ describe("terminal renderer selection", () => {
     });
   });
 
+  it("falls back to DOM for software WebGL on Windows (RDP / VM / blocklisted driver)", () => {
+    const windowsEdge =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+
+    for (const webglRenderer of [
+      "ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    ]) {
+      expect(decideTerminalRenderer("auto", {
+        userAgent: windowsEdge,
+        webgl2Supported: true,
+        webglRenderer,
+        webglVendor: "Google Inc. (Microsoft)",
+      })).toMatchObject({ renderer: "dom", reason: "software-renderer" });
+    }
+  });
+
+  it("keeps WebGL on Windows with a real GPU or an unknown renderer identity", () => {
+    const windowsEdge =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: windowsEdge,
+      webgl2Supported: true,
+      webglRenderer: "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      webglVendor: "Google Inc. (Intel)",
+    })).toMatchObject({ renderer: "webgl", reason: "auto-webgl" });
+    expect(decideTerminalRenderer("auto", { userAgent: windowsEdge, webgl2Supported: true }))
+      .toMatchObject({ renderer: "webgl", reason: "auto-webgl" });
+  });
+
   it("falls back to DOM for unknown Linux renderer identity in auto mode", () => {
     const linuxChrome =
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";

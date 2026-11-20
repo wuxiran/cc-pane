@@ -27,6 +27,7 @@ import { syncTerminalGeometry } from "../terminalSessionGeometry";
 import { withTerminalReplayPresentation } from "../terminalReplayPresentation";
 import { runTerminalReplay } from "../terminalReplaySemaphore";
 import { findLiveSavedSessionId } from "../terminalViewHelpers";
+import { takeRecoveryFloor } from "../terminalOutputSeqTracker";
 import type { RestoreLaunchState } from "../terminalRestoreQueue";
 import type { TerminalLayoutScheduler } from "../terminalLayoutScheduler";
 import type { TerminalViewProps } from "./terminalViewTypes";
@@ -154,6 +155,8 @@ export async function launchOrAttachTerminalSession({
         });
         console.info(`[TerminalView] Reconnecting to existing session: ${attachSessionId}`);
         sessionId = attachSessionId;
+        // 别的视图 / 上一次恢复留下的下限不属于这次回放：先丢掉，只认本次回放重锚出来的。
+        takeRecoveryFloor(attachSessionId);
         try {
           await runTerminalReplay(term, () => replayAttachOrWake({
             canWrite: isMounted,

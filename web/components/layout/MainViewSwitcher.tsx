@@ -275,6 +275,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
                   // 壁纸的 blur 滑杆管不到这层，暗色主题默认 12px 会把视频糊没。
                   // 壁纸激活时由壁纸设置接管该 token（默认 8 = 轻磨砂垫层）。
                   "--app-glass-blur": `${wallpaperGlassBlur}px`,
+                  // 窗格只在这里才挂 backdrop-filter：blur(0px) 也会让每个窗格单开合成层。
+                  "--app-pane-backdrop": wallpaperGlassBlur > 0 ? `blur(${wallpaperGlassBlur}px)` : "none",
                 } as React.CSSProperties)
               : null),
             ...viewStyle("panes"),

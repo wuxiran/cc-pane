@@ -163,6 +163,9 @@ async function restoreSnapshot({
   return true;
 }
 
+/** 闸门期暂存溢出后最多连续重取几轮快照。 */
+export const MAX_GATE_OVERFLOW_ROUNDS = 3;
+
 interface CreateTerminalDesyncHandlerOptions {
   isRenderVisible?: () => boolean;
   sessionId: string;
@@ -178,6 +181,13 @@ interface CreateTerminalDesyncHandlerOptions {
    * ——真丢失，而非可自愈的重复。
    */
   setResyncActive: (active: boolean) => void;
+  /** 每一轮发快照请求之前：让渲染变换丢掉实时流扣留的半截序列等。 */
+  onResyncStart?: () => void;
+  /**
+   * 快照写完、放开闸门之前询问：闸门期暂存是否溢出（中段已缺）。返回真则不放闸，
+   * 直接再取一份新快照——在同一个完成 Promise 里，调用方拿到的是最终结果。
+   */
+  consumeGateOverflow?: () => boolean;
   /** 重同步结束（无论成败）后的收尾：flush 闸门期积压 + 补排版。 */
   onResyncSettled: (resynced: boolean) => unknown | Promise<unknown>;
   debugLog: ResyncLogger;
@@ -189,8 +199,8 @@ interface CreateTerminalDesyncHandlerOptions {
  * （比带缺口继续增量写的必然花屏严格更好）。
  *
  * 时序契约：先落闸门再发快照请求，闸门期新输出全部积压；快照写入完成后由
- * `onResyncSettled` 统一放行。闸门期积压与快照尾部可能重叠（一次性视觉重复，
- * TUI 全屏重绘自愈），但绝不丢失。
+ * `onResyncSettled` 统一放行。闸门期积压与快照尾部会重叠；调用方按快照 endSeq
+ * 去掉已包含的部分再补写（terminalSnapshotOverlap.ts），既不丢失也不重复。
  *
  * 返回值 = 本轮是否成功用快照重建了画面。desync 订阅方忽略它；手动「重置
  * 终端缓冲区」路径靠它决定要不要回退成裸 reset——inline CLI（如 grok）收到
@@ -206,6 +216,8 @@ export function createTerminalDesyncHandler({
   writeCheckpointData,
   syncTrackedBufferType,
   setResyncActive,
+  onResyncStart,
+  consumeGateOverflow,
   onResyncSettled,
   debugLog,
 }: CreateTerminalDesyncHandlerOptions): (() => Promise<boolean>) & { dispose: () => void } {
@@ -238,25 +250,41 @@ export function createTerminalDesyncHandler({
     setResyncActive(true);
 
     const run = async (): Promise<boolean> => {
-      // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
-      hiddenWriteBufferRef.current?.reset();
-      const resynced = await resyncFromReplaySnapshot({
-        canWrite,
-        term,
-        sessionId,
-        reason: "daemon-desync",
-        getRecoverySnapshot: (id) => {
-          snapshotRequested = true;
-          return getRecoverySnapshot(id);
-        },
-        writeData,
-        writeCheckpointData,
-        syncTrackedBufferType,
-        debugLog,
-      }).then(
-        (recovered) => recovered,
-        () => false,
-      );
+      // 所有权先行：等 WebGL 截帧期间视图可能已换绑到别的会话，下面清的是共享 ref，
+      // 不能让排着队的旧任务清掉新绑定的状态。
+      if (!canWrite()) {
+        coreResyncActive = false;
+        return false;
+      }
+      let resynced = false;
+      for (let round = 0; ; round += 1) {
+        // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
+        hiddenWriteBufferRef.current?.reset();
+        onResyncStart?.();
+        snapshotRequested = false;
+        resynced = await resyncFromReplaySnapshot({
+          canWrite,
+          term,
+          sessionId,
+          reason: "daemon-desync",
+          getRecoverySnapshot: (id) => {
+            snapshotRequested = true;
+            return getRecoverySnapshot(id);
+          },
+          writeData,
+          writeCheckpointData,
+          syncTrackedBufferType,
+          debugLog,
+        }).then(
+          (recovered) => recovered,
+          () => false,
+        );
+        if (!canWrite()) break;
+        // 持续刷屏时每一轮都可能溢出：轮数有上限，最后一轮带着缺口收尾（会提示），
+        // 不能无限取快照、无限重置画面，让挂起的 exit 永远轮不到。
+        if (round + 1 >= MAX_GATE_OVERFLOW_ROUNDS || !consumeGateOverflow?.()) break;
+        debugLog("terminal.resync.gate-overflow-rerun", { sessionId, round: round + 1 });
+      }
       coreResyncActive = false;
       if (!canWrite()) return false;
       setResyncActive(false);
