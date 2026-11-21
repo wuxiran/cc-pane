@@ -33,6 +33,8 @@ export default function SkillsLibraryPage() {
   const { t: tProviders } = useTranslation("providers");
   const active = useActivityBarStore((s) => s.appViewMode === "resources");
   const { workspaceName, workspace } = useResourceScope();
+  // 「发现」区装进 / 卸出工作空间后，让工作空间技能列表重新读一次
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const { profiles, loadProfiles, shown, shownIds, toggleShown, overlay, apply } = useLibraryProfiles(active);
   const skills = useSkillLibraryStore((s) => s.skills);
   const loaded = useSkillLibraryStore((s) => s.loaded);
@@ -142,11 +144,11 @@ export default function SkillsLibraryPage() {
             chips={chips}
             notice={noticeFor}
           />
-          <SkillBuiltinSections workspaceName={workspaceName} selectedKey={current?.key ?? null} onSelect={toggleSelected} chips={chips} notice={noticeFor} />
+          <SkillBuiltinSections workspaceName={workspaceName} workspaceRevision={workspaceRevision} selectedKey={current?.key ?? null} onSelect={toggleSelected} chips={chips} notice={noticeFor} />
           <FoundSkillsSection active={active} />
           <div ref={discoverRef} className="mt-6 scroll-mt-2">
             <Suspense fallback={null}>
-              <SkillDiscoverSection onRemove={(id) => {
+              <SkillDiscoverSection workspaceName={workspaceName} onWorkspaceChanged={() => setWorkspaceRevision((value) => value + 1)} onRemove={(id) => {
                 const skill = skills.find((item) => item.id === id);
                 if (skill) void actions.removeOne(skill);
               }} />

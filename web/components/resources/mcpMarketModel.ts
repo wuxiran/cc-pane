@@ -1,4 +1,5 @@
 // 发现市场的纯函数层：判断是否已添加，把卡片和填写的值变成共享 MCP 配置。
+import type { McpReachSource } from "@/lib/mcpReach";
 import type { McpMarketServer, SharedMcpServerConfig, SharedMcpServerInfo } from "@/types/shared-mcp";
 
 /** 同一个服务器的身份：远程看 URL，本地看命令和包名（去掉版本）。和后端 server_key 同口径。 */
@@ -54,4 +55,11 @@ export function buildSharedConfig(market: McpMarketServer, values: Record<string
     bridgeMode: "mcp-proxy",
     remote,
   };
+}
+
+/** 添加后它是哪种共享 MCP（「会送到哪些 CLI」用，docs/110 批 5）：远程看传输方式与是否带请求头。 */
+export function marketReachSource(market: McpMarketServer): McpReachSource {
+  if (!market.url) return { kind: "shared", remote: null };
+  const hasHeaders = Object.keys(market.headers).length > 0 || market.inputs.some((input) => input.where === "header");
+  return { kind: "shared", remote: { transport: market.transport === "sse" ? "sse" : "http", hasHeaders } };
 }

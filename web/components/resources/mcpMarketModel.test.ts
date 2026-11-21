@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { McpMarketInput, McpMarketServer, SharedMcpServerInfo } from "@/types/shared-mcp";
-import { buildSharedConfig, installedServer, marketDescription, missingRequiredInput, needsInputSheet, serverIdentity } from "./mcpMarketModel";
+import { buildSharedConfig, installedServer, marketDescription, marketReachSource, missingRequiredInput, needsInputSheet, serverIdentity } from "./mcpMarketModel";
 import { remoteUnsupportedByProfile } from "./resourceCenterModel";
 
 const market = (patch: Partial<McpMarketServer> = {}): McpMarketServer => ({
@@ -79,5 +79,19 @@ describe("remoteUnsupportedByProfile 与后端规则一致", () => {
     [["jcode", "claude"], remote("http"), undefined, false],
   ] as const)("%j %j %s → %s", (tools, spec, runtime, expected) => {
     expect(remoteUnsupportedByProfile({ targetTools: [...tools], targetRuntime: runtime as never }, spec)).toBe(expected);
+  });
+});
+
+describe("marketReachSource（docs/110 批 5）", () => {
+  it("本地条目按共享 stdio，远程按传输方式与是否需要请求头", () => {
+    expect(marketReachSource(market())).toEqual({ kind: "shared", remote: null });
+    expect(marketReachSource(market({ url: "https://x", transport: "sse" }))).toEqual({
+      kind: "shared",
+      remote: { transport: "sse", hasHeaders: false },
+    });
+    expect(marketReachSource(market({ url: "https://x", transport: "streamable-http", inputs: [input({ where: "header" })] }))).toEqual({
+      kind: "shared",
+      remote: { transport: "http", hasHeaders: true },
+    });
   });
 });

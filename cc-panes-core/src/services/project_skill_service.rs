@@ -29,17 +29,30 @@ pub struct ProjectSkillRoot {
     pub recommended: bool,
 }
 
-/// Order = display order. `.agents/skills` first because it is the cross-vendor
-/// location (Codex + Cursor) per agentskills.io; Claude Code still needs `.claude/skills`.
+/// Order = display order. `.agents/skills` first because it is the cross-vendor location
+/// (agentskills.io) that every CLI except Claude Code scans; Claude Code still needs
+/// `.claude/skills`. Consumers follow each CLI's official docs (docs/110 §3, refreshed in
+/// 批 5): only roots a CLI reads **natively at the project level** are listed — user-level
+/// roots (`~/.agents/skills` for grok, `~/.gemini/config/skills` for antigravity) are not.
 pub const PROJECT_SKILL_ROOTS: &[ProjectSkillRoot] = &[
     ProjectSkillRoot {
         root: ".agents/skills",
-        consumers: &["codex", "cursor"],
+        consumers: &[
+            "codex",
+            "cursor",
+            "opencode",
+            "pi",
+            "omp",
+            "jcode",
+            "kimi",
+            "gemini",
+            "antigravity",
+        ],
         recommended: true,
     },
     ProjectSkillRoot {
         root: ".claude/skills",
-        consumers: &["claude", "cursor"],
+        consumers: &["claude", "cursor", "opencode", "omp", "jcode"],
         recommended: true,
     },
     ProjectSkillRoot {
@@ -55,6 +68,36 @@ pub const PROJECT_SKILL_ROOTS: &[ProjectSkillRoot] = &[
     ProjectSkillRoot {
         root: ".gemini/skills",
         consumers: &["gemini"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".opencode/skills",
+        consumers: &["opencode"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".grok/skills",
+        consumers: &["grok"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".pi/skills",
+        consumers: &["pi"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".omp/skills",
+        consumers: &["omp"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".jcode/skills",
+        consumers: &["jcode"],
+        recommended: false,
+    },
+    ProjectSkillRoot {
+        root: ".kimi-code/skills",
+        consumers: &["kimi"],
         recommended: false,
     },
 ];
@@ -673,11 +716,27 @@ mod tests {
         assert_eq!(deploy.description.as_deref(), Some("deploy"));
         assert!(deploy.has_scripts);
         assert_eq!(deploy.file_count, 2);
-        assert_eq!(deploy.consumers, vec!["codex", "cursor"]);
+        assert_eq!(
+            deploy.consumers,
+            vec![
+                "codex",
+                "cursor",
+                "opencode",
+                "pi",
+                "omp",
+                "jcode",
+                "kimi",
+                "gemini",
+                "antigravity"
+            ]
+        );
 
         let pdf = &skills[1];
         assert_eq!(pdf.description.as_deref(), Some("Read PDFs"));
-        assert_eq!(pdf.consumers, vec!["claude", "cursor"]);
+        assert_eq!(
+            pdf.consumers,
+            vec!["claude", "cursor", "opencode", "omp", "jcode"]
+        );
         assert_eq!(pdf.rel_dir, "pdf");
     }
 

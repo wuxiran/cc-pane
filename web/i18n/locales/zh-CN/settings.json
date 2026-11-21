@@ -1179,6 +1179,15 @@
     "noCliTool": "Agent Prompt 未配置 CLI 工具"
   },
   "resourceLibrary": {
+    "marketReach": "本机 {{total}} 个 CLI 中有 {{count}} 个能收到",
+    "reachTitle": "会送到哪些 CLI",
+    "reachRuntime": {
+      "local": "本机",
+      "wsl": "WSL",
+      "ssh": "SSH"
+    },
+    "reachNone": "这个运行时下没有 CLI 能收到",
+    "reachSshNone": "SSH 会话不注入 MCP",
     "title": "资源库",
     "mcp": "MCP 服务器",
     "skills": "技能",

@@ -14,6 +14,7 @@ import { useSharedMcpStore } from "@/stores";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { translateError } from "@/utils";
 import { entryDetail, type McpLibraryEntry } from "./mcpLibraryModel";
+import McpReachList from "./McpReachList";
 import { mcpStatusOf } from "./resourceCenterModel";
 import type { LayerEditorRequest } from "./LayerMcpEditorDialog";
 
@@ -134,6 +135,8 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
         )}
 
         {entry.kind === "ccpanes" && <CcpanesMcpCard />}
+
+        <McpReachList entry={entry} />
 
         {entry.kind === "layer" && entry.shadowed && (
           <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.shadowedHint")}</p>

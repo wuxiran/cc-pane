@@ -1179,6 +1179,15 @@
     "noCliTool": "The agent prompt has no CLI tool configured"
   },
   "resourceLibrary": {
+    "marketReach": "Reaches {{count}} of {{total}} CLIs locally",
+    "reachTitle": "Which CLIs receive it",
+    "reachRuntime": {
+      "local": "Local",
+      "wsl": "WSL",
+      "ssh": "SSH"
+    },
+    "reachNone": "No CLI receives it here",
+    "reachSshNone": "SSH sessions get no MCP",
     "title": "Resources",
     "mcp": "MCP servers",
     "skills": "Skills",

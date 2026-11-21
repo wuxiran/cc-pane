@@ -54,9 +54,11 @@ interface SkillBuiltinSectionsProps extends SkillChipRenderer {
   workspaceName: string | null;
   selectedKey: string | null;
   onSelect: (target: SkillDetailTarget) => void;
+  /** 工作空间技能在别处装 / 卸后自增，触发重新列出 */
+  workspaceRevision?: number;
 }
 
-export default function SkillBuiltinSections({ workspaceName, selectedKey, onSelect, chips, notice }: SkillBuiltinSectionsProps) {
+export default function SkillBuiltinSections({ workspaceName, selectedKey, onSelect, chips, notice, workspaceRevision = 0 }: SkillBuiltinSectionsProps) {
   const { t } = useTranslation("settings");
   const { describe } = useDescriptionLang();
   const [bundled, setBundled] = useState<BundledSkill[]>([]);
@@ -78,7 +80,7 @@ export default function SkillBuiltinSections({ workspaceName, selectedKey, onSel
       .then((list) => { if (!cancelled) setWorkspaceSkills(list); })
       .catch((error) => handleErrorSilent(error, "list workspace skills"));
     return () => { cancelled = true; };
-  }, [workspaceName]);
+  }, [workspaceName, workspaceRevision]);
 
   // 默认核心技能排在前面，其余按后端清单补齐：custom 模式只挂勾选的内置技能，
   // 不列出来就再也打不开。后端清单的名字不带前缀，策略里存的是 `ccpanes-<name>`。

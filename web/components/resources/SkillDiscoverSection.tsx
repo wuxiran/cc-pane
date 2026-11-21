@@ -7,6 +7,7 @@ import { pickFeatured } from "@/components/skillmarket/skillMarketModel";
 import { USER_INSTALL_TARGET, useSkillMarket } from "@/components/skillmarket/useSkillMarket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SegmentedTabs } from "@/components/ui/segmented";
 import { useSkillLibraryStore } from "@/stores/useSkillLibraryStore";
 import type { SkillMarketEntry } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -14,9 +15,28 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 const PAGE_SIZE = 48;
 const FEATURED_MAX = 8;
 
-export default function SkillDiscoverSection({ onRemove }: { onRemove: (id: string) => void }) {
+interface SkillDiscoverSectionProps {
+  /** 用户级技能从资源库删（保持列表一致）；工作空间目标由市场自己卸载 */
+  onRemove: (id: string) => void;
+  /** 当前工作空间；有值时可以选「安装到工作空间」（docs/97 workspace-first，docs/110 批 5） */
+  workspaceName?: string | null;
+  /** 装进 / 卸出工作空间之后通知页面刷新工作空间技能列表 */
+  onWorkspaceChanged?: () => void;
+}
+
+export default function SkillDiscoverSection({ onRemove, workspaceName, onWorkspaceChanged }: SkillDiscoverSectionProps) {
   const { t } = useTranslation("settings");
+  const { t: tMarket } = useTranslation("skillMarket");
   const market = useSkillMarket(USER_INSTALL_TARGET);
+  const { installTarget, setInstallTarget } = market;
+  const toWorkspace = installTarget !== USER_INSTALL_TARGET;
+
+  // 切换 / 离开工作空间时，目标不能停在一个已经不是当前的工作空间上
+  useEffect(() => {
+    if (installTarget !== USER_INSTALL_TARGET && installTarget !== workspaceName) {
+      setInstallTarget(USER_INSTALL_TARGET);
+    }
+  }, [installTarget, workspaceName, setInstallTarget]);
   const librarySkills = useSkillLibraryStore((s) => s.skills);
   const loadLibrary = useSkillLibraryStore((s) => s.load);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -41,7 +61,12 @@ export default function SkillDiscoverSection({ onRemove }: { onRemove: (id: stri
 
   const install = async (entry: SkillMarketEntry) => {
     await market.install(entry);
-    await loadLibrary().catch((error) => handleErrorSilent(error, "reload skill library"));
+    if (toWorkspace) onWorkspaceChanged?.();
+    else await loadLibrary().catch((error) => handleErrorSilent(error, "reload skill library"));
+  };
+  const removeFromWorkspace = async (entry: SkillMarketEntry) => {
+    await market.remove(entry);
+    onWorkspaceChanged?.();
   };
 
   return (
@@ -50,6 +75,21 @@ export default function SkillDiscoverSection({ onRemove }: { onRemove: (id: stri
         <h2 className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("skillLibrary.discoverTitle")}</h2>
         <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.discoverHint")}</span>
       </div>
+      {workspaceName && (
+        <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="skill-discover-target">
+          <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{tMarket("installTarget.label")}</span>
+          <SegmentedTabs
+            size="sm"
+            aria-label={tMarket("installTarget.label")}
+            value={toWorkspace ? "workspace" : "user"}
+            onValueChange={(value) => setInstallTarget(value === "workspace" ? workspaceName : USER_INSTALL_TARGET)}
+            items={[
+              { value: "user", label: tMarket("installTarget.user") },
+              { value: "workspace", label: tMarket("installTarget.workspace", { name: workspaceName }) },
+            ]}
+          />
+        </div>
+      )}
       <div className="relative mb-3">
         <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />
         <Input
@@ -80,7 +120,7 @@ export default function SkillDiscoverSection({ onRemove }: { onRemove: (id: stri
               installed={market.isInstalled(entry)}
               busy={market.busyId === entry.id}
               onInstall={(item) => void install(item)}
-              onRemove={(item) => onRemove(item.id)}
+              onRemove={(item) => (toWorkspace ? void removeFromWorkspace(item) : onRemove(item.id))}
             />
           ))}
         </div>

@@ -15,7 +15,9 @@ import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
 import type { McpMarketResult, McpMarketServer } from "@/types/shared-mcp";
 import { translateError } from "@/utils";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import { buildSharedConfig, installedServer, marketDescription, missingRequiredInput, needsInputSheet } from "./mcpMarketModel";
+import { mcpReachByRuntime } from "@/lib/mcpReach";
+import { useCliInjectionProfilesStore } from "@/stores/useCliInjectionProfilesStore";
+import { buildSharedConfig, installedServer, marketDescription, marketReachSource, missingRequiredInput, needsInputSheet } from "./mcpMarketModel";
 import { nextSharedPorts } from "./resourceCenterModel";
 
 const SEARCH_DEBOUNCE_MS = 320;
@@ -80,6 +82,10 @@ function MarketCard({
 }) {
   const { t, i18n } = useTranslation("settings");
   const remote = Boolean(server.url);
+  const profiles = useCliInjectionProfilesStore((state) => state.profiles);
+  // 本机有几个 CLI 能收到（读注入描述；详情面板里按运行时列全）
+  const reach = useMemo(() => mcpReachByRuntime(profiles, marketReachSource(server)).local, [profiles, server]);
+  const total = Object.keys(profiles).length;
   return (
     <div
       className="flex min-h-36 flex-col gap-2 rounded-xl border p-3"
@@ -107,6 +113,11 @@ function MarketCard({
           </span>
         </span>
         <span className="line-clamp-2 text-xs leading-relaxed" style={{ color: "var(--app-text-secondary)" }}>{marketDescription(server, i18n.language)}</span>
+        {reach.length < total && (
+          <span className="truncate text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }} data-testid="mcp-market-reach">
+            {t("resourceLibrary.marketReach", { count: reach.length, total })}
+          </span>
+        )}
       </button>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{server.name}</span>

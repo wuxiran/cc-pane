@@ -1,6 +1,6 @@
 # 110 · 全 CLI 的 MCP / Skills 适配计划
 
-> 状态：批 0–4 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 5 进行中。
+> 状态：批 0–5 已在 feat/mcp-skills-parity 落地（2026-11-21）。遗留见 §7 #1（本机 Codex 技能挂载实际无效）与批 4 的 WSL 降级说明。
 > 依据：代码现状盘点（本文 §2，带 file:line）+ 11 个 CLI 官方文档调研（§3，带来源）。
 > 相关：docs/97（技能市场与投递）、docs/103（ccpanes MCP 瘦身）、docs/104（pi/omp/jcode MCP，§5/§7 有 WSL 与隔离 backlog）、docs/101（插件系统草案）。
 
@@ -231,6 +231,12 @@
 - 技能市场的「安装到」在界面上开放工作空间目标（hook 已经支持）。
 - MCP 市场保持只写共享层（由单源负责分发，这个设计是对的），在卡片上显示「当前启动档下哪些 CLI 能拿到它」，数据来自描述。
 - 恢复项目 Skill 管理时，`PROJECT_SKILL_ROOTS` 补齐 opencode、grok、pi、omp、jcode、kimi、antigravity 的条目。
+
+**批 5 已落地（feat/mcp-skills-parity）：**
+
+- **技能「发现」区的安装目标**：资源库技能页的「发现」区（复用技能市场数据层，hook 早已支持工作空间目标）在有当前工作空间时显示「安装到：用户级 / 工作空间 · <名字>」。默认仍是用户级（#100 后这个区是「装进资源库」，改默认会改变已有行为）；选工作空间后安装 / 卸载都落在 `~/.cc-panes/workspaces/<name>/skills`，并刷新页面上的工作空间技能列表。切换或离开工作空间时目标自动回到用户级。
+- **MCP「会送到哪些 CLI」**：MCP 详情面板按 本机 / WSL / SSH 列出能收到这条 server 的 CLI；市场卡片在本机不是全部 CLI 都能收到时显示「N / 总数」。规则在 `web/lib/mcpReach.ts`，只读注入描述（ccpanes 通道、`shared` + `stdioBridge`、远程走 `remoteMcpSupported`、工作空间层看 `workspace` 且 stdio 进不了 WSL、运行时 `mcp: none` 一律收不到）。MCP 市场仍只写共享层（§8）。
+- **`PROJECT_SKILL_ROOTS`**（`cc-panes-core/src/services/project_skill_service.rs`）补齐 §3 的项目级根：`.agents/skills` 的消费方扩到 codex / cursor / opencode / pi / omp / jcode / kimi / gemini / antigravity，`.claude/skills` 扩到 claude / cursor / opencode / omp / jcode，新增 `.opencode/skills`、`.grok/skills`、`.pi/skills`、`.omp/skills`、`.jcode/skills`、`.kimi-code/skills`。只列 CLI 在**项目级**原生扫描的目录（grok 的 `~/.agents`、antigravity 的 `~/.gemini/config/skills` 是用户级，不列）。opencode 1.17.11（`opencode debug skill`：`.agents` / `.claude` / `.opencode` 三处都读，`.gemini` 不读）与 codex 0.169.0（`codex debug prompt-input`：只读 `.agents`）实测与表一致。
 
 ## 7. 必须实测、不能凭文档定的事项
 
