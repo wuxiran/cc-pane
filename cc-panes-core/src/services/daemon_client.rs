@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
@@ -268,6 +269,28 @@ impl TerminalDaemonClient {
                 "password": password,
             }),
         )
+    }
+
+    /// 把主程序读好的供应商密钥推给 daemon 的内存（不落盘），与 SSH 密码同一条路。
+    ///
+    /// 返回 `false` 表示 daemon 太旧、没有这个端点（404 / 405）：它也读不懂新格式的
+    /// `providers.json`，调用方不应继续用它做托管启动。
+    pub fn set_temporary_provider_secrets(
+        &self,
+        entries: &HashMap<String, String>,
+    ) -> AppResult<bool> {
+        let body = serde_json::to_string(&serde_json::json!({ "entries": entries }))
+            .map_err(|error| AppError::from(error.to_string()))?;
+        let response =
+            self.request("POST", "/api/provider-secrets/temporary", true, Some(&body))?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 || status == 405 {
+            return Ok(false);
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        Ok(true)
     }
 
     pub fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
@@ -1584,6 +1607,7 @@ mod tests {
             rows: 40,
             workspace_name: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: Default::default(),
             launch_profile_id: None,
@@ -1631,6 +1655,41 @@ mod tests {
             client.websocket_url("session/1"),
             "ws://127.0.0.1:1234/ws/session%2F1?token=a%20b&instanceId=inst%20a"
         );
+    }
+
+    #[test]
+    fn sends_temporary_provider_secrets_to_daemon() {
+        let response = http_json_response("204 No Content", "");
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let supported = client
+            .set_temporary_provider_secrets(&HashMap::from([(
+                "p1/account/default/key".to_string(),
+                "sk-pushed".to_string(),
+            )]))
+            .expect("provider secrets accepted");
+
+        assert!(supported);
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/provider-secrets/temporary "));
+        assert!(request.contains("Authorization: Bearer secret"));
+        assert!(request.contains("\"p1/account/default/key\":\"sk-pushed\""));
+    }
+
+    #[test]
+    fn legacy_daemon_without_provider_secret_route_is_reported_as_unsupported() {
+        let response = http_json_response("404 Not Found", "");
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let supported = client
+            .set_temporary_provider_secrets(&HashMap::new())
+            .expect("legacy daemon answers");
+
+        assert!(!supported);
     }
 
     #[test]

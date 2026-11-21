@@ -30,6 +30,8 @@ pub enum ProviderType {
     #[serde(rename = "opencode", alias = "open_code")]
     OpenCode,
     Grok,
+    /// 本机网关（magpie / CC Switch 代理）。这一批只有枚举值与序列化，不做探测。
+    LocalGateway,
 }
 
 impl ProviderType {
@@ -47,6 +49,7 @@ impl ProviderType {
             "cursor" => ProviderType::Cursor,
             "opencode" | "open_code" => ProviderType::OpenCode,
             "grok" => ProviderType::Grok,
+            "local_gateway" => ProviderType::LocalGateway,
             _ => return None,
         })
     }
@@ -77,24 +80,285 @@ pub struct ProviderModel {
     pub context_size: Option<String>,
 }
 
+/// 默认账号的固定 id 与名字（旧供应商迁移后落在这个账号上）。
+pub const DEFAULT_ACCOUNT_ID: &str = "default";
+pub const DEFAULT_ACCOUNT_NAME: &str = "默认";
+
+/// 密钥 / 敏感值存在哪。文件里只留这个标记，不留明文（`File` 回退除外）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SecretStorage {
+    /// 没有值。
+    #[default]
+    None,
+    /// 值在系统钥匙串里，文件里没有明文。
+    Keychain,
+    /// 「未进钥匙串」：当前环境没有可用钥匙串，值仍以明文留在 providers.json。
+    File,
+}
+
+impl SecretStorage {
+    pub fn is_none(&self) -> bool {
+        matches!(self, SecretStorage::None)
+    }
+}
+
+/// 一条自定义环境变量。`sensitive` 的值不落盘（进钥匙串），文件里只留 `storage` 标记。
+///
+/// `Debug` 是手写的：敏感值只打印「有 / 没有」，不会随日志或断言信息漏出去。
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEnvVar {
+    pub name: String,
+    /// 非敏感：明文值。敏感：仅作为**写入时的输入**，或在 `storage == File` 回退时落盘。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub sensitive: bool,
+    /// 仅敏感条目有意义：值存在哪。
+    #[serde(default, skip_serializing_if = "SecretStorage::is_none")]
+    pub storage: SecretStorage,
+}
+
+impl std::fmt::Debug for ProviderEnvVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("ProviderEnvVar");
+        debug.field("name", &self.name);
+        if self.sensitive {
+            debug.field("value", &self.value.as_ref().map(|_| "<redacted>"));
+        } else {
+            debug.field("value", &self.value);
+        }
+        debug
+            .field("sensitive", &self.sensitive)
+            .field("storage", &self.storage)
+            .finish()
+    }
+}
+
+/// 接口种类。哪种 CLI 用哪种接口，就取哪个地址。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointKind {
+    Anthropic,
+    Chat,
+    Responses,
+    Gemini,
+}
+
+/// 一条供应商的多个接口地址（四种，均可缺）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEndpoints {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gemini: Option<String>,
+}
+
+impl ProviderEndpoints {
+    pub fn is_empty(&self) -> bool {
+        EndpointKind::ALL
+            .iter()
+            .all(|kind| self.get(*kind).is_none())
+    }
+
+    /// 取某种接口的地址；空白视为未填。
+    pub fn get(&self, kind: EndpointKind) -> Option<&str> {
+        match kind {
+            EndpointKind::Anthropic => self.anthropic.as_deref(),
+            EndpointKind::Chat => self.chat.as_deref(),
+            EndpointKind::Responses => self.responses.as_deref(),
+            EndpointKind::Gemini => self.gemini.as_deref(),
+        }
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    }
+
+    pub fn set(&mut self, kind: EndpointKind, value: Option<String>) {
+        let value = value
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        match kind {
+            EndpointKind::Anthropic => self.anthropic = value,
+            EndpointKind::Chat => self.chat = value,
+            EndpointKind::Responses => self.responses = value,
+            EndpointKind::Gemini => self.gemini = value,
+        }
+    }
+}
+
+impl EndpointKind {
+    pub const ALL: [EndpointKind; 4] = [
+        EndpointKind::Anthropic,
+        EndpointKind::Chat,
+        EndpointKind::Responses,
+        EndpointKind::Gemini,
+    ];
+}
+
+/// 账号类型：一把密钥，或一套 CLI 自己的登录（对应一个独立目录）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountKind {
+    #[default]
+    ApiKey,
+    Login,
+}
+
+/// 供应商下的账号。账号回答「我是谁」，供应商回答「请求发到哪」；账号不跨供应商复用。
+///
+/// `Debug` 是手写的：密钥只打印「有 / 没有」。
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccount {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub kind: AccountKind,
+    /// 密钥账号：密钥存在哪（`none` = 没有密钥）。这是文件里唯一的「有 / 没有」标记。
+    #[serde(default, skip_serializing_if = "SecretStorage::is_none")]
+    pub secret_storage: SecretStorage,
+    /// 密钥明文。仅作为**写入时的输入**（保存后进钥匙串并清空），
+    /// 或在 `secret_storage == File` 回退时落盘。读接口返回给界面前会被清掉。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    /// 登录账号：这套登录属于哪个 CLI（`claude` / `codex` / `gemini` / `antigravity` / `grok`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_tool: Option<String>,
+    /// 登录账号：对应的独立目录。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<String>,
+    /// 账号自己的环境变量，覆盖供应商那一组。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<ProviderEnvVar>,
+}
+
+impl std::fmt::Debug for ProviderAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderAccount")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("color", &self.color)
+            .field("kind", &self.kind)
+            .field("secret_storage", &self.secret_storage)
+            .field("secret", &self.secret.as_ref().map(|_| "<redacted>"))
+            .field("cli_tool", &self.cli_tool)
+            .field("config_dir", &self.config_dir)
+            .field("env", &self.env)
+            .finish()
+    }
+}
+
+impl ProviderAccount {
+    pub fn default_for(provider_type: ProviderType) -> Self {
+        let login = provider_type == ProviderType::ConfigProfile;
+        Self {
+            id: DEFAULT_ACCOUNT_ID.to_string(),
+            name: DEFAULT_ACCOUNT_NAME.to_string(),
+            kind: if login {
+                AccountKind::Login
+            } else {
+                AccountKind::ApiKey
+            },
+            cli_tool: login.then(|| "claude".to_string()),
+            ..Self::default()
+        }
+    }
+
+    /// 这个账号是否带着一把密钥（在钥匙串、在文件，或刚输入尚未保存）。
+    pub fn has_secret(&self) -> bool {
+        self.kind == AccountKind::ApiKey
+            && (!self.secret_storage.is_none()
+                || self
+                    .secret
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()))
+    }
+
+    /// 登录账号的目录（空白视为未填）。
+    pub fn login_dir(&self) -> Option<&str> {
+        if self.kind != AccountKind::Login {
+            return None;
+        }
+        self.config_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+/// 登录账号用哪个环境变量把 CLI 指到独立目录。只有这五个 CLI 支持登录账号。
+pub fn login_dir_env_var(cli_tool: &str) -> Option<&'static str> {
+    Some(match cli_tool {
+        "claude" => "CLAUDE_CONFIG_DIR",
+        "codex" => "CODEX_HOME",
+        "gemini" => "GEMINI_CLI_HOME",
+        "antigravity" => "GEMINI_HOME",
+        "grok" => "GROK_HOME",
+        _ => return None,
+    })
+}
+
+/// 供应商来源种类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderOriginKind {
+    #[default]
+    Manual,
+    CcSwitch,
+    Magpie,
+    LocalGateway,
+}
+
+/// 供应商来源：从哪来、对方的条目编号、导入时间、当时内容的指纹（供后续「来源更新」比对）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderOrigin {
+    #[serde(default)]
+    pub kind: ProviderOriginKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    /// RFC 3339 时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
 /// Provider 配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// 落盘格式（`providers.json` schema v2）里**没有** `apiKey` / `baseUrl` / `configDir`：
+/// 密钥在账号上（钥匙串），地址在 `endpoints`，目录在登录账号上。这三个字段保留在结构体里
+/// 只做两件事：读旧文件（v1）时承接旧值，以及给旧界面 / 旧客户端当兼容视图——
+/// 读出来时 `base_url` / `config_dir` 是默认账号与主接口的镜像，`api_key` 永远为空；
+/// 写进来时按「补丁」解释（`None` 不动、空串清除、非空写入默认账号 / 主接口）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Provider {
     pub id: String,
     pub name: String,
     pub provider_type: ProviderType,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// 兼容输入：写入默认账号的密钥。从不落盘，读接口永远返回空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// 兼容视图：主接口地址的镜像（见 [`Provider::primary_endpoint_kind`]）。不落盘。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aws_profile: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// 兼容视图：默认账号是登录账号时它的目录镜像。不落盘。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_dir: Option<String>,
     #[serde(default)]
     pub models: Vec<ProviderModel>,
@@ -106,109 +370,267 @@ pub struct Provider {
     pub codex_wire_api: Option<String>,
     #[serde(default)]
     pub is_default: bool,
+    /// 多个接口地址：Anthropic / Chat / Responses / Gemini。
+    #[serde(default, skip_serializing_if = "ProviderEndpoints::is_empty")]
+    pub endpoints: ProviderEndpoints,
+    /// 供应商一级的自定义环境变量（叠在按类型自动生成的之上）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<ProviderEnvVar>,
+    /// 账号。落盘后至少有一个。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<ProviderAccount>,
+    /// 默认账号：运行配置 / 工作空间 / 启动请求没指定账号时用它。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_account_id: Option<String>,
+    /// 来源（缺省 = 手动）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ProviderOrigin>,
 }
 
 impl Provider {
-    /// 根据 provider_type 生成对应的环境变量
-    pub fn to_env_vars(&self) -> HashMap<String, String> {
-        let mut vars = HashMap::new();
-
+    /// 这个类型的「主接口」：旧 `base_url` 迁移后放进它，兼容视图也镜像它。
+    pub fn primary_endpoint_kind(&self) -> EndpointKind {
         match self.provider_type {
-            ProviderType::Anthropic => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("ANTHROPIC_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("ANTHROPIC_BASE_URL".to_string(), url.clone());
-                }
-            }
-            ProviderType::Bedrock => {
-                vars.insert("CLAUDE_CODE_USE_BEDROCK".to_string(), "1".to_string());
-                if let Some(ref region) = self.region {
-                    vars.insert("AWS_REGION".to_string(), region.clone());
-                }
-                if let Some(ref profile) = self.aws_profile {
-                    vars.insert("AWS_PROFILE".to_string(), profile.clone());
-                }
-            }
-            ProviderType::Vertex => {
-                vars.insert("CLAUDE_CODE_USE_VERTEX".to_string(), "1".to_string());
-                if let Some(ref region) = self.region {
-                    vars.insert("CLOUD_ML_REGION".to_string(), region.clone());
-                }
-                if let Some(ref pid) = self.project_id {
-                    vars.insert("ANTHROPIC_VERTEX_PROJECT_ID".to_string(), pid.clone());
-                }
-            }
-            ProviderType::Proxy => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("ANTHROPIC_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("ANTHROPIC_BASE_URL".to_string(), url.clone());
-                }
-            }
-            ProviderType::ConfigProfile => {
-                if let Some(ref dir) = self.config_dir {
-                    vars.insert("CLAUDE_CONFIG_DIR".to_string(), dir.clone());
-                }
-            }
+            ProviderType::Anthropic
+            | ProviderType::Bedrock
+            | ProviderType::Vertex
+            | ProviderType::Proxy
+            | ProviderType::ConfigProfile
+            | ProviderType::LocalGateway => EndpointKind::Anthropic,
             ProviderType::OpenAI => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("CODEX_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("OPENAI_BASE_URL".to_string(), url.clone());
-                }
-            }
-            ProviderType::Gemini => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("GEMINI_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("GEMINI_API_BASE".to_string(), url.clone());
+                if self.codex_wire_is_chat() {
+                    EndpointKind::Chat
+                } else {
+                    EndpointKind::Responses
                 }
             }
-            ProviderType::Kimi => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("KIMI_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("KIMI_BASE_URL".to_string(), url.clone());
-                }
-            }
-            ProviderType::Cursor => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("CURSOR_API_KEY".to_string(), key.clone());
-                }
-            }
-            ProviderType::OpenCode => {
-                // OpenCode uses standard OpenAI-compatible variables
-                if let Some(ref key) = self.api_key {
-                    vars.insert("OPENAI_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("OPENAI_BASE_URL".to_string(), url.clone());
-                }
-            }
-            ProviderType::Grok => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("XAI_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("GROK_MODELS_BASE_URL".to_string(), url.clone());
-                    vars.insert("GROK_CLI_CHAT_PROXY_BASE_URL".to_string(), url.clone());
+            ProviderType::Gemini => EndpointKind::Gemini,
+            ProviderType::Kimi
+            | ProviderType::Cursor
+            | ProviderType::OpenCode
+            | ProviderType::Grok => EndpointKind::Chat,
+        }
+    }
+
+    fn codex_wire_is_chat(&self) -> bool {
+        self.codex_wire_api
+            .as_deref()
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("chat"))
+    }
+
+    /// 兼容视图 `base_url` 镜像哪个接口：主接口；Chat 与 Responses 同属 OpenAI 系，
+    /// 主接口没填时镜像另一个（旧界面改 wire API 不会让地址「消失」）。
+    pub fn mirrored_endpoint_kind(&self) -> EndpointKind {
+        let primary = self.primary_endpoint_kind();
+        Self::with_openai_fallback(primary)
+            .into_iter()
+            .find(|kind| self.endpoints.get(*kind).is_some())
+            .unwrap_or(primary)
+    }
+
+    fn with_openai_fallback(kind: EndpointKind) -> Vec<EndpointKind> {
+        match kind {
+            EndpointKind::Chat => vec![EndpointKind::Chat, EndpointKind::Responses],
+            EndpointKind::Responses => vec![EndpointKind::Responses, EndpointKind::Chat],
+            other => vec![other],
+        }
+    }
+
+    /// 某个 CLI 依次尝试哪些接口（第一个填了的生效）。
+    ///
+    /// 规则：Claude / jcode 只认 Anthropic；Gemini / Antigravity 只认 Gemini；
+    /// Codex 认 Responses（`codex_wire_api = chat` 时先认 Chat）；Kimi / Grok 认 Chat；
+    /// OpenCode / Pi / Oh My Pi 是多协议客户端，跟随供应商类型的主接口。
+    /// Chat 与 Responses 互为回退（同一个 OpenAI 兼容地址通常两者都能用），
+    /// Anthropic 与 Gemini 不回退：没填就不注入地址，CLI 用它自己的默认地址。
+    pub fn endpoint_kinds_for_cli(&self, cli_tool: &str) -> Vec<EndpointKind> {
+        match cli_tool {
+            "claude" | "jcode" => vec![EndpointKind::Anthropic],
+            "gemini" | "antigravity" => vec![EndpointKind::Gemini],
+            "codex" => Self::with_openai_fallback(if self.codex_wire_is_chat() {
+                EndpointKind::Chat
+            } else {
+                EndpointKind::Responses
+            }),
+            "kimi" | "grok" => Self::with_openai_fallback(EndpointKind::Chat),
+            "cursor" | "none" => Vec::new(),
+            _ => Self::with_openai_fallback(match self.primary_endpoint_kind() {
+                EndpointKind::Responses => EndpointKind::Chat,
+                other => other,
+            }),
+        }
+    }
+
+    /// 某个 CLI 实际用的接口地址；没填对应接口时返回 `None`（不注入地址）。
+    pub fn endpoint_for_cli(&self, cli_tool: &str) -> Option<(EndpointKind, &str)> {
+        self.endpoint_kinds_for_cli(cli_tool)
+            .into_iter()
+            .find_map(|kind| self.endpoints.get(kind).map(|url| (kind, url)))
+    }
+
+    /// Codex 实际用的 wire API：显式配置优先；没配时跟随取到的接口
+    /// （只填了 Chat 接口 → `chat`）。`None` = 缺省 responses。
+    pub fn effective_codex_wire_api(&self) -> Option<String> {
+        if let Some(explicit) = self
+            .codex_wire_api
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(explicit.to_string());
+        }
+        match self.endpoint_for_cli("codex") {
+            Some((EndpointKind::Chat, _)) => Some("chat".to_string()),
+            _ => None,
+        }
+    }
+
+    /// 默认账号；`default_account_id` 失效时退回第一个账号。
+    pub fn default_account(&self) -> Option<&ProviderAccount> {
+        self.default_account_id
+            .as_deref()
+            .and_then(|id| self.accounts.iter().find(|account| account.id == id))
+            .or_else(|| self.accounts.first())
+    }
+
+    /// 取指定账号；不指定（或空白）时用默认账号。指定了但不存在返回 `None`。
+    pub fn account(&self, account_id: Option<&str>) -> Option<&ProviderAccount> {
+        match account_id.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(id) => self.accounts.iter().find(|account| account.id == id),
+            None => self.default_account(),
+        }
+    }
+
+    /// 给界面 / REST 的只读副本：清掉一切密钥与敏感值明文（含 `File` 回退时文件里的那份），
+    /// 只留「有 / 没有、存在哪」的标记。
+    pub fn redacted(mut self) -> Self {
+        fn redact_env(entries: &mut [ProviderEnvVar]) {
+            for entry in entries.iter_mut().filter(|entry| entry.sensitive) {
+                // 明文还在文件里（回退，或迁移尚未成功）：对外如实标成「未进钥匙串」。
+                if entry.value.take().is_some() && entry.storage.is_none() {
+                    entry.storage = SecretStorage::File;
                 }
             }
         }
+        self.api_key = None;
+        redact_env(&mut self.env);
+        for account in &mut self.accounts {
+            if account.secret.take().is_some() && account.secret_storage.is_none() {
+                account.secret_storage = SecretStorage::File;
+            }
+            redact_env(&mut account.env);
+        }
+        self
+    }
 
+    /// 按类型（必要时按目标 CLI）自动生成的环境变量：(名字, 值, 是否敏感)。
+    ///
+    /// `api_key` 是调用方已解析出的密钥明文；登录账号必须传 `None`——
+    /// 登录账号只带该 CLI 的目录变量，不带密钥。
+    pub fn generated_env(
+        &self,
+        cli_tool: &str,
+        account: &ProviderAccount,
+        api_key: Option<&str>,
+    ) -> Vec<(String, String, bool)> {
+        let mut vars: Vec<(String, String, bool)> = Vec::new();
+        let key = if account.kind == AccountKind::Login {
+            None
+        } else {
+            api_key.map(str::trim).filter(|value| !value.is_empty())
+        };
+        let url = self.endpoint_for_cli(cli_tool).map(|(_, url)| url);
+        let push_key = |vars: &mut Vec<(String, String, bool)>, name: &str| {
+            if let Some(key) = key {
+                vars.push((name.to_string(), key.to_string(), true));
+            }
+        };
+        let push = |vars: &mut Vec<(String, String, bool)>, name: &str, value: Option<&str>| {
+            if let Some(value) = value {
+                vars.push((name.to_string(), value.to_string(), false));
+            }
+        };
+
+        // 本机网关按目标 CLI 的原生协议生成；其余类型按自身类型生成。
+        let effective = match self.provider_type {
+            ProviderType::LocalGateway => match cli_tool {
+                "codex" => ProviderType::OpenAI,
+                "gemini" | "antigravity" => ProviderType::Gemini,
+                _ => ProviderType::Anthropic,
+            },
+            other => other,
+        };
+        match effective {
+            ProviderType::Anthropic | ProviderType::Proxy => {
+                push_key(&mut vars, "ANTHROPIC_API_KEY");
+                push(&mut vars, "ANTHROPIC_BASE_URL", url);
+            }
+            ProviderType::Bedrock => {
+                push(&mut vars, "CLAUDE_CODE_USE_BEDROCK", Some("1"));
+                push(&mut vars, "AWS_REGION", self.region.as_deref());
+                push(&mut vars, "AWS_PROFILE", self.aws_profile.as_deref());
+            }
+            ProviderType::Vertex => {
+                push(&mut vars, "CLAUDE_CODE_USE_VERTEX", Some("1"));
+                push(&mut vars, "CLOUD_ML_REGION", self.region.as_deref());
+                push(
+                    &mut vars,
+                    "ANTHROPIC_VERTEX_PROJECT_ID",
+                    self.project_id.as_deref(),
+                );
+            }
+            ProviderType::ConfigProfile | ProviderType::LocalGateway => {}
+            ProviderType::OpenAI => {
+                push_key(&mut vars, "CODEX_API_KEY");
+                push(&mut vars, "OPENAI_BASE_URL", url);
+            }
+            ProviderType::Gemini => {
+                push_key(&mut vars, "GEMINI_API_KEY");
+                push(&mut vars, "GEMINI_API_BASE", url);
+            }
+            ProviderType::Kimi => {
+                push_key(&mut vars, "KIMI_API_KEY");
+                push(&mut vars, "KIMI_BASE_URL", url);
+            }
+            ProviderType::Cursor => {
+                push_key(&mut vars, "CURSOR_API_KEY");
+            }
+            ProviderType::OpenCode => {
+                // OpenCode uses standard OpenAI-compatible variables
+                push_key(&mut vars, "OPENAI_API_KEY");
+                push(&mut vars, "OPENAI_BASE_URL", url);
+            }
+            ProviderType::Grok => {
+                push_key(&mut vars, "XAI_API_KEY");
+                push(&mut vars, "GROK_MODELS_BASE_URL", url);
+                push(&mut vars, "GROK_CLI_CHAT_PROXY_BASE_URL", url);
+            }
+        }
+
+        // 登录账号：把该 CLI 指到账号自己的目录。账号属于别的 CLI 时不带（目录对不上）。
+        if let Some(dir) = account.login_dir() {
+            if account.cli_tool.as_deref() == Some(cli_tool) {
+                if let Some(name) = login_dir_env_var(cli_tool) {
+                    vars.push((name.to_string(), dir.to_string(), false));
+                }
+            }
+        }
         vars
     }
 }
 
+/// `providers.json` 当前的文件格式版本。
+///
+/// - 缺省 / 1：旧格式，供应商上直接放 `apiKey` / `baseUrl` / `configDir`。
+/// - 2：账号 + 多接口 + 自定义环境变量；密钥不落盘（见 `ProviderAccount::secret_storage`）。
+pub const PROVIDER_SCHEMA_VERSION: u32 = 2;
+
 /// Provider 配置文件
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
+    /// 文件格式版本，见 [`PROVIDER_SCHEMA_VERSION`]。旧文件没有这个字段（= 1）。
+    #[serde(default)]
+    pub schema_version: u32,
     #[serde(default)]
     pub providers: Vec<Provider>,
     /// 每个 CLI 工具各自的默认 Provider id。

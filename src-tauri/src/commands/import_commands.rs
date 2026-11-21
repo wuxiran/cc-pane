@@ -70,6 +70,8 @@ fn import_provider(service: &ProviderService, p: ProviderImport) -> AppResult<St
         default_model_id: None,
         codex_wire_api: None,
         is_default: false,
+        // `api_key` / `base_url` 是兼容输入：入库时落到默认账号和类型对应的接口上。
+        ..Provider::default()
     };
     // 原子去重 + 插入（同一把锁），避免并发导入堆重复项。
     service.add_provider_unique(provider)?;

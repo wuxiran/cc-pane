@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -7,7 +8,7 @@ use crate::services::{
     SshMachineService, TerminalBackend, TerminalDaemonClient, TerminalDaemonControlLink,
     TerminalDaemonLifecycle, TerminalService, WorkspaceService,
 };
-use crate::utils::{AppPaths, AppResult};
+use crate::utils::{AppError, AppPaths, AppResult};
 use cc_panes_core::services::claude_trust_service::{self, TrustWriteOutcome};
 use cc_panes_core::services::remote_terminal::{RemoteSessionRouter, RoutingTerminalBackend};
 use tauri::Manager;
@@ -234,10 +235,18 @@ impl TerminalBackendState {
         self.recheck_daemon_upgrade_before_create(app_handle);
         trust_registered_claude_directories(app_handle, &request);
         let ssh_password = load_ssh_connection_password(app_handle, &request)?;
+        // 供应商密钥和 SSH 密码走同一条路：主程序读钥匙串，推给 daemon 的内存。
+        let provider_secrets = if self.kind() == TerminalBackendKind::Daemon {
+            load_provider_launch_secrets(app_handle, &request)?
+        } else {
+            None
+        };
         if let Some(client) = self.daemon_client() {
             sync_ssh_password(&client, ssh_password.as_ref())?;
+            sync_provider_secrets(&client, provider_secrets.as_ref())?;
         }
         let recovery_ssh_password = ssh_password.clone();
+        let recovery_provider_secrets = provider_secrets.clone();
         self.create_session_recovering(
             request,
             |current_client| {
@@ -264,6 +273,11 @@ impl TerminalBackendState {
             |client| {
                 if let Err(error) = sync_ssh_password(client, recovery_ssh_password.as_ref()) {
                     warn!(error = %error, "failed to synchronize SSH password after daemon recovery");
+                }
+                if let Err(error) =
+                    sync_provider_secrets(client, recovery_provider_secrets.as_ref())
+                {
+                    warn!(error = %error, "failed to synchronize provider secrets after daemon recovery");
                 }
                 if let Some(control_link) = app_handle.try_state::<Arc<TerminalDaemonControlLink>>()
                 {
@@ -396,11 +410,15 @@ fn trust_registered_claude_directories(
         .as_deref()
         .and_then(|id| providers.get_provider(id))
         .or_else(|| providers.get_default_provider_for_cli("claude"));
-    config_dirs.extend(
+    // 这条供应商下所有 Claude 登录账号的目录（各自有一份 .claude.json）。
+    config_dirs.extend(provider.into_iter().flat_map(|provider| {
         provider
-            .and_then(|provider| provider.config_dir)
-            .map(PathBuf::from),
-    );
+            .accounts
+            .iter()
+            .filter(|account| account.cli_tool.as_deref() == Some("claude"))
+            .filter_map(|account| account.login_dir().map(PathBuf::from))
+            .collect::<Vec<_>>()
+    }));
 
     for file in claude_trust_service::existing_config_files(&home, &config_dirs) {
         match claude_trust_service::ensure_trusted(&file, &keys) {
@@ -442,6 +460,45 @@ fn load_ssh_connection_password(
     Ok(machine_service
         .load_connection_password(machine_id)?
         .map(|password| (machine_id.to_string(), password)))
+}
+
+/// 这次启动要用的供应商密钥（钥匙串条目名 → 明文）。`None` = 不是托管启动。
+///
+/// 解析用的是主程序里那份 `TerminalService`（与 daemon 同一套规则），只读钥匙串、不建会话。
+/// 读不到（条目丢失、用户拒绝授权）直接报错：不带着空密钥启动。
+fn load_provider_launch_secrets(
+    app_handle: &tauri::AppHandle,
+    request: &CreateSessionRequest,
+) -> AppResult<Option<HashMap<String, String>>> {
+    let Some(terminal_service) = app_handle.try_state::<Arc<TerminalService>>() else {
+        return Ok(None);
+    };
+    terminal_service
+        .launch_provider_secret_entries(request)
+        .map_err(|error| {
+            error
+                .downcast_ref::<AppError>()
+                .cloned()
+                .unwrap_or_else(|| AppError::from(error))
+        })
+}
+
+fn sync_provider_secrets(
+    client: &TerminalDaemonClient,
+    secrets: Option<&HashMap<String, String>>,
+) -> AppResult<()> {
+    let Some(entries) = secrets else {
+        return Ok(());
+    };
+    if client.set_temporary_provider_secrets(entries)? {
+        return Ok(());
+    }
+    // 旧 daemon（会话还活着、换代被推迟）读不懂新格式的 providers.json：显式指定的
+    // 供应商会报「没有可用配置」，默认供应商则会被静默当成原生登录。宁可明确失败。
+    Err(AppError::coded(
+        "DAEMON_PROVIDER_ACCOUNTS_UNSUPPORTED",
+        "The running terminal daemon predates provider accounts and cannot launch with a managed provider; close the existing sessions (or restart CC-Panes) so the daemon can be replaced",
+    ))
 }
 
 fn sync_ssh_password(
@@ -630,6 +687,7 @@ mod tests {
             rows: 24,
             workspace_name: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::None,
             launch_profile_id: None,

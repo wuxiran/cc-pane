@@ -13,9 +13,9 @@ use crate::services::pi_rpc_service::PiManagedStateCleanup;
 use crate::services::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
     CreateSessionOutcome, DefaultSkillService, LaunchProfileService, PiRpcLaunchSpec,
-    ProjectCliHooksService, ProviderMode, ProviderResolutionInput, ProviderService,
-    ResolvedProviderPlan, SettingsService, SpecService, SshConnectionService, SshCredentialService,
-    TerminalLinkContext, WorkspaceService,
+    ProjectCliHooksService, ProviderLaunchEnv, ProviderMode, ProviderResolutionInput,
+    ProviderService, ResolvedProviderPlan, SettingsService, SpecService, SshConnectionService,
+    SshCredentialService, TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -67,7 +67,13 @@ pub fn codex_rollout_exists(session_id: &str, distro: Option<&str>) -> Option<bo
     osc_resume_capture::codex_rollout_exists(session_id, distro)
 }
 
-fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
+/// 把解析结果交给适配器：密钥、接口地址、登录目录都来自统一入口
+/// （`ProviderService::resolve_launch_env`）已经按账号和目标 CLI 解析好的值，
+/// 适配器不再自己从供应商上取。
+fn to_cli_provider(
+    provider: crate::models::provider::Provider,
+    launch_env: &ProviderLaunchEnv,
+) -> CliProvider {
     CliProvider {
         id: provider.id,
         name: provider.name,
@@ -75,13 +81,13 @@ fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
             .ok()
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_else(|| "unknown".to_string()),
-        api_key: provider.api_key,
-        base_url: provider.base_url,
+        api_key: launch_env.api_key.clone(),
+        base_url: launch_env.base_url.clone(),
         region: provider.region,
         project_id: provider.project_id,
         aws_profile: provider.aws_profile,
-        config_dir: provider.config_dir,
-        codex_wire_api: provider.codex_wire_api,
+        config_dir: launch_env.config_dir.clone(),
+        codex_wire_api: launch_env.codex_wire_api.clone(),
         is_default: provider.is_default,
     }
 }
@@ -2295,12 +2301,22 @@ impl TerminalService {
                 profile_provider_id,
                 profile_model_id,
                 workspace_provider_id,
+                requested_account_id: request.provider_account_id.as_deref(),
+                profile_account_id: resolved_profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_account_id.as_deref()),
+                workspace_account_id: resolved_workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.provider_account_id.as_deref()),
                 default_provider_id: default_provider_id.as_deref(),
                 adapter_options: Some(&adapter_options),
             },
             &providers,
             &self.cli_registry,
         )?;
+        let provider_launch_env = self
+            .resolve_provider_launch_env(&provider_plan, cli_tool)
+            .map_err(AppError::from)?;
         provider_plan.apply_model_adapter_defaults(&mut adapter_options);
         if let Some(model_id) = provider_plan.model_id.as_ref() {
             adapter_options.insert(
@@ -2420,7 +2436,10 @@ impl TerminalService {
             session_id: rpc_launch_session_id.clone(),
             project_path: request.project_path.clone(),
             workspace_path: request.workspace_path.clone(),
-            provider: provider_plan.provider.clone().map(to_cli_provider),
+            provider: provider_plan
+                .provider
+                .clone()
+                .map(|provider| to_cli_provider(provider, &provider_launch_env)),
             executable_override: self
                 .settings_service
                 .get_settings()
@@ -2472,6 +2491,8 @@ impl TerminalService {
         // Adapter-injected values (the selected Pi Provider credentials) have
         // the final precedence, just like the PTY launch path.
         env.extend(result.env_inject);
+        // 用户填的环境变量（供应商 + 账号两层）优先于自动生成的。
+        env.extend(provider_launch_env.custom_env_map());
 
         let cwd = request
             .launch_cwd
@@ -2492,6 +2513,119 @@ impl TerminalService {
                 )
             }),
         })
+    }
+
+    /// 托管模式下解析这次启动的供应商环境变量；原生模式返回空。
+    /// 密钥读不到时返回带错误码的错误，不会带着空密钥启动。
+    fn resolve_provider_launch_env(
+        &self,
+        plan: &ResolvedProviderPlan,
+        cli_tool: CliTool,
+    ) -> Result<ProviderLaunchEnv> {
+        match plan.provider.as_ref() {
+            Some(provider) => self.provider_service.resolve_launch_env(
+                provider,
+                plan.account_id.as_deref(),
+                cli_tool.as_id(),
+            ),
+            None => Ok(ProviderLaunchEnv::default()),
+        }
+    }
+
+    /// 这次启动会用到的钥匙串条目（条目名 → 明文），不创建会话。
+    ///
+    /// 桌面主程序在把创建请求发给 daemon 之前调用它，把读出的密钥推给 daemon 的内存
+    /// （和 SSH 密码同一条路）：daemon 是另一个可执行文件，自己读钥匙串会弹系统授权框。
+    /// 解析规则与 `create_session` 完全一致（请求 → 运行配置 → 工作空间 → 默认）。
+    ///
+    /// 返回 `None` = 这次不是托管启动（原生模式，或配置有错——真正的错误留给创建流程去报）；
+    /// `Some(entries)` = 托管启动，`entries` 可能为空（登录账号、文件回退都不需要推）。
+    pub fn launch_provider_secret_entries(
+        &self,
+        request: &CreateSessionRequest,
+    ) -> Result<Option<HashMap<String, String>>> {
+        let cli_tool = request.effective_cli_tool();
+        let runtime_kind = if request.ssh.is_some() {
+            "ssh"
+        } else if request.wsl.is_some() {
+            "wsl"
+        } else {
+            "local"
+        };
+        let workspace = request.workspace_name.as_deref().and_then(|name| {
+            self.workspace_service
+                .read()
+                .as_ref()
+                .and_then(|service| service.get_workspace(name).ok())
+        });
+        let profile = self
+            .launch_profile_service
+            .read()
+            .as_ref()
+            .and_then(|service| {
+                service
+                    .resolve_launch_profile_with_diagnostic(
+                        request.launch_profile_id.as_deref(),
+                        workspace.as_ref(),
+                        None,
+                        Some(cli_tool.as_id()),
+                        Some(runtime_kind),
+                    )
+                    .0
+            });
+        let mut adapter_options = profile
+            .as_ref()
+            .map(|profile| profile.adapter_options.clone())
+            .unwrap_or_default();
+        if let Some(request_options) = request.adapter_options.as_ref() {
+            adapter_options.extend(request_options.clone());
+        }
+        let default_provider_id = self
+            .provider_service
+            .get_default_provider_id(cli_tool.as_id());
+        let providers = self.provider_service.list_providers();
+        let Ok(plan) = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: request.provider_selection,
+                requested_provider_id: request.provider_id.as_deref(),
+                requested_model_id: request.model_id.as_deref(),
+                profile_provider_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_id.as_deref()),
+                profile_model_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.model_id.as_deref()),
+                workspace_provider_id: workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.provider_id.as_deref()),
+                requested_account_id: request.provider_account_id.as_deref(),
+                profile_account_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_account_id.as_deref()),
+                workspace_account_id: workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.provider_account_id.as_deref()),
+                default_provider_id: default_provider_id.as_deref(),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &self.cli_registry,
+        ) else {
+            return Ok(None);
+        };
+        match plan.provider.as_ref() {
+            Some(provider) => self
+                .provider_service
+                .launch_secret_entries(provider, plan.account_id.as_deref())
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// 本服务解析启动环境变量时用的供应商密钥存储（daemon 用它接收主程序推来的值）。
+    pub fn provider_secret_store(&self) -> Arc<crate::services::ProviderSecretStore> {
+        self.provider_service.secret_store().clone()
     }
 
     fn prepare_ssh_auth_runtime(
@@ -2564,6 +2698,7 @@ impl TerminalService {
             rows,
             workspace_name,
             provider_id,
+            None,
             model_id,
             provider_selection,
             launch_profile_id,
@@ -2594,6 +2729,7 @@ impl TerminalService {
         rows: u16,
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
         model_id: Option<&str>,
         provider_selection: LaunchProviderSelection,
         launch_profile_id: Option<&str>,
@@ -2756,6 +2892,13 @@ impl TerminalService {
                 profile_provider_id,
                 profile_model_id,
                 workspace_provider_id,
+                requested_account_id: provider_account_id,
+                profile_account_id: resolved_profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_account_id.as_deref()),
+                workspace_account_id: resolved_workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.provider_account_id.as_deref()),
                 default_provider_id: default_provider_id.as_deref(),
                 adapter_options: Some(&adapter_options),
             },
@@ -2783,15 +2926,18 @@ impl TerminalService {
                 .as_ref()
                 .map(|provider| provider.id.as_str())
                 .unwrap_or("<native>"),
+            account_id = provider_plan.account_id.as_deref().unwrap_or("<none>"),
             "resolved launch provider"
         );
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        let provider_vars = provider_plan
+        // 统一入口：供应商 + 账号 + 目标 CLI → 环境变量。密钥在这里读出，只进本次启动。
+        let provider_launch_env = self.resolve_provider_launch_env(&provider_plan, cli_tool)?;
+        let provider_vars = provider_launch_env.env_map();
+        let provider_custom_vars = provider_launch_env.custom_env_map();
+        let provider = provider_plan
             .provider
-            .as_ref()
-            .map(|provider| self.provider_service.get_env_vars_for_provider(provider))
-            .unwrap_or_default();
-        let provider = provider_plan.provider.clone().map(to_cli_provider);
+            .clone()
+            .map(|provider| to_cli_provider(provider, &provider_launch_env));
         let provider_conflict_env_remove = if provider_plan.mode == ProviderMode::Managed {
             managed_provider_conflict_env_keys(cli_tool)
                 .iter()
@@ -3646,6 +3792,12 @@ impl TerminalService {
                         cc_cli_adapters::MANAGED_PROVIDER_ENV_OPTION.to_string(),
                         serde_json::to_value(&provider_vars)?,
                     );
+                    if !provider_custom_vars.is_empty() {
+                        local_adapter_options.insert(
+                            cc_cli_adapters::MANAGED_PROVIDER_CUSTOM_ENV_OPTION.to_string(),
+                            serde_json::to_value(&provider_custom_vars)?,
+                        );
+                    }
                 }
 
                 let ctx = CliAdapterContext {
@@ -3734,6 +3886,8 @@ impl TerminalService {
                     result.env_remove.dedup();
                 }
                 env_vars.extend(result.env_inject);
+                // 用户填的环境变量（供应商 + 账号两层）优先于适配器自动注入的同名变量。
+                env_vars.extend(provider_custom_vars.clone());
                 (result.command, result.args, result.env_remove)
             };
             (cwd, cmd, cmd_args, cmd_env_remove, None)
@@ -7308,6 +7462,7 @@ mod tests {
             default_model_id: Some("provider-default".to_string()),
             codex_wire_api: None,
             is_default: true,
+            ..Provider::default()
         };
         let provider_plan = resolve_provider_plan(
             ProviderResolutionInput {
@@ -7318,10 +7473,13 @@ mod tests {
                 profile_provider_id: None,
                 profile_model_id: None,
                 workspace_provider_id: None,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: Some("anthropic-proxy"),
                 adapter_options: None,
             },
-            &[provider],
+            &[ProviderService::normalize_legacy_provider(provider).expect("normalize provider")],
             &CliToolRegistry::with_builtin_adapters(),
         )
         .expect("resolve provider default model");
@@ -7335,6 +7493,13 @@ mod tests {
     }
 
     pub(super) fn pi_rpc_test_service() -> (Arc<TerminalService>, tempfile::TempDir) {
+        pi_rpc_test_service_with_secrets(None)
+    }
+
+    /// `secrets` 为 `None` = 没有钥匙串（密钥留在文件里）；给一个内存存储 = 钥匙串可用。
+    fn pi_rpc_test_service_with_secrets(
+        secrets: Option<Arc<crate::services::ProviderSecretStore>>,
+    ) -> (Arc<TerminalService>, tempfile::TempDir) {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let app_paths = Arc::new(AppPaths::new(Some(
             temp_dir.path().to_string_lossy().to_string(),
@@ -7353,15 +7518,148 @@ mod tests {
             .update_settings(settings)
             .expect("configure Pi test launcher");
         let registry = Arc::new(CliToolRegistry::with_builtin_adapters());
+        let provider_service = match secrets {
+            Some(store) => ProviderService::with_secret_store(app_paths.providers_path(), store),
+            None => ProviderService::new(app_paths.providers_path()),
+        };
         let service = Arc::new(TerminalService::new(
             settings_service,
-            Arc::new(ProviderService::new(app_paths.providers_path())),
+            Arc::new(provider_service),
             app_paths,
             registry.clone(),
             Arc::new(ProjectCliHooksService::new(registry)),
             Arc::new(SshCredentialService::new_memory()),
         ));
         (service, temp_dir)
+    }
+
+    fn two_account_openai_provider() -> Provider {
+        use crate::models::provider::{AccountKind, ProviderAccount, ProviderEnvVar};
+        let account = |id: &str, secret: &str| ProviderAccount {
+            id: id.to_string(),
+            name: id.to_string(),
+            kind: AccountKind::ApiKey,
+            secret: Some(secret.to_string()),
+            ..ProviderAccount::default()
+        };
+        Provider {
+            id: "openai-pi".to_string(),
+            name: "OpenAI for Pi".to_string(),
+            provider_type: ProviderType::OpenAI,
+            models: vec![ProviderModel {
+                id: "gpt-5-test".to_string(),
+                label: None,
+                default_effort: None,
+                context_window_tokens: None,
+                context_size: None,
+            }],
+            default_model_id: Some("gpt-5-test".to_string()),
+            accounts: vec![
+                account("work", "sk-work-key"),
+                account("home", "sk-home-key"),
+            ],
+            default_account_id: Some("home".to_string()),
+            env: vec![ProviderEnvVar {
+                name: "MY_CUSTOM_FLAG".to_string(),
+                value: Some("on".to_string()),
+                ..ProviderEnvVar::default()
+            }],
+            ..Provider::default()
+        }
+    }
+
+    fn managed_pi_request(project_path: &std::path::Path) -> CreateSessionRequest {
+        let mut request = pi_rpc_request(project_path);
+        request.provider_selection = LaunchProviderSelection::Explicit;
+        request.provider_id = Some("openai-pi".to_string());
+        request.model_id = None;
+        request.adapter_options = Some(HashMap::from([(
+            "piTransport".to_string(),
+            serde_json::json!("rpc"),
+        )]));
+        request
+    }
+
+    #[test]
+    fn launch_uses_the_requested_account_and_the_default_account_otherwise() {
+        let (service, temp_dir) = pi_rpc_test_service();
+        service
+            .provider_service
+            .add_provider(two_account_openai_provider())
+            .expect("add provider with two accounts");
+        let mut request = managed_pi_request(temp_dir.path());
+
+        // 不指定账号：默认账号。
+        let spec = service
+            .build_pi_rpc_launch_spec(&request)
+            .expect("launch with the default account");
+        assert_eq!(
+            spec.env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("sk-home-key")
+        );
+        // 用户填的环境变量确实带进了这次启动。
+        assert_eq!(
+            spec.env.get("MY_CUSTOM_FLAG").map(String::as_str),
+            Some("on")
+        );
+
+        // 指定账号：各用各的密钥。
+        request.provider_account_id = Some("work".to_string());
+        let spec = service
+            .build_pi_rpc_launch_spec(&request)
+            .expect("launch with the requested account");
+        assert_eq!(
+            spec.env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("sk-work-key")
+        );
+        assert!(!spec.env.values().any(|value| value == "sk-home-key"));
+
+        // 指定了不存在的账号：明确报错。
+        request.provider_account_id = Some("gone".to_string());
+        let error = service.build_pi_rpc_launch_spec(&request).unwrap_err();
+        assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_NOT_FOUND"));
+    }
+
+    #[test]
+    fn launch_secret_entries_cover_exactly_the_account_this_launch_uses() {
+        let secrets = Arc::new(crate::services::ProviderSecretStore::memory());
+        let (service, temp_dir) = pi_rpc_test_service_with_secrets(Some(secrets));
+        service
+            .provider_service
+            .add_provider(two_account_openai_provider())
+            .expect("add provider with two accounts");
+        let mut request = managed_pi_request(temp_dir.path());
+
+        // 主程序在把请求发给 daemon 前调用：只读出这次启动要用的那一条。
+        let entries = service
+            .launch_provider_secret_entries(&request)
+            .expect("resolve launch secrets")
+            .expect("managed launch");
+        assert_eq!(
+            entries,
+            HashMap::from([(
+                crate::services::account_secret_key("openai-pi", "home"),
+                "sk-home-key".to_string()
+            )])
+        );
+
+        request.provider_account_id = Some("work".to_string());
+        let entries = service
+            .launch_provider_secret_entries(&request)
+            .expect("resolve launch secrets")
+            .expect("managed launch");
+        assert_eq!(
+            entries.get(&crate::services::account_secret_key("openai-pi", "work")),
+            Some(&"sk-work-key".to_string())
+        );
+        assert_eq!(entries.len(), 1);
+
+        // 原生启动没有要推的东西。
+        request.provider_selection = LaunchProviderSelection::None;
+        assert!(service
+            .launch_provider_secret_entries(&request)
+            .expect("resolve launch secrets")
+            .is_none());
     }
 
     pub(super) fn pi_rpc_request(project_path: &std::path::Path) -> CreateSessionRequest {
@@ -7373,6 +7671,7 @@ mod tests {
             rows: 32,
             workspace_name: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::None,
             launch_profile_id: None,
@@ -7472,6 +7771,7 @@ mod tests {
                 default_model_id: Some("gpt-5-test".to_string()),
                 codex_wire_api: None,
                 is_default: false,
+                ..Provider::default()
             })
             .expect("add managed provider");
         let mut request = pi_rpc_request(temp_dir.path());
@@ -7572,6 +7872,7 @@ mod tests {
                 default_model_id: Some("gpt-5-test".to_string()),
                 codex_wire_api: None,
                 is_default: false,
+                ..Provider::default()
             })
             .expect("add managed provider");
         let mut request = pi_rpc_request(temp_dir.path());
@@ -8120,6 +8421,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: HashMap::new(),
                 target_tools: vec!["claude".to_string()],

@@ -167,6 +167,8 @@ pub fn candidate_to_provider(candidate: &CcSwitchImportCandidate) -> Provider {
         default_model_id: candidate.default_model_id.clone(),
         codex_wire_api: candidate.codex_wire_api.clone(),
         is_default: false,
+        // `api_key` / `base_url` 是兼容输入：入库时落到默认账号和类型对应的接口上。
+        ..Provider::default()
     }
 }
 

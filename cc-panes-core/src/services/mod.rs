@@ -62,6 +62,7 @@ mod project_context_service;
 mod project_service;
 mod project_skill_service;
 mod provider_resolver;
+mod provider_secret_service;
 mod provider_service;
 mod quick_command_service;
 mod rate_limit_snapshot;
@@ -173,7 +174,14 @@ pub use provider_resolver::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
     ProviderMode, ProviderResolutionInput, ProviderSource, ResolvedProviderPlan,
 };
-pub use provider_service::ProviderService;
+pub use provider_secret_service::{
+    account_env_secret_key, account_secret_key, provider_env_secret_key, ProviderSecretBackend,
+    ProviderSecretStore,
+};
+pub use provider_service::{
+    ProviderApiCredentials, ProviderEnvLayer, ProviderEnvPreviewEntry, ProviderLaunchEnv,
+    ProviderService, ResolvedEnvVar, MASKED_SECRET,
+};
 pub use quick_command_service::QuickCommandService;
 pub use resume_identity::{should_replace_source, should_retain_incoming, source_priority};
 pub use runner_service::RunnerService;

@@ -87,6 +87,9 @@ pub struct Workspace {
     pub projects: Vec<WorkspaceProject>,
     #[serde(default)]
     pub provider_id: Option<String>,
+    /// 工作空间绑定的账号（属于 `provider_id`）；不指定时用供应商的默认账号。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
     #[serde(default)]
     pub launch_profile_id: Option<String>,
     #[serde(default)]
@@ -289,6 +292,7 @@ impl Workspace {
             created_at: chrono::Utc::now().to_rfc3339(),
             projects: Vec::new(),
             provider_id: None,
+            provider_account_id: None,
             launch_profile_id: None,
             path,
             default_environment: WorkspaceLaunchEnvironment::Local,

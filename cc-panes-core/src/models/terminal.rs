@@ -144,6 +144,9 @@ pub struct CreateSessionRequest {
     pub rows: u16,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    /// 供应商下的账号；不指定时用供应商的默认账号。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     #[serde(default)]

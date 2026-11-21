@@ -173,6 +173,17 @@ impl LaunchProfileService {
             .filter(|value| !value.is_empty())
     }
 
+    /// 账号挂在供应商下面：没选供应商就没有账号。
+    fn normalize_account_id(
+        provider_id: Option<&str>,
+        account_id: Option<String>,
+    ) -> Option<String> {
+        provider_id?;
+        account_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
     fn clear_overlapping_defaults(
         config: &mut LaunchProfileConfig,
         keep_id: &str,
@@ -627,7 +638,9 @@ impl LaunchProfileService {
             // Provider precedence and validation are projected by the command through the
             // shared provider resolver used by create_session.
             provider_id: None,
+            provider_account_id: None,
             provider_name: None,
+            provider_account_name: None,
             model_id: None,
             model_label: None,
             model_source: None,
@@ -675,6 +688,12 @@ impl LaunchProfileService {
                     .and_then(|profile| profile.model_id.as_deref()),
                 workspace_provider_id: workspace
                     .and_then(|workspace| workspace.provider_id.as_deref()),
+                requested_account_id: request.provider_account_id.as_deref(),
+                profile_account_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_account_id.as_deref()),
+                workspace_account_id: workspace
+                    .and_then(|workspace| workspace.provider_account_id.as_deref()),
                 default_provider_id,
                 adapter_options: profile.as_ref().map(|profile| &profile.adapter_options),
             },
@@ -692,6 +711,12 @@ impl LaunchProfileService {
             .provider
             .as_ref()
             .map(|provider| provider.name.clone());
+        resolution.provider_account_id = provider_plan.account_id.clone();
+        resolution.provider_account_name = provider_plan.provider.as_ref().and_then(|provider| {
+            provider
+                .account(provider_plan.account_id.as_deref())
+                .map(|account| account.name.clone())
+        });
         resolution.model_id = provider_plan.model_id.clone();
         resolution.model_label = provider_plan.model_label.clone();
         resolution.model_source = Some(provider_plan.model_source.as_str().to_string());
@@ -1343,7 +1368,8 @@ mod tests {
     use crate::models::CliTool;
 
     fn provider(id: &str) -> Provider {
-        Provider {
+        // 归一成账号结构（与 `ProviderService::list_providers()` 的产出一致）。
+        crate::services::ProviderService::normalize_legacy_provider(Provider {
             id: id.to_string(),
             name: id.to_string(),
             provider_type: ProviderType::Anthropic,
@@ -1357,7 +1383,9 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default: false,
-        }
+            ..Provider::default()
+        })
+        .expect("test provider should normalize")
     }
 
     fn test_service() -> LaunchProfileService {
@@ -1421,6 +1449,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
@@ -1443,6 +1472,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: Some("explicit-provider".into()),
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("claude".to_string()),
@@ -1489,6 +1519,7 @@ mod tests {
             workspace_name: None,
             project_id: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("claude".into()),
@@ -1561,6 +1592,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -1580,6 +1612,7 @@ mod tests {
             workspace_name: None,
             project_id: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("claude".into()),
@@ -1622,6 +1655,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: tools.iter().map(|tool| tool.to_string()).collect(),
@@ -1751,6 +1785,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
@@ -1768,6 +1803,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: Some("explicit-provider".into()),
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::None,
             cli_tool: None,
@@ -1796,6 +1832,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
@@ -1814,6 +1851,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: None,
@@ -1845,6 +1883,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("claude".into()),
@@ -1893,6 +1932,7 @@ mod tests {
             workspace_name: None,
             project_id: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("codex".into()),
@@ -1954,6 +1994,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["grok".into()],
@@ -1991,6 +2032,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("claude-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -2007,6 +2049,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2026,6 +2069,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2043,6 +2087,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
@@ -2081,6 +2126,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-local-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2097,6 +2143,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-wsl-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2119,6 +2166,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2136,6 +2184,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2178,6 +2227,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("claude-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -2194,6 +2244,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-provider".into()),
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2213,6 +2264,7 @@ mod tests {
                 workspace_name: Some(workspace.name.clone()),
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2241,6 +2293,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2267,6 +2320,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2298,6 +2352,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2320,6 +2375,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2356,6 +2412,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2384,6 +2441,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2438,6 +2496,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
@@ -2460,6 +2519,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
@@ -2500,6 +2560,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -2521,6 +2582,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
@@ -2554,6 +2616,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -2576,6 +2639,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
@@ -2613,6 +2677,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
@@ -2634,6 +2699,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
@@ -2674,6 +2740,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                provider_account_id: None,
                 model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],

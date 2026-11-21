@@ -418,7 +418,12 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         runner_repo,
         process_monitor_service.clone(),
     ));
-    let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
+    // 有系统钥匙串就用（与 SSH 密码一致）；没有（无界面 Linux、关掉 secret-service 特性的
+    // 构建）时密钥留在 providers.json 并标为 `file`。
+    let provider_service = Arc::new(ProviderService::with_secret_store(
+        app_paths.providers_path(),
+        Arc::new(cc_panes_core::services::ProviderSecretStore::system()),
+    ));
     let filesystem_service = Arc::new(FileSystemService::new());
     let mcp_config_service = Arc::new(McpConfigService::with_paths(app_paths.clone()));
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));

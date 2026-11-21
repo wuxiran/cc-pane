@@ -19,8 +19,8 @@ use cc_panes_core::models::{
 use cc_panes_core::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{
-    SessionStatusInfo, SettingsService, SshCredentialService, TerminalAdoptionSnapshot,
-    TerminalBackend,
+    ProviderSecretStore, SessionStatusInfo, SettingsService, SshCredentialService,
+    TerminalAdoptionSnapshot, TerminalBackend,
 };
 use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
@@ -78,6 +78,7 @@ impl DaemonConfig {
                 shutdown_tx,
                 terminal_backend,
                 ssh_credential_service,
+                provider_secrets: parking_lot::Mutex::new(None),
                 ws_emitter,
                 default_cwd,
                 last_activity: parking_lot::RwLock::new(HashMap::new()),
@@ -90,6 +91,12 @@ impl DaemonConfig {
                 settings_reload: parking_lot::Mutex::new(SettingsReloadGate::default()),
             }),
         }
+    }
+
+    /// 注册供应商密钥存储：必须与 daemon 里 `ProviderService` 用的是同一个实例，
+    /// 主程序推来的密钥才会被启动解析读到。
+    pub fn set_provider_secret_store(&self, store: Arc<ProviderSecretStore>) {
+        *self.inner.provider_secrets.lock() = Some(store);
     }
 
     /// 注册设置服务，使 create_session 前能限频重读 config.toml（见 `reload_settings_if_due`）。
@@ -333,6 +340,8 @@ struct DaemonState {
     shutdown_tx: watch::Sender<bool>,
     terminal_backend: Arc<dyn TerminalBackend>,
     ssh_credential_service: Arc<SshCredentialService>,
+    /// 供应商密钥存储：接收桌面主程序推过来的临时值（见 `set_provider_secret_store`）。
+    provider_secrets: parking_lot::Mutex<Option<Arc<ProviderSecretStore>>>,
     ws_emitter: Arc<WsEmitter>,
     default_cwd: String,
     /// 会话最后活跃时间（HTTP 访问 / WS 连接 / WS 入站输入均刷新），
@@ -473,6 +482,8 @@ pub struct PartialCreateSessionRequest {
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub provider_account_id: Option<String>,
     pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
@@ -544,6 +555,13 @@ pub struct TemporarySshPasswordRequest {
     pub password: String,
 }
 
+/// 桌面主程序读好的供应商密钥（钥匙串条目名 → 明文）。只进 daemon 内存。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporaryProviderSecretsRequest {
+    pub entries: HashMap<String, String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputQuery {
@@ -609,6 +627,10 @@ pub fn router(config: DaemonConfig) -> Router {
         .route(
             "/api/ssh-credentials/temporary",
             post(set_temporary_ssh_password),
+        )
+        .route(
+            "/api/provider-secrets/temporary",
+            post(set_temporary_provider_secrets),
         )
         .route("/api/sessions", post(create_session))
         .route("/api/launches/{launch_id}", delete(cancel_launch))
@@ -740,6 +762,34 @@ async fn set_temporary_ssh_password(
         .inner
         .ssh_credential_service
         .store_temporary_password(machine_id, &req.password);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_temporary_provider_secrets(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Json(req): Json<TemporaryProviderSecretsRequest>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let valid = req.entries.len() <= 256
+        && req.entries.iter().all(|(key, value)| {
+            !key.trim().is_empty() && key.len() <= 1024 && value.len() <= 256 * 1024
+        });
+    if !valid {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_PROVIDER_SECRETS",
+            "entries must contain at most 256 named values",
+        ));
+    }
+    let Some(store) = config.inner.provider_secrets.lock().clone() else {
+        return Err(json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "PROVIDER_SECRETS_UNAVAILABLE",
+            "this daemon has no provider secret store",
+        ));
+    };
+    store.set_temporary(req.entries);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -926,6 +976,7 @@ async fn create_session(
         rows: req.core.rows.unwrap_or(30),
         workspace_name: req.core.workspace_name,
         provider_id: req.core.provider_id,
+        provider_account_id: req.core.provider_account_id,
         model_id: req.core.model_id,
         provider_selection: req.core.provider_selection,
         launch_profile_id: req.core.launch_profile_id,
@@ -2368,6 +2419,56 @@ mod tests {
         );
         assert_eq!(created.status(), StatusCode::CREATED);
         assert_eq!(backend.created.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn temporary_provider_secrets_route_requires_auth_and_updates_daemon_memory() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = DaemonConfig::new(
+            "secret".to_string(),
+            "127.0.0.1:12345".parse().expect("socket addr"),
+            backend,
+            Arc::new(SshCredentialService::new_memory()),
+            Arc::new(WsEmitter::new()),
+            "/default/project".to_string(),
+        );
+        // daemon 自己没有可用的钥匙串：只能用主程序推过来的值。
+        let store = Arc::new(ProviderSecretStore::unavailable());
+        config.set_provider_secret_store(store.clone());
+        let body = serde_json::json!({
+            "entries": { "p1/account/default/key": "sk-pushed" },
+        })
+        .to_string();
+        let request = |authorized: bool| {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri("/api/provider-secrets/temporary")
+                .header(header::CONTENT_TYPE, "application/json");
+            if authorized {
+                builder = builder.header(header::AUTHORIZATION, "Bearer secret");
+            }
+            builder.body(Body::from(body.clone())).expect("request")
+        };
+
+        let unauthorized = router(config.clone())
+            .oneshot(request(false))
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert!(store.load("p1/account/default/key").is_err());
+
+        let accepted = router(config)
+            .oneshot(request(true))
+            .await
+            .expect("response");
+        assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            store
+                .load("p1/account/default/key")
+                .expect("load pushed secret")
+                .as_deref(),
+            Some("sk-pushed")
+        );
     }
 
     #[tokio::test]

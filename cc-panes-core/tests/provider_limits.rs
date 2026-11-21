@@ -17,6 +17,7 @@ fn provider(index: usize) -> Provider {
         default_model_id: None,
         codex_wire_api: None,
         is_default: false,
+        ..Provider::default()
     }
 }
 
@@ -37,8 +38,9 @@ fn both_creation_entry_points_reject_growth_without_changing_disk_or_memory() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("providers.json");
     write_config(&path, 256);
-    let before = fs::read(&path).unwrap();
     let service = ProviderService::new(path.clone());
+    // 夹具是旧格式文件，首次加载会迁移成账号结构；「磁盘不变」从迁移之后算起。
+    let before = fs::read(&path).unwrap();
     assert!(service
         .add_provider(provider(256))
         .unwrap_err()
@@ -59,8 +61,9 @@ fn legacy_oversized_configuration_remains_readable_and_can_be_repaired() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("providers.json");
     write_config(&path, 257);
-    let before = fs::read(&path).unwrap();
     let service = ProviderService::new(path.clone());
+    // 夹具是旧格式文件，首次加载会迁移成账号结构；「磁盘不变」从迁移之后算起。
+    let before = fs::read(&path).unwrap();
     assert_eq!(service.list_providers().len(), 257);
     assert!(service.add_provider(provider(300)).is_err());
     assert_eq!(fs::read(&path).unwrap(), before);
@@ -74,12 +77,12 @@ fn legacy_oversized_configuration_remains_readable_and_can_be_repaired() {
         restarted.get_provider("fixture-1").unwrap().name,
         "Recovered configuration"
     );
+    // 密钥不再挂在 Provider 上（进了账号）：通过解析出的环境变量确认它还在。
     assert_eq!(
         restarted
-            .get_provider("fixture-256")
-            .unwrap()
-            .api_key
-            .as_deref(),
+            .get_env_vars(Some("fixture-256"))
+            .get("ANTHROPIC_API_KEY")
+            .map(String::as_str),
         Some("fixture-key-256")
     );
     assert!(restarted.add_provider_unique(provider(301)).is_err());

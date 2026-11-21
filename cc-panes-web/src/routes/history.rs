@@ -620,6 +620,7 @@ fn restore_snapshot_entry(
             rows: 30,
             workspace_name: snapshot.workspace_name.clone(),
             provider_id: entry.provider_id.clone(),
+            provider_account_id: None,
             model_id: None,
             provider_selection,
             launch_profile_id: entry.launch_profile_id.clone(),

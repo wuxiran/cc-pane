@@ -81,7 +81,9 @@ fn wire_protocol(provider_type: ProviderType) -> Option<&'static str> {
         | ProviderType::Vertex
         | ProviderType::ConfigProfile
         | ProviderType::Cursor
-        | ProviderType::Gemini => None,
+        | ProviderType::Gemini
+        // 本机网关按目标 CLI 分接口，不是单一协议的路由；这一批不映射。
+        | ProviderType::LocalGateway => None,
     }
 }
 
@@ -179,6 +181,7 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default: false,
+            ..Provider::default()
         }
     }
 

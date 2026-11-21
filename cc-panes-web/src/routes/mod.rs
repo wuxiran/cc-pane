@@ -631,6 +631,10 @@ pub fn build_router(state: AppState) -> Router {
             patch(resources::update_workspace_provider),
         )
         .route(
+            "/api/workspaces/{name}/provider-account",
+            patch(resources::update_workspace_provider_account),
+        )
+        .route(
             "/api/workspaces/{name}/projects",
             post(resources::add_workspace_project),
         )
@@ -691,6 +695,18 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/providers/default",
             post(resources::set_default_provider),
+        )
+        .route(
+            "/api/providers/secret-status",
+            get(resources::get_provider_secret_status),
+        )
+        .route(
+            "/api/providers/{id}/env-preview",
+            get(resources::preview_provider_env),
+        )
+        .route(
+            "/api/providers/{id}/credentials",
+            post(resources::resolve_provider_api_credentials),
         )
         .route("/api/providers/{id}", get(resources::get_provider))
         .route("/api/providers/{id}", put(resources::update_provider))

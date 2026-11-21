@@ -63,6 +63,21 @@ pub struct WorkspaceProviderRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceProviderAccountRequest {
+    pub account_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccountQuery {
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
+    pub cli_tool: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateWorkspaceRequest {
     pub workspace: Workspace,
 }
@@ -312,6 +327,18 @@ pub async fn update_workspace_provider(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn update_workspace_provider_account(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(req): Json<WorkspaceProviderAccountRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .workspace_service
+        .update_workspace_provider_account(&name, req.account_id.as_deref())
+        .map_err(service_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn update_workspace(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -537,18 +564,54 @@ pub async fn update_project_alias(
 }
 
 pub async fn list_providers(State(state): State<AppState>) -> Json<Vec<Provider>> {
-    Json(state.provider_service.list_providers())
+    // 对外永远是清掉密钥明文的副本（没有钥匙串时文件里有明文，不能原样交出去）。
+    Json(state.provider_service.list_providers_for_display())
 }
 
 pub async fn get_provider(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Json<Option<Provider>> {
-    Json(state.provider_service.get_provider(&id))
+    Json(state.provider_service.get_provider_for_display(&id))
+}
+
+/// 注入预览：将要带给会话的环境变量，敏感值已打码。不读钥匙串。
+pub async fn preview_provider_env(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ProviderAccountQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let entries = state
+        .provider_service
+        .preview_env(&id, query.account_id.as_deref(), query.cli_tool.as_deref())
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(entries).unwrap_or(Value::Null)))
+}
+
+/// 测试连接 / 拉模型列表 / 一次性补全用：读出某个账号的密钥与接口地址。
+pub async fn resolve_provider_api_credentials(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ProviderAccountQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let credentials = state
+        .provider_service
+        .resolve_api_credentials(&id, query.account_id.as_deref())
+        .map_err(service_error)?;
+    Ok(Json(
+        serde_json::to_value(credentials).unwrap_or(Value::Null),
+    ))
+}
+
+/// 当前环境有没有可用的系统钥匙串（没有时密钥留在 providers.json 并标为 `file`）。
+pub async fn get_provider_secret_status(State(state): State<AppState>) -> Json<Value> {
+    Json(serde_json::json!({
+        "keychainAvailable": state.provider_service.keychain_available(),
+    }))
 }
 
 pub async fn get_default_provider(State(state): State<AppState>) -> Json<Option<Provider>> {
-    Json(state.provider_service.get_default_provider())
+    Json(state.provider_service.get_default_provider_for_display())
 }
 
 pub async fn add_provider(

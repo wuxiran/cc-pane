@@ -1,6 +1,7 @@
 use crate::models::provider::{Provider, SystemProviderInfo};
 use crate::services::{CcSwitchImportReport, ProviderService};
 use crate::utils::AppResult;
+use cc_panes_core::services::{ProviderApiCredentials, ProviderEnvPreviewEntry};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,7 +10,8 @@ use tracing::debug;
 
 #[tauri::command]
 pub fn list_providers(service: State<'_, Arc<ProviderService>>) -> AppResult<Vec<Provider>> {
-    Ok(service.list_providers())
+    // 界面拿到的永远是清掉密钥明文的副本，只有「有没有、存在哪」的标记。
+    Ok(service.list_providers_for_display())
 }
 
 #[tauri::command]
@@ -17,14 +19,60 @@ pub fn get_provider(
     id: String,
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<Option<Provider>> {
-    Ok(service.get_provider(&id))
+    Ok(service.get_provider_for_display(&id))
 }
 
 #[tauri::command]
 pub fn get_default_provider(
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<Option<Provider>> {
-    Ok(service.get_default_provider())
+    Ok(service.get_default_provider_for_display())
+}
+
+/// 注入预览：选定账号和 CLI 后将要带给会话的环境变量，敏感值已打码。不读钥匙串。
+#[tauri::command]
+pub fn preview_provider_env(
+    provider_id: String,
+    account_id: Option<String>,
+    cli_tool: Option<String>,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<Vec<ProviderEnvPreviewEntry>> {
+    Ok(service.preview_env(&provider_id, account_id.as_deref(), cli_tool.as_deref())?)
+}
+
+/// 测试连接 / 拉模型列表 / 一次性补全用：读出某个账号的密钥与接口地址。
+/// 会读钥匙串；返回值只在内存里用，不要落盘、不要进日志。
+#[tauri::command]
+pub async fn resolve_provider_api_credentials(
+    provider_id: String,
+    account_id: Option<String>,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<ProviderApiCredentials> {
+    debug!(provider_id = %provider_id, "cmd::resolve_provider_api_credentials");
+    let service = Arc::clone(service.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        service.resolve_api_credentials(&provider_id, account_id.as_deref())
+    })
+    .await
+    .map_err(|error| crate::utils::AppError::from(format!("Provider secret task failed: {error}")))?
+    .map_err(Into::into)
+}
+
+/// 密钥存储状态：当前环境有没有可用的系统钥匙串。没有时密钥留在 providers.json
+/// 并标为 `file`，界面据此提示「未进钥匙串」。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSecretStatus {
+    pub keychain_available: bool,
+}
+
+#[tauri::command]
+pub fn get_provider_secret_status(
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<ProviderSecretStatus> {
+    Ok(ProviderSecretStatus {
+        keychain_available: service.keychain_available(),
+    })
 }
 
 #[tauri::command]

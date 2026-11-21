@@ -699,7 +699,32 @@ impl WorkspaceService {
     ) -> Result<(), String> {
         let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
-        workspace.provider_id = provider_id.map(|s| s.to_string());
+        let provider_id = provider_id.map(|s| s.to_string());
+        // 账号挂在供应商下面：换了供应商，原来绑定的账号就不再适用。
+        if workspace.provider_id != provider_id {
+            workspace.provider_account_id = None;
+        }
+        workspace.provider_id = provider_id;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
+        Ok(())
+    }
+
+    /// 更新工作空间绑定的供应商账号（属于当前绑定的供应商；`None` = 用默认账号）。
+    pub fn update_workspace_provider_account(
+        &self,
+        workspace_name: &str,
+        account_id: Option<&str>,
+    ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
+        let mut workspace = self.get_workspace(workspace_name)?;
+        let account_id = account_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        if account_id.is_some() && workspace.provider_id.is_none() {
+            return Err("Workspace has no provider to bind an account to".to_string());
+        }
+        workspace.provider_account_id = account_id;
         self.write_workspace_json_locked(workspace_name, &workspace)?;
         Ok(())
     }

@@ -180,6 +180,17 @@ pub fn update_workspace_provider(
     Ok(service.update_workspace_provider(&workspace_name, provider_id.as_deref())?)
 }
 
+/// 绑定工作空间的供应商账号（属于当前绑定的供应商；`None` = 用供应商的默认账号）。
+#[tauri::command]
+pub fn update_workspace_provider_account(
+    workspace_name: String,
+    account_id: Option<String>,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, "cmd::update_workspace_provider_account");
+    Ok(service.update_workspace_provider_account(&workspace_name, account_id.as_deref())?)
+}
+
 #[tauri::command]
 pub fn update_workspace_path(
     workspace_name: String,

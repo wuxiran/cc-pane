@@ -51,7 +51,11 @@ fn build_spec(
             .push(skills_dir.to_string_lossy().to_string());
     }
 
-    DshService::apply_providers(&mut spec, &provider_service.list_providers());
+    // DSH 路由要把密钥作为环境变量带给子进程：这里读默认账号的密钥（不经过界面）。
+    DshService::apply_providers(
+        &mut spec,
+        &provider_service.list_providers_with_default_secret(),
+    );
     spec
 }
 

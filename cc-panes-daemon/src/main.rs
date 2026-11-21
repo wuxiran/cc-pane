@@ -16,8 +16,8 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
     services::{
         ExternalSkillRegistry, InProcessTerminalBackend, LaunchProfileService,
-        ProjectCliHooksService, ProviderService, SettingsService, SharedMcpService,
-        SshCredentialService, TerminalBackend, TerminalService, WorkspaceService,
+        ProjectCliHooksService, ProviderSecretStore, ProviderService, SettingsService,
+        SharedMcpService, SshCredentialService, TerminalBackend, TerminalService, WorkspaceService,
     },
     utils::{simplify_path, tokio_worker_threads_from_env, AppPaths, APP_DIR_NAME},
 };
@@ -284,6 +284,8 @@ async fn async_main(worker_threads: usize) -> anyhow::Result<()> {
         // 周期自检：被新 daemon 取代即优雅退出，manifest 丢失则自愈重写。
         self_check::spawn_manifest_self_check(runtime_dir, config.clone());
     }
+    // 桌面主程序在创建会话前把读好的供应商密钥推到这里（与 SSH 密码同一条路）。
+    config.set_provider_secret_store(_terminal_service_guard.provider_secret_store());
     // create_session 前限频重读 config.toml：app 改了并行度/性能设置，新会话立即生效。
     config.set_settings_service(settings_service.clone());
     // 孤儿会话回收：无人查看超过 TTL（设置可调，0=禁用）的会话按 FIFO 回收。
@@ -330,7 +332,12 @@ fn create_terminal_backend(
         source = daemon_paths.source,
         "CC-Panes daemon data directory resolved"
     );
-    let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
+    // daemon 是「跟随者」：只读 providers.json，不迁移、不写钥匙串。密钥优先用主程序推来的
+    // 临时值；没推（如 cc-panes-web 直连 daemon）时才自己读钥匙串——和 SSH 密码的回退一致。
+    let provider_service = Arc::new(ProviderService::follower(
+        app_paths.providers_path(),
+        Arc::new(ProviderSecretStore::system()),
+    ));
     let cli_registry = Arc::new(CliToolRegistry::with_builtin_adapters());
     let external_skill_registry = Arc::new(ExternalSkillRegistry::new(cli_registry.clone()));
     let launch_profile_service = Arc::new(LaunchProfileService::new_with_external_skill_registry(

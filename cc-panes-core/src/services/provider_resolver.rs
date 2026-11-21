@@ -1,4 +1,5 @@
-use crate::models::{provider::Provider, CliTool, LaunchProviderSelection};
+use crate::models::provider::{AccountKind, Provider, ProviderAccount, ProviderType};
+use crate::models::{CliTool, LaunchProviderSelection};
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::LaunchRuntime;
 use cc_cli_adapters::CliToolRegistry;
@@ -51,6 +52,11 @@ pub struct ProviderResolutionInput<'a> {
     pub profile_provider_id: Option<&'a str>,
     pub profile_model_id: Option<&'a str>,
     pub workspace_provider_id: Option<&'a str>,
+    /// 账号跟着它所属的那一层供应商走：请求里的账号只对请求里的供应商生效，
+    /// 运行配置 / 工作空间同理。都没指定时用供应商的默认账号。
+    pub requested_account_id: Option<&'a str>,
+    pub profile_account_id: Option<&'a str>,
+    pub workspace_account_id: Option<&'a str>,
     /// 当前 CLI 工具自己的持久化默认 Provider id。
     pub default_provider_id: Option<&'a str>,
     pub adapter_options: Option<&'a HashMap<String, serde_json::Value>>,
@@ -62,6 +68,8 @@ pub struct ResolvedProviderPlan {
     pub selection: LaunchProviderSelection,
     pub source: ProviderSource,
     pub provider: Option<Provider>,
+    /// 实际使用的账号（托管模式下总是有值：指定的账号或供应商的默认账号）。
+    pub account_id: Option<String>,
     pub model_id: Option<String>,
     pub model_label: Option<String>,
     pub model_default_effort: Option<String>,
@@ -255,6 +263,7 @@ pub fn resolve_provider_plan(
             selection,
             source: ProviderSource::Native,
             provider: None,
+            account_id: None,
             model_id: None,
             model_label: None,
             model_default_effort: None,
@@ -278,7 +287,32 @@ pub fn resolve_provider_plan(
             )
         })?;
 
-    if !provider_has_managed_configuration(&provider) {
+    let selected_account_id = match source {
+        ProviderSource::Request => normalize_id(input.requested_account_id),
+        ProviderSource::LaunchProfile => normalize_id(input.profile_account_id),
+        ProviderSource::LegacyWorkspace => normalize_id(input.workspace_account_id),
+        ProviderSource::DefaultProvider | ProviderSource::Native => None,
+    };
+    let account = provider.account(selected_account_id).ok_or_else(|| {
+        let mut error_params = HashMap::from([
+            ("cliTool".to_string(), input.cli_tool.as_id().to_string()),
+            ("providerId".to_string(), provider_id.to_string()),
+        ]);
+        if let Some(account_id) = selected_account_id {
+            error_params.insert("accountId".to_string(), account_id.to_string());
+        }
+        AppError::coded_with_params(
+            "PROVIDER_ACCOUNT_NOT_FOUND",
+            format!(
+                "Account '{}' was not found on Provider '{provider_id}'",
+                selected_account_id.unwrap_or("<default>")
+            ),
+            error_params,
+        )
+    })?;
+    let account_id = account.id.clone();
+
+    if !super::ProviderService::managed_configuration_is_usable(&provider, account) {
         return Err(provider_error(
             "PROVIDER_CONFIG_INVALID",
             format!("Provider '{provider_id}' has no usable managed configuration"),
@@ -302,13 +336,32 @@ pub fn resolve_provider_plan(
         .ok()
         .and_then(|value| value.as_str().map(str::to_string))
         .unwrap_or_default();
-    if !adapter.capabilities().supports_provider
-        || !adapter
+    if account_login_mismatch(account, input.cli_tool) {
+        let mut error_params = HashMap::from([
+            ("cliTool".to_string(), input.cli_tool.as_id().to_string()),
+            ("providerId".to_string(), provider_id.to_string()),
+            ("accountId".to_string(), account_id.clone()),
+        ]);
+        if let Some(account_cli) = account.cli_tool.as_ref() {
+            error_params.insert("accountCliTool".to_string(), account_cli.clone());
+        }
+        return Err(AppError::coded_with_params(
+            "PROVIDER_ACCOUNT_INCOMPATIBLE",
+            format!(
+                "Account '{account_id}' is a login for CLI '{}' and cannot be used with CLI '{}'",
+                account.cli_tool.as_deref().unwrap_or("<unknown>"),
+                input.cli_tool.as_id()
+            ),
+            error_params,
+        ));
+    }
+    let type_compatible = adapter.capabilities().supports_provider
+        && adapter
             .capabilities()
             .compatible_provider_types
             .iter()
-            .any(|compatible| compatible == &provider_type)
-    {
+            .any(|compatible| compatible == &provider_type);
+    if !type_compatible && !login_account_hosts_cli(&provider, account, input.cli_tool) {
         return Err(provider_error(
             "PROVIDER_INCOMPATIBLE",
             format!(
@@ -372,6 +425,7 @@ pub fn resolve_provider_plan(
             ModelSource::NativeDefault
         },
         provider: Some(provider),
+        account_id: Some(account_id),
     })
 }
 
@@ -434,8 +488,32 @@ pub fn validate_provider_runtime(
     Ok(())
 }
 
-fn provider_has_managed_configuration(provider: &Provider) -> bool {
-    super::ProviderService::managed_configuration_is_usable(provider)
+/// 登录账号属于别的 CLI：目录对不上，这次启动既没有密钥也没有登录。
+fn account_login_mismatch(account: &ProviderAccount, cli_tool: CliTool) -> bool {
+    account.kind == AccountKind::Login && account.cli_tool.as_deref() != Some(cli_tool.as_id())
+}
+
+/// 供应商类型不在适配器的兼容列表里，但这个登录账号仍可用于该 CLI 的情况。
+///
+/// 目前只有 Antigravity：它不接密钥型供应商（适配器 `supports_provider = false`），
+/// 但它的登录账号（`GEMINI_HOME` 指向独立目录）挂在 Gemini 类型的供应商下面。
+fn login_account_hosts_cli(
+    provider: &Provider,
+    account: &ProviderAccount,
+    cli_tool: CliTool,
+) -> bool {
+    account.kind == AccountKind::Login
+        && account.cli_tool.as_deref() == Some(cli_tool.as_id())
+        && cli_tool == CliTool::Antigravity
+        && provider.provider_type == ProviderType::Gemini
+}
+
+/// 默认回退用：供应商的默认账号对这个 CLI 是否有可用的托管配置。
+fn provider_has_managed_configuration(provider: &Provider, cli_tool: CliTool) -> bool {
+    provider.default_account().is_some_and(|account| {
+        !account_login_mismatch(account, cli_tool)
+            && super::ProviderService::managed_configuration_is_usable(provider, account)
+    })
 }
 
 fn compatible_default_provider_id<'a>(
@@ -452,7 +530,7 @@ fn compatible_default_provider_id<'a>(
         Some(id) => providers.iter().find(|provider| provider.id == id),
         None => providers.iter().find(|provider| provider.is_default),
     }?;
-    if !provider_has_managed_configuration(selected) {
+    if !provider_has_managed_configuration(selected, cli_tool) {
         return None;
     }
     let provider_type = serde_json::to_value(selected.provider_type)
@@ -478,6 +556,7 @@ fn native_plan() -> ResolvedProviderPlan {
         selection: LaunchProviderSelection::None,
         source: ProviderSource::Native,
         provider: None,
+        account_id: None,
         model_id: None,
         model_label: None,
         model_default_effort: None,
@@ -521,6 +600,25 @@ mod tests {
     use super::*;
     use crate::models::provider::{ProviderModel, ProviderType, SYSTEM_PROVIDER_ID};
 
+    /// 这些测试手写的 Provider 只带旧字段（`api_key` / `base_url` / `config_dir`）。
+    /// 生产路径拿到的永远是 `ProviderService::list_providers()` 归一过的结构，所以这里先同样
+    /// 归一（建默认账号、地址进接口）再解析。同名遮蔽 `super::resolve_provider_plan`。
+    fn resolve_provider_plan(
+        input: ProviderResolutionInput<'_>,
+        providers: &[Provider],
+        registry: &CliToolRegistry,
+    ) -> AppResult<ResolvedProviderPlan> {
+        let providers: Vec<Provider> = providers
+            .iter()
+            .cloned()
+            .map(|provider| {
+                crate::services::ProviderService::normalize_legacy_provider(provider)
+                    .expect("test provider should normalize")
+            })
+            .collect();
+        super::resolve_provider_plan(input, &providers, registry)
+    }
+
     fn provider(id: &str, provider_type: ProviderType) -> Provider {
         Provider {
             id: id.to_string(),
@@ -536,6 +634,7 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default: false,
+            ..Provider::default()
         }
     }
 
@@ -556,6 +655,9 @@ mod tests {
                 profile_provider_id: profile,
                 profile_model_id: None,
                 workspace_provider_id: workspace,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: providers
                     .iter()
                     .find(|provider| provider.is_default)
@@ -613,6 +715,9 @@ mod tests {
                 profile_provider_id,
                 profile_model_id,
                 workspace_provider_id: None,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: providers
                     .iter()
                     .find(|provider| provider.is_default)
@@ -1052,6 +1157,9 @@ mod tests {
                     profile_provider_id: profile,
                     profile_model_id: None,
                     workspace_provider_id: workspace,
+                    requested_account_id: None,
+                    profile_account_id: None,
+                    workspace_account_id: None,
                     default_provider_id: Some("default"),
                     adapter_options: None,
                 },
@@ -1222,6 +1330,9 @@ mod tests {
                 profile_provider_id: None,
                 profile_model_id: None,
                 workspace_provider_id: None,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: None,
                 adapter_options: Some(&adapter_options),
             },
@@ -1240,6 +1351,9 @@ mod tests {
                 profile_provider_id: None,
                 profile_model_id: None,
                 workspace_provider_id: None,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: None,
                 adapter_options: Some(&adapter_options),
             },
@@ -1275,6 +1389,9 @@ mod tests {
                 profile_provider_id: Some("pi-managed"),
                 profile_model_id: None,
                 workspace_provider_id: Some("pi-managed"),
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: Some("pi-managed"),
                 adapter_options: Some(&adapter_options),
             },
@@ -1294,6 +1411,9 @@ mod tests {
                 profile_provider_id: None,
                 profile_model_id: None,
                 workspace_provider_id: None,
+                requested_account_id: None,
+                profile_account_id: None,
+                workspace_account_id: None,
                 default_provider_id: Some("pi-managed"),
                 adapter_options: Some(&adapter_options),
             },
@@ -1335,7 +1455,12 @@ mod tests {
             )
             .unwrap();
             assert_eq!(managed.mode, ProviderMode::Managed, "{}", cli_tool.as_id());
-            assert!(!managed.provider.unwrap().to_env_vars().is_empty());
+            let account_id = managed.account_id.clone();
+            let managed_provider = managed.provider.unwrap();
+            let account = managed_provider.account(account_id.as_deref()).unwrap();
+            assert!(!managed_provider
+                .generated_env(cli_tool.as_id(), account, Some("test-secret"))
+                .is_empty());
 
             let native = resolve(
                 cli_tool,
@@ -1383,5 +1508,255 @@ mod tests {
         let error =
             validate_provider_runtime(&native, LaunchRuntime::Ssh, CliTool::Pi).unwrap_err();
         assert_eq!(error.code(), Some("PI_SSH_UNSUPPORTED"));
+    }
+
+    // ---- 账号 ----
+
+    use crate::models::provider::{AccountKind, ProviderAccount};
+
+    fn key_account(id: &str) -> ProviderAccount {
+        ProviderAccount {
+            id: id.to_string(),
+            name: id.to_string(),
+            kind: AccountKind::ApiKey,
+            secret: Some(format!("secret-{id}")),
+            ..ProviderAccount::default()
+        }
+    }
+
+    fn login_account(id: &str, cli_tool: &str) -> ProviderAccount {
+        ProviderAccount {
+            id: id.to_string(),
+            name: id.to_string(),
+            kind: AccountKind::Login,
+            cli_tool: Some(cli_tool.to_string()),
+            config_dir: Some(format!("/accounts/{id}")),
+            ..ProviderAccount::default()
+        }
+    }
+
+    /// 两个密钥账号的供应商，默认账号是 `home`。
+    fn provider_with_accounts(id: &str) -> Provider {
+        let mut configured = provider(id, ProviderType::Anthropic);
+        configured.api_key = None;
+        configured.accounts = vec![key_account("work"), key_account("home")];
+        configured.default_account_id = Some("home".to_string());
+        configured
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_accounts(
+        cli_tool: CliTool,
+        requested: (Option<&str>, Option<&str>),
+        profile: (Option<&str>, Option<&str>),
+        workspace: (Option<&str>, Option<&str>),
+        default_provider_id: Option<&str>,
+        providers: &[Provider],
+    ) -> AppResult<ResolvedProviderPlan> {
+        resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: LaunchProviderSelection::Inherit,
+                requested_provider_id: requested.0,
+                requested_model_id: None,
+                profile_provider_id: profile.0,
+                profile_model_id: None,
+                workspace_provider_id: workspace.0,
+                requested_account_id: requested.1,
+                profile_account_id: profile.1,
+                workspace_account_id: workspace.1,
+                default_provider_id,
+                adapter_options: None,
+            },
+            providers,
+            &CliToolRegistry::with_builtin_adapters(),
+        )
+    }
+
+    #[test]
+    fn unspecified_account_falls_back_to_the_provider_default_account() {
+        let providers = vec![provider_with_accounts("p1")];
+
+        // 运行配置 / 工作空间 / 请求只记了供应商：用默认账号。
+        for (requested, profile, workspace) in [
+            (Some("p1"), None, None),
+            (None, Some("p1"), None),
+            (None, None, Some("p1")),
+        ] {
+            let plan = resolve_accounts(
+                CliTool::Claude,
+                (requested, None),
+                (profile, None),
+                (workspace, None),
+                None,
+                &providers,
+            )
+            .unwrap();
+            assert_eq!(plan.mode, ProviderMode::Managed);
+            assert_eq!(plan.account_id.as_deref(), Some("home"));
+        }
+
+        // 按 CLI 默认供应商回退时同样用默认账号。
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (None, None),
+            (None, None),
+            (None, None),
+            Some("p1"),
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.source, ProviderSource::DefaultProvider);
+        assert_eq!(plan.account_id.as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn account_follows_the_layer_that_selected_the_provider() {
+        let providers = vec![provider_with_accounts("p1"), provider_with_accounts("p2")];
+
+        // 运行配置指定了账号。
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (None, None),
+            (Some("p1"), Some("work")),
+            (Some("p2"), Some("work")),
+            None,
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.source, ProviderSource::LaunchProfile);
+        assert_eq!(plan.account_id.as_deref(), Some("work"));
+
+        // 工作空间绑定了账号。
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (None, None),
+            (None, None),
+            (Some("p2"), Some("work")),
+            None,
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.source, ProviderSource::LegacyWorkspace);
+        assert_eq!(plan.account_id.as_deref(), Some("work"));
+
+        // 请求选了供应商但没选账号：不借用运行配置里（属于另一条供应商）的账号。
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (Some("p2"), None),
+            (Some("p1"), Some("work")),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.source, ProviderSource::Request);
+        assert_eq!(plan.provider.as_ref().unwrap().id, "p2");
+        assert_eq!(plan.account_id.as_deref(), Some("home"));
+
+        // 请求里同时选了供应商和账号：最优先。
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (Some("p2"), Some("work")),
+            (Some("p1"), Some("home")),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.account_id.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn unknown_account_is_a_structured_error() {
+        let providers = vec![provider_with_accounts("p1")];
+
+        let error = resolve_accounts(
+            CliTool::Claude,
+            (Some("p1"), Some("gone")),
+            (None, None),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_NOT_FOUND"));
+        assert!(!error.to_string().contains("secret-"));
+    }
+
+    #[test]
+    fn login_accounts_resolve_for_their_own_cli_only() {
+        let cases = [
+            (CliTool::Claude, ProviderType::Anthropic),
+            (CliTool::Codex, ProviderType::OpenAI),
+            (CliTool::Gemini, ProviderType::Gemini),
+            // Antigravity 不接密钥型供应商，但它的登录账号挂在 Gemini 类型下面。
+            (CliTool::Antigravity, ProviderType::Gemini),
+            (CliTool::Grok, ProviderType::Grok),
+        ];
+        for (cli_tool, provider_type) in cases {
+            let mut configured = provider("p1", provider_type);
+            configured.api_key = None;
+            configured.base_url = None;
+            configured.accounts =
+                vec![key_account("key"), login_account("login", cli_tool.as_id())];
+            let providers = vec![configured];
+
+            let plan = resolve_accounts(
+                cli_tool,
+                (Some("p1"), Some("login")),
+                (None, None),
+                (None, None),
+                None,
+                &providers,
+            )
+            .unwrap_or_else(|error| panic!("{} login account: {error}", cli_tool.as_id()));
+            assert_eq!(plan.mode, ProviderMode::Managed, "{}", cli_tool.as_id());
+            assert_eq!(plan.account_id.as_deref(), Some("login"));
+        }
+
+        // 登录账号属于别的 CLI：明确报错，而不是带着「没有密钥也没有登录」去启动。
+        let mut configured = provider("p1", ProviderType::Anthropic);
+        configured.api_key = None;
+        configured.accounts = vec![login_account("login", "claude")];
+        let providers = vec![configured];
+        let error = resolve_accounts(
+            CliTool::Jcode,
+            (Some("p1"), Some("login")),
+            (None, None),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_INCOMPATIBLE"));
+
+        // 作为「该 CLI 的默认供应商」回退时不报错，直接退回原生。
+        let plan = resolve_accounts(
+            CliTool::Jcode,
+            (None, None),
+            (None, None),
+            (None, None),
+            Some("p1"),
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(plan.mode, ProviderMode::Native);
+
+        // Antigravity 仍然不接密钥账号。
+        let mut gemini = provider("g1", ProviderType::Gemini);
+        gemini.api_key = None;
+        gemini.accounts = vec![key_account("key")];
+        let error = resolve_accounts(
+            CliTool::Antigravity,
+            (Some("g1"), None),
+            (None, None),
+            (None, None),
+            None,
+            &[gemini],
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), Some("PROVIDER_INCOMPATIBLE"));
     }
 }

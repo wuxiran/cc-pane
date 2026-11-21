@@ -304,6 +304,7 @@ mod tests {
             rows: 30,
             workspace_name: Some("workspace".to_string()),
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             launch_profile_id: None,

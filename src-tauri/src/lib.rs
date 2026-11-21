@@ -231,6 +231,7 @@ use commands::{
     get_project,
     get_project_cli_hooks,
     get_provider,
+    get_provider_secret_status,
     get_quick_terminal_session,
     get_recent_changes,
     get_recent_journal,
@@ -383,6 +384,7 @@ use commands::{
     prepare_session_context,
     preview_launch_profile_resolution,
     preview_project_migration,
+    preview_provider_env,
     preview_workspace_migration,
     prompt_acp_chat,
     prompt_pi_rpc_session,
@@ -430,6 +432,7 @@ use commands::{
     reorder_workspaces,
     resize_terminal,
     resolve_git_conflict,
+    resolve_provider_api_credentials,
     resolve_terminal_path_link,
     resolve_wallpaper_asset,
     respond_acp_elicitation,
@@ -587,6 +590,7 @@ use commands::{
     update_workspace_path,
     update_workspace_project_alias,
     update_workspace_provider,
+    update_workspace_provider_account,
     upload_terminal_checkpoint,
     upsert_mcp_server,
     upsert_shared_mcp_server,
@@ -1768,7 +1772,11 @@ pub fn run() {
         db.clone(),
     ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
-    let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
+    // 主程序是 providers.json 的拥有者：旧数据迁移、密钥进系统钥匙串都在这里做。
+    let provider_service = Arc::new(ProviderService::with_secret_store(
+        app_paths.providers_path(),
+        Arc::new(cc_panes_core::services::ProviderSecretStore::system()),
+    ));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let task_verification_service = Arc::new(services::TaskVerificationService::new(
@@ -3444,6 +3452,7 @@ pub fn run() {
             update_workspace_alias,
             update_workspace_project_alias,
             update_workspace_provider,
+            update_workspace_provider_account,
             update_workspace_path,
             set_workspace_archived,
             set_workspace_project_archived,
@@ -3504,6 +3513,9 @@ pub fn run() {
             set_default_provider,
             detect_system_provider,
             import_cc_switch_providers,
+            preview_provider_env,
+            resolve_provider_api_credentials,
+            get_provider_secret_status,
             read_config_dir_info,
             open_path_in_explorer,
             get_display_server,

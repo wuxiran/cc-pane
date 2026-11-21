@@ -350,6 +350,7 @@ pub(super) fn open_terminal_create_request(
         rows: 30,
         workspace_name: None,
         provider_id: None,
+        provider_account_id: None,
         model_id: None,
         provider_selection: LaunchProviderSelection::None,
         launch_profile_id: None,

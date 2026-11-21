@@ -2499,6 +2499,7 @@ mod tests {
             default_model_id: default_model_id.map(str::to_string),
             codex_wire_api: None,
             is_default: true,
+            ..Provider::default()
         };
         let mut default_provider_ids = HashMap::new();
         default_provider_ids.insert("claude".to_string(), "other-provider".to_string());
@@ -2522,8 +2523,10 @@ mod tests {
             default_model_id: Some("MiniMax-M3-highspeed".to_string()),
             codex_wire_api: None,
             is_default: false,
+            ..Provider::default()
         };
         let config = ProviderConfig {
+            schema_version: 0,
             providers: vec![provider, other_provider],
             default_provider_ids,
             default_provider_ids_version: 2,
@@ -2716,8 +2719,10 @@ mod tests {
             default_model_id: Some("other-model".to_string()),
             codex_wire_api: None,
             is_default: true,
+            ..Provider::default()
         };
         let config = ProviderConfig {
+            schema_version: 0,
             providers: vec![provider],
             default_provider_ids: HashMap::new(),
             default_provider_ids_version: 2,
@@ -2784,8 +2789,10 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default: true,
+            ..Provider::default()
         };
         let config = ProviderConfig {
+            schema_version: 0,
             providers: vec![provider],
             default_provider_ids: HashMap::new(),
             default_provider_ids_version: 2,

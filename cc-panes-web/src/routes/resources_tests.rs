@@ -561,6 +561,7 @@ async fn provider_routes_match_core_service_operations() {
         default_model_id: None,
         codex_wire_api: None,
         is_default: true,
+        ..Provider::default()
     };
 
     add_provider(State(state.clone()), Json(provider.clone()))

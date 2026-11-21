@@ -1,6 +1,6 @@
 # CC-Panes Provider 全流程架构与实现手册
 
-> 文档基线：2026-08-04 当前工作树  
+> 文档基线：2026-08-04 当前工作树；3.1、6.1、6.2、6.4 于 2026-11-21 按账号化（schema v2）更新，其余章节里提到 `api_key` / `base_url` / `config_dir` 直接挂在 Provider 上的描述以这几节为准  
 > 读者：维护 Provider、运行配置、终端启动、MCP 编排和 CLI Adapter 的开发者  
 > 范围：桌面端、Web、Daemon、REST、MCP、Local、WSL、SSH 以及会话恢复  
 > 约定：中文界面称“运行配置”，Rust/TypeScript/API 中沿用 `LaunchProfile`
@@ -205,14 +205,29 @@ Provider
 ├── id: String                    稳定引用键
 ├── name: String                  用户显示名
 ├── provider_type: ProviderType   凭证协议/目标服务类型
-├── api_key: Option<String>       明文持久化凭证
-├── base_url: Option<String>      HTTP(S) 端点
+├── endpoints                     多个接口地址：anthropic / chat / responses / gemini（均可缺）
+├── env: Vec<ProviderEnvVar>      供应商一级的自定义环境变量（name / value / sensitive / storage）
+├── accounts: Vec<ProviderAccount> 账号；落盘后至少一个
+├── default_account_id            默认账号（没指定账号时用它）
+├── source: Option<ProviderOrigin> 来源：manual / cc_switch / magpie / local_gateway + 对方编号、导入时间、指纹
 ├── region/project_id/aws_profile Bedrock/Vertex 字段
-├── config_dir                    Claude config 或 env JSON 路径
 ├── models: Vec<ProviderModel>    手工维护的模型目录
 ├── default_model_id              Provider 默认模型
-└── is_default                    兼容旧结构的派生标记
+├── is_default                    兼容旧结构的派生标记
+└── api_key / base_url / config_dir  兼容字段，**不落盘**（见下）
+
+ProviderAccount
+├── id / name / color
+├── kind: api_key | login         一把密钥，或一套 CLI 自己的登录（独立目录）
+├── secret_storage                none | keychain | file —— 文件里唯一的「有没有密钥、存在哪」标记
+├── secret                        仅写入时的输入；`file` 回退时才落盘
+├── cli_tool / config_dir         登录账号：属于哪个 CLI、对应哪个目录
+└── env: Vec<ProviderEnvVar>      账号一级的自定义环境变量
 ```
+
+**账号化（供应商改造第 1 期，`providers.json` schema v2）。** 账号回答「我是谁」，供应商回答「请求发到哪」。密钥属于账号并存进系统钥匙串，`providers.json` 里只留 `secretStorage` 标记；`sensitive` 的环境变量值同理。`api_key` / `base_url` / `config_dir` 三个字段保留在结构体里只做两件事：读旧文件时承接旧值；给旧界面 / 旧客户端当兼容视图——读出来时 `base_url` 是主接口的镜像、`config_dir` 是默认登录账号目录的镜像、`api_key` 永远为空，写进来时按补丁解释（缺省不动、非空写入默认账号 / 主接口）。旧界面编辑一条供应商等于在编辑它的默认账号。
+
+登录账号覆盖五个 CLI，启动时各用一个环境变量指到账号目录：Claude `CLAUDE_CONFIG_DIR`、Codex `CODEX_HOME`、Gemini `GEMINI_CLI_HOME`、Antigravity `GEMINI_HOME`、Grok `GROK_HOME`。登录账号不带密钥。
 
 `is_default` 不是按 CLI 区分的权威字段。当前权威字段是 `ProviderConfig.default_provider_ids`；`ProviderService::sync_legacy_default_flags` 只把“是否被任一 CLI 引用”投影回 `is_default`，供旧调用兼容。代码见 [`provider_service.rs:160`](../cc-panes-core/src/services/provider_service.rs#L160)。
 
@@ -490,7 +505,11 @@ set_default_provider(id, cliTool)
 | Release | `~/.cc-panes/` | `providers.json` | `launch-profiles.json` |
 | 自定义数据目录 | `settings.general.dataDir` | `<dataDir>/providers.json` | `<dataDir>/launch-profiles.json` |
 
-`providers.json` 包含明文 API Key。保存使用临时文件、fsync、rename 的原子写路径，见 [`ProviderService::save_to_file`](../cc-panes-core/src/services/provider_service.rs#L81)。
+`providers.json` **不含密钥明文**：密钥和敏感环境变量值在系统钥匙串里（service `cc-panes:<数据目录名>:provider-secret`，条目名 `<供应商 id>/account/<账号 id>/key`、`<供应商 id>/env/<变量名>`、`<供应商 id>/account/<账号 id>/env/<变量名>`）。唯一的例外是没有钥匙串的环境（无界面 Linux、关掉 `secret-service` 特性的 `cc-panes-web`）：密钥留在文件里并标 `"secretStorage": "file"`（「未进钥匙串」），等环境里有了钥匙串，下次启动自动搬进去。保存使用临时文件、fsync、rename 的原子写路径，见 `provider_service/migration.rs` 的 `save_to_file`。
+
+文件格式版本记在顶层 `schema_version`：旧文件没有这个字段（= 1），当前是 2。升级后首次加载由**拥有者进程**（桌面主程序，或独立运行的 `cc-panes-web`）迁移：先把原文件备份成同目录的 `providers.json.bak-<时间戳>`，再把密钥写进钥匙串，最后原子写新文件；任一步失败就撤回已写的钥匙串条目、原文件不动、下次启动再试。迁移是幂等的。`cc-panes-daemon` 是跟随者：只读文件，不迁移、不写钥匙串。
+
+**谁读钥匙串。** 终端会话由 daemon 创建，但读钥匙串的是桌面主程序：`create_session_with_recovery` 在把请求发给 daemon 之前解析出这次启动要用的条目，经 `POST /api/provider-secrets/temporary` 推进 daemon 的内存（不落盘），与 SSH 密码的 `/api/ssh-credentials/temporary` 是同一条路——macOS 上不同可执行文件读同一个钥匙串条目会弹系统授权框。daemon 没收到推送时才自己读钥匙串（同 SSH 密码的回退）。标记为「在钥匙串」却读不到时启动报 `PROVIDER_SECRET_UNAVAILABLE`，不会带着空密钥启动，也不会退回明文。
 
 ### 6.2 脱敏示例
 
@@ -501,8 +520,11 @@ set_default_provider(id, cliTool)
       "id": "anthropic-main",
       "name": "Claude Main",
       "providerType": "anthropic",
-      "apiKey": "<redacted>",
-      "baseUrl": "https://api.example.com",
+      "endpoints": { "anthropic": "https://api.example.com" },
+      "accounts": [
+        { "id": "default", "name": "默认", "kind": "api_key", "secretStorage": "keychain" }
+      ],
+      "defaultAccountId": "default",
       "models": [
         {
           "id": "claude-sonnet-4-6",
@@ -518,7 +540,8 @@ set_default_provider(id, cliTool)
     "claude": "anthropic-main"
   },
   "default_provider_ids_version": 2,
-  "default_is_system": false
+  "default_is_system": false,
+  "schema_version": 2
 }
 ```
 
@@ -565,7 +588,9 @@ codex -> openai-B
 
 桌面进程和长期运行的 Daemon 各自持有 `ProviderService`。读取方法先调用 [`refresh_from_file`](../cc-panes-core/src/services/provider_service.rs#L187)，从原子文件重载快照，使下一次 Daemon 启动请求看到桌面刚保存的 Provider。
 
-这不是文件监听器；一致性边界是“下一次读取/启动”。同一次解析使用已选中的 Provider clone，环境变量解析调用 `get_env_vars_for_provider`，避免选择后再次读盘产生 TOCTOU 差异。
+这不是文件监听器；一致性边界是“下一次读取/启动”。同一次解析使用已选中的 Provider clone，环境变量解析调用 `ProviderService::resolve_launch_env(provider, account_id, cli_tool)`，避免选择后再次读盘产生 TOCTOU 差异。
+
+`resolve_launch_env` 是「供应商 + 账号 + 目标 CLI → 环境变量」的唯一入口：按类型自动生成（密钥、按 CLI 取的接口地址、登录账号的目录变量）→ 叠加供应商填的 → 叠加账号填的，后者覆盖前者。适配器拿到的 `CliProvider.api_key / base_url / config_dir / codex_wire_api` 也来自它的结果，不再直接读 Provider 字段。接口按 CLI 取：Claude / jcode 取 Anthropic，Codex 取 Responses（`codex_wire_api = chat` 时取 Chat），Gemini / Antigravity 取 Gemini，Kimi / Grok 取 Chat，OpenCode / Pi 跟随供应商类型；Chat 与 Responses 互为回退，Anthropic 与 Gemini 没填就不注入地址。`ProviderService::preview_env` 给界面返回同一份列表的打码版本，不读钥匙串。
 
 **本节检查**
 

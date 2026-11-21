@@ -45,6 +45,10 @@ impl LaunchProfileService {
             name,
             description: draft.description,
             model_id: Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id),
+            provider_account_id: Self::normalize_account_id(
+                draft.provider_id.as_deref(),
+                draft.provider_account_id,
+            ),
             provider_id: draft.provider_id,
             adapter_options: draft.adapter_options,
             target_tools: Self::normalize_target_tools(draft.target_tools),
@@ -103,6 +107,8 @@ impl LaunchProfileService {
             profile.description = draft.description;
             profile.model_id =
                 Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id);
+            profile.provider_account_id =
+                Self::normalize_account_id(draft.provider_id.as_deref(), draft.provider_account_id);
             profile.provider_id = draft.provider_id;
             profile.adapter_options = draft.adapter_options;
             profile.target_tools = target_tools;

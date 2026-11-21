@@ -1,15 +1,29 @@
+#[cfg(test)]
+mod account_tests;
+mod accounts;
+mod env;
+mod migration;
+
+pub use env::{
+    ProviderApiCredentials, ProviderEnvLayer, ProviderEnvPreviewEntry, ProviderLaunchEnv,
+    ResolvedEnvVar, MASKED_SECRET,
+};
+
 use crate::models::provider::{
-    Provider, ProviderConfig, ProviderModel, ProviderType, SystemProviderInfo, SYSTEM_PROVIDER_ID,
+    AccountKind, Provider, ProviderAccount, ProviderConfig, ProviderModel, ProviderType,
+    SystemProviderInfo, PROVIDER_SCHEMA_VERSION, SYSTEM_PROVIDER_ID,
 };
 use crate::services::cc_switch_import::{
     candidate_to_provider, cc_switch_db_path, load_cc_switch_providers, CcSwitchImportReport,
 };
+use crate::services::provider_secret_service::ProviderSecretStore;
 use crate::utils::{error::AppError, error_codes as EC};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tracing::warn;
 
 /// 宿主环境中被视为「已配置 Anthropic 凭证」的环境变量。
@@ -18,21 +32,21 @@ const SYSTEM_PROBE_ENV_KEYS: [&str; 3] = [
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
 ];
-const MAX_PROVIDER_CONFIG_BYTES: u64 = 1024 * 1024;
-const MAX_PROVIDER_ID_CHARS: usize = 128;
-const MAX_PROVIDER_NAME_CHARS: usize = 200;
-const MAX_PROVIDER_URL_CHARS: usize = 4096;
-const MAX_PROVIDER_SECRET_CHARS: usize = 65_536;
-const MAX_PROVIDER_FIELD_CHARS: usize = 4096;
-const MAX_CONFIG_ENV_ITEMS: usize = 64;
-const MAX_PROVIDER_COUNT: usize = 256;
+pub(super) const MAX_PROVIDER_CONFIG_BYTES: u64 = 1024 * 1024;
+pub(super) const MAX_PROVIDER_ID_CHARS: usize = 128;
+pub(super) const MAX_PROVIDER_NAME_CHARS: usize = 200;
+pub(super) const MAX_PROVIDER_URL_CHARS: usize = 4096;
+pub(super) const MAX_PROVIDER_SECRET_CHARS: usize = 65_536;
+pub(super) const MAX_PROVIDER_FIELD_CHARS: usize = 4096;
+pub(super) const MAX_CONFIG_ENV_ITEMS: usize = 64;
+pub(super) const MAX_PROVIDER_COUNT: usize = 256;
 const MAX_PROVIDER_MODELS: usize = 100;
 const MAX_PROVIDER_MODEL_ID_CHARS: usize = 256;
 const MAX_PROVIDER_MODEL_LABEL_CHARS: usize = 128;
 const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 1_000;
 const MAX_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 10_000_000;
 const PROVIDER_MODEL_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const PROVIDER_CLI_TOOLS: [&str; 8] = [
+pub(super) const PROVIDER_CLI_TOOLS: [&str; 8] = [
     "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi",
 ];
 const DEFAULT_PROVIDER_IDS_VERSION: u8 = 2;
@@ -41,82 +55,56 @@ const DEFAULT_PROVIDER_IDS_VERSION: u8 = 2;
 pub struct ProviderService {
     config_path: PathBuf,
     config: Mutex<ProviderConfig>,
+    /// 密钥存储（系统钥匙串，或测试 / 无钥匙串环境下的替身）。
+    secrets: Arc<ProviderSecretStore>,
+    /// 这个进程是否负责迁移与落盘。daemon 是「跟随者」：只读，按新结构在内存里解析。
+    owns_storage: bool,
+    /// 本进程里迁移落盘失败过：不再反复重试，下次启动再试。
+    migration_failed: AtomicBool,
 }
 
 impl ProviderService {
+    /// 不接钥匙串的构造：密钥留在文件里并标 `file`（「未进钥匙串」）。
+    ///
+    /// 供测试和没有钥匙串的场景用——它**不会**碰系统钥匙串。生产进程请用
+    /// [`ProviderService::with_secret_store`]（主程序 / cc-panes-web）或
+    /// [`ProviderService::follower`]（daemon）。
     pub fn new(config_path: PathBuf) -> Self {
-        let config = Self::load_from_file(&config_path).unwrap_or_default();
+        Self::with_secret_store(config_path, Arc::new(ProviderSecretStore::unavailable()))
+    }
 
-        Self {
+    /// 拥有者：负责旧数据迁移、把密钥写进钥匙串、落盘。
+    pub fn with_secret_store(config_path: PathBuf, secrets: Arc<ProviderSecretStore>) -> Self {
+        Self::build(config_path, secrets, true)
+    }
+
+    /// 跟随者（daemon）：只读 `providers.json`，不迁移、不写钥匙串。
+    /// 密钥来自主程序推过来的临时值（见 `ProviderSecretStore::set_temporary`）。
+    pub fn follower(config_path: PathBuf, secrets: Arc<ProviderSecretStore>) -> Self {
+        Self::build(config_path, secrets, false)
+    }
+
+    fn build(config_path: PathBuf, secrets: Arc<ProviderSecretStore>, owns_storage: bool) -> Self {
+        let service = Self {
             config_path,
-            config: Mutex::new(config),
-        }
+            config: Mutex::new(ProviderConfig::default()),
+            secrets,
+            owns_storage,
+            migration_failed: AtomicBool::new(false),
+        };
+        let config = service.load_and_migrate().unwrap_or_default();
+        *service.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
+        service
     }
 
-    fn load_from_file(path: &Path) -> Result<ProviderConfig> {
-        if path.metadata().map(|metadata| metadata.len()).unwrap_or(0) > MAX_PROVIDER_CONFIG_BYTES {
-            anyhow::bail!(
-                "providers config exceeds {} bytes",
-                MAX_PROVIDER_CONFIG_BYTES
-            );
-        }
-        let content =
-            std::fs::read_to_string(path).with_context(|| "Failed to read providers config")?;
-        // 加载层清洗：provider_type == "media" 是老媒体生成 Provider，功能已删除。
-        // 必须按原始字符串过滤——删除 ProviderType::Media 变体后手写 Deserialize
-        // 会把它回退为 Anthropic，导致一个 base_url 指向图片/视频 API 的假 Anthropic
-        // Provider 出现在 LLM Provider 列表里。
-        let mut parsed: serde_json::Value =
-            serde_json::from_str(&content).with_context(|| "Failed to parse providers.json")?;
-        if let Some(providers) = parsed.get_mut("providers").and_then(|v| v.as_array_mut()) {
-            providers.retain(|p| {
-                p.get("providerType")
-                    .and_then(|v| v.as_str())
-                    .map(|t| t != "media")
-                    .unwrap_or(true)
-            });
-        }
-        let mut config: ProviderConfig =
-            serde_json::from_value(parsed).with_context(|| "Failed to parse providers.json")?;
-        if config.providers.len() > MAX_PROVIDER_COUNT {
-            // Older writers could exceed this limit. The file-size bound still
-            // applies, but valid saved credentials must remain readable/recoverable.
-            warn!(
-                count = config.providers.len(),
-                limit = MAX_PROVIDER_COUNT,
-                "Provider configuration exceeds the creation limit; keeping existing entries"
-            );
-        }
-        let mut ids = HashSet::with_capacity(config.providers.len());
-        for provider in &mut config.providers {
-            Self::normalize_provider_models(provider)?;
-            Self::validate_provider(provider)?;
-            if !ids.insert(provider.id.clone()) {
-                anyhow::bail!("Duplicate Provider id '{}'", provider.id);
-            }
-        }
-        config.default_provider_ids.retain(|cli_tool, provider_id| {
-            PROVIDER_CLI_TOOLS.contains(&cli_tool.as_str())
-                && (provider_id == SYSTEM_PROVIDER_ID || ids.contains(provider_id))
-        });
-        Self::migrate_legacy_defaults(&mut config);
-        Ok(config)
+    /// 密钥存储。主程序用它读出要推给 daemon 的值；daemon 用它接收。
+    pub fn secret_store(&self) -> &Arc<ProviderSecretStore> {
+        &self.secrets
     }
 
-    fn save_to_file(&self, config: &ProviderConfig) -> Result<()> {
-        let content = serde_json::to_string_pretty(config)
-            .with_context(|| "Failed to serialize providers config")?;
-        if content.len() as u64 > MAX_PROVIDER_CONFIG_BYTES {
-            anyhow::bail!(
-                "providers config exceeds {} bytes",
-                MAX_PROVIDER_CONFIG_BYTES
-            );
-        }
-        // providers.json 存有全部供应商配置（含明文 API key）。原子写（temp+fsync+rename，
-        // 内部会建父目录）杜绝崩溃/断电写到一半导致截断丢失。
-        crate::utils::atomic_file::write_atomic(&self.config_path, content)
-            .with_context(|| "Failed to write providers config")?;
-        Ok(())
+    /// 当前环境有没有可用的钥匙串（界面据此提示「未进钥匙串」）。
+    pub fn keychain_available(&self) -> bool {
+        self.secrets.is_available()
     }
 
     fn commit_config(&self, current: &mut ProviderConfig, next: ProviderConfig) -> Result<()> {
@@ -129,8 +117,26 @@ impl ProviderService {
             anyhow::bail!("providers config exceeds {} entries", MAX_PROVIDER_COUNT);
         }
         next.default_provider_ids_version = DEFAULT_PROVIDER_IDS_VERSION;
+        next.schema_version = PROVIDER_SCHEMA_VERSION;
         Self::sync_legacy_default_flags(&mut next);
-        self.save_to_file(&next)?;
+        // 新输入的密钥先进钥匙串，再写文件；写文件失败则撤回本次新写的条目。
+        let mut written = Vec::new();
+        let result = next
+            .providers
+            .iter_mut()
+            .try_for_each(|provider| self.externalize_secrets(provider, &mut written))
+            .and_then(|()| self.save_to_file(&next));
+        if let Err(error) = result {
+            self.rollback_secrets(&written);
+            return Err(error);
+        }
+        // 不再被引用的钥匙串条目（删了账号 / 清了密钥 / 删了供应商）一并清掉。
+        let kept = Self::keychain_keys(&next);
+        for key in Self::keychain_keys(current).difference(&kept) {
+            if let Err(error) = self.secrets.delete(key) {
+                warn!(error = %error, "[ProviderService] Failed to delete an unused provider secret");
+            }
+        }
         *current = next;
         Ok(())
     }
@@ -178,7 +184,8 @@ impl ProviderService {
             | ProviderType::Bedrock
             | ProviderType::Vertex
             | ProviderType::Proxy
-            | ProviderType::ConfigProfile => "claude",
+            | ProviderType::ConfigProfile
+            | ProviderType::LocalGateway => "claude",
             ProviderType::OpenAI => "codex",
             ProviderType::Gemini => "gemini",
             ProviderType::Kimi => "kimi",
@@ -215,7 +222,7 @@ impl ProviderService {
             return;
         }
 
-        match Self::load_from_file(&self.config_path) {
+        match self.load_and_migrate() {
             Ok(config) => {
                 *cached = config;
             }
@@ -280,6 +287,24 @@ impl ProviderService {
             .find(|p| p.is_default)
             .or_else(|| config.providers.first())
             .cloned()
+    }
+
+    /// 给界面 / REST 的列表：清掉一切密钥与敏感值明文，只留「有没有、存在哪」的标记。
+    /// 命令层和路由层一律用这一组，不要把 [`ProviderService::list_providers`] 的结果直接交出去
+    /// ——没有钥匙串的环境下它带着文件里的明文。
+    pub fn list_providers_for_display(&self) -> Vec<Provider> {
+        self.list_providers()
+            .into_iter()
+            .map(Provider::redacted)
+            .collect()
+    }
+
+    pub fn get_provider_for_display(&self, id: &str) -> Option<Provider> {
+        self.get_provider(id).map(Provider::redacted)
+    }
+
+    pub fn get_default_provider_for_display(&self) -> Option<Provider> {
+        self.get_default_provider().map(Provider::redacted)
     }
 
     /// 获取指定 CLI 工具的持久化默认 id。`__system__` 也会原样返回。
@@ -355,6 +380,7 @@ impl ProviderService {
         // `__system__` 是合成「系统环境变量」条目的保留 id，禁止落盘，
         // 否则会与列表顶部的虚拟条目撞 id、且凭证永远被 get_env_vars 短路忽略。
         Self::normalize_provider_models(&mut provider)?;
+        Self::normalize_accounts(&mut provider, None, false)?;
         Self::validate_provider(&provider)?;
 
         let mut config = self.lock_latest_config();
@@ -380,6 +406,7 @@ impl ProviderService {
     /// 存在则报错、否则插入。避免并发导入「各自 list→都通过→都 insert」堆重复。
     pub fn add_provider_unique(&self, mut provider: Provider) -> Result<()> {
         Self::normalize_provider_models(&mut provider)?;
+        Self::normalize_accounts(&mut provider, None, false)?;
         Self::validate_provider(&provider)?;
         let mut config = self.lock_latest_config();
         if config.providers.iter().any(|item| item.id == provider.id) {
@@ -432,6 +459,7 @@ impl ProviderService {
         for candidate in batch.candidates {
             let mut provider = candidate_to_provider(&candidate);
             Self::normalize_provider_models(&mut provider)?;
+            Self::normalize_accounts(&mut provider, None, false)?;
             Self::validate_provider(&provider)?;
             if next.providers.iter().any(|existing| {
                 existing.name == provider.name
@@ -458,7 +486,6 @@ impl ProviderService {
     pub fn update_provider(&self, mut provider: Provider) -> Result<()> {
         // 同 add_provider：保留 id 不可写入 providers.json。
         Self::normalize_provider_models(&mut provider)?;
-        Self::validate_provider(&provider)?;
 
         let mut config = self.lock_latest_config();
 
@@ -467,6 +494,9 @@ impl ProviderService {
             .iter()
             .position(|p| p.id == provider.id)
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
+        // 界面拿到的是清掉密钥明文的副本：已存的密钥标记 / 文件回退时的明文从旧条目承接。
+        Self::normalize_accounts(&mut provider, Some(&config.providers[pos]), false)?;
+        Self::validate_provider(&provider)?;
         let mut next = config.clone();
 
         if provider.is_default && !next.providers[pos].is_default {
@@ -553,7 +583,7 @@ impl ProviderService {
         };
 
         match provider {
-            Some(p) => self.resolve_env_vars(p),
+            Some(p) => self.get_env_vars_for_provider(p),
             None => {
                 warn!(
                     "[ProviderService] Provider '{}' not found, skipping env injection",
@@ -564,31 +594,36 @@ impl ProviderService {
         }
     }
 
-    /// Resolve environment variables from the exact Provider snapshot selected by the resolver.
-    /// This avoids refreshing providers.json a second time between selection and injection.
+    /// 用默认账号、按供应商类型的原生 CLI 解析环境变量。
+    ///
+    /// 兼容旧调用方；启动路径请用 [`ProviderService::resolve_launch_env`]，
+    /// 它能指定账号和目标 CLI，并且读不到密钥时会报错而不是静默返回空。
     pub fn get_env_vars_for_provider(&self, provider: &Provider) -> HashMap<String, String> {
-        self.resolve_env_vars(provider)
+        match self.resolve_launch_env(provider, None, Self::native_cli_for(provider)) {
+            Ok(resolved) => resolved.env_map(),
+            Err(error) => {
+                warn!(
+                    provider_id = %provider.id,
+                    error = %error,
+                    "[ProviderService] Failed to resolve provider environment"
+                );
+                HashMap::new()
+            }
+        }
     }
 
-    pub(crate) fn managed_configuration_is_usable(provider: &Provider) -> bool {
-        let has_key = provider
-            .api_key
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty());
-        let has_url = provider
-            .base_url
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty());
+    /// 这条供应商配上这个账号，有没有可用的托管配置。
+    pub(crate) fn managed_configuration_is_usable(
+        provider: &Provider,
+        account: &ProviderAccount,
+    ) -> bool {
+        let has_key = account.has_secret();
+        let has_url = !provider.endpoints.is_empty();
 
         match provider.provider_type {
             ProviderType::Bedrock | ProviderType::Vertex => true,
             ProviderType::ConfigProfile => {
-                let Some(config_path) = provider
-                    .config_dir
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                else {
+                let Some(config_path) = account.login_dir() else {
                     return false;
                 };
                 let path = Path::new(config_path);
@@ -596,45 +631,10 @@ impl ProviderService {
                     || (path.is_file()
                         && Self::parse_env_config_file(path).is_ok_and(|vars| !vars.is_empty()))
             }
+            // 登录账号靠 CLI 自己的登录：有目录即可用，不要求密钥。
+            _ if account.kind == AccountKind::Login => account.login_dir().is_some(),
             ProviderType::Cursor | ProviderType::Kimi => has_key,
             _ => has_key || has_url,
-        }
-    }
-
-    /// 解析 Provider 环境变量，对 ConfigProfile 类型做特殊处理
-    fn resolve_env_vars(&self, provider: &Provider) -> HashMap<String, String> {
-        if provider.provider_type != ProviderType::ConfigProfile {
-            return provider.to_env_vars();
-        }
-
-        let config_path = match &provider.config_dir {
-            Some(dir) => dir,
-            None => return HashMap::new(),
-        };
-
-        let path = Path::new(config_path);
-
-        if path.is_dir() {
-            // 目录模式：保持原有行为，设置 CLAUDE_CONFIG_DIR
-            provider.to_env_vars()
-        } else if path.is_file() {
-            // 文件模式：读取 JSON 文件，解析 env 字段
-            match Self::parse_env_config_file(path) {
-                Ok(vars) => vars,
-                Err(e) => {
-                    warn!(
-                        "[ProviderService] Failed to parse config file {}: {}",
-                        config_path, e
-                    );
-                    HashMap::new()
-                }
-            }
-        } else {
-            warn!(
-                "[ProviderService] Config path does not exist: {}",
-                config_path
-            );
-            HashMap::new()
         }
     }
 
@@ -788,6 +788,7 @@ impl ProviderService {
         anyhow::Error::new(AppError::coded(code, message))
     }
 
+    /// 供应商自身字段的校验。账号 / 接口 / 环境变量在 `normalize_accounts` 里校验。
     fn validate_provider(provider: &Provider) -> Result<()> {
         let id = provider.id.trim();
         if id == SYSTEM_PROVIDER_ID {
@@ -805,33 +806,9 @@ impl ProviderService {
         if name.is_empty() || name.chars().count() > MAX_PROVIDER_NAME_CHARS {
             anyhow::bail!("Provider name is invalid");
         }
-        Self::validate_optional_length(
-            provider.api_key.as_deref(),
-            MAX_PROVIDER_SECRET_CHARS,
-            "apiKey",
-        )?;
-        Self::validate_optional_length(
-            provider.config_dir.as_deref(),
-            MAX_PROVIDER_FIELD_CHARS,
-            "configDir",
-        )?;
         Self::validate_optional_length(provider.region.as_deref(), 512, "region")?;
         Self::validate_optional_length(provider.project_id.as_deref(), 512, "projectId")?;
         Self::validate_optional_length(provider.aws_profile.as_deref(), 512, "awsProfile")?;
-        if let Some(url) = provider
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|url| !url.is_empty())
-        {
-            if url.chars().count() > MAX_PROVIDER_URL_CHARS {
-                anyhow::bail!("Provider baseUrl is too long");
-            }
-            let parsed = url::Url::parse(url).context("Provider baseUrl is invalid")?;
-            if !matches!(parsed.scheme(), "http" | "https") {
-                anyhow::bail!("Provider baseUrl must use http or https");
-            }
-        }
         Ok(())
     }
 
@@ -886,6 +863,7 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default,
+            ..Provider::default()
         }
     }
 
@@ -904,6 +882,7 @@ mod tests {
             default_model_id: None,
             codex_wire_api: None,
             is_default: false,
+            ..Provider::default()
         }
     }
 
@@ -1414,7 +1393,15 @@ mod tests {
             .into_iter()
             .find(|provider| provider.name == "Imported Relay")
             .unwrap();
-        assert_eq!(imported.api_key.as_deref(), Some("sk-new"));
+        // 抄来的密钥落在默认账号上（不再挂在 Provider 上），照常解析成环境变量。
+        assert_eq!(imported.api_key, None);
+        assert_eq!(
+            service
+                .get_env_vars(Some(&imported.id))
+                .get("ANTHROPIC_API_KEY")
+                .map(String::as_str),
+            Some("sk-new")
+        );
         assert!(!imported.is_default);
     }
 
@@ -1435,8 +1422,15 @@ mod tests {
         let service = new_service(&dir);
         let mut current = service.lock_latest_config();
         let mut next = current.clone();
+        // 直接写内部配置，绕过了 add_provider：手动归一成账号结构（与正常入库一致）。
         next.providers = (0..MAX_PROVIDER_COUNT)
-            .map(|i| make_provider(&format!("existing-{i}"), false))
+            .map(|i| {
+                ProviderService::normalize_legacy_provider(make_provider(
+                    &format!("existing-{i}"),
+                    false,
+                ))
+                .unwrap()
+            })
             .collect();
         service.commit_config(&mut current, next).unwrap();
         drop(current);
@@ -1586,6 +1580,7 @@ mod tests {
             .collect::<HashMap<_, _>>();
         default_provider_ids.insert("codex".to_string(), open_ai.id.clone());
         let config = ProviderConfig {
+            schema_version: 0,
             providers: vec![anthropic, open_ai],
             default_provider_ids,
             default_provider_ids_version: 0,
@@ -1798,6 +1793,7 @@ mod tests {
         let path = dir.path().join("providers.json");
         // 手写配置：两个 provider 都没有 default 标记
         let config = ProviderConfig {
+            schema_version: 0,
             providers: vec![make_provider("a", false), make_provider("b", false)],
             ..Default::default()
         };
