@@ -948,12 +948,17 @@ impl UsageStatsService {
         // 扫描前实时复核：discovery 缓存最长 50 分钟，期间 WSL 可能已被用户关掉；
         // 若仍按缓存访问 \\wsl$ 会把已停止的 distro 重新唤醒（issue #37 的冷唤醒源）。
         let wsl_vm_running = self.wsl_scan_allowed();
-        for root in collect_scan_roots_from_home(
+        let mut roots = collect_scan_roots_from_home(
             self.native_scan_home.as_deref(),
             &wsl_distros,
             wsl_vm_running,
             self.use_scan_environment_overrides,
-        ) {
+        );
+        // 登录账号各有自己的目录：它们的会话也要计入用量。
+        if let Some(providers) = self.provider_service.as_ref() {
+            extend_with_login_account_roots(&mut roots, &providers.list_providers());
+        }
+        for root in roots {
             self.scan_root(&root);
         }
         Ok(())
@@ -1556,18 +1561,33 @@ fn context_session_roots(
         }
         return Vec::new();
     }
+    // 会话可能跑在某个登录账号的目录里。文件名按 session UUID 精确匹配，
+    // 多找几个账号目录不会认错会话。
+    let account_roots: Vec<PathBuf> = service
+        .provider_service
+        .as_ref()
+        .map(|providers| {
+            crate::services::login_account::login_account_roots(&providers.list_providers())
+                .into_iter()
+                .filter(|root| root.cli_tool == cli)
+                .map(|root| root.transcript_dir)
+                .collect()
+        })
+        .unwrap_or_default();
     if cli == "claude" {
         let provider_dir = service.provider_service.as_ref().and_then(|providers| {
             let provider_id = record.provider_id.as_deref()?.trim();
             providers.get_provider(provider_id)?.config_dir
         });
-        return claude_project_roots(
+        let mut roots = claude_project_roots(
             &home,
             std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
             provider_dir.map(PathBuf::from),
         );
+        push_unique_roots(&mut roots, account_roots);
+        return roots;
     }
-    vec![match cli {
+    let mut roots = vec![match cli {
         "codex" => std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".codex"))
@@ -1575,7 +1595,62 @@ fn context_session_roots(
         "pi" => home.join(".pi").join("agent").join("sessions"),
         "omp" => home.join(".omp").join("agent").join("sessions"),
         _ => return Vec::new(),
-    }]
+    }];
+    push_unique_roots(&mut roots, account_roots);
+    roots
+}
+
+fn push_unique_roots(roots: &mut Vec<PathBuf>, extra: Vec<PathBuf>) {
+    for root in extra {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+}
+
+/// 把登录账号目录并进用量扫描：Claude / Codex 的转录目录、Gemini 的 `.gemini`、
+/// Grok 的会话目录。Antigravity 没有用量解析器。已在列表里的路径不重复加。
+fn extend_with_login_account_roots(
+    roots: &mut Vec<ScanRoot>,
+    providers: &[crate::models::provider::Provider],
+) {
+    let mut push = |cli: &'static str, path: PathBuf, source: UsageScanSource| {
+        if path.is_dir() && !roots.iter().any(|root| root.path == path) {
+            roots.push(ScanRoot {
+                cli,
+                path,
+                origin: ScanOrigin::Native,
+                source,
+            });
+        }
+    };
+    for provider in providers {
+        for account in &provider.accounts {
+            let (Some(dir), Some(cli_tool)) = (account.login_dir(), account.cli_tool.as_deref())
+            else {
+                continue;
+            };
+            let dir = PathBuf::from(dir);
+            match cli_tool {
+                "claude" => push("claude", dir.join("projects"), UsageScanSource::Jsonl),
+                "codex" => push("codex", dir.join("sessions"), UsageScanSource::Jsonl),
+                "gemini" => push("gemini", dir.join(".gemini"), UsageScanSource::Gemini),
+                "grok" => {
+                    push(
+                        "grokbuild",
+                        dir.join("sessions"),
+                        UsageScanSource::GrokBuild,
+                    );
+                    push(
+                        "grokbuild",
+                        dir.join("archived_sessions"),
+                        UsageScanSource::GrokBuild,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Claude 的 transcript 跟着会话自己的 `CLAUDE_CONFIG_DIR` 走，而这个变量可能只存在于
@@ -2102,7 +2177,7 @@ mod tests {
             history
                 .add_with_pty_session(
                     "project", "project", "/repo", PTY, cli, "local", None, None, None, None, None,
-                    None, None, None, None,
+                    None, None, None, None, None,
                 )
                 .unwrap();
             if let Some(resume) = resume {
@@ -2458,6 +2533,7 @@ mod tests {
                 workspace_path: None,
                 launch_cwd: None,
                 provider_id: Some("provider".to_string()),
+                provider_account_id: None,
                 model_id: model_id.map(str::to_string),
                 provider_selection: None,
                 launch_profile_id: None,
@@ -2969,6 +3045,64 @@ mod tests {
 
         assert!(roots.len() >= 2);
         assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));
+    }
+
+    /// 登录账号目录并进用量扫描：各 CLI 取各自的会话目录，没有目录的不加，不重复加。
+    #[test]
+    fn login_account_dirs_are_added_to_usage_scan_roots() {
+        use crate::models::provider::{AccountKind, Provider, ProviderAccount, ProviderType};
+        let temp = tempfile::tempdir().unwrap();
+        let account = |cli: &str, provider_type: ProviderType| {
+            let dir = temp.path().join(format!("{cli}-acct"));
+            fs::create_dir_all(dir.join("projects")).unwrap();
+            fs::create_dir_all(dir.join("sessions")).unwrap();
+            fs::create_dir_all(dir.join(".gemini")).unwrap();
+            Provider {
+                id: format!("p-{cli}"),
+                provider_type,
+                accounts: vec![
+                    ProviderAccount {
+                        id: "key".to_string(),
+                        ..ProviderAccount::default()
+                    },
+                    ProviderAccount {
+                        id: format!("{cli}-acct"),
+                        kind: AccountKind::Login,
+                        cli_tool: Some(cli.to_string()),
+                        config_dir: Some(dir.to_string_lossy().into_owned()),
+                        ..ProviderAccount::default()
+                    },
+                ],
+                ..Provider::default()
+            }
+        };
+        let providers = vec![
+            account("claude", ProviderType::Anthropic),
+            account("codex", ProviderType::OpenAI),
+            account("gemini", ProviderType::Gemini),
+            account("grok", ProviderType::Grok),
+            account("antigravity", ProviderType::Gemini),
+        ];
+
+        let mut roots = Vec::new();
+        super::extend_with_login_account_roots(&mut roots, &providers);
+        // 再并一次不会重复。
+        super::extend_with_login_account_roots(&mut roots, &providers);
+
+        let found: Vec<(&str, std::path::PathBuf)> = roots
+            .iter()
+            .map(|root| (root.cli, root.path.clone()))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("claude", temp.path().join("claude-acct").join("projects")),
+                ("codex", temp.path().join("codex-acct").join("sessions")),
+                ("gemini", temp.path().join("gemini-acct").join(".gemini")),
+                // Grok 的 archived_sessions 不存在，不加；Antigravity 没有用量解析器。
+                ("grokbuild", temp.path().join("grok-acct").join("sessions")),
+            ]
+        );
     }
 
     #[test]

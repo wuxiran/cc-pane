@@ -303,6 +303,35 @@ describe("collectRestorableSessions", () => {
     expect(rows.every((r) => r.tabId === "t1" && r.layoutId === "layout-1")).toBe(true);
   });
 
+  it("每个 leaf 落盘自己的供应商账号，旧 leaf 没有时退回 tab 上的", () => {
+    mockTabs([
+      {
+        tab: {
+          id: "t1",
+          title: "split tab",
+          contentType: "terminal",
+          projectPath: "/p1",
+          providerId: "prov-1",
+          providerAccountId: "account-tab",
+          terminalRootPane: {
+            type: "split",
+            id: "split-1",
+            direction: "row",
+            children: [
+              { type: "leaf", id: "leaf-a", sessionId: "pty-a", providerId: "prov-1", providerAccountId: "account-work" },
+              { type: "leaf", id: "leaf-b", sessionId: "pty-b" },
+            ],
+          },
+        },
+        paneId: "pane-1",
+        layoutId: "layout-1",
+      },
+    ]);
+
+    const rows = collectRestorableSessions();
+    expect(rows.map((r) => r.providerAccountId)).toEqual(["account-work", "account-tab"]);
+  });
+
   it("没有真实 PTY id 的 leaf 直接跳过，绝不拿 tab.id 冒充 sessionId", () => {
     mockTabs([
       {

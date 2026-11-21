@@ -223,6 +223,8 @@ pub struct PartialCreateSessionRequest {
 pub struct CreateSessionResponse {
     pub session_id: String,
     pub resolved_model_id: Option<String>,
+    /// 实际用的供应商账号；前端把它写回 tab，之后恢复 / 续接才会回到同一个账号。
+    pub resolved_account_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -302,7 +304,7 @@ pub async fn create_session(
         wsl: req.core.wsl,
     });
 
-    let observation_request = core_request.clone();
+    let mut observation_request = core_request.clone();
     let launch_id = core_request.launch_id.clone();
     let backend = state.terminal_backend.clone();
     let late_backend = backend.clone();
@@ -342,6 +344,11 @@ pub async fn create_session(
     let session_id = outcome.session_id;
     let reused_existing = outcome.reused_existing;
     let resolved_model_id = outcome.resolved_model_id;
+    // 落库（会话恢复 + 启动历史）一律记「实际用的账号」；后端没报（旧 daemon）才退回请求里点名的。
+    let resolved_account_id = outcome
+        .resolved_account_id
+        .or_else(|| observation_request.provider_account_id.clone());
+    observation_request.provider_account_id = resolved_account_id.clone();
 
     // 出生凭证必须在 session id 返回给调用方之前落进 SQLite，否则这条会话在 app
     // 重启后会被 identity-mismatch 永久拦下。fail-closed：写不进去就清掉刚建的会话。
@@ -364,6 +371,7 @@ pub async fn create_session(
                 cli_tool.as_id(),
                 resolved_model_id.as_deref(),
                 observation_request.provider_id.as_deref(),
+                resolved_account_id.as_deref(),
             ) {
                 Ok(Some(_)) => {
                     bound = true;
@@ -420,6 +428,7 @@ pub async fn create_session(
                         workspace_path: observation_request.workspace_path.as_deref(),
                         launch_cwd,
                         provider_id: observation_request.provider_id.as_deref(),
+                        provider_account_id: resolved_account_id.as_deref(),
                         model_id: resolved_model_id.as_deref(),
                         provider_selection: Some(observation_request.provider_selection.as_str()),
                         launch_profile_id: observation_request.launch_profile_id.as_deref(),
@@ -442,6 +451,7 @@ pub async fn create_session(
         Json(CreateSessionResponse {
             session_id,
             resolved_model_id,
+            resolved_account_id,
         }),
     ))
 }
@@ -751,6 +761,7 @@ mod tests {
         created: Mutex<Vec<CoreCreateSessionRequest>>,
         created_session_id: Mutex<Option<String>>,
         resolved_model_id: Mutex<Option<String>>,
+        resolved_account_id: Mutex<Option<String>>,
         create_error: Mutex<Option<AppError>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
@@ -798,6 +809,7 @@ mod tests {
                     .unwrap()
                     .clone()
                     .or(requested_model_id),
+                resolved_account_id: self.resolved_account_id.lock().unwrap().clone(),
             })
         }
 
@@ -1114,6 +1126,7 @@ mod tests {
     async fn create_session_binds_resolved_model_to_launch_history() {
         let backend = Arc::new(MockTerminalBackend::default());
         *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
+        *backend.resolved_account_id.lock().unwrap() = Some("work".to_string());
         let state = test_state(backend);
         state
             .launch_history_service
@@ -1128,6 +1141,7 @@ mod tests {
                 None,
                 None,
                 Some("provider-a"),
+                None,
                 None,
                 None,
                 None,
@@ -1147,9 +1161,10 @@ mod tests {
             cwd: None,
         };
 
-        let _response = create_session(State(state.clone()), Json(request))
+        let (_, Json(response)) = create_session(State(state.clone()), Json(request))
             .await
             .expect("create session");
+        assert_eq!(response.resolved_account_id.as_deref(), Some("work"));
 
         let record = state
             .launch_history_service
@@ -1158,6 +1173,8 @@ mod tests {
             .expect("launch history row");
         assert_eq!(record.pty_session_id.as_deref(), Some("created-session"));
         assert_eq!(record.model_id.as_deref(), Some("provider-default"));
+        // 请求没点名账号，历史里记的是后端解析出的那个
+        assert_eq!(record.provider_account_id.as_deref(), Some("work"));
     }
 
     fn restore_test_provenance() -> cc_panes_core::models::TerminalSessionProvenance {
@@ -1503,6 +1520,7 @@ mod tests {
                 session_id: "reused".to_string(),
                 reused_existing: true,
                 resolved_model_id: None,
+                resolved_account_id: None,
             },
         )
         .expect("release reused session");
@@ -1519,6 +1537,7 @@ mod tests {
                 session_id: "fresh".to_string(),
                 reused_existing: false,
                 resolved_model_id: None,
+                resolved_account_id: None,
             },
         )
         .expect("kill fresh session");

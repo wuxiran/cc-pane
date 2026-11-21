@@ -125,6 +125,79 @@ export interface ProviderAccount {
   env?: ProviderEnvVar[];
 }
 
+/**
+ * 合成「默认登录」账号的固定 id（镜像后端 `DEFAULT_LOGIN_ACCOUNT_ID`）。
+ * 它代表机器上原有的那套登录（CLI 的默认目录）：不建目录、不带目录变量、**不落盘**，
+ * 只出现在 `listLoginAccounts` 的结果里；把它当作账号 id 传给启动请求即可使用。
+ */
+export const DEFAULT_LOGIN_ACCOUNT_ID = "__default_login__";
+
+export function isDefaultLoginAccount(id: string | null | undefined): boolean {
+  return id === DEFAULT_LOGIN_ACCOUNT_ID;
+}
+
+/** 登录状态。`unknown` = 读不出来（不猜）。 */
+export type LoginState = "logged_in" | "not_logged_in" | "unknown";
+
+export interface LoginAccountStatus {
+  state: LoginState;
+  /** 邮箱或账号名；读不到时没有。 */
+  identity?: string;
+  /** 凭据在哪找到的。 */
+  credentialSource?: "file" | "keychain";
+  /** 凭据过期时间（RFC 3339），只有 CLI 在账号信息里写了才有。 */
+  expiresAt?: string;
+  /** `unknown` 的原因码：keychain_unavailable / antigravity_reports_in_cli / credential_file_missing / account_file_unreadable / home_unavailable / unsupported_cli。 */
+  reason?: string;
+}
+
+/** 一个登录账号（`list_login_accounts` / `create_login_account`）。 */
+export interface LoginAccountView {
+  providerId: string;
+  accountId: string;
+  name: string;
+  color?: string;
+  cliTool: LoginAccountCliTool;
+  /** 合成的默认登录：不能删除，没有目录。 */
+  isDefaultLogin: boolean;
+  /** 账号目录；默认登录没有。 */
+  configDir?: string;
+  /** 目录是 CC-Panes 自己建的：只有这种目录可以随账号一起删。 */
+  dirManaged: boolean;
+  dirExists: boolean;
+  status: LoginAccountStatus;
+}
+
+export interface CreateLoginAccountRequest {
+  cliTool: LoginAccountCliTool;
+  name: string;
+  color?: string | null;
+}
+
+/** 要在终端里执行的登录命令（`get_login_account_command`）。 */
+export interface LoginCommand {
+  cliTool: LoginAccountCliTool;
+  command: string;
+  args: string[];
+  /** 要加的环境变量（目录变量等）。 */
+  env: Record<string, string>;
+  /** 要从继承环境里去掉的变量。 */
+  envRemove: string[];
+  /** 这个 CLI 没有单独的登录命令：启动的是 CLI 本身，用户要在里面选登录方式（Gemini CLI）。 */
+  interactive: boolean;
+  /** `command` 是否已解析成本机上的可执行文件；`false` = 没找到，返回的是裸名字。 */
+  executableFound: boolean;
+}
+
+/** 删除账号的结果（`delete_provider_account`）。 */
+export interface DeleteAccountOutcome {
+  accountId: string;
+  configDir?: string;
+  dirDeleted: boolean;
+  /** 要求删目录却没删时的原因码：external_dir / dir_missing / remove_failed。 */
+  dirKeptReason?: "external_dir" | "dir_missing" | "remove_failed";
+}
+
 export interface ProviderOrigin {
   kind: "manual" | "cc_switch" | "magpie" | "local_gateway";
   externalId?: string | null;

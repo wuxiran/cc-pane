@@ -174,6 +174,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
           rows: 24,
           workspaceName: leaf?.workspaceName ?? tab.workspaceName,
           providerId: leaf?.providerId ?? tab.providerId,
+          providerAccountId: leaf?.providerAccountId ?? tab.providerAccountId,
           modelId: leaf?.modelId ?? tab.modelId,
           providerSelection: leaf?.providerSelection ?? tab.providerSelection,
           launchProfileId: leaf?.launchProfileId ?? tab.launchProfileId,
@@ -212,6 +213,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
             t.title = `[${t.machineName}] ${name}`;
           }
         });
+        if (leaf) get().syncTerminalProviderAccount(tabId, leaf.id, launchId);
 
         return sessionId;
       } catch (error) {
@@ -459,6 +461,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
           workspacePath: meta.workspacePath,
           workspaceSnapshotId: meta.workspaceSnapshotId,
           providerId: meta.providerId,
+          providerAccountId: meta.providerAccountId,
           modelId: meta.modelId,
           providerSelection: meta.providerSelection,
           launchProfileId: meta.launchProfileId,

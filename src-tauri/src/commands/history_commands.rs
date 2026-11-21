@@ -39,6 +39,7 @@ pub fn add_launch_history(
     workspace_path: Option<String>,
     launch_cwd: Option<String>,
     provider_id: Option<String>,
+    provider_account_id: Option<String>,
     model_id: Option<String>,
     provider_selection: Option<String>,
     launch_profile_id: Option<String>,
@@ -56,6 +57,7 @@ pub fn add_launch_history(
         workspace_path.as_deref(),
         launch_cwd.as_deref(),
         provider_id.as_deref(),
+        provider_account_id.as_deref(),
         model_id.as_deref(),
         provider_selection.as_deref(),
         launch_profile_id.as_deref(),
@@ -69,6 +71,16 @@ pub fn list_launch_history(
     limit: Option<usize>,
 ) -> AppResult<Vec<LaunchRecord>> {
     Ok(service.list(limit.unwrap_or(20))?)
+}
+
+/// 按 launchId 取一条启动记录（与 Web 的 `GET /api/launch-history/by-launch` 对应）。
+/// 前端建完会话后用它读回后端解析出的「实际用的账号」写到 tab 上。
+#[tauri::command]
+pub fn find_launch_history_by_launch_id(
+    service: State<'_, Arc<LaunchHistoryService>>,
+    launch_id: String,
+) -> AppResult<Option<LaunchRecord>> {
+    Ok(service.find_by_launch_id(&launch_id)?)
 }
 
 #[tauri::command]

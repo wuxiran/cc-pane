@@ -14,6 +14,7 @@ export interface PendingLaunch {
   launchCwd?: string;
   workspaceName?: string;
   providerId: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;

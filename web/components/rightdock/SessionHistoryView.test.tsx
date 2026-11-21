@@ -8,7 +8,7 @@ import type {
   SessionIndexListParams,
   Workspace,
 } from "@/types";
-import SessionHistoryView from "./SessionHistoryView";
+import SessionHistoryView, { buildSessionHistoryTerminalOptions } from "./SessionHistoryView";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn<(params: SessionIndexListParams) => Promise<SessionIndexEntry[]>>(),
@@ -235,6 +235,28 @@ describe("SessionHistoryView", () => {
       cliTool: "claude",
       resumeId: "session-claude",
     }));
+  });
+
+  it("登录账号目录里的会话恢复时回到同一个账号", () => {
+    const options = buildSessionHistoryTerminalOptions(
+      session({
+        providerId: "anthropic",
+        providerAccountId: "claude-0123456789ab",
+        providerAccountName: "个人号",
+      }),
+      [],
+      [],
+    );
+    expect(options).toEqual(expect.objectContaining({
+      resumeId: "session-claude",
+      providerId: "anthropic",
+      providerAccountId: "claude-0123456789ab",
+      providerSelection: "explicit",
+    }));
+
+    // 默认目录里的会话不带账号。
+    const plain = buildSessionHistoryTerminalOptions(session(), [], []);
+    expect(plain.providerAccountId).toBeUndefined();
   });
 
   it("全部范围的会话使用其所属工作空间启动配置", async () => {

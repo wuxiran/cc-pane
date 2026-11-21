@@ -122,6 +122,9 @@ struct CreateSessionResponse {
     reused_existing: bool,
     #[serde(default)]
     resolved_model_id: ResponseField<String>,
+    /// 旧 daemon 不回这个字段 → None（不知道实际用了哪个账号）。
+    #[serde(default)]
+    resolved_account_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -321,6 +324,7 @@ impl TerminalDaemonClient {
                 ResponseField::Missing => requested_model_id,
                 ResponseField::Present(model_id) => model_id,
             },
+            resolved_account_id: parsed.resolved_account_id,
         })
     }
 
@@ -2134,6 +2138,30 @@ mod tests {
             .create_session_with_outcome(request)
             .expect("explicit null response");
         assert_eq!(native.resolved_model_id, None);
+    }
+
+    #[test]
+    fn create_session_parses_resolved_account_and_tolerates_older_daemons() {
+        let mut request = test_create_request();
+        request.provider_account_id = Some("requested-account".to_string());
+        let response = http_json_response("201 Created", r#"{"sessionId":"legacy"}"#);
+        let (addr, _) = spawn_response_server(response);
+        let legacy = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1))
+            .create_session_with_outcome(request.clone())
+            .expect("legacy response");
+        assert_eq!(legacy.resolved_account_id, None);
+
+        let response = http_json_response(
+            "201 Created",
+            r#"{"sessionId":"current","resolvedAccountId":"work"}"#,
+        );
+        let (addr, _) = spawn_response_server(response);
+        let current = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1))
+            .create_session_with_outcome(request)
+            .expect("current response");
+        assert_eq!(current.resolved_account_id.as_deref(), Some("work"));
     }
 
     #[test]

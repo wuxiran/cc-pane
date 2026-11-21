@@ -28,6 +28,7 @@ describe("historyService", () => {
         workspacePath: null,
         launchCwd: null,
         providerId: null,
+        providerAccountId: null,
         modelId: null,
         providerSelection: null,
         launchProfileId: null,
@@ -66,11 +67,38 @@ describe("historyService", () => {
         workspacePath: null,
         launchCwd: null,
         providerId: "provider-a",
+        providerAccountId: null,
         modelId: "claude-sonnet-4-5",
         providerSelection: null,
         launchProfileId: null,
         workspaceSnapshotId: null,
       });
+    });
+  });
+
+  describe("provider account", () => {
+    it("把实际用的账号写进启动历史", async () => {
+      mockTauriInvoke({ add_launch_history: undefined });
+
+      await historyService.add(
+        "proj-account", "Account Project", "/path/to/account-project", "claude", "local",
+        undefined, undefined, undefined, undefined,
+        "provider-a", undefined, undefined, undefined, undefined,
+        "account-work",
+      );
+
+      expect(invoke).toHaveBeenCalledWith(
+        "add_launch_history",
+        expect.objectContaining({ providerId: "provider-a", providerAccountId: "account-work" }),
+      );
+    });
+
+    it("按 launchId 读回启动记录（含后端解析出的账号）", async () => {
+      const record = { id: 7, projectId: "launch-1", providerAccountId: "account-work" };
+      mockTauriInvoke({ find_launch_history_by_launch_id: record });
+
+      await expect(historyService.findByLaunchId("launch-1")).resolves.toEqual(record);
+      expect(invoke).toHaveBeenCalledWith("find_launch_history_by_launch_id", { launchId: "launch-1" });
     });
   });
 

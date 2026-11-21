@@ -46,6 +46,8 @@ pub struct CreateSessionOutcome {
     pub session_id: String,
     pub reused_existing: bool,
     pub resolved_model_id: Option<String>,
+    /// 这次启动实际用的供应商账号；原生启动（没走供应商）为 None。
+    pub resolved_account_id: Option<String>,
 }
 
 fn current_epoch_millis() -> u64 {
@@ -78,6 +80,7 @@ pub trait TerminalBackend: Send + Sync {
             reused_existing: expected_session_id.as_deref() == Some(session_id.as_str()),
             session_id,
             resolved_model_id,
+            resolved_account_id: None,
         })
     }
     fn create_session_published(

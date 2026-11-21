@@ -227,9 +227,9 @@ impl ProviderService {
         let provider = self
             .get_provider(provider_id)
             .ok_or_else(|| anyhow::anyhow!("Provider '{provider_id}' not found"))?;
-        let account = Self::account_or_error(&provider, account_id)?;
+        let account = Self::account_or_error(&provider, account_id, None)?;
         Ok(ProviderApiCredentials {
-            api_key: self.account_secret(&provider, account, SecretMode::Read)?,
+            api_key: self.account_secret(&provider, &account, SecretMode::Read)?,
             base_url: provider.base_url.clone(),
             endpoints: provider.endpoints.clone(),
         })
@@ -242,7 +242,7 @@ impl ProviderService {
         provider: &Provider,
         account_id: Option<&str>,
     ) -> Result<HashMap<String, String>> {
-        let account = Self::account_or_error(provider, account_id)?;
+        let account = Self::account_or_error(provider, account_id, None)?;
         let mut keys = Vec::new();
         if account.kind == AccountKind::ApiKey && account.secret_storage == SecretStorage::Keychain
         {
@@ -299,27 +299,40 @@ impl ProviderService {
             .collect()
     }
 
+    /// 取账号；认得合成的「默认登录」（见 [`Provider::resolve_account`]）。`cli_tool` 为
+    /// `None`（不针对某个 CLI：测试连接、推密钥给 daemon）时，默认登录按「没有密钥、没有
+    /// 目录」的登录账号处理。
     pub(super) fn account_or_error<'a>(
         provider: &'a Provider,
         account_id: Option<&str>,
-    ) -> Result<&'a ProviderAccount> {
-        provider.account(account_id).ok_or_else(|| {
-            anyhow::Error::new(AppError::coded_with_params(
-                "PROVIDER_ACCOUNT_NOT_FOUND",
-                format!(
-                    "Account '{}' was not found on Provider '{}'",
-                    account_id.unwrap_or("<default>"),
-                    provider.id
-                ),
-                HashMap::from([
-                    ("providerId".to_string(), provider.id.clone()),
-                    (
-                        "accountId".to_string(),
-                        account_id.unwrap_or_default().to_string(),
+        cli_tool: Option<&str>,
+    ) -> Result<std::borrow::Cow<'a, ProviderAccount>> {
+        let cli_tool = cli_tool.unwrap_or_else(|| {
+            provider
+                .login_cli_tools()
+                .first()
+                .copied()
+                .unwrap_or_default()
+        });
+        provider
+            .resolve_account(account_id, cli_tool)
+            .ok_or_else(|| {
+                anyhow::Error::new(AppError::coded_with_params(
+                    "PROVIDER_ACCOUNT_NOT_FOUND",
+                    format!(
+                        "Account '{}' was not found on Provider '{}'",
+                        account_id.unwrap_or("<default>"),
+                        provider.id
                     ),
-                ]),
-            ))
-        })
+                    HashMap::from([
+                        ("providerId".to_string(), provider.id.clone()),
+                        (
+                            "accountId".to_string(),
+                            account_id.unwrap_or_default().to_string(),
+                        ),
+                    ]),
+                ))
+            })
     }
 
     fn account_secret(
@@ -384,7 +397,8 @@ impl ProviderService {
         cli_tool: &str,
         mode: SecretMode,
     ) -> Result<ProviderLaunchEnv> {
-        let account = Self::account_or_error(provider, account_id)?;
+        let account = Self::account_or_error(provider, account_id, Some(cli_tool))?;
+        let account = account.as_ref();
         let api_key = self.account_secret(provider, account, mode)?;
 
         let mut vars: Vec<ResolvedEnvVar> = self

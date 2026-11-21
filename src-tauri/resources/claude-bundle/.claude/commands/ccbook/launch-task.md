@@ -30,7 +30,7 @@ cc-panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 
 | 工具 | 关键参数 | 备注 |
 |------|---------|------|
-| `mcp__ccpanes__launch_task` | `projectPath`（必填）, `prompt?`, `resumeId?`, `cliTool?`, `providerId?`, `providerSelection?`, `workspaceName?`, `runtimeKind?`, `title?`, `paneId?`, `placement?`, `layoutId?`, `layoutName?` | `prompt` 与 `resumeId` **互斥**。`cliTool` 只接 `claude` / `codex`。`placement` 见下方落位规则 |
+| `mcp__ccpanes__launch_task` | `projectPath`（必填）, `prompt?`, `resumeId?`, `cliTool?`, `providerId?`, `providerAccountId?`, `providerSelection?`, `workspaceName?`, `runtimeKind?`, `title?`, `paneId?`, `placement?`, `layoutId?`, `layoutName?` | `prompt` 与 `resumeId` **互斥**。`cliTool` 只接 `claude` / `codex`。`placement` 见下方落位规则 |
 | `mcp__ccpanes__list_projects` | — | 取已注册项目原样路径（WSL 启动必须用） |
 | `mcp__ccpanes__add_project_to_workspace` | `workspaceName`, `projectPath` | 注册新项目 |
 | `mcp__ccpanes__scan_directory` | `path` | 扫目录发现 Git 仓库 |

@@ -15,6 +15,8 @@ mod dispatch_retry;
 mod open_terminal_tab;
 #[path = "orchestrator_service/pending_approval.rs"]
 pub(crate) mod pending_approval;
+#[path = "orchestrator_service/replay_account.rs"]
+mod replay_account;
 #[path = "orchestrator_service/report_delivery_cache.rs"]
 mod report_delivery_cache;
 #[path = "orchestrator_service/ssh_machine_tools.rs"]
@@ -112,6 +114,9 @@ pub struct LaunchTaskRequest {
     /// 要注入的 prompt（任务描述）。resume 时可不传。
     pub prompt: Option<String>,
     pub provider_id: Option<String>,
+    /// 供应商账号 ID。resume 时省略 = 沿用那次会话记下的账号；账号已删除则启动失败。
+    #[serde(default)]
+    pub provider_account_id: Option<String>,
     pub model_id: Option<String>,
     /// Real launch directory. Omitted dispatches use projectPath, not workspacePath.
     pub cwd: Option<String>,
@@ -195,6 +200,9 @@ pub struct OrchestratorLaunchEvent {
     pub project_id: String,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    /// 实际用的供应商账号；前端 tab 原样记下，之后恢复 / 续接回到同一个账号。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     pub provider_selection: Option<String>,
@@ -2728,6 +2736,9 @@ struct McpLaunchTaskParams {
     /// Provider ID
     #[serde(rename = "providerId")]
     provider_id: Option<String>,
+    /// 供应商账号 ID；resume / fork 省略时沿用源会话的账号
+    #[serde(default, rename = "providerAccountId")]
+    provider_account_id: Option<String>,
     /// 模型 ID
     #[serde(rename = "modelId")]
     model_id: Option<String>,
@@ -5450,6 +5461,7 @@ impl McpToolHandler {
             permission_mode: launch.permission_mode.clone(),
             model_id: launch.model_id.clone(),
             provider_id: launch.provider_id.clone(),
+            provider_account_id: launch.provider_account_id.clone(),
             provider_selection: launch.provider_selection.clone(),
             runtime_kind: launch.runtime_kind.clone(),
             prompt: launch.prompt.clone(),
@@ -6155,6 +6167,7 @@ impl McpToolHandler {
             project_path: plan.workspace.clone(),
             prompt: Some(plan.prompt.clone()),
             provider_id: None,
+            provider_account_id: None,
             model_id: plan.model_id.clone(),
             cwd: None,
             permission_mode: None,
@@ -6661,6 +6674,19 @@ impl McpToolHandler {
                 Err(error) => return format!("错误: {}", error),
             };
 
+        // resume / fork 回到源会话当时的账号（调用方没点名时）。账号已删除不在这里兜底：
+        // 解析层会报 PROVIDER_ACCOUNT_NOT_FOUND，下面原样返回。
+        replay_account::replay_recorded_account(
+            &self.state.launch_history_service,
+            params
+                .resume_id
+                .as_deref()
+                .or(params.fork_session_id.as_deref()),
+            provider_selection,
+            &mut params.provider_id,
+            &mut params.provider_account_id,
+        );
+
         // 工作空间和项目绑定由共享解析器决定；Provider、模型和推理强度仍由 TerminalService 解析。
         let ws_name = project_context.workspace_name.clone();
         let ws_path = project_context.workspace_path.clone();
@@ -6785,7 +6811,7 @@ impl McpToolHandler {
             rows: 30,
             workspace_name: None,
             provider_id: params.provider_id.clone(),
-            provider_account_id: None,
+            provider_account_id: params.provider_account_id.clone(),
             model_id: params.model_id.clone(),
             provider_selection,
             launch_profile_id: None,
@@ -6813,7 +6839,7 @@ impl McpToolHandler {
         };
         apply_project_launch_context_to_request(&mut create_request, &project_context);
         create_request.launch_profile_id = launch_profile_id.clone();
-        let (session_id, resolved_model_id) = match create_launch_session(
+        let (session_id, resolved_model_id, resolved_account_id) = match create_launch_session(
             self.state.terminal_backend.clone(),
             Some(self.state.session_restore_service.clone()),
             Some(self.state.app_handle.clone()),
@@ -6886,6 +6912,7 @@ impl McpToolHandler {
             ws_path.as_deref(),
             Some(&launch_cwd),
             params.provider_id.as_deref(),
+            resolved_account_id.as_deref(),
             resolved_model_id.as_deref(),
             provider_selection_str,
             launch_profile_id.as_deref(),
@@ -6937,6 +6964,7 @@ impl McpToolHandler {
             project_id,
             workspace_name: ws_name,
             provider_id: params.provider_id.clone(),
+            provider_account_id: resolved_account_id.clone(),
             model_id: resolved_model_id.clone(),
             provider_selection: params.provider_selection.clone(),
             launch_profile_id: launch_profile_id.clone(),
@@ -11229,6 +11257,14 @@ async fn handle_launch_task(
             );
         }
     };
+    // resume 回到那次会话记下的账号（调用方没点名时）；账号已删除由解析层报错，不兜底。
+    replay_account::replay_recorded_account(
+        &state.launch_history_service,
+        req.resume_id.as_deref(),
+        provider_selection,
+        &mut req.provider_id,
+        &mut req.provider_account_id,
+    );
 
     let project_context = resolve_project_launch_context(
         &req.project_path,
@@ -11322,7 +11358,7 @@ async fn handle_launch_task(
         rows: 30,
         workspace_name: None,
         provider_id: req.provider_id.clone(),
-        provider_account_id: None,
+        provider_account_id: req.provider_account_id.clone(),
         model_id: req.model_id.clone(),
         provider_selection,
         launch_profile_id: None,
@@ -11349,7 +11385,7 @@ async fn handle_launch_task(
     };
     apply_project_launch_context_to_request(&mut create_request, &project_context);
     create_request.launch_profile_id = launch_profile_id.clone();
-    let (session_id, resolved_model_id) = match create_launch_session(
+    let (session_id, resolved_model_id, resolved_account_id) = match create_launch_session(
         state.terminal_backend.clone(),
         Some(state.session_restore_service.clone()),
         Some(state.app_handle.clone()),
@@ -11359,9 +11395,9 @@ async fn handle_launch_task(
     )
     .await
     {
-        Ok((sid, resolved_model_id)) => {
+        Ok((sid, resolved_model_id, resolved_account_id)) => {
             info!(session_id = %sid, "REST::launch_task session created");
-            (sid, resolved_model_id)
+            (sid, resolved_model_id, resolved_account_id)
         }
         Err(e) => {
             error!(project = %req.project_path, err = %e, "REST::launch_task failed to create session");
@@ -11400,6 +11436,7 @@ async fn handle_launch_task(
             workspace_name: workspace_name.as_deref(),
             workspace_path: workspace_path.as_deref(),
             provider_id: req.provider_id.as_deref(),
+            provider_account_id: resolved_account_id.as_deref(),
             model_id: resolved_model_id.as_deref(),
             provider_selection: req.provider_selection.as_deref(),
             launch_profile_id: launch_profile_id.as_deref(),
@@ -11430,6 +11467,7 @@ async fn handle_launch_task(
         project_id,
         workspace_name,
         provider_id: req.provider_id.clone(),
+        provider_account_id: resolved_account_id,
         model_id: resolved_model_id,
         provider_selection: req.provider_selection.clone(),
         launch_profile_id: launch_profile_id.clone(),
@@ -12925,24 +12963,25 @@ async fn create_launch_session(
     mut request: CoreCreateSessionRequest,
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
-) -> std::result::Result<(String, Option<String>), String> {
-    let (session_id, _, _, resolved_model_id) = create_backend_session_with_deadline(
-        terminal_backend.clone(),
-        session_restore_service.clone(),
-        app_handle.clone(),
-        request.clone(),
-    )
-    .await?;
+) -> std::result::Result<(String, Option<String>, Option<String>), String> {
+    let (session_id, _, _, resolved_model_id, resolved_account_id) =
+        create_backend_session_with_deadline(
+            terminal_backend.clone(),
+            session_restore_service.clone(),
+            app_handle.clone(),
+            request.clone(),
+        )
+        .await?;
 
     let Some(prompt) = deferred_prompt else {
-        return Ok((session_id, resolved_model_id));
+        return Ok((session_id, resolved_model_id, resolved_account_id));
     };
 
     if wait_for_paste_ready(terminal_backend.clone(), &session_id, ready_timeout).await? {
         submit_text_to_session(terminal_backend.backend(), &session_id, &prompt)
             .await
             .map_err(|error| error.to_string())?;
-        return Ok((session_id, resolved_model_id));
+        return Ok((session_id, resolved_model_id, resolved_account_id));
     }
 
     warn!(
@@ -12957,14 +12996,15 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let (session_id, _, _, resolved_model_id) = create_backend_session_with_deadline(
-        terminal_backend,
-        session_restore_service,
-        app_handle,
-        request,
-    )
-    .await?;
-    Ok((session_id, resolved_model_id))
+    let (session_id, _, _, resolved_model_id, resolved_account_id) =
+        create_backend_session_with_deadline(
+            terminal_backend,
+            session_restore_service,
+            app_handle,
+            request,
+        )
+        .await?;
+    Ok((session_id, resolved_model_id, resolved_account_id))
 }
 
 /// 所有 orchestrator 侧的会话创建都汇到这里（launch_task 两次创建路径 + runner），
@@ -12974,9 +13014,18 @@ async fn create_backend_session_with_deadline(
     session_restore_service: Option<Arc<SessionRestoreService>>,
     app_handle: Option<tauri::AppHandle>,
     request: CoreCreateSessionRequest,
-) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool, Option<String>), String> {
+) -> std::result::Result<
+    (
+        String,
+        Arc<dyn TerminalBackend>,
+        bool,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
     let launch_id = request.launch_id.clone();
-    let observation_request = request.clone();
+    let mut observation_request = request.clone();
     let recover_state = terminal_backend.clone();
     let recover_handle = app_handle.clone();
     let mut create_task = tokio::task::spawn_blocking(move || match recover_handle {
@@ -12988,6 +13037,7 @@ async fn create_backend_session_with_deadline(
                     created.backend,
                     created.reused_existing,
                     created.resolved_model_id,
+                    created.resolved_account_id,
                 )
             })
             .map_err(|error| error.to_string()),
@@ -13001,6 +13051,7 @@ async fn create_backend_session_with_deadline(
                         backend,
                         outcome.reused_existing,
                         outcome.resolved_model_id,
+                        outcome.resolved_account_id,
                     )
                 })
                 .map_err(|error| error.to_string())
@@ -13009,8 +13060,12 @@ async fn create_backend_session_with_deadline(
 
     match tokio::time::timeout(CREATE_LAUNCH_DEADLINE, &mut create_task).await {
         Ok(result) => {
-            let (session_id, backend, reused_existing, resolved_model_id) =
+            let (session_id, backend, reused_existing, resolved_model_id, resolved_account_id) =
                 result.map_err(|error| error.to_string())??;
+            // 会话恢复记「实际用的账号」；后端没报（旧 daemon）才退回请求里点名的。
+            let resolved_account_id =
+                resolved_account_id.or_else(|| observation_request.provider_account_id.clone());
+            observation_request.provider_account_id = resolved_account_id.clone();
             // 出生凭证必须在 session id 返回给调用方之前落进 SQLite（与 Tauri 命令 /
             // REST 两条路径同款 fail-closed 语义）。缺凭证的会话在 app 重启后被
             // identity-mismatch 永久拦下，无法自动接管。
@@ -13030,7 +13085,13 @@ async fn create_backend_session_with_deadline(
                 .map_err(|error| error.to_string())?
                 .map_err(|error| error.to_string())?;
             }
-            Ok((session_id, backend, reused_existing, resolved_model_id))
+            Ok((
+                session_id,
+                backend,
+                reused_existing,
+                resolved_model_id,
+                resolved_account_id,
+            ))
         }
         Err(_) => {
             if let Some(launch_id) = launch_id {
@@ -13043,7 +13104,7 @@ async fn create_backend_session_with_deadline(
                 });
             }
             tokio::spawn(async move {
-                if let Ok(Ok((session_id, backend, reused_existing, _))) = create_task.await {
+                if let Ok(Ok((session_id, backend, reused_existing, ..))) = create_task.await {
                     let _ = tokio::task::spawn_blocking(move || {
                         if reused_existing {
                             backend.release_session(&session_id)
@@ -15408,7 +15469,7 @@ mod tests {
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
         let (restore, _tmp) = make_session_restore_service();
 
-        let (session_id, _) = create_launch_session(
+        let (session_id, _, _) = create_launch_session(
             state,
             Some(restore.clone()),
             None,
@@ -15443,7 +15504,7 @@ mod tests {
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
         let (restore, _tmp) = make_session_restore_service();
 
-        let (session_id, _) = create_launch_session(
+        let (session_id, _, _) = create_launch_session(
             state,
             Some(restore.clone()),
             None,
@@ -15539,6 +15600,7 @@ mod tests {
                 session_id,
                 reused_existing: self.reused_existing,
                 resolved_model_id: None,
+                resolved_account_id: None,
             })
         }
 
@@ -15822,7 +15884,7 @@ mod tests {
         backend.ready.store(true, Ordering::SeqCst);
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
 
-        let (session_id, _) = create_launch_session(
+        let (session_id, _, _) = create_launch_session(
             state,
             None,
             None,
@@ -15855,7 +15917,7 @@ mod tests {
         let backend = Arc::new(LaunchPromptTestBackend::default());
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
 
-        let (session_id, _) = create_launch_session(
+        let (session_id, _, _) = create_launch_session(
             state,
             None,
             None,
@@ -18728,6 +18790,7 @@ mod tests {
                 permission_mode: Some("default".into()),
                 model_id: Some("test-model".into()),
                 provider_id: Some("test-provider".into()),
+                provider_account_id: None,
                 provider_selection: Some("explicit".into()),
                 runtime_kind: Some("local".to_string()),
                 prompt: Some("implement the task".to_string()),
@@ -19553,6 +19616,7 @@ mod tests {
                 Some("cc-book"),
                 Some(r"D:\04_workspace_rust\cc-book"),
                 Some(r"D:\04_workspace_rust\cc-book"),
+                None,
                 None,
                 None,
                 None,

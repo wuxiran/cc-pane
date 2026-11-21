@@ -33,9 +33,18 @@ struct NoopTerminalBackend;
 impl TerminalBackend for NoopTerminalBackend {
     fn create_session(
         &self,
-        _request: cc_panes_core::models::CreateSessionRequest,
+        request: cc_panes_core::models::CreateSessionRequest,
     ) -> AppResult<String> {
-        Ok("session".to_string())
+        // 模拟解析层：点名的账号已被删除时返回带码错误；否则把账号带进 session id，
+        // 测试据此确认「记下的账号被放回了 create 请求」。
+        match request.provider_account_id.as_deref() {
+            Some("gone") => Err(cc_panes_core::utils::error::AppError::coded(
+                "PROVIDER_ACCOUNT_NOT_FOUND",
+                "Account 'gone' not found on provider 'provider-a'",
+            )),
+            Some(account) => Ok(format!("session@{account}")),
+            None => Ok("session".to_string()),
+        }
     }
 
     fn write(&self, _session_id: &str, _data: &str) -> AppResult<()> {
@@ -230,6 +239,7 @@ fn saved_session(root: &std::path::Path) -> SavedSession {
         workspace_name: Some("workspace-a".to_string()),
         workspace_path: Some(root.to_string_lossy().to_string()),
         provider_id: Some("provider-a".to_string()),
+        provider_account_id: None,
         provider_selection: Some("explicit".to_string()),
         launch_profile_id: Some("profile-a".to_string()),
         cli_tool: "codex".to_string(),
@@ -258,15 +268,18 @@ fn add_launch_history_request_accepts_legacy_and_camel_case_model_payloads() {
     }))
     .expect("legacy payload");
     assert_eq!(legacy.model_id, None);
+    assert_eq!(legacy.provider_account_id, None);
 
     let current: AddLaunchHistoryRequest = serde_json::from_value(json!({
         "projectId": "model-launch",
         "projectName": "Model",
         "projectPath": "/model",
-        "modelId": "claude-sonnet"
+        "modelId": "claude-sonnet",
+        "providerAccountId": "work"
     }))
     .expect("current payload");
     assert_eq!(current.model_id.as_deref(), Some("claude-sonnet"));
+    assert_eq!(current.provider_account_id.as_deref(), Some("work"));
 }
 
 #[tokio::test]
@@ -287,6 +300,7 @@ async fn launch_history_routes_match_core_service_operations() {
             workspace_path: Some(root.to_string_lossy().to_string()),
             launch_cwd: Some(project_path.clone()),
             provider_id: Some("provider-a".to_string()),
+            provider_account_id: Some("work".to_string()),
             model_id: Some("model-a".to_string()),
             provider_selection: Some("explicit".to_string()),
             launch_profile_id: Some("profile-a".to_string()),
@@ -338,6 +352,7 @@ async fn launch_history_routes_match_core_service_operations() {
     assert_eq!(records[0].resume_session_id.as_deref(), Some("resume-a"));
     assert_eq!(records[0].resume_source.as_deref(), Some("manual"));
     assert_eq!(records[0].model_id.as_deref(), Some("model-a"));
+    assert_eq!(records[0].provider_account_id.as_deref(), Some("work"));
 
     let Json(project_records) = list_launch_history(
         State(state.clone()),
@@ -403,6 +418,7 @@ async fn launch_history_session_started_routes_update_and_upsert() {
             workspace_path: None,
             launch_cwd: None,
             provider_id: None,
+            provider_account_id: None,
             model_id: None,
             provider_selection: None,
             launch_profile_id: None,
@@ -555,6 +571,64 @@ async fn restore_workspace_snapshot_recreates_sessions_with_resume() {
     .await
     .expect_err("missing snapshot should fail");
     assert_eq!(error.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn restore_workspace_snapshot_replays_the_recorded_account_and_reports_a_deleted_one() {
+    let (state, root) = test_state("snapshot-restore-account");
+    let with_account = SavedSession {
+        provider_account_id: Some("work".to_string()),
+        ..saved_session(&root)
+    };
+    let deleted_account = SavedSession {
+        session_id: "pty-session-gone".to_string(),
+        provider_account_id: Some("gone".to_string()),
+        ..saved_session(&root)
+    };
+    let legacy = SavedSession {
+        session_id: "pty-session-legacy".to_string(),
+        ..saved_session(&root)
+    };
+
+    save_terminal_sessions(
+        State(state.clone()),
+        Json(vec![with_account, deleted_account, legacy]),
+    )
+    .await
+    .expect("save sessions");
+
+    let Json(restored) = restore_workspace_snapshot(
+        State(state),
+        Path(("workspace-a".to_string(), "snapshot-a".to_string())),
+    )
+    .await
+    .expect("restore snapshot");
+    let entry = |source: &str| {
+        restored
+            .entries
+            .iter()
+            .find(|entry| entry.source_pty_session_id == source)
+            .unwrap_or_else(|| panic!("entry {source}"))
+    };
+
+    // 记下的账号被原样放回 create 请求
+    assert_eq!(
+        entry("pty-session-a").session_id.as_deref(),
+        Some("session@work")
+    );
+    // 账号已删除：这一条报错，绝不悄悄换成默认账号再启动
+    let gone = entry("pty-session-gone");
+    assert!(gone.session_id.is_none());
+    assert!(gone
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("PROVIDER_ACCOUNT_NOT_FOUND"));
+    // 旧行没记账号：照旧走供应商默认账号
+    assert_eq!(
+        entry("pty-session-legacy").session_id.as_deref(),
+        Some("session")
+    );
 }
 
 #[tokio::test]

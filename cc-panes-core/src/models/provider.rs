@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// 合成「系统环境变量」Provider 的固定 id。
@@ -83,6 +84,17 @@ pub struct ProviderModel {
 /// 默认账号的固定 id 与名字（旧供应商迁移后落在这个账号上）。
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
 pub const DEFAULT_ACCOUNT_NAME: &str = "默认";
+
+/// 合成「默认登录」账号的固定 id。
+///
+/// 机器上原有的那套登录（CLI 的默认目录）不落盘、不建目录：选中它表示「用这条供应商的
+/// 接口和环境变量，但登录用 CLI 默认目录里的那一套」——不带目录变量，等同现状。
+/// 它只在读取时合成（见 [`Provider::resolve_account`]），`providers.json` 里不会出现。
+pub const DEFAULT_LOGIN_ACCOUNT_ID: &str = "__default_login__";
+pub const DEFAULT_LOGIN_ACCOUNT_NAME: &str = "默认登录";
+
+/// 支持登录账号的五个 CLI。
+pub const LOGIN_CLI_TOOLS: [&str; 5] = ["claude", "codex", "gemini", "antigravity", "grok"];
 
 /// 密钥 / 敏感值存在哪。文件里只留这个标记，不留明文（`File` 回退除外）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -272,6 +284,23 @@ impl ProviderAccount {
         }
     }
 
+    /// 合成某个 CLI 的「默认登录」账号（不带目录）。该 CLI 不支持登录账号时返回 `None`。
+    pub fn default_login_for(cli_tool: &str) -> Option<Self> {
+        login_dir_env_var(cli_tool)?;
+        Some(Self {
+            id: DEFAULT_LOGIN_ACCOUNT_ID.to_string(),
+            name: DEFAULT_LOGIN_ACCOUNT_NAME.to_string(),
+            kind: AccountKind::Login,
+            cli_tool: Some(cli_tool.to_string()),
+            ..Self::default()
+        })
+    }
+
+    /// 是不是合成的「默认登录」。
+    pub fn is_default_login(&self) -> bool {
+        self.kind == AccountKind::Login && self.id == DEFAULT_LOGIN_ACCOUNT_ID
+    }
+
     /// 这个账号是否带着一把密钥（在钥匙串、在文件，或刚输入尚未保存）。
     pub fn has_secret(&self) -> bool {
         self.kind == AccountKind::ApiKey
@@ -304,6 +333,27 @@ pub fn login_dir_env_var(cli_tool: &str) -> Option<&'static str> {
         "grok" => "GROK_HOME",
         _ => return None,
     })
+}
+
+/// Antigravity 把所有登录放进同一个钥匙串条目、不分目录；只有当它认为自己在远程连接里
+/// 才改用目录里的文件存凭据（T3 Code 的做法）。所以它的登录账号在登录和启动时都带这个变量，
+/// 否则换了 `GEMINI_HOME` 也还是同一个号。
+pub const ANTIGRAVITY_FILE_STORAGE_ENV: (&str, &str) =
+    ("SSH_CONNECTION", "127.0.0.1 0 127.0.0.1 0");
+
+/// Gemini CLI 默认把 OAuth 凭据放在 `<目录>/.gemini/oauth_creds.json`（按目录分开）；
+/// 但环境里若有 `GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=true`，它会改用系统钥匙串里
+/// 同一个条目（不分目录）。登录账号显式关掉它，保证各账号的凭据互不覆盖。
+pub const GEMINI_PER_DIR_STORAGE_ENV: (&str, &str) =
+    ("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE", "false");
+
+/// 带目录的登录账号在登录和启动时额外要带的变量：让凭据确实按目录分开存。
+pub fn login_isolation_env(cli_tool: &str) -> Option<(&'static str, &'static str)> {
+    match cli_tool {
+        "antigravity" => Some(ANTIGRAVITY_FILE_STORAGE_ENV),
+        "gemini" => Some(GEMINI_PER_DIR_STORAGE_ENV),
+        _ => None,
+    }
 }
 
 /// 供应商来源种类。
@@ -501,6 +551,47 @@ impl Provider {
         }
     }
 
+    /// 取账号，认得合成的「默认登录」：`account_id` 是 [`DEFAULT_LOGIN_ACCOUNT_ID`] 时
+    /// 按目标 CLI 合成一个不带目录的登录账号（该 CLI 不能在这条供应商下登录时返回 `None`）。
+    /// 其余情况同 [`Provider::account`]。
+    pub fn resolve_account(
+        &self,
+        account_id: Option<&str>,
+        cli_tool: &str,
+    ) -> Option<Cow<'_, ProviderAccount>> {
+        if account_id.map(str::trim) == Some(DEFAULT_LOGIN_ACCOUNT_ID) {
+            return self
+                .login_cli_tools()
+                .contains(&cli_tool)
+                .then(|| ProviderAccount::default_login_for(cli_tool))
+                .flatten()
+                .map(Cow::Owned);
+        }
+        self.account(account_id).map(Cow::Borrowed)
+    }
+
+    /// 这条供应商下可以挂哪些 CLI 的登录账号（按供应商类型）。
+    ///
+    /// 与各适配器的兼容类型一致；Antigravity 不接密钥型供应商，它的登录账号挂在
+    /// Gemini 类型下面。「配置目录」类型本身就是一个目录，不再合成默认登录；
+    /// 「本机网关」还没有任何适配器接。
+    pub fn login_cli_tools(&self) -> &'static [&'static str] {
+        match self.provider_type {
+            ProviderType::Anthropic
+            | ProviderType::Bedrock
+            | ProviderType::Vertex
+            | ProviderType::Proxy => &["claude"],
+            ProviderType::OpenAI => &["codex"],
+            ProviderType::Gemini => &["gemini", "antigravity"],
+            ProviderType::Grok => &["grok"],
+            ProviderType::ConfigProfile
+            | ProviderType::LocalGateway
+            | ProviderType::Kimi
+            | ProviderType::Cursor
+            | ProviderType::OpenCode => &[],
+        }
+    }
+
     /// 给界面 / REST 的只读副本：清掉一切密钥与敏感值明文（含 `File` 回退时文件里的那份），
     /// 只留「有 / 没有、存在哪」的标记。
     pub fn redacted(mut self) -> Self {
@@ -612,6 +703,9 @@ impl Provider {
             if account.cli_tool.as_deref() == Some(cli_tool) {
                 if let Some(name) = login_dir_env_var(cli_tool) {
                     vars.push((name.to_string(), dir.to_string(), false));
+                }
+                if let Some((name, value)) = login_isolation_env(cli_tool) {
+                    vars.push((name.to_string(), value.to_string(), false));
                 }
             }
         }

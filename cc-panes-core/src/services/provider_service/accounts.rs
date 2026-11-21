@@ -261,6 +261,9 @@ impl ProviderService {
             if !Self::valid_entity_id(&account.id) {
                 anyhow::bail!("Provider account id is invalid");
             }
+            if account.id == crate::models::provider::DEFAULT_LOGIN_ACCOUNT_ID {
+                anyhow::bail!("Provider account id '{}' is reserved", account.id);
+            }
             if !ids.insert(account.id.as_str()) {
                 anyhow::bail!("Duplicate Provider account id '{}'", account.id);
             }

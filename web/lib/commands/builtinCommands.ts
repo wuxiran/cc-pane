@@ -264,6 +264,7 @@ export function buildBuiltinCommands(): CommandDescriptor[] {
           projectPath: tab.projectPath,
           workspaceName: tab.workspaceName,
           providerId: tab.providerId,
+          providerAccountId: tab.providerAccountId,
           modelId: tab.modelId,
           providerSelection: tab.providerSelection,
           launchProfileId: tab.launchProfileId,

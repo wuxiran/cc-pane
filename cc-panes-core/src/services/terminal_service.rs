@@ -67,6 +67,15 @@ pub fn codex_rollout_exists(session_id: &str, distro: Option<&str>) -> Option<bo
     osc_resume_capture::codex_rollout_exists(session_id, distro)
 }
 
+/// 同上，本地检查时把各登录账号的 `CODEX_HOME` 也算进去。
+pub fn codex_rollout_exists_in(
+    session_id: &str,
+    distro: Option<&str>,
+    extra_codex_homes: &[PathBuf],
+) -> Option<bool> {
+    osc_resume_capture::codex_rollout_exists_in(session_id, distro, extra_codex_homes)
+}
+
 /// 把解析结果交给适配器：密钥、接口地址、登录目录都来自统一入口
 /// （`ProviderService::resolve_launch_env`）已经按账号和目标 CLI 解析好的值，
 /// 适配器不再自己从供应商上取。
@@ -101,6 +110,7 @@ fn create_session_outcome(
         session_id,
         reused_existing,
         resolved_model_id: provider_plan.model_id.clone(),
+        resolved_account_id: provider_plan.account_id.clone(),
     }
 }
 
@@ -2946,6 +2956,20 @@ impl TerminalService {
         } else {
             Vec::new()
         };
+        // 会话用了登录账号：账号目录就是这次的 CLI 主目录。WSL / SSH 在上面的
+        // `validate_provider_runtime` 已被拒绝，走到这里的一定是本机会话。
+        let login_account_dir: Option<PathBuf> = provider
+            .as_ref()
+            .and_then(|provider| provider.config_dir.as_deref())
+            .map(PathBuf::from)
+            .filter(|dir| !dir.is_file());
+        if let Some(dir) = login_account_dir.as_deref() {
+            // 默认目录里后来才出现的设置 / 技能 / 指令文件补链接进来（只动 CC-Panes 自己建的目录）。
+            crate::services::LoginAccountService::for_provider_service(
+                self.provider_service.clone(),
+            )
+            .refresh_links_for_launch(cli_tool.as_id(), &dir.to_string_lossy());
+        }
         log_launch_stage(
             launch_id,
             None,
@@ -4395,6 +4419,7 @@ impl TerminalService {
                     rollout_cwds,
                     launch_started_at,
                     rollout_fallback: resume_id.is_none() && ssh.is_none(),
+                    codex_home: login_account_dir.clone(),
                 },
                 emitter.clone(),
             )
@@ -7618,6 +7643,68 @@ mod tests {
         request.provider_account_id = Some("gone".to_string());
         let error = service.build_pi_rpc_launch_spec(&request).unwrap_err();
         assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_NOT_FOUND"));
+    }
+
+    /// 登录账号的目录是本机路径：WSL / SSH 会话直接拒绝并给出明确的错误，
+    /// 不会把 `CODEX_HOME=<本机路径>` 带到那一侧。拒绝发生在创建 PTY 之前。
+    #[test]
+    fn login_account_launch_is_rejected_for_wsl_and_ssh_sessions() {
+        use crate::models::provider::{AccountKind, ProviderAccount};
+        use crate::services::TerminalBackend;
+
+        let (service, temp_dir) = pi_rpc_test_service();
+        let account_dir = temp_dir.path().join("login-accounts").join("codex-abc");
+        std::fs::create_dir_all(&account_dir).expect("account dir");
+        let mut provider = two_account_openai_provider();
+        provider.accounts.push(ProviderAccount {
+            id: "codex-abc".to_string(),
+            name: "第二个号".to_string(),
+            kind: AccountKind::Login,
+            cli_tool: Some("codex".to_string()),
+            config_dir: Some(account_dir.to_string_lossy().into_owned()),
+            ..ProviderAccount::default()
+        });
+        service
+            .provider_service
+            .add_provider(provider)
+            .expect("add provider with a login account");
+
+        let mut request = pi_rpc_request(temp_dir.path());
+        request.cli_tool = CliTool::Codex;
+        request.adapter_options = None;
+        request.provider_selection = LaunchProviderSelection::Explicit;
+        request.provider_id = Some("openai-pi".to_string());
+        request.provider_account_id = Some("codex-abc".to_string());
+
+        let mut wsl_request = request.clone();
+        wsl_request.wsl = Some(crate::models::WslLaunchInfo {
+            remote_path: "/home/u/project".to_string(),
+            workspace_remote_path: None,
+            distro: Some("Ubuntu".to_string()),
+        });
+        let error = TerminalBackend::create_session(service.as_ref(), wsl_request).unwrap_err();
+        // WSL 只在 Windows 上存在；别的平台在更早的地方就拒绝了 WSL 本身
+        // （登录账号 + WSL 的规则本身由 provider_resolver 的测试在所有平台上覆盖）。
+        let expected = if cfg!(windows) {
+            "PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY"
+        } else {
+            "WSL_UNSUPPORTED"
+        };
+        assert_eq!(error.code(), Some(expected));
+        assert!(!error.to_string().contains(&*account_dir.to_string_lossy()));
+
+        let mut ssh_request = request;
+        ssh_request.ssh = Some(
+            serde_json::from_value(serde_json::json!({
+                "host": "example.test",
+                "port": 22,
+                "remotePath": "/srv/project"
+            }))
+            .expect("ssh connection info"),
+        );
+        let error = TerminalBackend::create_session(service.as_ref(), ssh_request).unwrap_err();
+        assert_eq!(error.code(), Some("PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY"));
+        assert!(service.session_output_ids().is_empty());
     }
 
     #[test]

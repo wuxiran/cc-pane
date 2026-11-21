@@ -229,6 +229,29 @@ ProviderAccount
 
 登录账号覆盖五个 CLI，启动时各用一个环境变量指到账号目录：Claude `CLAUDE_CONFIG_DIR`、Codex `CODEX_HOME`、Gemini `GEMINI_CLI_HOME`、Antigravity `GEMINI_HOME`、Grok `GROK_HOME`。登录账号不带密钥。
 
+#### 登录账号的目录、链接和登录（第 1 期第二批，`services/login_account/`）
+
+- **目录**：`<数据目录>/login-accounts/<账号 id>`，账号 id 形如 `claude-3f9a1c0b77d2`（CLI 名 + 随机十六进制），由 CC-Panes 生成，不含用户输入；账号改名不影响路径。目录里有一个标记文件 `.ccpanes-login-account.json`（账号 id、供应商 id、CLI），证明目录是 CC-Panes 建的。
+- **默认登录**：机器上原有的那套登录（CLI 的默认目录）是**读取时合成**的账号，id 固定为 `__default_login__`、名字「默认登录」，不落盘、不建目录、不带目录变量。把它当账号 id 传给启动请求 = 用这条供应商的接口和环境变量 + CLI 默认目录里的登录。哪些 CLI 能挂在哪类供应商下见 `Provider::login_cli_tools`（Anthropic 系 → Claude，OpenAI → Codex，Gemini → Gemini CLI 与 Antigravity，Grok → Grok）。
+- **共享与隔离**：新建账号时（以及每次用该账号启动前）把默认目录里的**设置、技能、指令文件**软链接进账号目录，**登录凭据和会话历史**不共享。白名单在 `login_account/layout.rs`：
+
+  | CLI | 链接（默认目录里存在才链接） | 不共享 |
+  |---|---|---|
+  | Claude Code | `settings.json`、`keybindings.json`、`CLAUDE.md`、`skills/`、`commands/`、`agents/`、`rules/`、`output-styles/`、`hooks/`、`plugins/` | `.claude.json`（账号邮箱、用户级 MCP、项目信任）、`.credentials.json`、`projects/`、`history.jsonl`、`sessions/` 等 |
+  | Codex | `config.toml`、`AGENTS.md`、`AGENTS.override.md`、`skills/`、`prompts/`、`rules/` | `auth.json`、`sessions/`、`archived_sessions/`、`history.jsonl`、`session_index.jsonl`、`memories/`、各 sqlite |
+  | Gemini CLI | `.gemini/settings.json`、`.gemini/GEMINI.md`、`.gemini/AGENTS.md`、`.gemini/skills/`、`.gemini/commands/`、`.gemini/extensions/`、`.gemini/policies/`、`.gemini/agents/`、`.agents/skills/` | `.gemini/oauth_creds.json`、`google_accounts.json`、`gemini-credentials.json`、`mcp-oauth-tokens.json`、`tmp/`、`history/`、`projects.json` |
+  | Antigravity | `AGENTS.md`、`GEMINI.md`、`config/skills.json`、`config/skills/`、`antigravity-cli/skills/`（T3 Code 验证过的那几项） | 其余全部（它的设置文件位置没有核实，不猜） |
+  | Grok Build | `config.toml`、`AGENTS.md`、`skills/`、`rules/`、`agents/`、`hooks/` | `auth.json`、`sessions/`、`bin/`（程序本体留在默认目录） |
+
+  规则：默认目录里没有的不创建；账号目录里已有的真实文件 / 非空目录不动（那是这个账号自己的）；只有空目录占位和失效链接会被换成链接。Windows 上目录先试软链接、不行用目录联接（junction），文件软链接不行就复制一份快照（**Windows 分支未编译验证**）。用户手填的外部目录从不往里链接。
+- **登录命令**（`LoginAccountService::login_command`，界面拿去开终端标签）：Claude `claude auth login`；Codex `codex login`；Gemini CLI 没有单独的登录命令，返回的是带着新目录启动 `gemini`（`interactive = true`，首次运行选登录方式，已选过则在里面输入 `/auth`）；Antigravity `agy --login` 并带 `SSH_CONNECTION`（见下）；Grok `grok login`。环境里带该 CLI 的目录变量；可执行文件用 `cc_cli_adapters::resolve_executable` 按 CC-Panes 进程自己的环境解析成绝对路径（所以 Grok 换了 `GROK_HOME` 仍找得到装在 `~/.grok/bin` 的程序）。
+- **Antigravity 的绕法**：它把所有登录放进同一个钥匙串条目、不分目录，只有认为自己在远程连接里才改用目录里的文件。所以它的登录账号在登录和启动时都带 `SSH_CONNECTION=127.0.0.1 0 127.0.0.1 0`（`ANTIGRAVITY_FILE_STORAGE_ENV`，由 `Provider::generated_env` 生成）。默认登录不带。Gemini CLI 的登录账号同理带 `GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=false`：它默认按目录存 `oauth_creds.json`，但该变量为 `true` 时会改用钥匙串里不分目录的同一个条目。
+- **登录状态**（`login_status`）：只读账号信息、只查凭据在不在，不读出凭据内容。Claude：邮箱取 `<目录>/.claude.json` 的 `oauthAccount.emailAddress`（默认登录取 `~/.claude.json`），凭据看 `<目录>/.credentials.json` 是否存在，或钥匙串条目 `Claude Code-credentials-<目录路径 SHA-256 前 8 位>`（默认登录无后缀）是否存在。Codex：`<目录>/auth.json` 存在即已登录，邮箱取其中身份令牌的声明段（令牌本身不保留）；否则查钥匙串条目 `Codex Auth` / `cli|<规范化目录路径 SHA-256 前 16 位>` 是否存在（此时不知道是哪个号）。Gemini：`<目录>/.gemini/oauth_creds.json` 是否存在，邮箱取 `google_accounts.json` 的 `active`。Grok：`<目录>/auth.json` 里的 `email` / `expires_at`。Antigravity：一律「未知」（登录后由 CLI 自己报告）。钥匙串查不了、文件读不懂都是「未知」。
+- **删除**：`delete_account(provider, account, delete_dir)`。目录默认保留；`delete_dir = true` 时只删满足全部条件的目录——规范化后是账号目录根的直接子目录、本身不是链接、带标记文件且标记里的账号 id 就是被删的账号。其余一律保留并返回原因码 `external_dir`。供应商的最后一个账号不能删；默认登录不能删。
+- **运行环境**：登录账号的目录是本机路径，WSL / SSH 会话直接拒绝（`PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY`，见 `validate_provider_runtime`），不会把路径带过去。默认登录和密钥账号不受影响。
+- **适配器**：会话用了登录账号时，`CliAdapterContext::login_account_dir()` 就是这次的 CLI 主目录。Codex 的信任预写、MCP 枚举、技能配置都走 `CodexAdapter::codex_home(ctx)`（全适配器唯一的 `CODEX_HOME` 出处；适配器自己从不往子进程环境里写 `CODEX_HOME`，目录变量只由供应商解析层注入一次）；Claude 的全局状态文件改读 `<账号目录>/.claude.json`。
+- **会话索引 / 用量**：会话索引把各登录账号的 `projects/`（Claude）和 `sessions/`（Codex）并进扫描根，列出的条目带 `providerId` / `providerAccountId` / `providerAccountName`（按文件路径在读取时算，不入库）。用量统计额外覆盖 Gemini 的 `.gemini` 和 Grok 的 `sessions/`。Codex 的 resume id 捕获和 rollout 存在性检查按会话自己的 `CODEX_HOME` 找。
+
 `is_default` 不是按 CLI 区分的权威字段。当前权威字段是 `ProviderConfig.default_provider_ids`；`ProviderService::sync_legacy_default_flags` 只把“是否被任一 CLI 引用”投影回 `is_default`，供旧调用兼容。代码见 [`provider_service.rs:160`](../cc-panes-core/src/services/provider_service.rs#L160)。
 
 ### 3.2 ProviderModel

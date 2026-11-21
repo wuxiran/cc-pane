@@ -78,6 +78,14 @@ export function buildSessionHistoryTerminalOptions(
     wslDistro: entry.wslDistro ?? undefined,
     workspaceName: entry.workspaceName ?? undefined,
     launchCwd: entry.cwd,
+    // 会话在某个登录账号的目录里：恢复时回到同一个账号，否则 CLI 到默认目录里找不到这段对话。
+    ...(entry.providerId && entry.providerAccountId
+      ? {
+          providerId: entry.providerId,
+          providerAccountId: entry.providerAccountId,
+          providerSelection: "explicit" as const,
+        }
+      : {}),
   };
   const base = buildLaunchRecordTerminalOptions(record, workspaces, machines);
   const options: OpenTerminalOptions = {

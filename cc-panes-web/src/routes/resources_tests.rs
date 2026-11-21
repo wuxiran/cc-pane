@@ -589,6 +589,111 @@ async fn provider_routes_match_core_service_operations() {
         .expect("remove provider");
 }
 
+/// 登录账号的路由：新建 → 列出（含合成的默认登录）→ 登录命令 → 登录状态 → 删除（连目录）。
+/// 用 Grok：它的默认目录在这台机器上通常不存在，测试不会去链接任何真实文件；
+/// 登录状态只看账号目录里有没有 `auth.json`，不查钥匙串。
+#[tokio::test]
+async fn login_account_routes_create_list_and_delete_an_account() {
+    let (state, root) = test_state("login-accounts");
+    add_provider(
+        State(state.clone()),
+        Json(Provider {
+            id: "xai".to_string(),
+            name: "xAI".to_string(),
+            provider_type: ProviderType::Grok,
+            api_key: Some("key".to_string()),
+            ..Provider::default()
+        }),
+    )
+    .await
+    .expect("add provider");
+
+    let Json(created) = create_login_account(
+        State(state.clone()),
+        Path("xai".to_string()),
+        Json(cc_panes_core::services::CreateLoginAccountRequest {
+            cli_tool: "grok".to_string(),
+            name: "第二个号".to_string(),
+            color: Some("#22c55e".to_string()),
+        }),
+    )
+    .await
+    .expect("create login account");
+    let account_id = created["accountId"]
+        .as_str()
+        .expect("account id")
+        .to_string();
+    let config_dir = std::path::PathBuf::from(created["configDir"].as_str().expect("config dir"));
+    assert!(account_id.starts_with("grok-"));
+    assert!(config_dir.starts_with(root.join("data").join("login-accounts")));
+    assert!(config_dir.is_dir());
+    assert_eq!(created["dirManaged"], true);
+    assert_eq!(created["status"]["state"], "not_logged_in");
+
+    let Json(listed) = list_login_accounts(State(state.clone()), Path("xai".to_string()))
+        .await
+        .expect("list login accounts");
+    let listed = listed.as_array().expect("array");
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0]["isDefaultLogin"], true);
+    assert_eq!(listed[0]["name"], "默认登录");
+    assert_eq!(listed[1]["accountId"], account_id.as_str());
+
+    let Json(command) = get_login_account_command(
+        State(state.clone()),
+        Path(("xai".to_string(), account_id.clone())),
+        Query(ProviderAccountQuery {
+            account_id: None,
+            cli_tool: None,
+        }),
+    )
+    .await
+    .expect("login command");
+    assert_eq!(command["args"], serde_json::json!(["login"]));
+    assert_eq!(
+        command["env"]["GROK_HOME"].as_str(),
+        Some(config_dir.to_string_lossy().as_ref())
+    );
+
+    let Json(status) = get_login_account_status(
+        State(state.clone()),
+        Path(("xai".to_string(), account_id.clone())),
+        Query(ProviderAccountQuery {
+            account_id: None,
+            cli_tool: None,
+        }),
+    )
+    .await
+    .expect("login status");
+    assert_eq!(status["state"], "not_logged_in");
+
+    // 重名被拒绝。
+    let duplicate = create_login_account(
+        State(state.clone()),
+        Path("xai".to_string()),
+        Json(cc_panes_core::services::CreateLoginAccountRequest {
+            cli_tool: "grok".to_string(),
+            name: "第二个号".to_string(),
+            color: None,
+        }),
+    )
+    .await;
+    assert!(duplicate.is_err());
+
+    let Json(outcome) = delete_provider_account(
+        State(state.clone()),
+        Path(("xai".to_string(), account_id)),
+        Query(DeleteAccountQuery { delete_dir: true }),
+    )
+    .await
+    .expect("delete account");
+    assert_eq!(outcome["dirDeleted"], true);
+    assert!(!config_dir.exists());
+    let Json(found): Json<Option<Provider>> =
+        get_provider(State(state), Path("xai".to_string())).await;
+    assert_eq!(found.expect("provider").accounts.len(), 1);
+}
+
 #[tokio::test]
 async fn filesystem_routes_match_core_service_operations() {
     let (state, root) = test_state("filesystem");

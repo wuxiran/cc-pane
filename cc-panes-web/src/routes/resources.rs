@@ -603,6 +603,81 @@ pub async fn resolve_provider_api_credentials(
     ))
 }
 
+fn login_accounts(state: &AppState) -> cc_panes_core::services::LoginAccountService {
+    cc_panes_core::services::LoginAccountService::for_provider_service(
+        state.provider_service.clone(),
+    )
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteAccountQuery {
+    #[serde(default)]
+    pub delete_dir: bool,
+}
+
+/// 这条供应商下的登录账号（含合成的「默认登录」），每条带登录状态。
+pub async fn list_login_accounts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let views = login_accounts(&state)
+        .list_login_accounts(&id)
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(views).unwrap_or(Value::Null)))
+}
+
+/// 新建登录账号：CC-Panes 自己建目录并链接共享文件。
+pub async fn create_login_account(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<cc_panes_core::services::CreateLoginAccountRequest>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let view = login_accounts(&state)
+        .create_login_account(&id, request)
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(view).unwrap_or(Value::Null)))
+}
+
+/// 某个登录账号是否已登录、是哪个号。不读凭据内容。
+pub async fn get_login_account_status(
+    State(state): State<AppState>,
+    Path((id, account_id)): Path<(String, String)>,
+    Query(query): Query<ProviderAccountQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let status = login_accounts(&state)
+        .login_status(&id, &account_id, query.cli_tool.as_deref())
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
+}
+
+/// 为某个登录账号生成登录命令（命令、参数、环境变量）。
+pub async fn get_login_account_command(
+    State(state): State<AppState>,
+    Path((id, account_id)): Path<(String, String)>,
+    Query(query): Query<ProviderAccountQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let launchers = state.settings_service.get_settings().cli_launchers;
+    let command = login_accounts(&state)
+        .login_command(&id, &account_id, query.cli_tool.as_deref(), &|cli| {
+            launchers.command_for(cli).map(str::to_string)
+        })
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(command).unwrap_or(Value::Null)))
+}
+
+/// 删除一个账号。`?deleteDir=true` 时同时删登录目录（只删 CC-Panes 自己建的）。
+pub async fn delete_provider_account(
+    State(state): State<AppState>,
+    Path((id, account_id)): Path<(String, String)>,
+    Query(query): Query<DeleteAccountQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let outcome = login_accounts(&state)
+        .delete_account(&id, &account_id, query.delete_dir)
+        .map_err(service_error)?;
+    Ok(Json(serde_json::to_value(outcome).unwrap_or(Value::Null)))
+}
+
 /// 当前环境有没有可用的系统钥匙串（没有时密钥留在 providers.json 并标为 `file`）。
 pub async fn get_provider_secret_status(State(state): State<AppState>) -> Json<Value> {
     Json(serde_json::json!({

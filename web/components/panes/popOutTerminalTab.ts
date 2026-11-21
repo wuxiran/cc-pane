@@ -39,6 +39,7 @@ export async function popOutTerminalTab(tab: Tab, paneId: string): Promise<void>
     title: tab.title,
     workspaceName: tab.workspaceName,
     providerId: tab.providerId,
+    providerAccountId: tab.providerAccountId,
     modelId: tab.modelId,
     providerSelection: tab.providerSelection,
     launchProfileId: tab.launchProfileId,

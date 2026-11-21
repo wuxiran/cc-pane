@@ -82,6 +82,7 @@
   "SCAN_DIR_NOT_FOUND": "路径不存在或不是目录: {{path}}",
 
   "PROVIDER_NOT_FOUND": "Provider 不存在",
+  "PROVIDER_ACCOUNT_NOT_FOUND": "供应商账号不存在或已被删除（{{accountId}}）。恢复 / 续接会话必须回到原来的账号：请在供应商设置里恢复该账号，或换一个账号新开会话。",
   "PROVIDER_REQUIRED": "请为 {{cliTool}} 选择 CC-Panes Provider",
   "PROVIDER_INCOMPATIBLE": "所选 Provider 与 {{cliTool}} 不兼容",
   "PROVIDER_CONFIG_INVALID": "所选 Provider 缺少可用的托管配置",

@@ -136,6 +136,7 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         resumeId: reopened.resumeId,
         workspaceName: reopened.workspaceName,
         providerId: reopened.providerId,
+        providerAccountId: reopened.providerAccountId,
         modelId: reopened.modelId,
         providerSelection: reopened.providerSelection,
         launchProfileId: reopened.launchProfileId,

@@ -92,6 +92,7 @@ use commands::{
     create_drama_shot,
     create_launch_profile,
     create_library_space,
+    create_login_account,
     create_popup_terminal_window,
     create_quick_command,
     // Spec 命令
@@ -116,6 +117,7 @@ use commands::{
     delete_memory,
     delete_plan,
     delete_project_skill,
+    delete_provider_account,
     delete_quick_command,
     delete_skill,
     delete_spec,
@@ -157,6 +159,7 @@ use commands::{
     exit_mini_mode,
     export_agent_transcript_cmd,
     extract_last_prompt,
+    find_launch_history_by_launch_id,
     find_task_binding_by_session,
     finish_cli_turn_checkpoint,
     focus_popup_terminal_window,
@@ -213,6 +216,8 @@ use commands::{
     get_layout_switcher_state,
     // 日志命令
     get_log_dir,
+    get_login_account_command,
+    get_login_account_status,
     get_mcp_market_icon,
     get_mcp_server,
     get_memory,
@@ -332,6 +337,7 @@ use commands::{
     list_launch_history,
     list_launch_profiles,
     list_legacy_mcp_servers,
+    list_login_accounts,
     // MCP 配置命令
     list_mcp_servers,
     list_memories,
@@ -1867,6 +1873,7 @@ pub fn run() {
         workspace_service.clone(),
         settings_service.clone(),
     ));
+    session_index_service.set_provider_service(provider_service.clone());
     // Keep the desktop surface aligned with the shared adapter registry. This
     // also drives the CLI installation status rendered by the settings UI.
     let cli_registry = Arc::new(cc_cli_adapters::CliToolRegistry::with_builtin_adapters());
@@ -3380,6 +3387,7 @@ pub fn run() {
             list_launch_history,
             clear_launch_history,
             delete_launch_history,
+            find_launch_history_by_launch_id,
             read_session_state,
             update_launch_session_id,
             update_launch_resume_source,
@@ -3516,6 +3524,11 @@ pub fn run() {
             preview_provider_env,
             resolve_provider_api_credentials,
             get_provider_secret_status,
+            list_login_accounts,
+            create_login_account,
+            get_login_account_status,
+            get_login_account_command,
+            delete_provider_account,
             read_config_dir_info,
             open_path_in_explorer,
             get_display_server,

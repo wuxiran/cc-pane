@@ -99,6 +99,9 @@ fn index_entry(id: &str, cli_tool: &str, workspace: &str, mtime_ms: i64) -> Sess
         source: "local".to_string(),
         wsl_distro: None,
         updated_at: "2026-07-25T00:00:00Z".to_string(),
+        provider_id: None,
+        provider_account_id: None,
+        provider_account_name: None,
     }
 }
 

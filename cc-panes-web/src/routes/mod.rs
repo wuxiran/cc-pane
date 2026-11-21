@@ -708,6 +708,26 @@ pub fn build_router(state: AppState) -> Router {
             "/api/providers/{id}/credentials",
             post(resources::resolve_provider_api_credentials),
         )
+        .route(
+            "/api/providers/{id}/login-accounts",
+            get(resources::list_login_accounts),
+        )
+        .route(
+            "/api/providers/{id}/login-accounts",
+            post(resources::create_login_account),
+        )
+        .route(
+            "/api/providers/{id}/accounts/{account_id}/login-status",
+            get(resources::get_login_account_status),
+        )
+        .route(
+            "/api/providers/{id}/accounts/{account_id}/login-command",
+            get(resources::get_login_account_command),
+        )
+        .route(
+            "/api/providers/{id}/accounts/{account_id}",
+            delete(resources::delete_provider_account),
+        )
         .route("/api/providers/{id}", get(resources::get_provider))
         .route("/api/providers/{id}", put(resources::update_provider))
         .route("/api/providers/{id}", delete(resources::remove_provider))

@@ -157,6 +157,7 @@ export default memo(function TerminalTabContent({
                   leafFocused={tab.activeTerminalPaneId === leaf.id && viewMode === "terminal"}
                   workspaceName={leaf.workspaceName}
                   providerId={leaf.providerId}
+                  providerAccountId={leaf.providerAccountId}
                   modelId={leaf.modelId}
                   providerSelection={leaf.providerSelection}
                   launchProfileId={leaf.launchProfileId}

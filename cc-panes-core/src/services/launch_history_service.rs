@@ -32,6 +32,8 @@ pub struct CreatedLaunchHistory<'a> {
     pub workspace_path: Option<&'a str>,
     pub launch_cwd: Option<&'a str>,
     pub provider_id: Option<&'a str>,
+    /// 实际用的供应商账号：优先后端解析结果，拿不到时用请求里点名的账号。
+    pub provider_account_id: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub provider_selection: Option<&'a str>,
     pub launch_profile_id: Option<&'a str>,
@@ -57,6 +59,7 @@ impl LaunchHistoryService {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
         model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
@@ -74,6 +77,7 @@ impl LaunchHistoryService {
             workspace_path,
             launch_cwd,
             provider_id,
+            provider_account_id,
             model_id,
             provider_selection,
             launch_profile_id,
@@ -103,6 +107,7 @@ impl LaunchHistoryService {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
         model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
@@ -121,6 +126,7 @@ impl LaunchHistoryService {
             workspace_path,
             launch_cwd,
             provider_id,
+            provider_account_id,
             model_id,
             provider_selection,
             launch_profile_id,
@@ -180,10 +186,17 @@ impl LaunchHistoryService {
         cli_tool: &str,
         model_id: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         validate_model_id(model_id)?;
-        self.repo
-            .bind_pty_session(launch_id, pty_session_id, cli_tool, model_id, provider_id)
+        self.repo.bind_pty_session(
+            launch_id,
+            pty_session_id,
+            cli_tool,
+            model_id,
+            provider_id,
+            provider_account_id,
+        )
     }
 
     pub fn bind_or_add_created_session(
@@ -196,6 +209,7 @@ impl LaunchHistoryService {
             record.cli_tool,
             record.model_id,
             record.provider_id,
+            record.provider_account_id,
         )? {
             return Ok(id);
         }
@@ -212,6 +226,7 @@ impl LaunchHistoryService {
             record.workspace_path,
             record.launch_cwd,
             record.provider_id,
+            record.provider_account_id,
             record.model_id,
             record.provider_selection,
             record.launch_profile_id,
@@ -416,6 +431,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("add record")
     }
@@ -452,6 +468,7 @@ mod tests {
             None,
             None,
             Some("provider-a"),
+            None,
             Some("claude-sonnet-4-5"),
             None,
             None,
@@ -481,6 +498,7 @@ mod tests {
                 None,
                 None,
                 Some("provider-a"),
+                None,
                 Some(model_id),
                 None,
                 None,
@@ -511,6 +529,7 @@ mod tests {
                 "claude",
                 Some("claude-sonnet-4-5"),
                 Some("provider-z"),
+                None,
             )
             .expect("bind ok")
             .expect("matched a launch row");
@@ -559,6 +578,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             None, // workspace_snapshot_id
         )
         .expect("add ok");
@@ -596,11 +616,12 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("add codex record");
 
         assert!(svc
-            .bind_pty_session("launch-codex", "pty-codex", "claude", None, None)
+            .bind_pty_session("launch-codex", "pty-codex", "claude", None, None, None)
             .expect("mismatch is not an error")
             .is_none());
         assert!(svc
@@ -609,7 +630,7 @@ mod tests {
             .is_none());
 
         let id = svc
-            .bind_pty_session("launch-codex", "pty-codex", "codex", None, None)
+            .bind_pty_session("launch-codex", "pty-codex", "codex", None, None, None)
             .expect("bind")
             .expect("record id");
         let record = svc
@@ -638,6 +659,7 @@ mod tests {
                 workspace_path: None,
                 launch_cwd: Some("/tmp/proj"),
                 provider_id: Some("provider-a"),
+                provider_account_id: Some("work"),
                 model_id: Some("provider-default"),
                 provider_selection: Some("inherit"),
                 launch_profile_id: None,
@@ -652,6 +674,40 @@ mod tests {
         assert_eq!(record.id, id);
         assert_eq!(record.pty_session_id.as_deref(), Some("pty-fallback"));
         assert_eq!(record.model_id.as_deref(), Some("provider-default"));
+        assert_eq!(record.provider_account_id.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn bind_or_add_created_session_binds_the_resolved_account_to_an_existing_launch() {
+        let svc = service();
+        add_record(&svc, "launch-bind-account", "/tmp/proj");
+
+        svc.bind_or_add_created_session(CreatedLaunchHistory {
+            launch_id: "launch-bind-account",
+            project_name: "proj",
+            project_path: "/tmp/proj",
+            pty_session_id: "pty-bind-account",
+            cli_tool: "claude",
+            runtime_kind: "local",
+            wsl_distro: None,
+            workspace_name: None,
+            workspace_path: None,
+            launch_cwd: Some("/tmp/proj"),
+            provider_id: Some("provider-a"),
+            provider_account_id: Some("work"),
+            model_id: None,
+            provider_selection: Some("inherit"),
+            launch_profile_id: None,
+            workspace_snapshot_id: None,
+        })
+        .expect("bind created session");
+
+        let record = svc
+            .find_by_launch_id("launch-bind-account")
+            .expect("find history")
+            .expect("history row");
+        assert_eq!(record.pty_session_id.as_deref(), Some("pty-bind-account"));
+        assert_eq!(record.provider_account_id.as_deref(), Some("work"));
     }
 
     #[test]
@@ -695,6 +751,7 @@ mod tests {
             "pty-1",
             "claude",
             "local",
+            None,
             None,
             None,
             None,

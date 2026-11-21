@@ -17,6 +17,7 @@ export interface SavedSession {
   workspaceName?: string;
   workspacePath?: string;
   providerId?: string;
+  providerAccountId?: string;
   providerSelection?: import("./launch-profile").LaunchProviderSelection;
   launchProfileId?: string;
   cliTool: string;

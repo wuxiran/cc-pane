@@ -1,3 +1,4 @@
+mod account_ops;
 #[cfg(test)]
 mod account_tests;
 mod accounts;
@@ -95,6 +96,11 @@ impl ProviderService {
         let config = service.load_and_migrate().unwrap_or_default();
         *service.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
         service
+    }
+
+    /// `providers.json` 的路径（它所在的目录就是数据目录）。
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
     }
 
     /// 密钥存储。主程序用它读出要推给 daemon 的值；daemon 用它接收。
@@ -632,7 +638,10 @@ impl ProviderService {
                         && Self::parse_env_config_file(path).is_ok_and(|vars| !vars.is_empty()))
             }
             // 登录账号靠 CLI 自己的登录：有目录即可用，不要求密钥。
-            _ if account.kind == AccountKind::Login => account.login_dir().is_some(),
+            // 合成的「默认登录」不带目录，用的是 CLI 默认目录里的那一套。
+            _ if account.kind == AccountKind::Login => {
+                account.login_dir().is_some() || account.is_default_login()
+            }
             ProviderType::Cursor | ProviderType::Kimi => has_key,
             _ => has_key || has_url,
         }

@@ -39,6 +39,8 @@ pub struct AddLaunchHistoryRequest {
     pub workspace_path: Option<String>,
     pub launch_cwd: Option<String>,
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub provider_account_id: Option<String>,
     pub model_id: Option<String>,
     pub provider_selection: Option<String>,
     pub launch_profile_id: Option<String>,
@@ -164,6 +166,7 @@ pub async fn add_launch_history(
             req.workspace_path.as_deref(),
             req.launch_cwd.as_deref(),
             req.provider_id.as_deref(),
+            req.provider_account_id.as_deref(),
             req.model_id.as_deref(),
             req.provider_selection.as_deref(),
             req.launch_profile_id.as_deref(),
@@ -620,7 +623,9 @@ fn restore_snapshot_entry(
             rows: 30,
             workspace_name: snapshot.workspace_name.clone(),
             provider_id: entry.provider_id.clone(),
-            provider_account_id: None,
+            // 回到当时那个账号。账号已被删除时 create_session 返回带码错误，逐条报给客户端，
+            // 不退回默认账号——登录型账号换了目录就找不到这段对话。
+            provider_account_id: entry.provider_account_id.clone(),
             model_id: None,
             provider_selection,
             launch_profile_id: entry.launch_profile_id.clone(),

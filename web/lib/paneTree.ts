@@ -235,6 +235,7 @@ export function syncTabTerminalState(tab: Tab): void {
       resumeIdSource: tab.resumeIdSource,
       workspaceName: tab.workspaceName,
       providerId: tab.providerId,
+      providerAccountId: tab.providerAccountId,
       modelId: tab.modelId,
       providerSelection: tab.providerSelection,
       launchProfileId: tab.launchProfileId,
@@ -271,6 +272,7 @@ export function syncTabTerminalState(tab: Tab): void {
   tab.resumeIdSource = activeLeaf.resumeIdSource;
   tab.workspaceName = activeLeaf.workspaceName;
   tab.providerId = activeLeaf.providerId;
+  tab.providerAccountId = activeLeaf.providerAccountId;
   tab.modelId = activeLeaf.modelId;
   tab.providerSelection = activeLeaf.providerSelection;
   tab.launchProfileId = activeLeaf.launchProfileId;

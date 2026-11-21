@@ -75,6 +75,7 @@ describe("关闭撤销往返", () => {
       workspaceName: "ws",
       workspacePath: "/ws",
       providerId: "prov-1",
+      providerAccountId: "account-work",
       modelId: "model-1",
       launchProfileId: "profile-1",
       machineName: "box",
@@ -96,6 +97,7 @@ describe("关闭撤销往返", () => {
       workspaceName: tab.workspaceName,
       workspacePath: tab.workspacePath,
       providerId: tab.providerId,
+      providerAccountId: tab.providerAccountId,
       modelId: tab.modelId,
       launchProfileId: tab.launchProfileId,
       machineName: tab.machineName,
@@ -104,6 +106,9 @@ describe("关闭撤销往返", () => {
       launchClaude: tab.launchClaude,
     });
     expect(identity(after)).toEqual(identity(before));
+    // 撤销出来的会话回到同一个账号（登录型账号换了目录就找不到那段对话）
+    expect(after.providerAccountId).toBe("account-work");
+    expect(after.terminalRootPane).toMatchObject({ providerAccountId: "account-work" });
   });
 
   it("initialPrompt 不进快照——撤销出来的会话不得重放首启 prompt", () => {

@@ -264,6 +264,7 @@ export async function launchOrAttachTerminalSession({
             rows: fitted ? term.rows : 24,
             workspaceName: props.workspaceName,
             providerId: props.providerId,
+            providerAccountId: props.providerAccountId,
             modelId: props.modelId,
             providerSelection: props.providerSelection,
             launchProfileId: props.launchProfileId,
@@ -325,6 +326,9 @@ export async function launchOrAttachTerminalSession({
           createdSessionId: sessionId,
         });
         console.info(`[TerminalView] Session created: ${sessionId}`);
+        if (createdLaunchId && props.tabId && props.paneId) {
+          usePanesStore.getState().syncTerminalProviderAccount(props.tabId, props.paneId, createdLaunchId);
+        }
         startLaunchBackfillIfNeeded({
           createdLaunchId,
           sessionId,

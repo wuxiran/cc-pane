@@ -59,6 +59,9 @@ pub struct SavedSession {
     pub workspace_path: Option<String>,
     /// Provider ID
     pub provider_id: Option<String>,
+    /// 这个会话实际用的供应商账号。登录型账号各占一个 CLI 配置目录，恢复时必须回到同一个。
+    #[serde(default)]
+    pub provider_account_id: Option<String>,
     /// Provider selection mode: inherit / explicit / none
     #[serde(default)]
     pub provider_selection: Option<String>,
@@ -127,6 +130,7 @@ impl SavedSession {
             workspace_name: request.workspace_name.clone(),
             workspace_path: request.workspace_path.clone(),
             provider_id: request.provider_id.clone(),
+            provider_account_id: request.provider_account_id.clone(),
             provider_selection,
             launch_profile_id: request.launch_profile_id.clone(),
             cli_tool: provenance.cli_tool.clone(),

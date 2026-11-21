@@ -93,6 +93,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           rows: 24,
           workspaceName: freshLeaf.workspaceName ?? tab.workspaceName,
           providerId: freshLeaf.providerId ?? tab.providerId,
+          providerAccountId: freshLeaf.providerAccountId ?? tab.providerAccountId,
           modelId: freshLeaf.modelId ?? tab.modelId,
           providerSelection: freshLeaf.providerSelection ?? tab.providerSelection,
           launchProfileId: freshLeaf.launchProfileId ?? tab.launchProfileId,
@@ -131,6 +132,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
         }
         useTerminalStatusStore.getState().markSessionLive(sessionId);
         afterCreate.setBackgroundRestoreSession(tab.id, leaf.id, sessionId);
+        afterCreate.syncTerminalProviderAccount(tab.id, leaf.id, launchId);
         writeTerminalRestoreLog(tab.id, leaf.id, "background.restore.ready", { sessionId });
         releaseSlot();
         return sessionId;

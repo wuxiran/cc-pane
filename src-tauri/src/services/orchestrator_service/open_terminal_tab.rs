@@ -311,6 +311,7 @@ pub(super) fn build_open_terminal_event(
         project_id: input.project_id.to_string(),
         workspace_name: input.context.workspace_name.clone(),
         provider_id: None,
+        provider_account_id: None,
         model_id: None,
         provider_selection: Some(LaunchProviderSelection::None.as_str().to_string()),
         launch_profile_id: None,
@@ -613,7 +614,7 @@ impl McpToolHandler {
         )
         .await
         {
-            Ok((session_id, _)) => session_id,
+            Ok((session_id, _, _)) => session_id,
             Err(error) => {
                 error!(err = %error, "mcp::open_terminal_tab failed to create session");
                 let notice = runtime
@@ -727,6 +728,7 @@ impl McpToolHandler {
             context.workspace_name.as_deref(),
             context.workspace_path.as_deref(),
             Some(launch_cwd),
+            None,
             None,
             None,
             Some(LaunchProviderSelection::None.as_str()),

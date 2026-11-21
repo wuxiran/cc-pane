@@ -714,7 +714,7 @@ impl LaunchProfileService {
         resolution.provider_account_id = provider_plan.account_id.clone();
         resolution.provider_account_name = provider_plan.provider.as_ref().and_then(|provider| {
             provider
-                .account(provider_plan.account_id.as_deref())
+                .resolve_account(provider_plan.account_id.as_deref(), cli_tool.as_id())
                 .map(|account| account.name.clone())
         });
         resolution.model_id = provider_plan.model_id.clone();

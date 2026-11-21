@@ -37,6 +37,7 @@ export function toClosedTabSnapshot(t: {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: ClosedTabSnapshot["providerSelection"];
   launchProfileId?: string;
@@ -62,6 +63,7 @@ export function toClosedTabSnapshot(t: {
     resumeId: t.resumeId,
     workspaceName: t.workspaceName,
     providerId: t.providerId,
+    providerAccountId: t.providerAccountId,
     modelId: t.modelId,
     providerSelection: detach(t.providerSelection),
     launchProfileId: t.launchProfileId,

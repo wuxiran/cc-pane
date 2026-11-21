@@ -173,6 +173,7 @@ export default function PopupTerminalWindow() {
         leafFocused
         workspaceName={tabData.workspaceName}
         providerId={tabData.providerId}
+        providerAccountId={tabData.providerAccountId}
         modelId={tabData.modelId}
         providerSelection={tabData.providerSelection}
         launchProfileId={tabData.launchProfileId}

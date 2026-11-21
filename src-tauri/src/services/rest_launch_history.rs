@@ -25,6 +25,8 @@ pub struct RestLaunchRecord<'a> {
     pub workspace_name: Option<&'a str>,
     pub workspace_path: Option<&'a str>,
     pub provider_id: Option<&'a str>,
+    /// 实际用的供应商账号（后端解析结果）。
+    pub provider_account_id: Option<&'a str>,
     pub model_id: Option<&'a str>,
     pub provider_selection: Option<&'a str>,
     pub launch_profile_id: Option<&'a str>,
@@ -58,6 +60,7 @@ pub fn record_rest_launch(
         record.workspace_path,
         record.launch_cwd.or(Some(record.project_path)),
         record.provider_id,
+        record.provider_account_id,
         record.model_id,
         record.provider_selection,
         record.launch_profile_id,
@@ -121,7 +124,8 @@ mod tests {
                 wsl_distro: None,
                 workspace_name: Some("workspace"),
                 workspace_path: Some("/workspace"),
-                provider_id: None,
+                provider_id: Some("provider-a"),
+                provider_account_id: Some("work"),
                 model_id: None,
                 provider_selection: None,
                 launch_profile_id: None,
@@ -134,6 +138,8 @@ mod tests {
         assert_eq!(record.workspace_path.as_deref(), Some("/workspace"));
         assert_eq!(record.launch_cwd.as_deref(), Some("/worktree"));
         assert_eq!(record.resume_session_id.as_deref(), Some("resume"));
+        assert_eq!(record.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(record.provider_account_id.as_deref(), Some("work"));
     }
 
     #[test]

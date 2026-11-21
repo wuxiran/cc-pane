@@ -46,6 +46,8 @@ pub(super) struct OscCaptureContext {
     pub rollout_cwds: Vec<String>,
     pub launch_started_at: SystemTime,
     pub rollout_fallback: bool,
+    /// 会话用了登录账号时的 `CODEX_HOME`（账号目录）；`None` = 默认目录。
+    pub codex_home: Option<PathBuf>,
 }
 
 struct SharedState {
@@ -245,7 +247,7 @@ impl OscResumeCapture {
             let resolved = if ctx.runtime_kind == "wsl" {
                 resolve_full_id_wsl(&prefix, ctx.wsl_distro.as_deref())
             } else {
-                resolve_full_id_local(&prefix)
+                resolve_full_id_local(&prefix, ctx.codex_home.as_deref())
             };
 
             match resolved {
@@ -349,7 +351,7 @@ fn detect_rollout_for_context(ctx: &OscCaptureContext) -> Result<Option<String>,
         );
     }
     find_rollout_for_cwd(
-        &codex_sessions_root()?,
+        &codex_sessions_root_for(ctx.codex_home.as_deref())?,
         &ctx.rollout_cwds,
         ctx.launch_started_at,
     )
@@ -503,13 +505,24 @@ fn is_uuid_shaped(run: &str) -> bool {
 }
 
 /// 本地：扫 ~/.codex/sessions/YYYY/MM/DD 下的 rollout 文件名做前缀匹配
-fn resolve_full_id_local(prefix: &str) -> Result<Option<String>, String> {
-    let root = codex_sessions_root()?;
+fn resolve_full_id_local(
+    prefix: &str,
+    codex_home: Option<&Path>,
+) -> Result<Option<String>, String> {
+    let root = codex_sessions_root_for(codex_home)?;
     if !root.exists() {
         return Ok(None);
     }
     let mut visited = 0usize;
     Ok(find_in_dir(&root, prefix, 0, &mut visited))
+}
+
+/// 会话的 rollout 目录：用了登录账号就是账号目录下的 `sessions`，否则是默认目录的。
+fn codex_sessions_root_for(codex_home: Option<&Path>) -> Result<PathBuf, String> {
+    match codex_home {
+        Some(home) => Ok(home.join("sessions")),
+        None => codex_sessions_root(),
+    }
 }
 
 fn codex_sessions_root() -> Result<PathBuf, String> {
@@ -622,13 +635,29 @@ pub(super) fn emit_resume_downgrade_warning(
 // 生产调用方在 wsl_codex.rs（Windows-only 模块），Linux 下仅测试引用
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn codex_rollout_exists(full_id: &str, distro: Option<&str>) -> Option<bool> {
+    codex_rollout_exists_in(full_id, distro, &[])
+}
+
+/// 同 [`codex_rollout_exists`]，本地检查时除默认目录外还找 `extra_codex_homes`
+/// （各登录账号的 `CODEX_HOME`）：会话在哪个账号目录里都算存在。
+pub(crate) fn codex_rollout_exists_in(
+    full_id: &str,
+    distro: Option<&str>,
+    extra_codex_homes: &[PathBuf],
+) -> Option<bool> {
     // 必须是完整 UUID 形状（精确匹配，避免短前缀撞车，如 019ef31c 同时间戳前缀不同后缀）
     if full_id.len() != FULL_UUID_LEN || !is_uuid_shaped(full_id) {
         return Some(false);
     }
     let resolved = match distro {
         Some(distro) => resolve_full_id_wsl(full_id, Some(distro)),
-        None => resolve_full_id_local(full_id),
+        None => resolve_full_id_local(full_id, None).map(|found| {
+            found.or_else(|| {
+                extra_codex_homes
+                    .iter()
+                    .find_map(|home| resolve_full_id_local(full_id, Some(home)).ok().flatten())
+            })
+        }),
     };
     match resolved {
         Ok(Some(_)) => Some(true),
@@ -775,6 +804,42 @@ mod tests {
             codex_rollout_exists("019eb24ff78f7c63babab70f8aabbccd0000ab", Some("Ubuntu")),
             Some(false)
         );
+    }
+
+    /// 会话在某个登录账号的 `CODEX_HOME` 里也算存在；捕获 resume id 时按会话自己的目录找。
+    #[test]
+    fn rollouts_are_found_in_login_account_homes() {
+        let temp = tempfile::tempdir().unwrap();
+        let account_home = temp.path().join("codex-acct");
+        let day = account_home
+            .join("sessions")
+            .join("2026")
+            .join("11")
+            .join("21");
+        std::fs::create_dir_all(&day).unwrap();
+        let id = "019ef31c-0000-7000-8000-00000000abcd";
+        std::fs::write(
+            day.join(format!("rollout-2026-11-21T10-00-00-{id}.jsonl")),
+            "{}\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            codex_sessions_root_for(Some(&account_home)).unwrap(),
+            account_home.join("sessions")
+        );
+        assert_eq!(
+            resolve_full_id_local("019ef31c-0000-7000-8000", Some(&account_home)).unwrap(),
+            Some(id.to_string())
+        );
+        assert_eq!(
+            codex_rollout_exists_in(id, None, std::slice::from_ref(&account_home)),
+            Some(true)
+        );
+        // 另一个账号目录里没有它。
+        let other_home = temp.path().join("codex-other");
+        std::fs::create_dir_all(other_home.join("sessions")).unwrap();
+        assert_eq!(resolve_full_id_local(id, Some(&other_home)).unwrap(), None);
     }
 
     #[test]

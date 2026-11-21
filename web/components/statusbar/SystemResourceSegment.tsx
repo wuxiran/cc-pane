@@ -364,6 +364,7 @@ export default function SystemResourceSegment() {
         workspacePath: saved?.workspacePath,
         workspaceSnapshotId: saved?.workspaceSnapshotId,
         providerId: saved?.providerId,
+        providerAccountId: saved?.providerAccountId,
         providerSelection: saved?.providerSelection,
         launchProfileId: saved?.launchProfileId,
         cliTool: saved?.cliTool as CliTool | undefined,

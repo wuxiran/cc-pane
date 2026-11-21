@@ -20,6 +20,10 @@ export interface SessionIndexEntry {
   source: SessionIndexSource;
   wslDistro: string | null;
   updatedAt: string;
+  /** 这条会话在哪个登录账号的目录里；三个字段都没有 = 在 CLI 的默认目录里（默认登录）。 */
+  providerId?: string;
+  providerAccountId?: string;
+  providerAccountName?: string;
 }
 
 export interface SessionIndexListParams {

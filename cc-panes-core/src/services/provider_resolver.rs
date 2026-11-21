@@ -287,29 +287,34 @@ pub fn resolve_provider_plan(
             )
         })?;
 
-    let selected_account_id = match source {
-        ProviderSource::Request => normalize_id(input.requested_account_id),
+    // 请求里点名的账号对选中的供应商都生效，不管供应商本身来自请求、运行配置、工作空间
+    // 还是默认值：会话恢复 / 历史重放带回来的就是「当时实际用的账号」，供应商那一半
+    // 可能是继承来的。点了名却找不到就报错，不会悄悄换成默认账号。
+    let selected_account_id = normalize_id(input.requested_account_id).or(match source {
         ProviderSource::LaunchProfile => normalize_id(input.profile_account_id),
         ProviderSource::LegacyWorkspace => normalize_id(input.workspace_account_id),
-        ProviderSource::DefaultProvider | ProviderSource::Native => None,
-    };
-    let account = provider.account(selected_account_id).ok_or_else(|| {
-        let mut error_params = HashMap::from([
-            ("cliTool".to_string(), input.cli_tool.as_id().to_string()),
-            ("providerId".to_string(), provider_id.to_string()),
-        ]);
-        if let Some(account_id) = selected_account_id {
-            error_params.insert("accountId".to_string(), account_id.to_string());
-        }
-        AppError::coded_with_params(
-            "PROVIDER_ACCOUNT_NOT_FOUND",
-            format!(
-                "Account '{}' was not found on Provider '{provider_id}'",
-                selected_account_id.unwrap_or("<default>")
-            ),
-            error_params,
-        )
-    })?;
+        ProviderSource::Request | ProviderSource::DefaultProvider | ProviderSource::Native => None,
+    });
+    let account = provider
+        .resolve_account(selected_account_id, input.cli_tool.as_id())
+        .ok_or_else(|| {
+            let mut error_params = HashMap::from([
+                ("cliTool".to_string(), input.cli_tool.as_id().to_string()),
+                ("providerId".to_string(), provider_id.to_string()),
+            ]);
+            if let Some(account_id) = selected_account_id {
+                error_params.insert("accountId".to_string(), account_id.to_string());
+            }
+            AppError::coded_with_params(
+                "PROVIDER_ACCOUNT_NOT_FOUND",
+                format!(
+                    "Account '{}' was not found on Provider '{provider_id}'",
+                    selected_account_id.unwrap_or("<default>")
+                ),
+                error_params,
+            )
+        })?;
+    let account = account.as_ref();
     let account_id = account.id.clone();
 
     if !super::ProviderService::managed_configuration_is_usable(&provider, account) {
@@ -476,6 +481,37 @@ pub fn validate_provider_runtime(
             cli_tool,
             plan.provider.as_ref().map(|provider| provider.id.as_str()),
         ));
+    }
+    // 登录账号的目录是本机路径：WSL / SSH 那一侧既看不到这个目录，也不该收到一个本机路径
+    // 当 `CODEX_HOME` 之类的变量。明确拒绝，而不是把路径原样带过去。
+    // （「配置目录」类型指向 ccswitch JSON 文件的旧用法不设目录变量，不受影响。）
+    if runtime != LaunchRuntime::Local {
+        if let Some(provider) = plan.provider.as_ref() {
+            let account = provider.resolve_account(plan.account_id.as_deref(), cli_tool.as_id());
+            let local_dir = account
+                .as_ref()
+                .and_then(|account| account.login_dir())
+                .filter(|dir| !std::path::Path::new(dir).is_file());
+            if local_dir.is_some() {
+                let runtime_label = match runtime {
+                    LaunchRuntime::Ssh => "SSH",
+                    _ => "WSL",
+                };
+                let account_id = plan.account_id.clone().unwrap_or_default();
+                return Err(AppError::coded_with_params(
+                    "PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY",
+                    format!(
+                        "Login account '{account_id}' lives in a directory on this machine and cannot be used in a {runtime_label} session; choose the default login or a key account, or sign in on the {runtime_label} side"
+                    ),
+                    HashMap::from([
+                        ("cliTool".to_string(), cli_tool.as_id().to_string()),
+                        ("providerId".to_string(), provider.id.clone()),
+                        ("accountId".to_string(), account_id),
+                        ("runtime".to_string(), runtime_label.to_lowercase()),
+                    ]),
+                ));
+            }
+        }
     }
     if runtime == LaunchRuntime::Ssh && plan.mode == ProviderMode::Managed {
         return Err(provider_error(
@@ -1683,6 +1719,158 @@ mod tests {
 
         assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_NOT_FOUND"));
         assert!(!error.to_string().contains("secret-"));
+    }
+
+    /// 登录账号的目录是本机路径：WSL / SSH 下明确拒绝，不把路径带过去。
+    /// 不带目录的「默认登录」和密钥账号不受影响。
+    #[test]
+    fn login_account_directories_are_rejected_for_wsl_and_ssh_runtimes() {
+        let account_dir = tempfile::tempdir().unwrap();
+        let mut configured = provider("p1", ProviderType::OpenAI);
+        configured.api_key = None;
+        configured.base_url = None;
+        let mut login = login_account("login", "codex");
+        login.config_dir = Some(account_dir.path().to_string_lossy().into_owned());
+        configured.accounts = vec![key_account("key"), login];
+        let providers = vec![configured];
+        let plan_for = |account: &str| {
+            resolve_accounts(
+                CliTool::Codex,
+                (Some("p1"), Some(account)),
+                (None, None),
+                (None, None),
+                None,
+                &providers,
+            )
+            .unwrap()
+        };
+
+        let login_plan = plan_for("login");
+        assert!(
+            validate_provider_runtime(&login_plan, LaunchRuntime::Local, CliTool::Codex).is_ok()
+        );
+        for runtime in [LaunchRuntime::Wsl, LaunchRuntime::Ssh] {
+            let error =
+                validate_provider_runtime(&login_plan, runtime, CliTool::Codex).unwrap_err();
+            assert_eq!(error.code(), Some("PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY"));
+            assert!(
+                !error
+                    .to_string()
+                    .contains(&*account_dir.path().to_string_lossy()),
+                "the error must not carry the local path: {error}"
+            );
+        }
+
+        // 默认登录没有本机目录：WSL 下照常可用（用 WSL 那一侧 CLI 自己的登录）。
+        let default_login = plan_for(crate::models::provider::DEFAULT_LOGIN_ACCOUNT_ID);
+        assert_eq!(
+            default_login.account_id.as_deref(),
+            Some(crate::models::provider::DEFAULT_LOGIN_ACCOUNT_ID)
+        );
+        assert!(
+            validate_provider_runtime(&default_login, LaunchRuntime::Wsl, CliTool::Codex).is_ok()
+        );
+        // 密钥账号在 WSL 下也照常可用。
+        assert!(
+            validate_provider_runtime(&plan_for("key"), LaunchRuntime::Wsl, CliTool::Codex).is_ok()
+        );
+    }
+
+    /// 「配置目录」类型指向 ccswitch JSON 文件的旧用法不设目录变量：WSL 下行为不变。
+    #[test]
+    fn config_profile_json_file_still_launches_in_wsl() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("profile.json");
+        std::fs::write(
+            &file,
+            r#"{"env":{"ANTHROPIC_BASE_URL":"https://example.test"}}"#,
+        )
+        .unwrap();
+        let mut configured = provider("p1", ProviderType::ConfigProfile);
+        configured.api_key = None;
+        configured.base_url = None;
+        configured.config_dir = Some(file.to_string_lossy().into_owned());
+        let providers =
+            vec![crate::services::ProviderService::normalize_legacy_provider(configured).unwrap()];
+
+        let plan = resolve_accounts(
+            CliTool::Claude,
+            (Some("p1"), None),
+            (None, None),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap();
+
+        assert!(validate_provider_runtime(&plan, LaunchRuntime::Wsl, CliTool::Claude).is_ok());
+    }
+
+    /// 恢复 / 历史重放带回来的是「当时实际用的账号」，供应商那一半可能是继承来的
+    /// （运行配置、工作空间、默认供应商）。点了名的账号必须生效；在选中的供应商上找不到
+    /// （账号已被删除）就报错，不能悄悄换成默认账号。
+    #[test]
+    fn requested_account_is_honored_whatever_the_provider_source_and_never_silently_replaced() {
+        let providers = vec![provider_with_accounts("p1")];
+        let sources: [(Option<&str>, Option<&str>, Option<&str>); 3] = [
+            (Some("p1"), None, None),
+            (None, Some("p1"), None),
+            (None, None, Some("p1")),
+        ];
+        for (profile, workspace, default_provider) in sources {
+            let plan = resolve_accounts(
+                CliTool::Claude,
+                (None, Some("work")),
+                (profile, Some("home")),
+                (workspace, None),
+                default_provider,
+                &providers,
+            )
+            .unwrap();
+            assert_eq!(plan.account_id.as_deref(), Some("work"));
+
+            let error = resolve_accounts(
+                CliTool::Claude,
+                (None, Some("deleted-account")),
+                (profile, Some("home")),
+                (workspace, None),
+                default_provider,
+                &providers,
+            )
+            .unwrap_err();
+            assert_eq!(error.code(), Some("PROVIDER_ACCOUNT_NOT_FOUND"));
+        }
+    }
+
+    /// 支持登录账号的供应商类型与适配器的兼容类型一致。
+    #[test]
+    fn login_cli_tools_match_the_adapter_compatibility_lists() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        for provider_type in [
+            ProviderType::Anthropic,
+            ProviderType::Bedrock,
+            ProviderType::Vertex,
+            ProviderType::Proxy,
+            ProviderType::LocalGateway,
+            ProviderType::OpenAI,
+            ProviderType::Gemini,
+            ProviderType::Grok,
+        ] {
+            let configured = provider("p1", provider_type);
+            let type_id = serde_json::to_value(provider_type).unwrap();
+            for cli in configured.login_cli_tools() {
+                let adapter = registry.get(cli).unwrap();
+                let compatible = adapter
+                    .capabilities()
+                    .compatible_provider_types
+                    .iter()
+                    .any(|item| Some(item.as_str()) == type_id.as_str());
+                assert!(
+                    compatible || (*cli == "antigravity" && provider_type == ProviderType::Gemini),
+                    "{cli} cannot launch with provider type {type_id}"
+                );
+            }
+        }
     }
 
     #[test]

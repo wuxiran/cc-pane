@@ -233,6 +233,7 @@ export function useTerminalDeferredRestore({
                 rows: term.rows,
                 workspaceName: props.workspaceName,
                 providerId: props.providerId,
+                providerAccountId: props.providerAccountId,
                 modelId: props.modelId,
                 providerSelection: props.providerSelection,
                 launchProfileId: props.launchProfileId,
@@ -290,6 +291,9 @@ export function useTerminalDeferredRestore({
             });
             logRestoreEvent("activation.create.end", { createdSessionId: sessionId });
             onSessionCreatedRef.current(sessionId);
+            if (createdLaunchId && props.tabId && props.paneId) {
+              usePanesStore.getState().syncTerminalProviderAccount(props.tabId, props.paneId, createdLaunchId);
+            }
             startLaunchBackfillIfNeeded({
               createdLaunchId,
               sessionId,

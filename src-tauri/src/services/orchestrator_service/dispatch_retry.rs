@@ -225,7 +225,8 @@ fn retry_params(binding: &TaskBinding) -> Result<McpLaunchTaskParams, String> {
         "cliTool":envelope.resolved_cli_tool, "profileId":envelope.profile_id,
         "runtimeKind":envelope.runtime_kind, "cwd":envelope.cwd,
         "modelId":envelope.model_id, "permissionMode":envelope.permission_mode,
-        "providerId":envelope.provider_id, "providerSelection":envelope.provider_selection,
+        "providerId":envelope.provider_id, "providerAccountId":envelope.provider_account_id,
+        "providerSelection":envelope.provider_selection,
         "parentBindingId":envelope.parent_binding_id,
         // Parent binding is stable; resolve its current session instead of replaying a stale PTY id.
         "parentSessionId":if envelope.parent_binding_id.is_none() { envelope.parent_session_id } else { None },
@@ -247,7 +248,7 @@ mod tests {
                 "version":1,"taskId":"old-task","bindingId":"failed","mode":"prompt","resolvedCliTool":"codex",
                 "projectPath":"/repo","workspaceName":"workspace","profileId":"profile","runtimeKind":"wsl",
                 "cwd":"/repo/subdir","permissionMode":"default","modelId":"chosen-model",
-                "providerId":"provider","providerSelection":"explicit",
+                "providerId":"provider","providerAccountId":"work","providerSelection":"explicit",
                 "parentBindingId":"leader","parentSessionId":"old-parent-pty",
                 "mcp":{"supported":true,"canControlOrchestration":true,"canReportResult":true}
             }}
@@ -264,6 +265,7 @@ mod tests {
         assert_eq!(retry.model_id.as_deref(), Some("chosen-model"));
         assert_eq!(retry.permission_mode.as_deref(), Some("default"));
         assert_eq!(retry.provider_id.as_deref(), Some("provider"));
+        assert_eq!(retry.provider_account_id.as_deref(), Some("work"));
         assert_eq!(retry.provider_selection.as_deref(), Some("explicit"));
         assert_eq!(retry.parent_binding_id.as_deref(), Some("leader"));
         assert!(retry.parent_session_id.is_none());

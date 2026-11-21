@@ -524,6 +524,8 @@ pub struct CreateSessionResponse {
     pub reused_existing: bool,
     #[serde(default)]
     pub resolved_model_id: Option<String>,
+    #[serde(default)]
+    pub resolved_account_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1017,6 +1019,7 @@ async fn create_session(
                     session_id,
                     reused_existing: true,
                     resolved_model_id: None,
+                    resolved_account_id: None,
                 }),
             ));
         }
@@ -1129,12 +1132,14 @@ async fn create_session(
     };
     let session_id = outcome.session_id;
     let resolved_model_id = outcome.resolved_model_id;
+    let resolved_account_id = outcome.resolved_account_id;
     Ok((
         StatusCode::CREATED,
         Json(CreateSessionResponse {
             session_id,
             reused_existing: false,
             resolved_model_id,
+            resolved_account_id,
         }),
     ))
 }
@@ -2065,6 +2070,7 @@ mod tests {
             session_id: "session-native".to_string(),
             reused_existing: false,
             resolved_model_id: None,
+            resolved_account_id: None,
         })
         .expect("serialize create response");
 
@@ -2078,6 +2084,7 @@ mod tests {
         preparation_gate:
             Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
         resolved_model_id: Mutex<Option<String>>,
+        resolved_account_id: Mutex<Option<String>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
         resizes: Mutex<Vec<(String, u16, u16)>>,
@@ -2104,6 +2111,7 @@ mod tests {
                 session_id,
                 reused_existing: false,
                 resolved_model_id: self.resolved_model_id.lock().unwrap().clone(),
+                resolved_account_id: self.resolved_account_id.lock().unwrap().clone(),
             })
         }
 
@@ -3538,6 +3546,7 @@ mod tests {
     async fn terminal_routes_require_token_and_delegate_to_backend() {
         let backend = Arc::new(MockTerminalBackend::default());
         *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
+        *backend.resolved_account_id.lock().unwrap() = Some("work".to_string());
         let app = router(test_config("secret", "127.0.0.1:18084", backend.clone()));
 
         let unauthorized = app
@@ -3580,6 +3589,7 @@ mod tests {
             response.resolved_model_id.as_deref(),
             Some("provider-default")
         );
+        assert_eq!(response.resolved_account_id.as_deref(), Some("work"));
         assert_eq!(
             backend.created.lock().unwrap()[0]
                 .extra_env

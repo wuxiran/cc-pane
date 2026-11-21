@@ -12,6 +12,7 @@ export interface OrchestratorLaunchPayload {
   projectId: string;
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;

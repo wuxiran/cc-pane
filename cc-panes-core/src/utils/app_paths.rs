@@ -78,6 +78,12 @@ impl AppPaths {
         self.data_dir.join("providers.json")
     }
 
+    /// 登录账号目录根：每个由 CC-Panes 新建的登录账号在它下面有一个独立目录。
+    pub fn login_accounts_dir(&self) -> PathBuf {
+        self.data_dir
+            .join(crate::services::login_account::LOGIN_ACCOUNTS_DIR_NAME)
+    }
+
     /// launch profiles 目标目录（后续版本使用；当前仍兼容根目录 launch-profiles.json）
     pub fn launch_profiles_dir(&self) -> PathBuf {
         self.data_dir.join("launch-profiles")

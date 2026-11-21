@@ -16,6 +16,8 @@ export interface LaunchRecord {
   workspacePath?: string;
   launchCwd?: string;
   providerId?: string;
+  /** 这次启动实际用的供应商账号；旧记录没有（恢复时走供应商默认账号）。 */
+  providerAccountId?: string | null;
   modelId?: string | null;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
@@ -48,6 +50,7 @@ export const historyService = {
     providerSelection?: LaunchProviderSelection,
     workspaceSnapshotId?: string,
     launchProfileId?: string,
+    providerAccountId?: string,
   ): Promise<number> {
     const payload = {
       projectId,
@@ -60,6 +63,7 @@ export const historyService = {
       workspacePath: workspacePath ?? null,
       launchCwd: launchCwd ?? null,
       providerId: providerId ?? null,
+      providerAccountId: providerAccountId ?? null,
       modelId: modelId ?? null,
       providerSelection: providerSelection ?? null,
       launchProfileId: launchProfileId ?? null,
@@ -73,6 +77,13 @@ export const historyService = {
   async list(limit = 20): Promise<LaunchRecord[]> {
     return invokeOrApi<LaunchRecord[]>("list_launch_history", { limit }, () =>
       apiGet<LaunchRecord[]>("/api/launch-history", { limit }),
+    );
+  },
+
+  /** 按 launchId 取一条启动记录。建完会话后用它读回后端解析出的「实际用的账号」。 */
+  async findByLaunchId(launchId: string): Promise<LaunchRecord | null> {
+    return invokeOrApi<LaunchRecord | null>("find_launch_history_by_launch_id", { launchId }, () =>
+      apiGet<LaunchRecord | null>("/api/launch-history/by-launch", { launchId }),
     );
   },
 

@@ -25,6 +25,9 @@ pub struct LaunchRecord {
     pub workspace_path: Option<String>,
     pub launch_cwd: Option<String>,
     pub provider_id: Option<String>,
+    /// 这次启动实际用的供应商账号（NULL = 旧数据 / 原生启动，恢复时走供应商默认账号）
+    #[serde(default)]
+    pub provider_account_id: Option<String>,
     pub model_id: Option<String>,
     pub provider_selection: Option<String>,
     pub launch_profile_id: Option<String>,
@@ -70,7 +73,8 @@ const LAUNCH_RECORD_COLUMNS: &str = "
     COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id,
     resume_source,
     launch_status,
-    failure_reason";
+    failure_reason,
+    provider_account_id";
 
 fn map_launch_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchRecord> {
     Ok(LaunchRecord {
@@ -96,6 +100,7 @@ fn map_launch_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchRecord> 
         resume_source: row.get(19)?,
         launch_status: row.get(20)?,
         failure_reason: row.get(21)?,
+        provider_account_id: row.get(22)?,
     })
 }
 
@@ -122,6 +127,7 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
         model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
@@ -136,8 +142,8 @@ impl HistoryRepository {
         conn.execute(
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
-                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id, provider_account_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             rusqlite::params![
                 project_id,
                 project_name,
@@ -154,7 +160,8 @@ impl HistoryRepository {
                 provider_selection,
                 launch_profile_id,
                 workspace_snapshot_id,
-                workspace_snapshot_id
+                workspace_snapshot_id,
+                provider_account_id
             ],
         )
         .map_err(|e| {
@@ -185,6 +192,7 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
         model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
@@ -200,8 +208,8 @@ impl HistoryRepository {
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
                 pty_session_id,
-                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id, provider_account_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             rusqlite::params![
                 project_id,
                 project_name,
@@ -219,7 +227,8 @@ impl HistoryRepository {
                 provider_selection,
                 launch_profile_id,
                 workspace_snapshot_id,
-                workspace_snapshot_id
+                workspace_snapshot_id,
+                provider_account_id
             ],
         )
         .map_err(|e| {
@@ -394,6 +403,9 @@ impl HistoryRepository {
     /// 同步把 `provider_id` / `model_id` 一起 UPDATE：这两列会被后端 usage 服务
     /// 用于在 `provider_window_for_request` 里查 Provider 的 `contextWindowTokens`，
     /// 漏写任何一列都会让状态栏 Ctx 段永远 `WINDOW_UNKNOWN`。
+    ///
+    /// `provider_account_id` 是后端解析出的「实际用的账号」。传 None（旧 daemon 不回这个
+    /// 字段、或原生启动）时保留行里已有的值——那是启动时请求的账号。
     pub fn bind_pty_session(
         &self,
         launch_id: &str,
@@ -401,19 +413,28 @@ impl HistoryRepository {
         cli_tool: &str,
         model_id: Option<&str>,
         provider_id: Option<&str>,
+        provider_account_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let affected = conn
             .execute(
                 "UPDATE launch_history
-                 SET pty_session_id = ?1, model_id = ?4, provider_id = ?5
+                 SET pty_session_id = ?1, model_id = ?4, provider_id = ?5,
+                     provider_account_id = COALESCE(?6, provider_account_id)
                  WHERE id = (
                      SELECT id FROM launch_history
                      WHERE project_id = ?2 AND cli_tool = ?3
                        AND (pty_session_id IS NULL OR pty_session_id = ?1)
                      ORDER BY launched_at DESC LIMIT 1
                  )",
-                rusqlite::params![pty_session_id, launch_id, cli_tool, model_id, provider_id],
+                rusqlite::params![
+                    pty_session_id,
+                    launch_id,
+                    cli_tool,
+                    model_id,
+                    provider_id,
+                    provider_account_id
+                ],
             )
             .map_err(|e| {
                 error!(table = "launch_history", launch_id = %launch_id, pty_session_id = %pty_session_id, cli_tool = %cli_tool, err = %e, "SQL bind_pty_session failed");
@@ -1103,6 +1124,7 @@ mod tests {
                 None,
                 Some("/tmp/my-project"),
                 None,
+                None,
                 None, // model_id
                 None,
                 None,
@@ -1135,6 +1157,7 @@ mod tests {
                 "pty-clear",
                 "claude",
                 "local",
+                None,
                 None,
                 None,
                 None,
@@ -1221,6 +1244,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         r.update_session_started(
@@ -1261,6 +1285,7 @@ mod tests {
             "pty-tombstone",
             "claude",
             "local",
+            None,
             None,
             None,
             None,
@@ -1341,6 +1366,7 @@ mod tests {
             None,
             Some("/tmp/my-project"),
             Some("provider-a"),
+            None,
             Some("claude-sonnet-4-5"),
             None,
             None,
@@ -1373,6 +1399,7 @@ mod tests {
             None,
             Some("/tmp/my-project"),
             Some("provider-a"),
+            None,
             Some("claude-sonnet-4-5"),
             None,
             None,
@@ -1387,6 +1414,142 @@ mod tests {
 
         assert_eq!(found.provider_id.as_deref(), Some("provider-a"));
         assert_eq!(found.model_id.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(found.provider_account_id, None);
+    }
+
+    #[test]
+    fn provider_account_id_round_trips_through_add_and_add_with_pty_session() {
+        let r = repo();
+        r.add(
+            "launch-account-a",
+            "my-project",
+            "/tmp/my-project",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            Some("provider-a"),
+            Some("work"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+        r.add_with_pty_session(
+            "launch-account-b",
+            "my-project",
+            "/tmp/my-project",
+            "pty-account-b",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            Some("provider-a"),
+            Some("personal"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("insert with pty");
+
+        let account = |launch_id: &str| {
+            r.find_by_launch_id(launch_id)
+                .expect("find ok")
+                .expect("row exists")
+                .provider_account_id
+        };
+        assert_eq!(account("launch-account-a").as_deref(), Some("work"));
+        assert_eq!(account("launch-account-b").as_deref(), Some("personal"));
+        // list 走同一份列清单，也要带出来
+        assert!(r
+            .list(10)
+            .expect("list")
+            .iter()
+            .any(|record| record.provider_account_id.as_deref() == Some("work")));
+    }
+
+    #[test]
+    fn rows_written_before_the_account_column_load_with_a_null_account() {
+        let db = Arc::new(Database::new_in_memory().expect("db"));
+        db.connection()
+            .expect("connection")
+            .execute(
+                "INSERT INTO launch_history (
+                    project_id, project_name, project_path, launched_at, provider_id
+                 ) VALUES ('legacy-launch', 'Legacy', '/legacy', '2026-01-01T00:00:00Z', 'provider-a')",
+                [],
+            )
+            .expect("seed legacy row");
+        let r = HistoryRepository::new(db);
+
+        let found = r
+            .find_by_launch_id("legacy-launch")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(found.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(found.provider_account_id, None);
+    }
+
+    #[test]
+    fn bind_pty_session_records_the_resolved_account_and_keeps_the_requested_one_otherwise() {
+        let r = repo();
+        for launch_id in ["launch-bind-resolved", "launch-bind-unknown"] {
+            r.add(
+                launch_id,
+                "my-project",
+                "/tmp/my-project",
+                "claude",
+                "local",
+                None,
+                None,
+                None,
+                None,
+                Some("provider-a"),
+                Some("requested"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("insert");
+        }
+
+        r.bind_pty_session(
+            "launch-bind-resolved",
+            "pty-resolved",
+            "claude",
+            None,
+            Some("provider-a"),
+            Some("resolved"),
+        )
+        .expect("bind")
+        .expect("matched");
+        // 旧 daemon 不报实际账号：保留启动时请求的那个，而不是抹成 NULL
+        r.bind_pty_session(
+            "launch-bind-unknown",
+            "pty-unknown",
+            "claude",
+            None,
+            Some("provider-a"),
+            None,
+        )
+        .expect("bind")
+        .expect("matched");
+
+        let account = |launch_id: &str| {
+            r.find_by_launch_id(launch_id)
+                .expect("find ok")
+                .expect("row exists")
+                .provider_account_id
+        };
+        assert_eq!(account("launch-bind-resolved").as_deref(), Some("resolved"));
+        assert_eq!(account("launch-bind-unknown").as_deref(), Some("requested"));
     }
 
     #[test]
@@ -1405,6 +1568,7 @@ mod tests {
             pty_session,
             "claude",
             "local",
+            None,
             None,
             None,
             None,
@@ -1492,6 +1656,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             None, // model_id
             None,
             None,
@@ -1545,6 +1710,7 @@ mod tests {
             pty_session,
             "codex",
             "local",
+            None,
             None,
             None,
             None,
@@ -1623,6 +1789,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None, // model_id
                 None,
                 None,
@@ -1663,6 +1830,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("insert");
 
@@ -1692,6 +1860,7 @@ mod tests {
             None,
             None,
             Some(r"C:\proj"),
+            None,
             None,
             None,
             None,
@@ -1767,6 +1936,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("insert");
 
@@ -1786,6 +1956,7 @@ mod tests {
             pty,
             "claude",
             "wsl",
+            None,
             None,
             None,
             None,

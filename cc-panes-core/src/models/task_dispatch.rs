@@ -60,6 +60,8 @@ pub struct TaskDispatchEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_selection: Option<String>,
     pub mode: TaskDispatchMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -88,6 +90,7 @@ pub struct TaskDispatchRequest {
     pub permission_mode: Option<String>,
     pub model_id: Option<String>,
     pub provider_id: Option<String>,
+    pub provider_account_id: Option<String>,
     pub provider_selection: Option<String>,
     pub prompt: Option<String>,
     pub resume_id: Option<String>,

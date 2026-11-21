@@ -378,6 +378,7 @@ describe("TerminalView", () => {
     usePanesStore.setState({
       canCreateTerminalSession: () => true,
       updateTerminalLaunchId: vi.fn(),
+      syncTerminalProviderAccount: vi.fn(),
     } as never);
     useSettingsStore.setState({ settings: undefined } as never);
     useTerminalStatusStore.setState({ statusMap: new Map() } as never);
@@ -417,6 +418,12 @@ describe("TerminalView", () => {
     );
 
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith("new-session-1"));
+    // 建完会话后读回后端解析出的账号，写到这个 leaf 上
+    expect(usePanesStore.getState().syncTerminalProviderAccount).toHaveBeenCalledWith(
+      "tab-1",
+      "pane-1",
+      createdLaunchId,
+    );
     expect(registerOutput).toHaveBeenCalledWith("new-session-1", expect.any(Function));
     expect(registerExit).toHaveBeenCalledWith("new-session-1", expect.any(Function));
     // 新建会话不回放快照

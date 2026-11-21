@@ -476,6 +476,7 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         workspace_service.clone(),
         settings_service.clone(),
     ));
+    session_index_service.set_provider_service(provider_service.clone());
     session_index_service.start_background_tasks();
 
     let device_tokens = Arc::new(DeviceTokenService::in_data_dir(app_paths.data_dir()));

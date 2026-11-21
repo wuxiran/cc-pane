@@ -162,7 +162,7 @@ pub async fn create_terminal_session(
 
     let project_path = request.project_path.clone();
     let launch_binding = request.launch_id.clone();
-    let observation_request = request.clone();
+    let mut observation_request = request.clone();
     let launch_id_for_timeout = request.launch_id.clone();
     let observation_request_for_timeout = request.clone();
     let recovery_handle = app_handle.clone();
@@ -205,6 +205,11 @@ pub async fn create_terminal_session(
     let backend = created.backend;
     let reused_existing = created.reused_existing;
     let resolved_model_id = created.resolved_model_id;
+    // 落库（会话恢复 + 启动历史）一律记「实际用的账号」；后端没报（旧 daemon）才退回请求里点名的。
+    let resolved_account_id = created
+        .resolved_account_id
+        .or_else(|| observation_request.provider_account_id.clone());
+    observation_request.provider_account_id = resolved_account_id.clone();
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the
@@ -252,6 +257,7 @@ pub async fn create_terminal_session(
                 cli_tool,
                 resolved_model_id.as_deref(),
                 observation_request.provider_id.as_deref(),
+                resolved_account_id.as_deref(),
             ) {
                 Ok(Some(_)) => {
                     bound = true;
@@ -301,6 +307,7 @@ pub async fn create_terminal_session(
                 workspace_path: observation_request.workspace_path.as_deref(),
                 launch_cwd,
                 provider_id: observation_request.provider_id.as_deref(),
+                provider_account_id: resolved_account_id.as_deref(),
                 model_id: resolved_model_id.as_deref(),
                 provider_selection: Some(observation_request.provider_selection.as_str()),
                 launch_profile_id: observation_request.launch_profile_id.as_deref(),

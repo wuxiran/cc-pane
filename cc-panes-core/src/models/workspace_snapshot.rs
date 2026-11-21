@@ -54,6 +54,8 @@ pub struct WorkspaceSnapshotEntry {
     pub project_path: String,
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_selection: Option<String>,
     pub launch_profile_id: Option<String>,
     pub agent_tool: String,

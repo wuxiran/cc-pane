@@ -233,6 +233,9 @@ fn map_session_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionIndexEn
         wsl_distro: row.get(13)?,
         updated_at: row.get(14)?,
         title: row.get(15)?,
+        provider_id: None,
+        provider_account_id: None,
+        provider_account_name: None,
     })
 }
 
@@ -261,6 +264,9 @@ mod tests {
             source: "local".to_string(),
             wsl_distro: None,
             updated_at: "2026-07-25T00:00:00Z".to_string(),
+            provider_id: None,
+            provider_account_id: None,
+            provider_account_name: None,
         }
     }
 

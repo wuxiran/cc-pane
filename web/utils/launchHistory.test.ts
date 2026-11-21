@@ -50,6 +50,42 @@ describe("launchHistory", () => {
     });
   });
 
+  it("replays the account the launch actually used", () => {
+    const record = createRecord({ providerAccountId: "account-work" });
+
+    const options = buildLaunchRecordTerminalOptions(record, [], []);
+
+    expect(options).toMatchObject({
+      providerId: "provider-1",
+      providerAccountId: "account-work",
+      resumeId: "resume-1",
+    });
+  });
+
+  it("keeps the recorded account when launch options are rebuilt from the workspace config", () => {
+    const workspace = createTestWorkspace({
+      name: "workspace-1",
+      path: "D:/workspace-root",
+      defaultEnvironment: "wsl",
+      wsl: { distro: "Ubuntu", remotePath: "/mnt/d/workspace-root" },
+      projects: [createTestWorkspaceProject({ path: "D:/workspace-root/apps/api" })],
+    });
+    Object.defineProperty(window.navigator, "platform", { configurable: true, value: "Win32" });
+    const record = createRecord({ runtimeKind: "wsl", providerAccountId: "account-work" });
+
+    const options = buildLaunchRecordTerminalOptions(record, [workspace], []);
+
+    expect(options.wsl?.distro).toBe("Ubuntu");
+    expect(options.providerAccountId).toBe("account-work");
+  });
+
+  it("leaves the account unset for records written before accounts existed", () => {
+    for (const providerAccountId of [undefined, null]) {
+      const options = buildLaunchRecordTerminalOptions(createRecord({ providerAccountId }), [], []);
+      expect(options.providerAccountId).toBeUndefined();
+    }
+  });
+
   it("keeps an explicit cwd separate from workspace configuration when reopening", () => {
     const record = createRecord({ launchCwd: "D:/worktree", workspacePath: "D:/workspace" });
     const options = buildLaunchRecordTerminalOptions(record, [], []);

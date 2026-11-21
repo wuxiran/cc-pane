@@ -24,6 +24,7 @@ export interface TerminalViewProps {
   initialTerminalFontSize?: number; terminalZoomPersistenceKey?: string;
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: CreateSessionRequest["providerSelection"];
   launchProfileId?: string;

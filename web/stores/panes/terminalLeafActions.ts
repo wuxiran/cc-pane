@@ -12,6 +12,7 @@ import {
   syncTabTerminalState,
 } from "@/lib/paneTree";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import { historyService } from "@/services/historyService";
 import {
   resetTerminalLeafForRelaunch,
   stripInitialPrompt,
@@ -34,6 +35,7 @@ export type TerminalLeafActions = Pick<
   PanesState,
   | "updateTabSession"
   | "updateTerminalLaunchId"
+  | "syncTerminalProviderAccount"
   | "setTerminalLaunchError"
   | "retryTerminalLaunch"
   | "removeTerminalLaunch"
@@ -87,6 +89,29 @@ export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLe
         syncTabTerminalState(location.tab);
       });
       notifyTerminalLayoutChanged("launch-id.update");
+    },
+
+    syncTerminalProviderAccount: (tabId, terminalPaneId, launchId) => {
+      // 启动历史里记的是后端解析结果（没点名账号时 = 当时的默认账号）。读不到就保持原样。
+      void historyService.findByLaunchId(launchId).then((record) => {
+        const accountId = record?.providerAccountId?.trim();
+        if (!accountId) return;
+        let changed = false;
+        set((state) => {
+          const location = findTabAcrossLayouts(state, tabId);
+          if (!location || location.tab.contentType !== "terminal" || !location.tab.terminalRootPane) return;
+          const leaf = findTerminalPane(location.tab.terminalRootPane, terminalPaneId);
+          // launchId 变了 = 这个 leaf 已经重新启动过，旧结果不能写上去。
+          if (leaf?.type !== "leaf" || leaf.launchId !== launchId) return;
+          if (leaf.providerAccountId === accountId) return;
+          leaf.providerAccountId = accountId;
+          syncTabTerminalState(location.tab);
+          changed = true;
+        });
+        if (changed) notifyTerminalLayoutChanged("provider-account.update");
+      }).catch((error: unknown) => {
+        console.warn("[panes] failed to read the resolved provider account:", error);
+      });
     },
 
     setTerminalLaunchError: (tabId, terminalPaneId, error) => {

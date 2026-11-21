@@ -34,11 +34,15 @@ export function buildLaunchRecordTerminalOptions(
   const cliTool = record.cliTool && record.cliTool !== "none" ? record.cliTool : undefined;
   const runtimeKind = record.runtimeKind ?? "local";
   const providerId = optionalValue(record.providerId);
+  // 回到这条记录当时实际用的账号：登录型账号各占一个 CLI 配置目录，换了就找不到这段对话。
+  // 账号后来被删了由后端报错，这里不兜底成默认账号。
+  const providerAccountId = optionalValue(record.providerAccountId);
   const providerSelection = optionalValue(record.providerSelection);
   const fallback: OpenTerminalOptions = {
     path: record.projectPath,
     workspaceName: optionalValue(record.workspaceName),
     providerId,
+    providerAccountId,
     providerSelection,
     // 兜底剥 `\\?\`：存量历史记录仍可能带被 hook 污染的值（docs/35-unc-path-contamination.md）。
     // cwd 与 workspace 配置根分别还原，避免将 worktree 当作工作空间。
@@ -98,6 +102,7 @@ export function buildLaunchRecordTerminalOptions(
 
   return {
     ...options,
+    providerAccountId,
     launchCwd: fallback.launchCwd,
     resumeId: optionalValue(record.resumeSessionId),
   };

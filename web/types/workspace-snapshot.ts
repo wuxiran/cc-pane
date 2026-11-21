@@ -4,6 +4,7 @@ export interface WorkspaceSnapshotEntry {
   paneId: string;
   projectPath: string;
   providerId?: string | null;
+  providerAccountId?: string | null;
   providerSelection?: import("./launch-profile").LaunchProviderSelection | null;
   launchProfileId?: string | null;
   agentTool: string;

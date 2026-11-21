@@ -47,6 +47,7 @@ mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
 pub mod library_space_service;
+pub mod login_account;
 pub mod mcp_config_service;
 mod memory_service;
 pub mod opencode_session_service;
@@ -149,6 +150,10 @@ pub use journal_service::{JournalIndex, JournalService, SessionSummary};
 pub use launch_history_service::{CreatedLaunchHistory, LaunchHistoryService};
 pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
+pub use login_account::{
+    CreateLoginAccountRequest, DeleteAccountOutcome, LoginAccountRoot, LoginAccountService,
+    LoginAccountStatus, LoginAccountView, LoginCommand, LoginState,
+};
 pub use mcp_config_service::{
     effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
     McpServerConfig,
@@ -227,8 +232,8 @@ pub use terminal_path_link_service::{
     TerminalLinkContext, TerminalPathKind,
 };
 pub use terminal_service::{
-    codex_rollout_exists, HeavyQueueStatus, KillReason, OrchestratorInfo, SessionStatusInfo,
-    ShellInfo, TerminalService,
+    codex_rollout_exists, codex_rollout_exists_in, HeavyQueueStatus, KillReason, OrchestratorInfo,
+    SessionStatusInfo, ShellInfo, TerminalService,
 };
 pub use todo_service::TodoService;
 pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};

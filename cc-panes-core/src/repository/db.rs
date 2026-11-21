@@ -1204,6 +1204,16 @@ const MIGRATIONS: &[Migration] = &[
             );
         ",
     },
+    // V46：启动记录 / 会话恢复记住实际用的供应商账号。登录型账号各占一个 CLI 配置目录，
+    // 恢复时换了账号就找不到那段对话。可空：旧行 = 当时没记，按供应商默认账号处理。
+    Migration {
+        version: 46,
+        description: "launch/restore records: remember the provider account",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN provider_account_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN provider_account_id TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -2001,7 +2011,51 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44, 45]);
+        assert_eq!(applied, [41, 42, 43, 44, 45, 46]);
+    }
+
+    #[test]
+    fn migration_46_adds_a_null_provider_account_to_existing_rows() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        // 回到 v45：撤掉 v46 的版本记录和它加的两列，模拟已发布版本的库。
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 46", [])
+            .unwrap();
+        conn.execute_batch(
+            "ALTER TABLE launch_history DROP COLUMN provider_account_id;
+             ALTER TABLE terminal_sessions DROP COLUMN provider_account_id;
+             INSERT INTO launch_history (
+                project_id, project_name, project_path, launched_at, provider_id
+             ) VALUES ('legacy-launch', 'Legacy', '/legacy', '2026-01-01', 'provider-a');
+             INSERT INTO terminal_sessions (
+                session_id, tab_id, pane_id, project_path, provider_id, created_at, saved_at
+             ) VALUES ('legacy-session', 'tab', 'pane', '/legacy', 'provider-a', '2026-01-01', '2026-01-01');",
+        )
+        .unwrap();
+
+        Database::run_migrations(&conn).expect("v46 migration");
+
+        for (table, key, id) in [
+            ("launch_history", "project_id", "legacy-launch"),
+            ("terminal_sessions", "session_id", "legacy-session"),
+        ] {
+            let (provider_id, account_id): (Option<String>, Option<String>) = conn
+                .query_row(
+                    &format!(
+                        "SELECT provider_id, provider_account_id FROM {table} WHERE {key} = ?1"
+                    ),
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("read migrated row");
+            assert_eq!(provider_id.as_deref(), Some("provider-a"), "{table}");
+            assert_eq!(account_id, None, "{table}");
+        }
+        assert_eq!(
+            Database::get_current_version(&conn).unwrap(),
+            MIGRATIONS.last().unwrap().version
+        );
+        Database::run_migrations(&conn).expect("v46 migration remains idempotent");
     }
 
     #[test]

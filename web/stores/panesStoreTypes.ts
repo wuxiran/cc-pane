@@ -40,6 +40,7 @@ export interface CreateTabOptions {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
@@ -67,6 +68,7 @@ export interface AdoptSessionMeta {
   workspacePath?: string;
   workspaceSnapshotId?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
@@ -139,6 +141,7 @@ export interface ClosedTabSnapshot {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
@@ -295,6 +298,8 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
   ) => void;
   /** Persist the launch identity that will be used for the next PTY creation. */
   updateTerminalLaunchId: (tabId: string, terminalPaneId: string, launchId: string) => void;
+  /** 会话建好后，把后端解析出的「实际用的账号」记到 leaf 上，之后落盘 / 恢复 / 续接回到同一个账号。 */
+  syncTerminalProviderAccount: (tabId: string, terminalPaneId: string, launchId: string) => void;
   setTerminalLaunchError: (
     tabId: string,
     terminalPaneId: string,

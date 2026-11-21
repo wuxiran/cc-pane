@@ -21,6 +21,14 @@ pub struct SessionIndexEntry {
     pub source: String,
     pub wsl_distro: Option<String>,
     pub updated_at: String,
+    /// 这条会话在哪个登录账号的目录里（按转录文件路径在读取时算出，不入库）。
+    /// 三个字段都为空 = 在 CLI 的默认目录里（默认登录）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

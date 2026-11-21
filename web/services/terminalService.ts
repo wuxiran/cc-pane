@@ -525,7 +525,12 @@ export const terminalService = {
         "create_terminal_session",
         { request: compactRequest },
         async () => {
-          const response = await apiJson<{ sessionId: string; resolvedModelId?: string | null }>(
+          const response = await apiJson<{
+            sessionId: string;
+            resolvedModelId?: string | null;
+            // 实际用的供应商账号。tab 上的那份由 syncTerminalProviderAccount 从启动历史读回（Tauri / Web 同一条路）。
+            resolvedAccountId?: string | null;
+          }>(
             "/api/sessions",
             "POST",
             compactRequest,

@@ -1,7 +1,11 @@
 use crate::models::provider::{Provider, SystemProviderInfo};
 use crate::services::{CcSwitchImportReport, ProviderService};
 use crate::utils::AppResult;
-use cc_panes_core::services::{ProviderApiCredentials, ProviderEnvPreviewEntry};
+use cc_panes_core::services::{
+    CreateLoginAccountRequest, DeleteAccountOutcome, LoginAccountService, LoginAccountStatus,
+    LoginAccountView, LoginCommand, ProviderApiCredentials, ProviderEnvPreviewEntry,
+    SettingsService,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -73,6 +77,96 @@ pub fn get_provider_secret_status(
     Ok(ProviderSecretStatus {
         keychain_available: service.keychain_available(),
     })
+}
+
+/// 登录账号的操作会碰文件系统（建目录、链接）和钥匙串查询（只查在不在），放到阻塞线程里做。
+async fn with_login_accounts<T: Send + 'static>(
+    service: &Arc<ProviderService>,
+    task: impl FnOnce(LoginAccountService) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    let providers = Arc::clone(service);
+    tauri::async_runtime::spawn_blocking(move || {
+        task(LoginAccountService::for_provider_service(providers))
+    })
+    .await
+    .map_err(|error| crate::utils::AppError::from(format!("Login account task failed: {error}")))?
+}
+
+/// 这条供应商下的登录账号：每个可在它下面登录的 CLI 一个合成的「默认登录」，加上用户建的。
+/// 每条都带登录状态（已登录 / 未登录 / 未知）和账号邮箱。
+#[tauri::command]
+pub async fn list_login_accounts(
+    provider_id: String,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<Vec<LoginAccountView>> {
+    with_login_accounts(service.inner(), move |accounts| {
+        accounts.list_login_accounts(&provider_id)
+    })
+    .await
+}
+
+/// 新建登录账号：CC-Panes 自己建目录、把默认目录里的设置 / 技能 / 指令文件链接进来。
+/// 用户只给名字和颜色；之后用 `get_login_account_command` 拿登录命令去终端里登录。
+#[tauri::command]
+pub async fn create_login_account(
+    provider_id: String,
+    request: CreateLoginAccountRequest,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<LoginAccountView> {
+    debug!(provider_id = %provider_id, cli_tool = %request.cli_tool, "cmd::create_login_account");
+    with_login_accounts(service.inner(), move |accounts| {
+        accounts.create_login_account(&provider_id, request)
+    })
+    .await
+}
+
+/// 某个登录账号是否已登录、是哪个号。不读凭据内容；读不出时是「未知」。
+/// `cli_tool` 只在查合成的默认登录时需要。
+#[tauri::command]
+pub async fn get_login_account_status(
+    provider_id: String,
+    account_id: String,
+    cli_tool: Option<String>,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<LoginAccountStatus> {
+    with_login_accounts(service.inner(), move |accounts| {
+        accounts.login_status(&provider_id, &account_id, cli_tool.as_deref())
+    })
+    .await
+}
+
+/// 为某个登录账号生成登录命令：要在终端里执行的命令、参数和环境变量。
+#[tauri::command]
+pub async fn get_login_account_command(
+    provider_id: String,
+    account_id: String,
+    cli_tool: Option<String>,
+    service: State<'_, Arc<ProviderService>>,
+    settings: State<'_, Arc<SettingsService>>,
+) -> AppResult<LoginCommand> {
+    let launchers = settings.get_settings().cli_launchers;
+    with_login_accounts(service.inner(), move |accounts| {
+        accounts.login_command(&provider_id, &account_id, cli_tool.as_deref(), &|cli| {
+            launchers.command_for(cli).map(str::to_string)
+        })
+    })
+    .await
+}
+
+/// 删除一个账号（密钥账号或登录账号）。登录账号的目录默认保留；`delete_dir = true` 时
+/// 同时删目录，但只删 CC-Panes 自己建的——用户手填的外部目录永不删除。
+#[tauri::command]
+pub async fn delete_provider_account(
+    provider_id: String,
+    account_id: String,
+    delete_dir: Option<bool>,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<DeleteAccountOutcome> {
+    debug!(provider_id = %provider_id, account_id = %account_id, "cmd::delete_provider_account");
+    with_login_accounts(service.inner(), move |accounts| {
+        accounts.delete_account(&provider_id, &account_id, delete_dir.unwrap_or(false))
+    })
+    .await
 }
 
 #[tauri::command]

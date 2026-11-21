@@ -56,6 +56,7 @@ export async function buildTerminalFork(
     parentTabId: tab.id,
     workspaceName: source.workspaceName,
     providerId: source.providerId,
+    providerAccountId: source.providerAccountId,
     modelId: source.modelId,
     providerSelection: source.providerSelection,
     launchProfileId: source.launchProfileId,

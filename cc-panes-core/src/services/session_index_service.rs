@@ -9,7 +9,8 @@ use crate::models::{
     SessionIndexScope, WslDistro,
 };
 use crate::repository::{LaunchRecord, SessionIndexRepository};
-use crate::services::{LaunchHistoryService, SettingsService, WorkspaceService};
+use crate::services::login_account::{login_account_roots, LoginAccountRoot};
+use crate::services::{LaunchHistoryService, ProviderService, SettingsService, WorkspaceService};
 use crate::utils::{error::AppError, AppResult};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -45,6 +46,8 @@ pub struct SessionIndexService {
     last_scan_report: Mutex<SessionIndexScanReport>,
     /// 已落库的学习根目录（避免每条 hook 都查库）。
     learned_cache: Mutex<std::collections::HashSet<String>>,
+    /// 供应商服务：登录账号各有自己的目录，扫描时要并进去，列出时要标出属于哪个账号。
+    providers: Mutex<Option<Arc<ProviderService>>>,
 }
 
 impl SessionIndexService {
@@ -63,6 +66,53 @@ impl SessionIndexService {
             scan_running: AtomicBool::new(false),
             last_scan_report: Mutex::new(SessionIndexScanReport::default()),
             learned_cache: Mutex::new(Default::default()),
+            providers: Mutex::new(None),
+        }
+    }
+
+    /// 接上供应商服务：之后的扫描会覆盖各登录账号的目录，列出的条目带账号归属。
+    pub fn set_provider_service(&self, providers: Arc<ProviderService>) {
+        if let Ok(mut slot) = self.providers.lock() {
+            *slot = Some(providers);
+        }
+    }
+
+    /// 各登录账号的转录目录（Claude 的 `projects`、Codex 的 `sessions`）。
+    fn login_account_roots(&self) -> Vec<LoginAccountRoot> {
+        let providers = self.providers.lock().ok().and_then(|slot| slot.clone());
+        providers
+            .map(|providers| login_account_roots(&providers.list_providers()))
+            .unwrap_or_default()
+    }
+
+    /// 登录账号目录作为额外扫描根：`(cli, 转录目录)`。
+    fn login_account_scan_roots(&self) -> Vec<(String, String)> {
+        self.login_account_roots()
+            .into_iter()
+            .map(|root| {
+                (
+                    root.cli_tool,
+                    root.transcript_dir.to_string_lossy().into_owned(),
+                )
+            })
+            .collect()
+    }
+
+    /// 按转录文件路径标出条目属于哪个登录账号。账号被删后目录还在的会话不再带归属。
+    fn annotate_accounts(&self, entries: &mut [SessionIndexEntry]) {
+        let roots = self.login_account_roots();
+        if roots.is_empty() {
+            return;
+        }
+        for entry in entries.iter_mut() {
+            let path = Path::new(&entry.file_path);
+            if let Some(root) = roots.iter().find(|root| {
+                root.cli_tool == entry.cli_tool && path.starts_with(&root.transcript_dir)
+            }) {
+                entry.provider_id = Some(root.provider_id.clone());
+                entry.provider_account_id = Some(root.account_id.clone());
+                entry.provider_account_name = Some(root.account_name.clone());
+            }
         }
     }
 
@@ -110,9 +160,12 @@ impl SessionIndexService {
         if let SessionIndexScope::Project(path) = &mut query.scope {
             *path = normalize_path(path);
         }
-        self.repo
+        let mut entries = self
+            .repo
             .list_sessions_indexed(&query)
-            .map_err(AppError::from)
+            .map_err(AppError::from)?;
+        self.annotate_accounts(&mut entries);
+        Ok(entries)
     }
 
     pub async fn refresh_session_index(self: Arc<Self>) -> AppResult<SessionIndexScanReport> {
@@ -151,7 +204,14 @@ impl SessionIndexService {
     }
 
     pub fn codex_rollout_exists(&self, session_id: &str, wsl_distro: Option<&str>) -> Option<bool> {
-        crate::services::codex_rollout_exists(session_id, wsl_distro)
+        // 会话可能在某个登录账号的 `CODEX_HOME` 里：那些目录也算。
+        let account_homes: Vec<std::path::PathBuf> = self
+            .login_account_roots()
+            .into_iter()
+            .filter(|root| root.cli_tool == "codex")
+            .map(|root| root.dir)
+            .collect();
+        crate::services::codex_rollout_exists_in(session_id, wsl_distro, &account_homes)
     }
 
     pub fn last_scan_report(&self) -> SessionIndexScanReport {
@@ -247,6 +307,8 @@ impl SessionIndexService {
             .clone();
         let mut roots = collect_scan_roots(&cached_distros, self.wsl_scan_allowed());
         merge_extra_roots(&mut roots, self.repo.learned_roots().unwrap_or_default());
+        // 登录账号的目录（按路径去重：hook 学到过的同一个目录不重复扫）。
+        merge_extra_roots(&mut roots, self.login_account_scan_roots());
         let registered = registered_projects(&self.workspace_service);
         // Pi has no deterministic PTY hook. Load the launch candidates once
         // for this refresh instead of issuing a full history query per JSONL.
@@ -346,6 +408,10 @@ impl SessionIndexService {
             source: root.source.to_string(),
             wsl_distro: identity.wsl_distro,
             updated_at: Utc::now().to_rfc3339(),
+            // 账号归属按文件路径在读取时算（见 `annotate_accounts`），不入库。
+            provider_id: None,
+            provider_account_id: None,
+            provider_account_name: None,
         })?;
         self.repo.upsert_scan_state(&file_path, mtime_ms, size)?;
         report.files_parsed += 1;
@@ -552,13 +618,14 @@ fn should_skip_file(state: Option<(i64, u64)>, mtime_ms: i64, size: u64) -> bool
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_session_transcript, should_skip_file, ScanRoot, SessionIndexScanReport,
-        SessionIndexService,
+        merge_extra_roots, parse_session_transcript, should_skip_file, ScanRoot, SessionIndexQuery,
+        SessionIndexScanReport, SessionIndexService,
     };
     use crate::repository::{Database, HistoryRepository, SessionIndexRepository};
     use crate::services::{LaunchHistoryService, WorkspaceService};
     use chrono::Utc;
     use std::fs;
+    use std::path::Path;
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -670,6 +737,128 @@ mod tests {
         assert_eq!(second.bytes_read, 0);
     }
 
+    /// 登录账号目录里的会话也被扫到，列出来的条目能看出属于哪个账号；
+    /// 默认目录里的会话不带账号归属。
+    #[test]
+    fn login_account_dirs_are_scanned_and_entries_carry_their_account() {
+        use crate::models::provider::{AccountKind, Provider, ProviderAccount, ProviderType};
+        use crate::services::ProviderService;
+
+        let dir = tempdir().expect("temp dir");
+        let base = fs::canonicalize(dir.path()).expect("canonical temp dir");
+        let account_dir = base.join("login-accounts").join("claude-abc123");
+        let account_file = account_dir
+            .join("projects")
+            .join("-workspace-app")
+            .join("account-session.jsonl");
+        let default_file = base
+            .join("default")
+            .join("projects")
+            .join("-workspace-app")
+            .join("default-session.jsonl");
+        let fixture = include_str!("../../tests/fixtures/session_index/claude.jsonl");
+        // 会话 id 取自文件名：两个目录里各放一条会话。
+        for path in [&account_file, &default_file] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, fixture).unwrap();
+        }
+
+        let providers = Arc::new(ProviderService::new(base.join("providers.json")));
+        providers
+            .add_provider(Provider {
+                id: "anthropic".to_string(),
+                name: "Anthropic".to_string(),
+                provider_type: ProviderType::Anthropic,
+                accounts: vec![
+                    ProviderAccount {
+                        id: "default".to_string(),
+                        name: "默认".to_string(),
+                        secret: Some("sk-test".to_string()),
+                        ..ProviderAccount::default()
+                    },
+                    ProviderAccount {
+                        id: "claude-abc123".to_string(),
+                        name: "个人号".to_string(),
+                        kind: AccountKind::Login,
+                        cli_tool: Some("claude".to_string()),
+                        config_dir: Some(account_dir.to_string_lossy().into_owned()),
+                        ..ProviderAccount::default()
+                    },
+                ],
+                ..Provider::default()
+            })
+            .expect("add provider");
+
+        let db = Arc::new(Database::new_in_memory().expect("db"));
+        let service = SessionIndexService::new(
+            Arc::new(SessionIndexRepository::new(db.clone())),
+            Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+                db,
+            )))),
+            Arc::new(WorkspaceService::new(base.join("workspaces"))),
+        );
+        // 没接供应商服务：没有额外的扫描根。
+        assert!(service.login_account_scan_roots().is_empty());
+        service.set_provider_service(providers);
+
+        // 账号目录出现在扫描根里。
+        let account_projects = account_dir.join("projects");
+        assert_eq!(
+            service.login_account_scan_roots(),
+            vec![(
+                "claude".to_string(),
+                account_projects.to_string_lossy().into_owned()
+            )]
+        );
+        let mut roots = Vec::new();
+        merge_extra_roots(&mut roots, service.login_account_scan_roots());
+        // （进程环境里若设了 CLAUDE_CONFIG_DIR，`merge_extra_roots` 还会并进它那一个。）
+        let account_root = roots
+            .iter()
+            .find(|root| root.path == account_projects)
+            .expect("the account dir is a scan root")
+            .clone();
+        assert_eq!(account_root.cli_tool, "claude");
+
+        // 扫账号目录和（模拟的）默认目录各一个文件。
+        let mut report = SessionIndexScanReport::default();
+        service
+            .scan_file(&account_root, &account_file, &[], &mut report)
+            .expect("scan account transcript");
+        let default_root = ScanRoot {
+            cli_tool: "claude",
+            path: base.join("default").join("projects"),
+            source: "local",
+            wsl_distro: None,
+            wsl_default_distro: false,
+        };
+        service
+            .scan_file(&default_root, &default_file, &[], &mut report)
+            .expect("scan default transcript");
+        assert_eq!(report.files_parsed, 2);
+
+        let entries = service
+            .list_sessions(SessionIndexQuery::default())
+            .expect("list sessions");
+        assert_eq!(entries.len(), 2);
+        let in_account = entries
+            .iter()
+            .find(|entry| Path::new(&entry.file_path) == account_file)
+            .expect("account session is indexed");
+        assert_eq!(in_account.provider_id.as_deref(), Some("anthropic"));
+        assert_eq!(
+            in_account.provider_account_id.as_deref(),
+            Some("claude-abc123")
+        );
+        assert_eq!(in_account.provider_account_name.as_deref(), Some("个人号"));
+        let in_default = entries
+            .iter()
+            .find(|entry| Path::new(&entry.file_path) == default_file)
+            .expect("default session is indexed");
+        assert_eq!(in_default.provider_account_id, None);
+        assert_eq!(in_default.provider_id, None);
+    }
+
     #[test]
     fn pi_scan_binds_a_unique_matching_launch_record() {
         let dir = tempdir().expect("temp dir");
@@ -689,6 +878,7 @@ mod tests {
                 None,
                 None,
                 Some("/workspace/pi"),
+                None,
                 None,
                 None,
                 None,
@@ -745,6 +935,7 @@ mod tests {
                     None,
                     None,
                     Some("/workspace/pi"),
+                    None,
                     None,
                     None,
                     None,

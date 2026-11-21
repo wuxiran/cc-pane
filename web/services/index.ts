@@ -52,6 +52,7 @@ export { settingsService } from "./settingsService";
 export { webAuthService } from "./webAuthService";
 export { layoutSwitcherService } from "./layoutSwitcherService";
 export { providerService } from "./providerService";
+export { loginAccountService } from "./loginAccountService";
 export { launchProfileService } from "./launchProfileService";
 export { quickCommandService } from "./quickCommandService";
 export { todoService } from "./todoService";

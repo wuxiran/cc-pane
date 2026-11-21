@@ -16,6 +16,7 @@ export interface PopupTabData {
   mode?: "quick";
   workspaceName?: string;
   providerId?: string;
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;

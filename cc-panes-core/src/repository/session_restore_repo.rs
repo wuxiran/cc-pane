@@ -33,8 +33,9 @@ impl SessionRestoreRepository {
                     workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
                     runtime_kind, resume_id, ssh_config, custom_title,
                     created_at, saved_at,
-                    terminal_pane_id, layout_id, wsl_config, machine_name, observer_instance_id, launch_cwd
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+                    terminal_pane_id, layout_id, wsl_config, machine_name, observer_instance_id, launch_cwd,
+                    provider_account_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
                 ON CONFLICT(session_id) DO UPDATE SET
                     workspace_session_id = excluded.workspace_session_id,
                     workspace_snapshot_id = excluded.workspace_snapshot_id,
@@ -57,7 +58,8 @@ impl SessionRestoreRepository {
                     wsl_config = excluded.wsl_config,
                     machine_name = excluded.machine_name,
                     observer_instance_id = excluded.observer_instance_id,
-                    launch_cwd = COALESCE(excluded.launch_cwd, terminal_sessions.launch_cwd)
+                    launch_cwd = COALESCE(excluded.launch_cwd, terminal_sessions.launch_cwd),
+                    provider_account_id = COALESCE(excluded.provider_account_id, terminal_sessions.provider_account_id)
                 WHERE terminal_sessions.observer_instance_id IS NULL
                    OR terminal_sessions.observer_instance_id = excluded.observer_instance_id",
             )
@@ -89,6 +91,7 @@ impl SessionRestoreRepository {
                 s.machine_name,
                 s.observer_instance_id,
                 s.launch_cwd,
+                s.provider_account_id,
             ])
             .map_err(|e| {
                 error!(session_id = %s.session_id, err = %e, "Failed to insert session");
@@ -117,7 +120,8 @@ impl SessionRestoreRepository {
                         provenance.origin_instance_id,
                         COALESCE(ts.launch_cwd, (SELECT lh.launch_cwd FROM launch_history lh
                          WHERE lh.pty_session_id = ts.session_id
-                         ORDER BY lh.launched_at DESC, lh.id DESC LIMIT 1)) AS launch_cwd
+                         ORDER BY lh.launched_at DESC, lh.id DESC LIMIT 1)) AS launch_cwd,
+                        ts.provider_account_id
                  FROM terminal_sessions ts
                  LEFT JOIN terminal_session_provenance provenance
                    ON provenance.session_id = ts.session_id",
@@ -136,6 +140,7 @@ impl SessionRestoreRepository {
                     workspace_name: row.get(5)?,
                     workspace_path: row.get(6)?,
                     provider_id: row.get(7)?,
+                    provider_account_id: row.get(26)?,
                     provider_selection: row.get(8)?,
                     launch_profile_id: row.get(9)?,
                     cli_tool: row.get(10)?,
@@ -333,6 +338,7 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_account_id: None,
             provider_selection: None,
             launch_profile_id: None,
             cli_tool: "claude".into(),
@@ -365,6 +371,7 @@ mod tests {
                 None,
                 Some("/workspace"),
                 Some("/worktree"),
+                None,
                 None,
                 None,
                 None,
@@ -459,7 +466,8 @@ mod tests {
                 project_path: "/home/user/project".into(),
                 workspace_name: Some("ws1".into()),
                 workspace_path: None,
-                provider_id: None,
+                provider_id: Some("provider-a".into()),
+                provider_account_id: Some("work".into()),
                 provider_selection: Some("none".into()),
                 launch_profile_id: Some("profile-1".into()),
                 cli_tool: "claude".into(),
@@ -489,6 +497,7 @@ mod tests {
                 workspace_name: None,
                 workspace_path: None,
                 provider_id: None,
+                provider_account_id: None,
                 provider_selection: None,
                 launch_profile_id: None,
                 cli_tool: "none".into(),
@@ -509,6 +518,8 @@ mod tests {
         assert_eq!(loaded[0].cli_tool, "claude");
         assert_eq!(loaded[0].launch_profile_id, Some("profile-1".into()));
         assert_eq!(loaded[0].provider_selection, Some("none".into()));
+        assert_eq!(loaded[0].provider_account_id.as_deref(), Some("work"));
+        assert_eq!(loaded[1].provider_account_id, None);
         assert_eq!(loaded[1].custom_title, Some("My Shell".into()));
     }
 
@@ -535,6 +546,7 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_account_id: None,
             provider_selection: None,
             launch_profile_id: None,
             cli_tool: "none".into(),
@@ -617,6 +629,7 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_account_id: None,
             provider_selection: None,
             launch_profile_id: None,
             cli_tool: "none".into(),
@@ -653,6 +666,7 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_account_id: None,
             provider_selection: None,
             launch_profile_id: None,
             cli_tool: "none".into(),
