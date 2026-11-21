@@ -39,8 +39,13 @@ import { useChatScreenshotAttachments } from "@/hooks/useChatScreenshotAttachmen
 import LauncherDialog from "@/components/launcher/LauncherDialog";
 import { useDensityStore } from "@/stores/useDensityStore";
 import { startPerformanceSampling } from "@/services/performanceService";
+import { loadCliInjectionProfiles } from "@/stores/useCliInjectionProfilesStore";
 
 export default function App() {
+  // CLI 注入能力描述（docs/110 单源）：每个窗口启动时拉一次，失败保持静态兜底。
+  useEffect(() => {
+    void loadCliInjectionProfiles();
+  }, []);
   // 弹出窗口路由：mode=popup 时渲染纯终端视图（tabData 通过 IPC 获取）
   const params = new URLSearchParams(window.location.search);
   if (params.get("mode") === "popup") {

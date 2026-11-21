@@ -74,6 +74,17 @@ describe("known CLI tool coverage", () => {
   });
 
   /**
+   * 注入能力描述（docs/110）必须**显式实现**：trait 的默认值只推导提示词回退、其余一律当作
+   * 不支持——漏写不报错，前端会把一个接好了 MCP 的 CLI 显示成「不支持」，或反之。
+   */
+  it("每个 CLI 的 adapter 都显式实现了 fn injection_profile", () => {
+    const missing = LAUNCHABLE_CLI_TOOLS.filter(
+      (tool) => !readFileSync(`cc-cli-adapters/src/${tool}.rs`, "utf8").includes("fn injection_profile("),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  /**
    * 亮暗两套都要有。只定义亮色不会报错，但暗色主题下那个 CLI 会继承亮色值，
    * 对比度是错的——正是"不报错的漏"。
    */

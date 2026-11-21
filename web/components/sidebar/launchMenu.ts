@@ -4,6 +4,8 @@ import type {
   KnownCliTool,
   WorkspaceLaunchEnvironment,
 } from "@/types";
+import { supportsSshLaunch } from "@/lib/cliInjectionRules";
+import { injectionProfileFor } from "@/stores/useCliInjectionProfilesStore";
 
 export type SidebarLaunchCliTool = Exclude<KnownCliTool, "none">;
 export type SidebarLaunchActionEnvironment = WorkspaceLaunchEnvironment;
@@ -32,23 +34,21 @@ export interface SidebarCliLaunchItem {
   label: string;
 }
 
+// SSH 能否启动读 CLI 注入描述的 `runtimes.ssh.launch`（docs/110 单源），不在这里写死。
 export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   id: SidebarLaunchCliTool;
   labelKey: string;
-  supportsSsh?: boolean;
 }> = [
   { id: "claude", labelKey: "cliToolClaude" },
   { id: "codex", labelKey: "cliToolCodex" },
-  { id: "pi", labelKey: "cliToolPi", supportsSsh: false },
-  { id: "omp", labelKey: "cliToolOmp", supportsSsh: false },
+  { id: "pi", labelKey: "cliToolPi" },
+  { id: "omp", labelKey: "cliToolOmp" },
   { id: "gemini", labelKey: "cliToolGemini" },
   { id: "kimi", labelKey: "cliToolKimi" },
   { id: "opencode", labelKey: "cliToolOpenCode" },
   { id: "cursor", labelKey: "cliToolCursor" },
   { id: "grok", labelKey: "cliToolGrok" },
-  // SSH 启动面未实机验证（jcode 自有 client-server SSH 模式是另一套语义），v1 不放开
-  { id: "jcode", labelKey: "cliToolJcode", supportsSsh: false },
-  // agy 官方支持 SSH 远端会话（打印授权 URL 完成登录），SSH 走通用裸命令兜底
+  { id: "jcode", labelKey: "cliToolJcode" },
   { id: "antigravity", labelKey: "cliToolAntigravity" },
 ];
 
@@ -173,7 +173,7 @@ export function buildSidebarLaunchActions(
         }),
       });
     }
-    if (includeSshVariant && tool.supportsSsh !== false) {
+    if (includeSshVariant && supportsSshLaunch(injectionProfileFor(tool.id))) {
       actions.push({
         id: `${tool.id}-ssh`,
         kind: "cli",

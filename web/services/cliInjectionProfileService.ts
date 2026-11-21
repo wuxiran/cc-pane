@@ -4,7 +4,7 @@
  * `web_fallback_matches_registry_profiles` 保证与后端注册表逐字段一致。
  */
 import fallbackProfiles from "@/lib/cliInjectionProfiles.json";
-import type { InjectionProfile, InjectionProfileMap } from "@/types/cliInjectionProfile";
+import type { InjectionProfileMap } from "@/types/cliInjectionProfile";
 import { apiGet, invokeOrApi } from "./apiClient";
 
 export const FALLBACK_INJECTION_PROFILES = fallbackProfiles as InjectionProfileMap;
@@ -15,7 +15,4 @@ export async function getCliInjectionProfiles(): Promise<InjectionProfileMap> {
   );
 }
 
-/** 同步读取：未知 CLI（含 `none`）返回 null。 */
-export function injectionProfileFor(cliTool: string): InjectionProfile | null {
-  return FALLBACK_INJECTION_PROFILES[cliTool] ?? null;
-}
+// 同步读取走 `@/stores/useCliInjectionProfilesStore` 的 `injectionProfileFor`（启动后是后端实时值）。

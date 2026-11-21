@@ -8,6 +8,8 @@ import {
   userSkillId,
 } from "@/components/providers/launchProfileHelpers";
 import { nextToggleBuiltinSkill, nextToggleServer } from "@/components/providers/launchProfileSkillPolicy";
+import { remoteMcpSupported } from "@/lib/cliInjectionRules";
+import { injectionProfileFor } from "@/stores/useCliInjectionProfilesStore";
 import type { LaunchProfile, LaunchProfileDraft } from "@/types";
 import type { SharedMcpRemote, SharedMcpServerStatus } from "@/types/shared-mcp";
 import { isSharedMcpFailed } from "@/types/shared-mcp";
@@ -43,22 +45,15 @@ export function mcpChipState(policy: McpPolicy, resource: ProfileMcpResource): P
 }
 
 /**
- * 这个启动档连不上这条远程 MCP。规则与 terminal_service.rs 的 remote_mcp_supported 一致：
- * 只有本机的 Claude、Codex 能带请求头，Codex 不支持 SSE，jcode 只认 stdio。
- * 没指定 CLI 的启动档可能用到任一家，不算不支持。
+ * 这个启动档连不上这条远程 MCP：它面向的每个 CLI 都到不了（规则读 CLI 注入描述，与后端
+ * `remote_mcp_supported` 同源）。没指定 CLI 的启动档可能用到任一家，不算不支持。
  */
 export function remoteUnsupportedByProfile(profile: Pick<LaunchProfile, "targetTools" | "targetRuntime">, remote: SharedMcpRemote): boolean {
   if (profile.targetTools.length === 0) return false;
-  const sse = remote.transport === "sse";
   const headers = Object.keys(remote.headers).length > 0;
-  const local = !profile.targetRuntime || profile.targetRuntime === "local";
-  return profile.targetTools.every((tool) => {
-    if (tool === "jcode") return true;
-    if (!local) return headers || sse;
-    if (tool === "claude") return false;
-    if (tool === "codex") return sse;
-    return headers || sse;
-  });
+  return profile.targetTools.every(
+    (tool) => !remoteMcpSupported(injectionProfileFor(tool), remote.transport, headers, profile.targetRuntime),
+  );
 }
 
 export function toggleMcpResource(draft: LaunchProfileDraft, resource: ProfileMcpResource): LaunchProfileDraft {

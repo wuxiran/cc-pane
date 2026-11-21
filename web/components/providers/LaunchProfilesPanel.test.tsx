@@ -610,8 +610,8 @@ describe("LaunchProfilesPanel Pi options", () => {
       savedDraft = draft;
     });
 
-    // docs/104：pi 走扩展桥接入 MCP——卡片解禁并展示桥接提示，而非「不支持」
-    expect(await screen.findByTestId("mcp-tool-hint")).toHaveTextContent(tp("mcpBridgePiHint"));
+    // docs/104 / docs/110：pi 走扩展桥接入 MCP——门控读注入描述，卡片解禁而非「不支持」
+    expect(await screen.findByRole("button", { name: tp("saveDefault") })).toBeInTheDocument();
     expect(screen.queryByTestId("mcp-unsupported")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "YOLO mode" })).not.toBeInTheDocument();
 

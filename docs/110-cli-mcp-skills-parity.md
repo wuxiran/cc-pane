@@ -53,6 +53,13 @@
 - 依赖 `sidecar_resource_dir` 的提示词和 Pi skill 注入，在 daemon 进程里可能拿到 None（terminal_service.rs:2823），**待实测**。
 - `PROJECT_SKILL_ROOTS` 只覆盖 4 个 CLI；项目 Skill 管理界面已在 #100 下线。
 
+### 2.3 批 0 已落地（5e6218bb）
+
+- `InjectionProfile` 单源 + 诚实守卫 `cc-cli-adapters/tests/injection_profile_honesty.rs`；11 个 adapter 显式给出真实值（`web/test/cliToolCoverage.test.ts` 断言每个 adapter 文件都实现了 `fn injection_profile`）。
+- 后端 `remote_mcp_supported`、ctl 代理白名单、提示词回退、`resolve_skill_compatibility` 改读描述；`include_ccpanes_mcp` 与 `skip_mcp` 拆开。
+- 前端：`get_cli_injection_profiles` 由 `web/stores/useCliInjectionProfilesStore.ts` 在启动时拉一次（失败 / web / 测试用静态兜底 `web/lib/cliInjectionProfiles.json`）；§1 的散表已删：`MCP_UNSUPPORTED_CLIS`、`remoteUnsupportedByProfile` 的 CLI 名单、`TOOL_MCP_HINT_KEYS`（改为按描述生成提示）、`EXTERNAL_SKILL_GROUPS.applicableTools`（→ `skills.nativeSources`）、`launchMenu.supportsSsh`（→ `runtimes.ssh.launch`），规则集中在 `web/lib/cliInjectionRules.ts`。
+- §2.1 / §2.2 两张表保留为批 0 之前的盘点，补齐后的取值见 §5 与 `web/lib/cliInjectionProfiles.json`。
+
 ## 3. 各 CLI 原生能力（官方文档调研）
 
 | CLI | MCP 配置（项目级） | 远程 transport | 启动时临时注入 MCP | 启动时临时挂载 skills | 共同 skills 目录 |

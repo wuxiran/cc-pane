@@ -173,8 +173,6 @@
   "sectionMcpDesc": "Set the MCP combination injected when this profile launches.",
   "mcpUnsupported": "Unsupported",
   "mcpUnsupportedHint": "This CLI cannot receive MCP servers. The saved MCP policy is kept but will not be injected.",
-  "mcpBridgePiHint": "Pi upstream has no MCP client; CC-Panes bridges it with a bundled extension that registers MCP tools as native pi tools (mcp__server__tool). Experimental — tick \"Skip MCP\" in the launcher to fall back.",
-  "mcpStdioOnlyJcodeHint": "jcode only consumes stdio servers: HTTP/SSE entries are skipped; shared MCP is injected via its original stdio command and CC-Panes MCP through a local proxy.",
   "collapseServerLib": "Collapse library",
   "manageSharedMcp": "Manage shared MCP",
   "mcpDisabledHint": "This profile won't inject CC-Panes MCP or shared MCP.",
@@ -246,5 +244,10 @@
   },
   "launchSkillTitle": "Skill",
   "launchExternalSkills": "External Skills",
-  "profileNewName": "New launch profile"
+  "profileNewName": "New launch profile",
+  "mcpProfileHint": {
+    "stdioOnly": "This CLI only consumes stdio servers: HTTP/SSE entries are skipped, shared MCP is injected with its original stdio command, and CC-Panes MCP goes through a local proxy.",
+    "projectFile": "This CLI has no per-launch MCP flag, so CC-Panes writes its servers into the project's own config file. Sessions in the same project share that file; it is excluded from git and cleaned up when the last session ends.",
+    "noRemoteHeaders": "Remote MCP servers that need request headers cannot reach this CLI."
+  }
 }

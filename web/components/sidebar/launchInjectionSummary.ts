@@ -2,7 +2,8 @@
 // 结合运行时（本机 / WSL / SSH）和 CLI 能力算出 on / partial / off。
 import type { LaunchProfile } from "@/types";
 import type { WorkspaceLaunchEnvironment } from "@/types/workspace";
-import { injectionProfileFor } from "@/services/cliInjectionProfileService";
+import { injectionProfileFor } from "@/stores/useCliInjectionProfilesStore";
+import { hasAnyMcp } from "@/lib/cliInjectionRules";
 
 export type InjectionState = "on" | "partial" | "off";
 
@@ -25,7 +26,7 @@ export function summarizeInjection(
   // 门控读 adapter 注入描述（docs/110 批 0 单源），不再维护本地 CLI 名单。
   const cliProfile = injectionProfileFor(cliTool);
   const mcpChannels = cliProfile?.mcp;
-  const hasMcp = !!mcpChannels && (mcpChannels.ccpanes !== "none" || mcpChannels.shared || mcpChannels.workspace);
+  const hasMcp = hasAnyMcp(cliProfile);
   const wslMcp = cliProfile?.runtimes.wsl.mcp ?? "none";
 
   let mcp: InjectionState;

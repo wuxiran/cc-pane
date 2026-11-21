@@ -9,7 +9,7 @@ import type { LaunchProfileDraft } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
 import { Section } from "./launchProfileParts";
 import LaunchProfileSkillEditor, { type ProfileSkillForm } from "./LaunchProfileSkillEditor";
-import { EXTERNAL_SKILL_GROUPS, isExternalSourceIncluded, type ExternalSkillSourceKind } from "./launchProfileHelpers";
+import { externalSkillGroupsFor, isExternalSourceIncluded, type ExternalSkillSourceKind } from "./launchProfileHelpers";
 
 interface LaunchProfileSkillCardProps {
   draft: LaunchProfileDraft;
@@ -52,7 +52,7 @@ export default function LaunchProfileSkillCard({
 }: LaunchProfileSkillCardProps) {
   const { t } = useTranslation(["providers", "common", "settings"]);
   const disabled = draft.skillPolicy.mode === "disabled";
-  const externalGroups = EXTERNAL_SKILL_GROUPS.filter((group) => group.applicableTools.includes(activeTool));
+  const externalGroups = externalSkillGroupsFor(activeTool);
   const setPolicyFlag = (key: "includeProjectSkills" | "includeWorkspaceSkills", value: boolean) =>
     setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, [key]: value } }));
 

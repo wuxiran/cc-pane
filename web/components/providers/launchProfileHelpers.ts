@@ -10,6 +10,8 @@ import type {
 import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace, WorkspaceLaunchEnvironment } from "@/types/workspace";
 import { CLI_TOOL_TABS } from "@/types/provider";
+import { nativeSkillSources } from "@/lib/cliInjectionRules";
+import { injectionProfileFor } from "@/stores/useCliInjectionProfilesStore";
 
 export type ProfilesT = TFunction<["providers", "common"]>;
 
@@ -38,12 +40,17 @@ export const EXTERNAL_SKILL_GROUPS: Array<{
   kind: ExternalSkillSourceKind;
   label: string;
   policyKey: "includeExternalClaudeSkills" | "includeExternalCodexSkills" | "includeExternalPluginSkills";
-  applicableTools: KnownCliTool[];
 }> = [
-  { kind: "claude", label: "Claude", policyKey: "includeExternalClaudeSkills", applicableTools: ["claude"] },
-  { kind: "codex", label: "Codex", policyKey: "includeExternalCodexSkills", applicableTools: ["codex"] },
-  { kind: "plugin", label: "Plugin", policyKey: "includeExternalPluginSkills", applicableTools: ["claude"] },
+  { kind: "claude", label: "Claude", policyKey: "includeExternalClaudeSkills" },
+  { kind: "codex", label: "Codex", policyKey: "includeExternalCodexSkills" },
+  { kind: "plugin", label: "Plugin", policyKey: "includeExternalPluginSkills" },
 ];
+
+/** 这个 CLI 自己会读的外部技能组：读注入描述的 `skills.nativeSources`（docs/110 单源）。 */
+export function externalSkillGroupsFor(tool: KnownCliTool | string): typeof EXTERNAL_SKILL_GROUPS {
+  const sources = nativeSkillSources(injectionProfileFor(tool));
+  return EXTERNAL_SKILL_GROUPS.filter((group) => sources.includes(group.kind));
+}
 
 export const TOOL_LABELS: Record<KnownCliTool, string> = {
   none: "",
