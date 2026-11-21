@@ -340,7 +340,7 @@ impl ClaudeAdapter {
 
         let mut mcp_servers = serde_json::Map::new();
         if !cfg!(test) {
-            Self::cleanup_legacy_global_mcp_servers();
+            Self::cleanup_legacy_global_mcp_servers(ctx);
         }
 
         // 合并用户全局 MCP 配置（低优先级）
@@ -350,7 +350,7 @@ impl ClaudeAdapter {
         if let Some(serde_json::Value::Object(user_servers)) = if cfg!(test) {
             None
         } else {
-            Self::read_user_global_mcp_servers()
+            Self::read_user_global_mcp_servers(ctx)
         } {
             let total = user_servers.len();
             let mut merged = 0;
@@ -455,14 +455,23 @@ impl ClaudeAdapter {
         !ctx.disable_unlisted_mcp_servers || ctx.allowed_mcp_server_ids.iter().any(|id| id == name)
     }
 
-    /// 读取 ~/.claude.json 的 mcpServers
-    fn read_user_global_mcp_servers() -> Option<serde_json::Value> {
-        let path = Self::global_claude_config_path()?;
+    /// 读取这次会话的全局状态文件里的 mcpServers
+    fn read_user_global_mcp_servers(ctx: &CliAdapterContext) -> Option<serde_json::Value> {
+        let path = Self::global_claude_config_path(ctx)?;
         Self::read_user_global_mcp_servers_at(&path)
     }
 
-    fn global_claude_config_path() -> Option<PathBuf> {
-        dirs::home_dir().map(|home| home.join(".claude.json"))
+    /// Claude Code 的全局状态文件：默认是 `~/.claude.json`；会话用了登录账号
+    /// （`CLAUDE_CONFIG_DIR` 指向账号目录）时，Claude 读写的是 `<账号目录>/.claude.json`。
+    fn global_claude_config_path(ctx: &CliAdapterContext) -> Option<PathBuf> {
+        Self::global_claude_config_path_for(ctx.login_account_dir(), dirs::home_dir())
+    }
+
+    fn global_claude_config_path_for(
+        account_dir: Option<PathBuf>,
+        home: Option<PathBuf>,
+    ) -> Option<PathBuf> {
+        account_dir.or(home).map(|dir| dir.join(".claude.json"))
     }
 
     fn read_user_global_mcp_servers_at(path: &Path) -> Option<serde_json::Value> {
@@ -471,8 +480,8 @@ impl ClaudeAdapter {
         parsed.get("mcpServers").cloned()
     }
 
-    fn cleanup_legacy_global_mcp_servers() {
-        let Some(path) = Self::global_claude_config_path() else {
+    fn cleanup_legacy_global_mcp_servers(ctx: &CliAdapterContext) {
+        let Some(path) = Self::global_claude_config_path(ctx) else {
             return;
         };
         match Self::cleanup_legacy_global_mcp_servers_at(&path) {
@@ -2064,6 +2073,44 @@ mod tests {
                 "模型键 {key} 必须被强制覆盖"
             );
         }
+    }
+
+    /// 会话用了登录账号（`CLAUDE_CONFIG_DIR` 指向账号目录）时，Claude 的全局状态文件是
+    /// `<账号目录>/.claude.json`，用户级 MCP 也从那里读，而不是 `~/.claude.json`。
+    #[test]
+    fn login_account_session_reads_global_state_from_the_account_dir() {
+        let account = tempdir().unwrap();
+        fs::write(
+            account.path().join(".claude.json"),
+            r#"{"mcpServers":{"account-only":{"command":"x"}}}"#,
+        )
+        .unwrap();
+        let mut ctx = test_context(None);
+        ctx.provider = Some(crate::CliProvider {
+            id: "anthropic".to_string(),
+            name: "Anthropic".to_string(),
+            provider_type: "anthropic".to_string(),
+            config_dir: Some(account.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            ClaudeAdapter::global_claude_config_path(&ctx),
+            Some(account.path().join(".claude.json"))
+        );
+        let servers = ClaudeAdapter::read_user_global_mcp_servers(&ctx).unwrap();
+        assert!(servers.get("account-only").is_some());
+
+        // 没有登录账号：仍是主目录下的 ~/.claude.json。
+        assert_eq!(
+            ClaudeAdapter::global_claude_config_path_for(None, Some(PathBuf::from("/home/u"))),
+            Some(PathBuf::from("/home/u/.claude.json"))
+        );
+        // 「配置目录」指向文件的旧用法（ccswitch JSON）不算目录。
+        let file = account.path().join("profile.json");
+        fs::write(&file, "{}").unwrap();
+        ctx.provider.as_mut().unwrap().config_dir = Some(file.to_string_lossy().into_owned());
+        assert_eq!(ctx.login_account_dir(), None);
     }
 
     /// 用户在供应商 / 账号上填的环境变量优先于自动生成的值，包括被强制写入的模型键。

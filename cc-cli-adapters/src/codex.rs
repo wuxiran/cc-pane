@@ -563,15 +563,25 @@ impl CodexAdapter {
             .unwrap_or_default()
     }
 
-    fn configured_mcp_server_names() -> BTreeSet<String> {
-        // 用 effective CODEX_HOME（尊重用户自定义 CODEX_HOME 环境变量），而非硬编码 ~/.codex，
-        // 确保禁用列表枚举的是 Codex 实际加载的 config。
-        let Some(home) = Self::real_codex_home() else {
+    fn configured_mcp_server_names(ctx: &CliAdapterContext) -> BTreeSet<String> {
+        // 用这次会话实际的 CODEX_HOME（登录账号目录，或用户自定义的 CODEX_HOME 环境变量），
+        // 而非硬编码 ~/.codex，确保禁用列表枚举的是 Codex 实际加载的 config。
+        let Some(home) = Self::codex_home(ctx) else {
             return BTreeSet::new();
         };
         Self::configured_mcp_server_names_from_config_path(&home.join("config.toml"))
     }
 
+    /// 这次会话的 `CODEX_HOME`——全适配器只有这一个出处。
+    ///
+    /// 会话用了登录账号时是账号目录（子进程的 `CODEX_HOME` 环境变量也由供应商解析层设成
+    /// 同一个目录）；否则是 CC-Panes 进程环境里的 `CODEX_HOME` 或 `~/.codex`。适配器自己
+    /// 从不往子进程环境里写 `CODEX_HOME`，所以不会出现两个互相覆盖的值。
+    fn codex_home(ctx: &CliAdapterContext) -> Option<PathBuf> {
+        ctx.login_account_dir().or_else(Self::real_codex_home)
+    }
+
+    /// 没有登录账号时的 `CODEX_HOME`（进程环境或 `~/.codex`）。只用于与会话无关的一次性迁移。
     fn real_codex_home() -> Option<PathBuf> {
         env::var_os("CODEX_HOME")
             .filter(|value| !value.is_empty())
@@ -969,7 +979,7 @@ impl CodexAdapter {
         if !ctx.yolo_mode {
             return;
         }
-        let Some(home) = Self::real_codex_home() else {
+        let Some(home) = Self::codex_home(ctx) else {
             tracing::warn!("codex: unable to resolve CODEX_HOME for project trust prewrite");
             return;
         };
@@ -978,7 +988,9 @@ impl CodexAdapter {
             .as_deref()
             .unwrap_or(ctx.project_path.as_str());
         let trust_keys = vec![Self::host_project_trust_key(project_path)];
-        let config_path = home.join("config.toml");
+        // 登录账号目录里的 config.toml 是指向默认目录的链接：写原件，否则「临时文件 +
+        // rename」会把链接换成一份私有副本，设置从此不再共享。
+        let config_path = crate::resolve_link_target(&home.join("config.toml"));
         match Self::prewrite_trusted_projects_at(&config_path, &trust_keys, true) {
             Ok(true) => info!(
                 config = %config_path.display(),
@@ -1390,7 +1402,7 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
         Self::push_mcp_isolation_overrides_for_names(
             args,
             &ctx.allowed_mcp_server_ids,
-            Self::configured_mcp_server_names(),
+            Self::configured_mcp_server_names(ctx),
         );
     }
 
@@ -2236,6 +2248,104 @@ mod tests {
             .iter()
             .any(|arg| arg.starts_with("model_provider")));
         assert!(!result.env_inject.contains_key("CCPANES_CODEX_API_KEY"));
+    }
+
+    fn login_account_context(account_dir: &Path) -> CliAdapterContext {
+        let mut ctx = test_context(Some("codex-test"));
+        ctx.provider = Some(crate::CliProvider {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            provider_type: "open_ai".to_string(),
+            config_dir: Some(account_dir.to_string_lossy().into_owned()),
+            ..Default::default()
+        });
+        ctx
+    }
+
+    /// 会话用了登录账号：Codex 主目录以账号目录为准，不看 CC-Panes 进程自己的环境。
+    #[test]
+    fn login_account_session_resolves_codex_home_to_the_account_dir() {
+        let account = tempdir().unwrap();
+        let ctx = login_account_context(account.path());
+
+        assert_eq!(
+            CodexAdapter::codex_home(&ctx),
+            Some(account.path().to_path_buf())
+        );
+        // 没有登录账号时退回进程环境 / ~/.codex。
+        assert_eq!(
+            CodexAdapter::codex_home(&test_context(None)),
+            CodexAdapter::real_codex_home()
+        );
+    }
+
+    /// MCP 隔离枚举的是账号目录里的 config.toml（Codex 这次实际加载的那份）。
+    #[test]
+    fn login_account_session_enumerates_mcp_servers_from_the_account_config() {
+        let account = tempdir().unwrap();
+        fs::write(
+            account.path().join("config.toml"),
+            "[mcp_servers.account-only]\ncommand = \"x\"\n",
+        )
+        .unwrap();
+        let mut ctx = login_account_context(account.path());
+        ctx.skip_mcp = false;
+        ctx.disable_unlisted_mcp_servers = true;
+
+        let result = CodexAdapter::new().build_command(&ctx).unwrap();
+
+        assert!(
+            result
+                .args
+                .iter()
+                .any(|arg| arg == "mcp_servers.account-only.enabled=false"),
+            "unlisted server from the account config must be disabled: {:?}",
+            result.args
+        );
+    }
+
+    /// 只有一个 `CODEX_HOME`：适配器自己不往子进程环境里写它（账号目录由供应商解析层
+    /// 作为环境变量注入），也不把它塞进命令行参数。
+    #[test]
+    fn login_account_session_never_injects_a_second_codex_home() {
+        let account = tempdir().unwrap();
+        let mut ctx = login_account_context(account.path());
+        ctx.skip_mcp = false;
+        ctx.skill_mount_paths = vec![account.path().join("skill").to_string_lossy().into_owned()];
+
+        let result = CodexAdapter::new().build_command(&ctx).unwrap();
+
+        assert!(!result.env_inject.contains_key("CODEX_HOME"));
+        assert!(!result.env_remove.iter().any(|key| key == "CODEX_HOME"));
+        assert!(!result.args.iter().any(|arg| arg.contains("CODEX_HOME")));
+    }
+
+    /// YOLO 信任预写落在账号目录的 config.toml 上；它是指向默认目录的链接时写原件，
+    /// 链接本身保留（设置继续共享）。
+    #[cfg(unix)]
+    #[test]
+    fn login_account_trust_prewrite_writes_through_the_shared_config_link() {
+        let default_home = tempdir().unwrap();
+        let account = tempdir().unwrap();
+        let shared = default_home.path().join("config.toml");
+        fs::write(&shared, "model = \"gpt-5\"\n").unwrap();
+        let link = account.path().join("config.toml");
+        std::os::unix::fs::symlink(&shared, &link).unwrap();
+        let mut ctx = login_account_context(account.path());
+        ctx.yolo_mode = true;
+
+        CodexAdapter::ensure_yolo_local_project_trust(&ctx);
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the shared config link must survive the write"
+        );
+        let written = fs::read_to_string(&shared).unwrap();
+        assert!(written.contains("trust_level"), "{written}");
+        assert!(written.contains("model = \"gpt-5\""));
     }
 
     #[test]

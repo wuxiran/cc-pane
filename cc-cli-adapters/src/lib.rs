@@ -1490,7 +1490,33 @@ pub const MANAGED_PROVIDER_ENV_OPTION: &str = "__ccpanesProviderEnv";
 /// win over generated ones. May contain sensitive values; never log or forward to CLI arguments.
 pub const MANAGED_PROVIDER_CUSTOM_ENV_OPTION: &str = "__ccpanesProviderCustomEnv";
 
+/// 路径是链接（软链接 / 目录联接）时返回它指向的原件，否则原样返回。
+///
+/// 登录账号目录里的共享文件是指向 CLI 默认目录的链接；用「临时文件 + rename」改写这类
+/// 文件前先解析到原件，免得把链接换成一份私有副本。
+pub fn resolve_link_target(path: &Path) -> PathBuf {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
 impl CliAdapterContext {
+    /// 这次会话用的登录账号目录（供应商解析层按账号和目标 CLI 给出的 `config_dir`）。
+    ///
+    /// 有值时，适配器找 CLI 主目录（配置、信任、用户级 MCP）一律以它为准，而不是读
+    /// CC-Panes 进程自己的环境变量。指向文件的旧用法（ccswitch 的 JSON 配置）不算目录。
+    pub fn login_account_dir(&self) -> Option<PathBuf> {
+        let dir = self.provider.as_ref()?.config_dir.as_deref()?.trim();
+        if dir.is_empty() {
+            return None;
+        }
+        let path = PathBuf::from(dir);
+        (!path.is_file()).then_some(path)
+    }
+
     pub fn model_id(&self) -> Option<&str> {
         self.adapter_options
             .get("__ccpanesModelId")
