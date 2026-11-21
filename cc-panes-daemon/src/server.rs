@@ -456,6 +456,10 @@ pub struct CreateSessionRequest {
     #[serde(flatten)]
     pub core: PartialCreateSessionRequest,
     pub cwd: Option<String>,
+    /// app 的 Tauri 资源目录（docs/110 批 1）：daemon 进程自己拿不到，可移植技能提示词与
+    /// 托管 Pi 技能发布都依赖它。
+    #[serde(default)]
+    pub sidecar_resource_dir: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -868,6 +872,15 @@ async fn create_session(
     }
     // app 刚保存的性能/终端设置要对这条新会话生效；限频 2 s，批量恢复不会狂读文件。
     config.reload_settings_if_due();
+    if let Some(resource_dir) = req.sidecar_resource_dir.as_deref() {
+        let path = std::path::Path::new(resource_dir);
+        if !cc_panes_core::services::sidecar_resource::remember_process_resource_dir(path) {
+            tracing::warn!(
+                resource_dir,
+                "create_session: ignoring invalid sidecar resource dir"
+            );
+        }
+    }
 
     let project_path = req
         .core

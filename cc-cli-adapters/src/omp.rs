@@ -80,7 +80,8 @@ impl CliToolAdapter for OmpAdapter {
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：项目级 `.omp/mcp.json`（收据驱动），同项目会话共享，ccpanes 不带 launchId；
     ///   共享不带请求头；隔离只 warn。
-    /// - 技能：不消费挂载路径，没有提示词回退。WSL 不注入；SSH 启动被拒。
+    /// - 技能：挂载根经 `--plugin-dir`（Claude 插件布局）；`--append-system-prompt` 是提示词通道。
+    ///   WSL 不注入；SSH 启动被拒。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
@@ -95,8 +96,8 @@ impl CliToolAdapter for OmpAdapter {
                 launch_identity: false,
             },
             skills: SkillsInjection {
-                mount: SkillMount::None,
-                prompt_fallback: false,
+                mount: SkillMount::PluginDir,
+                prompt_fallback: true,
                 native_sources: vec![],
             },
             runtimes: InjectionRuntimes {

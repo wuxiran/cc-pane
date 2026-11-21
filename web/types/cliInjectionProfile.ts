@@ -2,7 +2,7 @@
 export type McpChannel = "sessionFlag" | "sessionFile" | "projectFile" | "userFile" | "stdioProxy" | "none";
 export type McpTransport = "stdioBridge" | "http" | "sse";
 export type McpIsolation = "full" | "declareOnly" | "none";
-export type SkillMount = "pluginDir" | "skillFlag" | "addDir" | "configArray" | "projectFile" | "none";
+export type SkillMount = "pluginDir" | "skillFlag" | "skillsDir" | "addDir" | "configArray" | "projectFile" | "none";
 export type NativeSkillSource = "claude" | "codex" | "plugin";
 export type RuntimeSupport = "full" | "partial" | "none";
 

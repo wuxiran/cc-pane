@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 const DEFAULT_KIMI_BASE_URL: &str = "https://api.moonshot.cn/v1";
@@ -97,6 +98,47 @@ impl KimiAdapter {
     }
 }
 
+/// 技能挂载（docs/110 批 1）。Kimi Code `--skills-dir <dir>` 可重复，但会**替换**自动发现的
+/// 用户级与项目级目录（moonshotai.github.io/kimi-code/en/reference/kimi-command）。所以有挂载时
+/// 把它本来会扫的默认目录（存在的）连同挂载目录一起显式传入：项目级 `.kimi-code/skills`、
+/// `.agents/skills`（项目根 = 向上最近的含 `.git` 的目录），用户级 `$KIMI_CODE_HOME/skills`
+/// （默认 `~/.kimi-code/skills`）、`~/.agents/skills`（kimi-code/en/customization/skills）。
+fn push_skills_dir_args(args: &mut Vec<String>, ctx: &CliAdapterContext) {
+    let mounts = crate::skill_mounts::mount_skill_roots(&ctx.skill_mount_paths);
+    if mounts.is_empty() {
+        return;
+    }
+    let mut dirs = kimi_default_skill_dirs(Path::new(ctx.project_path.trim()));
+    for mount in mounts {
+        if !dirs.contains(&mount) {
+            dirs.push(mount);
+        }
+    }
+    for dir in dirs {
+        args.push("--skills-dir".to_string());
+        args.push(dir.to_string_lossy().into_owned());
+    }
+}
+
+fn kimi_default_skill_dirs(project_path: &Path) -> Vec<PathBuf> {
+    let project_root = project_path
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(project_path);
+    let kimi_home = std::env::var_os("KIMI_CODE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".kimi-code")));
+    let mut candidates = Vec::new();
+    if !project_root.as_os_str().is_empty() {
+        candidates.push(project_root.join(".kimi-code").join("skills"));
+        candidates.push(project_root.join(".agents").join("skills"));
+    }
+    candidates.extend(kimi_home.map(|home| home.join("skills")));
+    candidates.extend(dirs::home_dir().map(|home| home.join(".agents").join("skills")));
+    candidates.into_iter().filter(|dir| dir.is_dir()).collect()
+}
+
 impl Default for KimiAdapter {
     fn default() -> Self {
         Self::new()
@@ -112,9 +154,11 @@ impl CliToolAdapter for KimiAdapter {
         &self.caps
     }
 
-    /// docs/110 批 0：当前代码不接任何 MCP / 技能注入（WSL / SSH 只能裸启动）。
+    /// docs/110：技能挂载经 `--skills-dir`（批 1）；没有会话提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
-        crate::InjectionProfile::unsupported()
+        let mut profile = crate::InjectionProfile::unsupported();
+        profile.skills.mount = crate::SkillMount::SkillsDir;
+        profile
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
@@ -137,6 +181,7 @@ impl CliToolAdapter for KimiAdapter {
         if ctx.yolo_mode {
             args.push("--yolo".to_string());
         }
+        push_skills_dir_args(&mut args, ctx);
 
         if let Some(prompt) = ctx.initial_prompt.as_ref() {
             args.push(prompt.clone());

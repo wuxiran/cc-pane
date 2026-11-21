@@ -364,7 +364,7 @@ impl CliToolAdapter for CursorAdapter {
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：写**用户级** `~/.cursor/mcp.json`，所有会话共享一条 ccpanes 条目（launchId 会被
     ///   并发会话覆盖，不算本会话身份）；没有工作空间层，不处理隔离。
-    /// - 技能：不消费挂载路径，也没有系统提示词通道。
+    /// - 技能：挂载根拼成每会话 staging（Cursor 插件清单）后经 `--plugin-dir`；没有系统提示词通道。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
@@ -379,7 +379,7 @@ impl CliToolAdapter for CursorAdapter {
                 launch_identity: false,
             },
             skills: SkillsInjection {
-                mount: SkillMount::None,
+                mount: SkillMount::PluginDir,
                 prompt_fallback: false,
                 native_sources: vec![],
             },
@@ -445,6 +445,23 @@ impl CliToolAdapter for CursorAdapter {
 
         // 自动批准用户 mcp.json（含我们注入的 ccpanes）
         args.push("--approve-mcps".to_string());
+
+        // 技能挂载（docs/110 批 1）：`--plugin-dir <path>` 可重复（cursor.com/docs/cli/reference/
+        // parameters）。Cursor 插件按清单位置识别（`.cursor-plugin/plugin.json`，skills/ 默认发现，
+        // cursor.com/docs/reference/plugins），我们的挂载根是 Claude 插件布局，故先拼 staging。
+        let layout = crate::skill_mounts::StagingLayout {
+            cursor_plugin: true,
+            agents_skills: false,
+        };
+        if let Some(staging) = crate::skill_mounts::stage_session_skills(
+            &ctx.data_dir,
+            &ctx.session_id,
+            &ctx.skill_mount_paths,
+            layout,
+        ) {
+            args.push("--plugin-dir".to_string());
+            args.push(staging.to_string_lossy().into_owned());
+        }
 
         // 无交互 worker：print 模式（输出纯文本，适合 dispatch 轮询）
         if Self::print_mode_enabled(ctx) {

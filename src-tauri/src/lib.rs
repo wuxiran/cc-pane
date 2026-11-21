@@ -2216,6 +2216,11 @@ pub fn run() {
             );
 
             if let Ok(resource_dir) = app.path().resource_dir() {
+                // daemon 进程拿不到资源目录：记进进程级槽位，daemon 客户端随创建请求带过去
+                // （docs/110 批 1，可移植技能提示词 / 托管 Pi 技能发布依赖它）。
+                cc_panes_core::services::sidecar_resource::remember_process_resource_dir(
+                    &resource_dir,
+                );
                 app.state::<Arc<TerminalService>>()
                     .set_sidecar_resource_dir(resource_dir.clone());
                 // ACP 聊天会话的 CC_PANES_CTL 注入 / http MCP 降级 stdio 同靠此目录解析 ctl。

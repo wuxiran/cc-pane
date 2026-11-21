@@ -136,6 +136,24 @@
 
 **验收：** 对每个 CLI，内置、工作空间、启动档三类技能各起一个会话，在 CLI 里列技能都能看到（实机清单见 §7）。
 
+**批 1 已落地（feat/mcp-skills-parity）：**
+
+| CLI | `skills.mount` | 参数形态（官方来源） | 提示词通道 |
+|---|---|---|---|
+| grok | pluginDir | 每个挂载根一次 `--plugin-dir`，Claude 插件布局直接用（docs.x.ai/build/features/skills-plugins-marketplaces） | `--rules` |
+| omp | pluginDir | 每个挂载根一次 `--plugin-dir`（omp docs/cli-reference.md；`discovery/plugin-dir-roots.ts` 把它当 ClaudePluginRoot） | `--append-system-prompt` |
+| pi | skillFlag | 每个技能目录一次 `--skill <path>`（pi-mono coding-agent docs/cli.md） | `--append-system-prompt` |
+| kimi | skillsDir | `--skills-dir` 可重复但**替换**自动发现，所以把存在的 `<项目根>/.kimi-code/skills`、`<项目根>/.agents/skills`、`$KIMI_CODE_HOME/skills`（默认 `~/.kimi-code/skills`）、`~/.agents/skills` 连同 `<挂载根>/skills` 一起传；没有挂载时不传（kimi-code/en/reference/kimi-command、customization/skills） | 无 |
+| cursor | pluginDir | 每会话 staging 摆成 Cursor 插件（`.cursor-plugin/plugin.json` + `skills/`）后 `--plugin-dir`（cursor.com/docs/cli/reference/parameters、docs/reference/plugins） | 无 |
+| antigravity | addDir | 每会话 staging 里摆 `.agents/skills/<name>` 后 `--add-dir`（antigravity.google/docs/cli/reference、docs/skills） | 无 |
+| opencode | configArray | 每会话 `OPENCODE_CONFIG` 的 `skills.paths`（对象形态；1.17 拒绝数组形态，新版 schema 两种都收） | `instructions` |
+| jcode / gemini | none | 无临时挂载参数，也没有提示词通道——如实标 None，什么都送不到 | 无 |
+
+- staging：`<data_dir>/skill-staging/<session_id>/`（`cc-cli-adapters/src/skill_mounts.rs`），`skills/<name>` 为指向挂载源的符号链接，建不了链接时复制；同时放 `.claude-plugin/plugin.json`，按需放 `.cursor-plugin/plugin.json` 与 `.agents/skills/`。PTY 退出时打退休标记，下次 staging 时回收退休超过 1 小时的目录（与 `mcp_config_lifecycle` 同一条「没有退休证据就不删」规则）。Claude / Codex 路径不变。
+- 提示词回退判据：`InjectionProfile::uses_skill_prompt_fallback(runtime)` = 有提示词通道 且 该运行时没消费挂载（本机看 `skills.mount`；WSL / SSH 不经 adapter，只有该运行时技能支持为 Full 才算消费）。trait 默认值改为按 `supports_system_prompt` 给出通道，不再看投递模式里有无 Native*，PiSkill 不再压掉回退。本机消费挂载后 grok / opencode 不再内联可移植技能；grok WSL 仍走提示词（WSL 技能支持改标 Partial）。
+- daemon 资源目录：确认 daemon 进程从不调用 `set_sidecar_resource_dir`，`portable_bundled_skill_prompt` 与托管 Pi 技能发布在 daemon 模式下拿到 None。修法：app 启动时记进程级资源目录（`services::sidecar_resource`），daemon 客户端在创建请求里带 `sidecarResourceDir`，daemon 收到后记进本进程，`TerminalService` 自身字段为空时退回它（旧 daemon 忽略该字段，行为不变；需要重建并替换 daemon 二进制才生效）。
+- 守卫：诚实守卫的挂载根改为真实插件布局（含一个技能），staging 型要求 argv 里出现 staging 路径且链接到技能正文；`tests/skill_mount_args.rs` 钉住各 CLI 的参数形态。
+
 ### 批 2 · MCP 补齐
 
 - 抽一个通用的项目级 MCP 文件写入器：键名、格式（JSON / TOML）、远程 URL 的键（`url` / `serverUrl` / `httpUrl`）都可配置，做法同 omp 的收据流程。
@@ -166,16 +184,16 @@
 
 ## 7. 必须实测、不能凭文档定的事项
 
-| # | 事项 | 影响 |
-|---|---|---|
-| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 |
-| 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 |
-| 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 |
-| 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 |
-| 5 | Antigravity 的 `--add-dir` 是否加载 staging 目录里的 `.agents/skills`；`mcp_config.json` 里能否展开 `${VAR}` | 批 1、2 |
-| 6 | Cursor 的 `--plugin-dir` 要求的插件布局 | 批 1 |
-| 7 | daemon 模式下 portable 提示词是否真的丢失 | 批 1 |
-| 8 | Grok 项目级 `.mcp.json` 与 `.grok/config.toml` 都存在时的优先级 | 批 2 |
+| # | 事项 | 影响 | 结论 |
+|---|---|---|---|
+| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | 未测（本批不改 Codex） |
+| 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 | **opencode 1.17.11 实测**：`OPENCODE_CONFIG` 生效；`skills` 只收对象 `{"paths":[...]}`，数组形态报 `Expected object`（官网 V2 文档写的是数组，新版 schema 两种都收，故用对象）。用 adapter 生成的每会话配置挂内置 + 工作空间两个根，`opencode debug skill` 从 1 个变成 33 个（31 个 `ccpanes-*` + 工作空间技能 + 自带 1 个），符号链接的技能目录同样可见。MCP 键名：官网 schema 仍收旧形 `mcp.<name>`（`type`/`url`/`enabled`/`headers`，标 deprecated），新形是 `mcp.servers.<name>` + `disabled` |
+| 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 | 见批 2 |
+| 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 | 见批 2 |
+| 5 | Antigravity 的 `--add-dir` 是否加载 staging 目录里的 `.agents/skills`；`mcp_config.json` 里能否展开 `${VAR}` | 批 1、2 | 本机未装 agy，未实测。文档：`--add-dir` 把目录加进工作区，CLI 读每个工作区根的 `.agents/skills/`（changelog 有 `/add-dir` 后技能动态重载的修复）；风险是它对 `.agents/skills.json` 里经符号链接的条目会跳过，`.agents/skills/` 目录里的链接是否同样被跳过未知——实测若不加载，staging 对 agy 改为复制 |
+| 6 | Cursor 的 `--plugin-dir` 要求的插件布局 | 批 1 | 文档已说清（cursor.com/docs/reference/plugins）：按清单位置识别，Cursor 插件 = `.cursor-plugin/plugin.json`（必填 `name`），`skills/` 下含 `SKILL.md` 的子目录默认发现；Agent Plugin = 根 `plugin.json`。本机未装 cursor-agent，`--plugin-dir` 下技能目录为符号链接时是否加载未实测（文档只说 `~/.cursor/plugins/local` 里指向外部的链接会被跳过） |
+| 7 | daemon 模式下 portable 提示词是否真的丢失 | 批 1 | 读代码确认属实（daemon 只建 `TerminalService` 不调 `set_sidecar_resource_dir`），已修（见批 1） |
+| 8 | Grok 项目级 `.mcp.json` 与 `.grok/config.toml` 都存在时的优先级 | 批 2 | 见批 2 |
 
 每一项实测结论都写回本文对应行，附 CLI 版本号。
 

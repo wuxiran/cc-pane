@@ -84,6 +84,9 @@ pub(crate) struct PiFamilyConfig {
     /// YOLO 映射的启动 flag。Pi 本身没有权限确认（上游 README「No permission
     /// popups」），始终全自动，故为 None；omp 有 approval mode，`--yolo` 强制本进程 yolo。
     pub(crate) yolo_flag: Option<&'static str>,
+    /// 技能挂载参数形态（docs/110 批 1）：pi `--skill <path>`（逐个技能目录），
+    /// omp `--plugin-dir <dir>`（Claude 插件根）。
+    pub(crate) skill_mount: crate::SkillMount,
 }
 
 pub(crate) const PI_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
@@ -97,6 +100,7 @@ pub(crate) const PI_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
     supports_session_name: true,
     supports_project_trust: true,
     yolo_flag: None,
+    skill_mount: crate::SkillMount::SkillFlag,
 };
 
 pub(crate) const OMP_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
@@ -110,6 +114,7 @@ pub(crate) const OMP_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
     supports_session_name: false,
     supports_project_trust: false,
     yolo_flag: Some("--yolo"),
+    skill_mount: crate::SkillMount::PluginDir,
 };
 
 /// Produce a path-safe, deterministic component for a CC-Panes launch id.
@@ -453,6 +458,27 @@ fn validate_extra_args(
     Ok(args)
 }
 
+/// 技能挂载（docs/110 批 1）。pi：`--skill <path>` 可重复，逐个传技能目录
+/// （pi docs/cli.md）；omp：`--plugin-dir <dir>` 可重复，挂载根本身是 Claude 插件
+/// （omp `discovery/plugin-dir-roots.ts`：与 ClaudePluginRoot 同形）。
+fn push_skill_mount_args(args: &mut Vec<String>, mount: crate::SkillMount, mounts: &[String]) {
+    match mount {
+        crate::SkillMount::SkillFlag => {
+            for (_, dir) in crate::skill_mounts::mount_skill_dirs(mounts) {
+                args.push("--skill".to_string());
+                args.push(dir.to_string_lossy().into_owned());
+            }
+        }
+        crate::SkillMount::PluginDir => {
+            for plugin_dir in mounts.iter().filter(|path| Path::new(path).is_dir()) {
+                args.push("--plugin-dir".to_string());
+                args.push(plugin_dir.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Shared launch core for the Pi family. `PiAdapter` and `OmpAdapter` are thin
 /// wrappers that only differ in `PiFamilyConfig` and capability flags.
 pub(crate) struct PiFamilyAdapter {
@@ -592,6 +618,7 @@ impl PiFamilyAdapter {
                 args.push(flag.to_string());
             }
         }
+        push_skill_mount_args(&mut args, config.skill_mount, &ctx.skill_mount_paths);
 
         args.extend(validate_extra_args(
             &ctx.adapter_options,
@@ -829,7 +856,8 @@ impl CliToolAdapter for PiAdapter {
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：扩展桥 + 每会话 `CCPANES_MCP_CONFIG`；ccpanes 条目不带 launchId、共享不带请求头；
     ///   隔离只收窄 CC-Panes 注入的集合。
-    /// - 技能：不消费挂载路径；PiSkill 投递压掉了提示词回退（批 1 修）。
+    /// - 技能：挂载路径里的每个技能目录一次 `--skill`；`--append-system-prompt` 是提示词通道
+    ///   （挂载被消费时不回退，避免同一技能两遍）。
     /// - WSL 固定 skip_mcp；SSH 启动被 provider_resolver 拒绝。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
@@ -845,8 +873,8 @@ impl CliToolAdapter for PiAdapter {
                 launch_identity: false,
             },
             skills: SkillsInjection {
-                mount: SkillMount::None,
-                prompt_fallback: false,
+                mount: SkillMount::SkillFlag,
+                prompt_fallback: true,
                 native_sources: vec![],
             },
             runtimes: InjectionRuntimes {

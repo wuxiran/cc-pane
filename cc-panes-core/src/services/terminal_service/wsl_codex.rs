@@ -1271,6 +1271,9 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
         }
     }
 
+    // 每会话技能 staging（docs/110 批 1）：打退休标记，下次 staging 时按保留期回收。
+    cc_cli_adapters::skill_mounts::retire_session_staging(data_dir, &sanitized);
+
     let launch_dir = data_dir.join("wsl-launch");
     if let Ok(entries) = std::fs::read_dir(&launch_dir) {
         let suffix = format!("-{sanitized}.sh");
@@ -1782,16 +1785,12 @@ impl TerminalService {
         // Publish from CC-Panes' bundled templates into an app-owned staging
         // root. Managed launches must never copy a user's native Skills into
         // their isolated configuration directory.
-        let templates_dir = self
-            .sidecar_resource_dir
-            .read()
-            .as_ref()
-            .map(|resource_dir| {
-                resource_dir
-                    .join("resources")
-                    .join("claude-bundle")
-                    .join("default-skills")
-            });
+        let templates_dir = self.effective_sidecar_resource_dir().map(|resource_dir| {
+            resource_dir
+                .join("resources")
+                .join("claude-bundle")
+                .join("default-skills")
+        });
         let Some(templates_dir) = templates_dir else {
             return Ok(Vec::new());
         };

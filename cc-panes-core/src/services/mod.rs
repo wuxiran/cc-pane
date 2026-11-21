@@ -14,6 +14,7 @@ pub mod codex_app_server;
 pub mod codex_desktop;
 pub mod codex_session_service;
 mod ctl_sidecar;
+pub mod sidecar_resource;
 pub mod terminal_output_cursor;
 // ACP 聊天会话与 PTY 终端共用同一条 CC_PANES_CTL 注入链（src-tauri 侧也要用）。
 pub use ctl_sidecar::{session_ctl_env_value, SESSION_CTL_ENV_KEY};

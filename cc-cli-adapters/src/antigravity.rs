@@ -102,9 +102,11 @@ impl CliToolAdapter for AntigravityAdapter {
         &self.caps
     }
 
-    /// docs/110 批 0：当前代码不接任何 MCP / 技能注入（WSL / SSH 只能裸启动）。
+    /// docs/110：技能经每会话 staging 的 `--add-dir`（批 1）；没有会话提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
-        crate::InjectionProfile::unsupported()
+        let mut profile = crate::InjectionProfile::unsupported();
+        profile.skills.mount = crate::SkillMount::AddDir;
+        profile
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
@@ -122,6 +124,23 @@ impl CliToolAdapter for AntigravityAdapter {
 
         if ctx.yolo_mode {
             args.push(ANTIGRAVITY_YOLO_FLAG.to_string());
+        }
+
+        // 技能挂载（docs/110 批 1）：`--add-dir` 把目录加进工作区（antigravity.google/docs/cli/
+        // reference），agy 读每个工作区根下的 `.agents/skills/<name>/`（docs/skills），故 staging
+        // 里摆一份 `.agents/skills`。
+        let layout = crate::skill_mounts::StagingLayout {
+            cursor_plugin: false,
+            agents_skills: true,
+        };
+        if let Some(staging) = crate::skill_mounts::stage_session_skills(
+            &ctx.data_dir,
+            &ctx.session_id,
+            &ctx.skill_mount_paths,
+            layout,
+        ) {
+            args.push("--add-dir".to_string());
+            args.push(staging.to_string_lossy().into_owned());
         }
 
         args.extend(extra_args_from_options(&ctx.adapter_options));

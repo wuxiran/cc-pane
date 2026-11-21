@@ -36,6 +36,7 @@ const WS_HTTP_URL: &str = "https://ws-http.guard.example/mcp";
 const USER_ONLY_SERVER: &str = "guard-user-only";
 const USER_ONLY_CMD: &str = "guard-user-only-cmd";
 const SYSTEM_PROMPT_MARKER: &str = "guard-session-prompt-marker";
+const SKILL_BODY_MARKER: &str = "guard-skill-body-marker";
 
 struct Sandbox {
     _root: tempfile::TempDir,
@@ -56,6 +57,7 @@ impl Sandbox {
         for dir in [&home, &data, &project, &skill_mount] {
             fs::create_dir_all(dir).unwrap();
         }
+        seed_skill_mount(&skill_mount);
         let proxy_cmd = root.path().join("bin").join("guard-cc-panes-ctl");
         seed_user_configs(&home);
         // SAFETY 等价：edition 2021 的 set_var 是安全函数；ENV_LOCK 保证本二进制内串行。
@@ -85,6 +87,20 @@ impl Sandbox {
     fn roots(&self) -> [&Path; 3] {
         [&self.home, &self.data, &self.project]
     }
+}
+
+/// 挂载根是 Claude 插件布局（与 `<data>/skills/builtin` 一致）：清单 + `skills/<name>/SKILL.md`。
+fn seed_skill_mount(root: &Path) {
+    let skill = root.join("skills").join("guard-skill");
+    fs::create_dir_all(&skill).unwrap();
+    fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+    fs::write(
+        root.join(".claude-plugin").join("plugin.json"),
+        "{\"name\":\"guard\"}",
+    )
+    .unwrap();
+    let body = format!("---\nname: guard-skill\ndescription: guard\n---\n{SKILL_BODY_MARKER}\n");
+    fs::write(skill.join("SKILL.md"), body).unwrap();
 }
 
 /// 用户自己的 MCP（只存在于用户配置里）：完整隔离的证据是「提到它却不启动它」。
@@ -276,7 +292,13 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
         expect(failures, cli, "full MCP isolation", ok);
     }
     if p.skills.mount != SkillMount::None {
-        let ok = corpus.contains("guard-skill-mount");
+        // 直接传挂载路径，或传每会话 staging（其中链接到挂载里的技能正文）。
+        let lines: Vec<&str> = corpus.lines().collect();
+        let staging_passed = lines
+            .windows(2)
+            .any(|pair| pair[0].starts_with("--") && pair[1].contains("skill-staging"));
+        let staged = staging_passed && corpus.contains(SKILL_BODY_MARKER);
+        let ok = corpus.contains("guard-skill-mount") || staged;
         expect(failures, cli, "skill mount", ok);
     }
     if p.skills.prompt_fallback {

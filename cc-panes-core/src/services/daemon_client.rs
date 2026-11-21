@@ -281,8 +281,7 @@ impl TerminalDaemonClient {
     ) -> AppResult<crate::services::CreateSessionOutcome> {
         let expected_session_id = request.expected_saved_session_id.clone();
         let requested_model_id = request.model_id.clone();
-        let body =
-            serde_json::to_string(&request).map_err(|error| AppError::from(error.to_string()))?;
+        let body = create_session_body(&request, super::sidecar_resource::process_resource_dir())?;
         let response = self.request_with_timeout(
             "POST",
             "/api/sessions",
@@ -1274,6 +1273,23 @@ fn split_http_response(response: &str) -> AppResult<(u16, &str)> {
     Ok((status, body))
 }
 
+/// 创建请求体：核心请求 + app 的资源目录（daemon 进程拿不到 Tauri 资源目录，docs/110 批 1）。
+/// 旧 daemon 不认 `sidecarResourceDir`，按未知字段忽略。
+fn create_session_body(
+    request: &CreateSessionRequest,
+    resource_dir: Option<std::path::PathBuf>,
+) -> AppResult<String> {
+    let mut value =
+        serde_json::to_value(request).map_err(|error| AppError::from(error.to_string()))?;
+    if let (Some(dir), Some(object)) = (resource_dir, value.as_object_mut()) {
+        object.insert(
+            "sidecarResourceDir".to_string(),
+            serde_json::Value::String(dir.to_string_lossy().into_owned()),
+        );
+    }
+    serde_json::to_string(&value).map_err(|error| AppError::from(error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::TcpListener;
@@ -1996,6 +2012,25 @@ mod tests {
         assert!(request.contains("Content-Type: application/json"));
         assert!(request.contains(r#""projectPath":"/repo""#));
         assert!(request.contains(r#""initialPrompt":"inspect""#));
+    }
+
+    #[test]
+    fn create_session_body_carries_app_resource_dir_only_when_known() {
+        let without = create_session_body(&test_create_request(), None).unwrap();
+        assert!(!without.contains("sidecarResourceDir"));
+        let with = create_session_body(
+            &test_create_request(),
+            Some(std::path::PathBuf::from(
+                "/Applications/CC-Panes.app/Contents/Resources",
+            )),
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&with).unwrap();
+        assert_eq!(
+            value["sidecarResourceDir"],
+            "/Applications/CC-Panes.app/Contents/Resources"
+        );
+        assert_eq!(value["projectPath"], "/repo");
     }
 
     #[test]

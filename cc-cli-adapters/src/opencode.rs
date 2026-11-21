@@ -178,6 +178,19 @@ impl OpenCodeAdapter {
             }
         }
 
+        // ---- 技能挂载（docs/110 批 1）----
+        // `skills.paths`：额外的技能目录（opencode.ai/docs/skills；1.17 只认对象形态，新版
+        // schema 仍接受它，数组形态在 1.17 会被拒绝——实机 1.17.11 验证，见 docs/110 §7）。
+        let skill_roots = crate::skill_mounts::mount_skill_roots(&ctx.skill_mount_paths);
+        if !skill_roots.is_empty() {
+            let paths: Vec<String> = skill_roots
+                .iter()
+                .map(|root| root.to_string_lossy().into_owned())
+                .collect();
+            config.insert("skills".to_string(), serde_json::json!({ "paths": paths }));
+            has_content = true;
+        }
+
         // ---- 系统 prompt（写入 instructions 文件并引用）----
         if let Some(prompt) = ctx
             .append_system_prompt
@@ -699,7 +712,7 @@ impl CliToolAdapter for OpenCodeAdapter {
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 不带请求头，没有工作空间层，不处理隔离。
-    /// - 技能：不消费挂载路径，内置 / 工作空间技能走提示词（instructions）。
+    /// - 技能：挂载目录写进同一份配置的 `skills.paths`；`instructions` 是提示词通道。
     /// - WSL：不经 adapter，MCP 与提示词都丢（批 4）。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
@@ -715,7 +728,7 @@ impl CliToolAdapter for OpenCodeAdapter {
                 launch_identity: true,
             },
             skills: SkillsInjection {
-                mount: SkillMount::None,
+                mount: SkillMount::ConfigArray,
                 prompt_fallback: true,
                 native_sources: vec![],
             },

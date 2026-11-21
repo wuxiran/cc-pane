@@ -62,6 +62,8 @@ pub enum SkillMount {
     PluginDir,
     /// `--skill <path>` 一类的单技能参数。
     SkillFlag,
+    /// `--skills-dir <dir>` 一类的技能目录参数（kimi，会替换自动发现）。
+    SkillsDir,
     /// `--add-dir <staging>`，CLI 读该目录下的约定技能目录。
     AddDir,
     /// 配置里的数组键（Codex `-c skills.config=[...]`）。
@@ -118,7 +120,8 @@ pub struct McpInjection {
 pub struct SkillsInjection {
     /// 内置 / 工作空间技能挂载路径的消费方式。
     pub mount: SkillMount,
-    /// 不能挂载时，内置可移植技能与工作空间技能能否以会话提示词注入。
+    /// 有没有会话提示词通道。挂载路径没被消费（`mount == None`，或该运行时不经 adapter）
+    /// 时，内置可移植技能与工作空间技能改走这条通道（docs/110 批 1）。
     pub prompt_fallback: bool,
     /// CLI 自己会读的外部技能来源。
     pub native_sources: Vec<NativeSkillSource>,
@@ -189,6 +192,24 @@ impl SkillsInjection {
     }
 }
 
+impl InjectionProfile {
+    /// 这个运行时下 adapter 会不会真正消费 `skill_mount_paths`。本机看 `skills.mount`；
+    /// WSL / SSH 不经 adapter 拼命令，只有该运行时的技能支持为 Full 才算消费了挂载。
+    pub fn skill_mounts_consumed(&self, runtime_kind: &str) -> bool {
+        if self.skills.mount == SkillMount::None {
+            return false;
+        }
+        self.runtime(runtime_kind)
+            .is_none_or(|runtime| runtime.skills == RuntimeSupport::Full)
+    }
+
+    /// 内置可移植技能 / 工作空间技能要不要以会话提示词送达：有提示词通道、且挂载没被消费。
+    /// 消费了挂载的还回退，会让同一个技能出现两遍。
+    pub fn uses_skill_prompt_fallback(&self, runtime_kind: &str) -> bool {
+        self.skills.prompt_fallback && !self.skill_mounts_consumed(runtime_kind)
+    }
+}
+
 impl RuntimeInjection {
     /// 能启动，但 MCP 与技能都不注入。
     pub fn launch_only() -> Self {
@@ -222,7 +243,7 @@ impl InjectionProfile {
         }
     }
 
-    /// trait 的保守默认值：只从现有投递模式推导提示词回退，其余一律当作不支持。
+    /// trait 的保守默认值：只按有无提示词通道给出回退，其余一律当作不支持。
     /// 内置 adapter 都显式覆盖（`web/test/cliToolCoverage.test.ts` 守着）。
     pub fn derived(supports_prompt_fallback: bool) -> Self {
         let mut profile = Self::unsupported();

@@ -29,6 +29,7 @@ pub mod mcp_file_injection;
 mod omp;
 mod opencode;
 mod pi;
+pub mod skill_mounts;
 
 pub use antigravity::{
     AntigravityAdapter, ANTIGRAVITY_EXECUTABLE, ANTIGRAVITY_INITIAL_PROMPT_FLAG,
@@ -1004,15 +1005,9 @@ pub trait CliToolAdapter: Send + Sync {
     /// 默认值保守（只推导提示词回退，其余视为不支持）；内置 adapter 必须显式给出
     /// 当前代码的真实值，`tests/injection_profile_honesty.rs` 逐项找证据。
     fn injection_profile(&self) -> InjectionProfile {
-        let modes = self.skill_delivery_modes();
-        let prompt_fallback = modes.contains(&SkillDeliveryMode::SessionPrompt)
-            && !modes.iter().any(|mode| {
-                matches!(
-                    mode,
-                    SkillDeliveryMode::NativeCommand | SkillDeliveryMode::NativeSkill
-                )
-            });
-        InjectionProfile::derived(prompt_fallback)
+        // docs/110 批 1：提示词回退只看「有没有会话提示词通道」；挂载路径有没有被消费由
+        // `skills.mount` 表达，调用方据此判定要不要回退，不再从投递模式里猜。
+        InjectionProfile::derived(self.capabilities().supports_system_prompt)
     }
 
     /// Whether a session can persist a durable TaskBinding result.

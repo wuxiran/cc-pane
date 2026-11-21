@@ -127,18 +127,18 @@ fn merge_session_prompts(parts: impl IntoIterator<Item = Option<String>>) -> Opt
     }
 }
 
-/// Avoid loading a bundled Skill twice. Adapters with a native command or
-/// native Skill directory receive the bundle there; this fallback is only for
-/// adapters whose sole supported portable transport is a session prompt.
-/// 内置可移植技能 / 工作空间技能是否以会话提示词送达：读 adapter 的注入描述
-/// （docs/110 批 0 单源），不再自己从投递模式推断。
+/// 内置可移植技能 / 工作空间技能是否以会话提示词送达（docs/110 批 1）：adapter **实际没消费**
+/// 挂载路径（本机 `skills.mount == None`，或该运行时不经 adapter）且有提示词通道时才回退。
+/// 判据读注入描述，不再看投递模式里有没有 Native*；消费了挂载还回退会让同一技能出现两遍。
 fn uses_portable_skill_session_prompt_fallback(
     registry: &CliToolRegistry,
     cli_tool: CliTool,
+    runtime_kind: &str,
 ) -> bool {
     registry.get(cli_tool.as_id()).is_some_and(|adapter| {
-        let skills = adapter.injection_profile().skills;
-        skills.prompt_fallback && skills.mount == cc_cli_adapters::SkillMount::None
+        adapter
+            .injection_profile()
+            .uses_skill_prompt_fallback(runtime_kind)
     })
 }
 
@@ -213,10 +213,10 @@ fn skill_mount_paths_for_profile(
     paths
 }
 
-/// Inline workspace skills for CLIs whose injection profile has `prompt_fallback` and no
-/// mount channel (today: OpenCode, Grok). Cursor / Gemini / Kimi / Antigravity have no
-/// session-prompt channel at all and receive nothing (docs/110 §2.2).
-/// Mount-capable CLIs must not get this — they would see every skill twice.
+/// Inline workspace skills for launches whose adapter does not consume the skill mounts but
+/// has a session-prompt channel (`InjectionProfile::uses_skill_prompt_fallback`; after docs/110
+/// 批 1 that is only non-adapter runtimes such as Grok over WSL). Mount-consuming launches must
+/// not get this — they would see every skill twice.
 fn workspace_skill_session_prompt(
     profile: Option<&LaunchProfile>,
     skills: &[crate::services::ProjectSkillContent],
@@ -2113,29 +2113,36 @@ impl TerminalService {
         *self.sidecar_resource_dir.write() = Some(resource_dir);
     }
 
+    /// 本服务的资源目录；daemon 进程里没人调 `set_sidecar_resource_dir`，退回 app 经创建
+    /// 请求带过来的进程级值（`sidecar_resource::process_resource_dir`）。
+    fn effective_sidecar_resource_dir(&self) -> Option<PathBuf> {
+        self.sidecar_resource_dir
+            .read()
+            .clone()
+            .or_else(super::sidecar_resource::process_resource_dir)
+    }
+
     fn portable_bundled_skill_prompt(
         &self,
         cli_tool: CliTool,
+        runtime_kind: &str,
         profile: Option<&LaunchProfile>,
         ccpanes_mcp_available: bool,
     ) -> Option<String> {
-        if !uses_portable_skill_session_prompt_fallback(&self.cli_registry, cli_tool) {
+        if !uses_portable_skill_session_prompt_fallback(&self.cli_registry, cli_tool, runtime_kind)
+        {
             return None;
         }
         let skill_names = LaunchProfileService::bundled_skill_names_for_session_prompt(profile);
         if skill_names.is_empty() {
             return None;
         }
-        let templates_dir = self
-            .sidecar_resource_dir
-            .read()
-            .as_ref()
-            .map(|resource_dir| {
-                resource_dir
-                    .join("resources")
-                    .join("claude-bundle")
-                    .join("default-skills")
-            })?;
+        let templates_dir = self.effective_sidecar_resource_dir().map(|resource_dir| {
+            resource_dir
+                .join("resources")
+                .join("claude-bundle")
+                .join("default-skills")
+        })?;
         if !templates_dir.join("manifest.json").is_file() {
             debug!(
                 path = %templates_dir.display(),
@@ -2155,16 +2162,12 @@ impl TerminalService {
     /// launch's isolated Pi state. Native Pi continues to use its own global
     /// agent root and is handled by startup-wide skill publication instead.
     fn inject_managed_pi_skills(&self, agent_root: &Path) {
-        let templates_dir = self
-            .sidecar_resource_dir
-            .read()
-            .as_ref()
-            .map(|resource_dir| {
-                resource_dir
-                    .join("resources")
-                    .join("claude-bundle")
-                    .join("default-skills")
-            });
+        let templates_dir = self.effective_sidecar_resource_dir().map(|resource_dir| {
+            resource_dir
+                .join("resources")
+                .join("claude-bundle")
+                .join("default-skills")
+        });
         let Some(templates_dir) = templates_dir else {
             warn!("managed Pi skill injection skipped because bundled resources are unavailable");
             return;
@@ -2812,10 +2815,10 @@ impl TerminalService {
             || LaunchProfileService::should_skip_ccpanes_mcp_for_profile(resolved_profile.as_ref());
         let wsl_skip_mcp = effective_skip_ccpanes_mcp;
         let injection_profile = self.cli_registry.injection_profile(cli_tool.as_id());
-        // 注意：daemon 模式下 create_session 跑在 daemon 进程里，而
-        // `set_sidecar_resource_dir` 只有 app 侧调用 —— 此处恒为 None，ctl 路径
-        // 实际由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
-        let sidecar_resource_dir = self.sidecar_resource_dir.read().clone();
+        // daemon 模式下 create_session 跑在 daemon 进程里，`set_sidecar_resource_dir` 只有 app
+        // 侧调用；app 经创建请求的 `sidecarResourceDir` 把资源目录带过来（docs/110 批 1），
+        // 旧 app 不带时仍由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
+        let sidecar_resource_dir = self.effective_sidecar_resource_dir();
         if !is_ssh && !effective_skip_ccpanes_mcp && injection_profile.mcp.ctl_proxy {
             // 只认 stdio 的 CLI（ccpanes 通道 = StdioProxy，目前是 jcode）必须走 ctl 代理
             // （force，不受 CCPANES_MCP_PROXY 灰度开关约束）；ctl 缺失只降级（ccpanes 条目
@@ -2958,12 +2961,17 @@ impl TerminalService {
             .and_then(|svc| svc.session_skill_prompt_for_profile(resolved_profile.as_ref()));
         let portable_bundled_skill_prompt = self.portable_bundled_skill_prompt(
             cli_tool,
+            runtime_kind,
             resolved_profile.as_ref(),
             !effective_skip_ccpanes_mcp,
         );
         let workspace_skill_prompt = match workspace_skill_name {
             Some(name)
-                if uses_portable_skill_session_prompt_fallback(&self.cli_registry, cli_tool) =>
+                if uses_portable_skill_session_prompt_fallback(
+                    &self.cli_registry,
+                    cli_tool,
+                    runtime_kind,
+                ) =>
             {
                 let skills = workspace_skill_service.read_all(name).unwrap_or_default();
                 workspace_skill_session_prompt(resolved_profile.as_ref(), &skills)
@@ -7733,30 +7741,39 @@ mod tests {
     }
 
     #[test]
-    fn portable_bundled_skills_fall_back_to_session_prompt_only_without_native_delivery() {
+    fn portable_bundled_skills_fall_back_to_session_prompt_only_when_mounts_are_not_consumed() {
         let registry = CliToolRegistry::with_builtin_adapters();
+        let fallback = |cli_tool, runtime| {
+            uses_portable_skill_session_prompt_fallback(&registry, cli_tool, runtime)
+        };
 
-        assert!(uses_portable_skill_session_prompt_fallback(
-            &registry,
-            CliTool::Grok
-        ));
-        assert!(uses_portable_skill_session_prompt_fallback(
-            &registry,
-            CliTool::Opencode
-        ));
+        // docs/110 批 1：本机消费了挂载的 CLI 一律不回退（否则同一技能出现两遍），
+        // 包括此前被 PiSkill 压掉回退、现在改走 `--skill` 的 pi。
         for cli_tool in [
             CliTool::Claude,
             CliTool::Codex,
-            CliTool::Gemini,
+            CliTool::Grok,
+            CliTool::Opencode,
+            CliTool::Pi,
+            CliTool::Omp,
             CliTool::Kimi,
             CliTool::Cursor,
+            CliTool::Antigravity,
+            // 没有挂载也没有提示词通道：什么都送不到（如实标 None）
+            CliTool::Jcode,
+            CliTool::Gemini,
             CliTool::None,
         ] {
             assert!(
-                !uses_portable_skill_session_prompt_fallback(&registry, cli_tool),
-                "{cli_tool:?} should not use the session-prompt fallback"
+                !fallback(cli_tool, "local"),
+                "{cli_tool:?} should not use the session-prompt fallback locally"
             );
         }
+        // WSL / SSH 不经 adapter、不传挂载：有提示词通道的仍走回退。
+        assert!(fallback(CliTool::Grok, "wsl"));
+        assert!(fallback(CliTool::Grok, "ssh"));
+        assert!(!fallback(CliTool::Claude, "wsl"));
+        assert!(!fallback(CliTool::Codex, "wsl"));
     }
 
     #[test]
@@ -7794,15 +7811,19 @@ mod tests {
         .unwrap();
         service.set_sidecar_resource_dir(resource_dir);
 
+        // Grok 本机消费挂载（--plugin-dir），只在 WSL 这种不经 adapter 的运行时回退。
         let prompt = service
-            .portable_bundled_skill_prompt(CliTool::Grok, None, true)
-            .expect("Grok should receive the session-prompt fallback");
+            .portable_bundled_skill_prompt(CliTool::Grok, "wsl", None, true)
+            .expect("Grok over WSL should receive the session-prompt fallback");
         assert!(prompt.contains("## ccpanes-dispatch-task\n# Dispatch"));
         assert!(service
-            .portable_bundled_skill_prompt(CliTool::Grok, None, false)
+            .portable_bundled_skill_prompt(CliTool::Grok, "wsl", None, false)
             .is_none());
         assert!(service
-            .portable_bundled_skill_prompt(CliTool::Codex, None, true)
+            .portable_bundled_skill_prompt(CliTool::Grok, "local", None, true)
+            .is_none());
+        assert!(service
+            .portable_bundled_skill_prompt(CliTool::Codex, "local", None, true)
             .is_none());
     }
 

@@ -393,7 +393,8 @@ impl CliToolAdapter for GrokAdapter {
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：写**用户级** `config.toml`，ccpanes 不带 launchId；没有工作空间层；隔离只 warn。
-    /// - 技能：不消费挂载路径，走 `--rules` 提示词。WSL 只注册 ccpanes（Partial），提示词照传。
+    /// - 技能：挂载根经 `--plugin-dir`（Claude 插件布局）；`--rules` 是提示词通道。WSL 不经
+    ///   adapter、不传挂载，技能只靠提示词回退（Partial）。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
@@ -408,7 +409,7 @@ impl CliToolAdapter for GrokAdapter {
                 launch_identity: false,
             },
             skills: SkillsInjection {
-                mount: SkillMount::None,
+                mount: SkillMount::PluginDir,
                 prompt_fallback: true,
                 native_sources: vec![],
             },
@@ -416,7 +417,7 @@ impl CliToolAdapter for GrokAdapter {
                 wsl: RuntimeInjection {
                     launch: true,
                     mcp: RuntimeSupport::Partial,
-                    skills: RuntimeSupport::Full,
+                    skills: RuntimeSupport::Partial,
                 },
                 ssh: RuntimeInjection::launch_only(),
             },
@@ -477,6 +478,15 @@ impl CliToolAdapter for GrokAdapter {
         {
             args.push("--rules".to_string());
             args.push(prompt.to_string());
+        }
+
+        // 技能挂载（docs/110 批 1）：Grok 原生兼容 Claude 插件布局，`--plugin-dir <PATH>`
+        // 可重复（docs.x.ai/build/features/skills-plugins-marketplaces），挂载根直接传。
+        for plugin_dir in &ctx.skill_mount_paths {
+            if Path::new(plugin_dir).is_dir() {
+                args.push("--plugin-dir".to_string());
+                args.push(plugin_dir.clone());
+            }
         }
 
         // effort → `--reasoning-effort <v>`（实机 --help 确认该 flag 存在，别名 --effort）。

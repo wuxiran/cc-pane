@@ -23,7 +23,7 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "addDir",
       "nativeSources": [],
       "promptFallback": false
     }
@@ -125,7 +125,7 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "pluginDir",
       "nativeSources": [],
       "promptFallback": false
     }
@@ -182,11 +182,11 @@
       "wsl": {
         "launch": true,
         "mcp": "partial",
-        "skills": "full"
+        "skills": "partial"
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "pluginDir",
       "nativeSources": [],
       "promptFallback": true
     }
@@ -246,7 +246,7 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "skillsDir",
       "nativeSources": [],
       "promptFallback": false
     }
@@ -278,9 +278,9 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "pluginDir",
       "nativeSources": [],
-      "promptFallback": false
+      "promptFallback": true
     }
   },
   "opencode": {
@@ -310,7 +310,7 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "configArray",
       "nativeSources": [],
       "promptFallback": true
     }
@@ -342,9 +342,9 @@
       }
     },
     "skills": {
-      "mount": "none",
+      "mount": "skillFlag",
       "nativeSources": [],
-      "promptFallback": false
+      "promptFallback": true
     }
   }
 }
