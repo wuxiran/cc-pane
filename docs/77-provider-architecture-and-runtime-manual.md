@@ -354,7 +354,7 @@ classDiagram
 | Claude | `anthropic`, `bedrock`, `vertex`, `proxy`, `config_profile` | 同左，统一归属 `claude` | 环境变量 + CLI args |
 | Codex | `open_ai` | `open_ai -> codex` | `-c model_provider` + 专用 env |
 | Gemini | `gemini` | `gemini -> gemini` | 环境变量 + `--model` |
-| Kimi | `kimi` | `kimi -> kimi` | 每会话 JSON + `--config-file` |
+| Kimi | `kimi` | `kimi -> kimi` | `KIMI_MODEL_*` 环境变量（Kimi Code 没有 `--config-file`，docs/110 批 3） |
 | OpenCode | `open_ai`, `opencode`, `anthropic` | 仅 `opencode -> opencode` | `OPENCODE_CONFIG` + `--model` |
 | Cursor | `cursor` | `cursor -> cursor` | `CURSOR_API_KEY` + `--model` |
 | Grok | `grok` | `grok -> grok` | XAI/Grok env + `--model` |
@@ -1234,7 +1234,7 @@ env_remove: 本次从继承环境删除的键
 | Claude | ProviderService 生成 Anthropic/AWS/Vertex/config env | `--model id` | `MAX_THINKING_TOKENS` | `--mcp-config file` | `--resume id` |
 | Codex | `-c model_provider=...`、base_url、env_key + `CCPANES_CODEX_API_KEY` | `--model id` | `-c model_reasoning_effort` | per-launch `-c mcp...` | `resume id` |
 | Gemini | Gemini env | `--model id` | 无统一映射 | Adapter 原生能力 | Adapter 参数 |
-| Kimi | `<dataDir>/cli-adapters/kimi/configs/<session>.json` | `--model id` | 无统一映射 | Adapter 原生能力 | Adapter 参数 |
+| Kimi | 无（`KIMI_MODEL_*` 环境变量） | `KIMI_MODEL_NAME`（托管）/ `--model id`（原生） | 无统一映射 | Adapter 原生能力 | Adapter 参数 |
 | OpenCode | 每会话 `opencode.json` 的 provider options | `--model provider/id` | 无统一映射 | 同一 JSON 中 remote MCP | `--session id` |
 | Cursor | `CURSOR_API_KEY` | `--model id` | 无统一映射 | capability 定义 | Adapter 参数 |
 | Grok | XAI/Grok endpoint env | `--model id` | 无统一映射 | 会话配置/Adapter 逻辑 | resume/issued id |

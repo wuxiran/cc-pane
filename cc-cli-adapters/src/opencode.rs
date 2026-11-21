@@ -327,6 +327,43 @@ impl OpenCodeAdapter {
         }
     }
 
+    /// 隔离（docs/110 批 3）：把 OpenCode 自己会加载、但启动档没选中的 server 写成
+    /// `enabled:false`，经 `OPENCODE_CONFIG_CONTENT` 注入（见 `opencode_isolation`）。
+    fn mcp_isolation_content(ctx: &CliAdapterContext) -> Option<String> {
+        if !ctx.disable_unlisted_mcp_servers {
+            return None;
+        }
+        let injected = Self::injected_mcp_names(ctx);
+        let existing = std::env::var(crate::opencode_isolation::CONTENT_ENV).ok();
+        crate::opencode_isolation::isolation_content(
+            ctx,
+            Self::launch_root(ctx),
+            &injected,
+            existing.as_deref(),
+        )
+    }
+
+    /// 本次写进每会话配置的 server 名（与 `write_session_config` 的 MCP 段同口径）。
+    fn injected_mcp_names(ctx: &CliAdapterContext) -> std::collections::BTreeSet<String> {
+        let mut names = std::collections::BTreeSet::new();
+        if ctx.skip_mcp {
+            return names;
+        }
+        if ctx.wants_ccpanes_mcp()
+            && ctx.orchestrator_port.is_some()
+            && ctx.orchestrator_token.is_some()
+        {
+            names.insert("ccpanes".to_string());
+        }
+        names.extend(ctx.shared_mcp_urls.keys().cloned());
+        names.extend(
+            ctx.allowed_workspace_mcp_servers()
+                .filter(|(name, value)| *name != "ccpanes" && opencode_layer_entry(value).is_some())
+                .map(|(name, _)| name.clone()),
+        );
+        names
+    }
+
     fn launch_root(ctx: &CliAdapterContext) -> &Path {
         Path::new(
             ctx.workspace_path
@@ -559,6 +596,9 @@ impl OpenCodeAdapter {
         if let Some(config_path) = self.write_session_config(ctx, session_theme.as_ref())? {
             env_inject.insert("OPENCODE_CONFIG".to_string(), config_path);
         }
+        if let Some(content) = Self::mcp_isolation_content(ctx) {
+            env_inject.insert(crate::opencode_isolation::CONTENT_ENV.to_string(), content);
+        }
         if let Some(config_path) = tui_config_path {
             env_inject.insert("OPENCODE_TUI_CONFIG".to_string(), config_path);
         }
@@ -758,7 +798,7 @@ impl CliToolAdapter for OpenCodeAdapter {
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
     /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 带请求头，含工作空间层（docs/110 批 2）；
-    ///   隔离不处理（批 3）。
+    ///   隔离（批 3）：没选中的 server 经 `OPENCODE_CONFIG_CONTENT` 写成 `enabled:false`。
     /// - 技能：挂载目录写进同一份配置的 `skills.paths`；`instructions` 是提示词通道。
     /// - WSL：不经 adapter，MCP 与提示词都丢（批 4）。
     fn injection_profile(&self) -> crate::InjectionProfile {
@@ -771,7 +811,7 @@ impl CliToolAdapter for OpenCodeAdapter {
                 workspace: true,
                 transports: vec![McpTransport::StdioBridge, McpTransport::Http],
                 remote_headers: true,
-                isolation: McpIsolation::None,
+                isolation: McpIsolation::Full,
                 launch_identity: true,
             },
             skills: SkillsInjection {
@@ -1437,6 +1477,44 @@ mod tests {
             .write_session_config(&c, None)
             .unwrap()
             .is_none());
+    }
+
+    /// docs/110 批 3：隔离时项目里没被选中的 server 经 `OPENCODE_CONFIG_CONTENT` 禁用，
+    /// 我们自己注入的与启动档允许的不动；不隔离时不注入该变量。
+    #[test]
+    fn isolation_disables_unselected_project_servers_via_config_content() {
+        let mut c = ctx(fresh_data_dir("isolation"));
+        c.executable_override = Some("/test-bin/opencode".to_string());
+        let project = std::path::PathBuf::from(&c.project_path);
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        write_config(
+            &project.join("opencode.json"),
+            serde_json::json!({ "mcp": {
+                "proj-only": { "type": "local", "command": ["proj-only-cmd"], "enabled": true },
+                "picked": { "type": "local", "command": ["picked-cmd"] },
+                "shared-a": { "type": "local", "command": ["shadowed"] }
+            }}),
+        );
+        c.shared_mcp_urls
+            .insert("shared-a".to_string(), "http://127.0.0.1:9/mcp".to_string());
+        let adapter = OpenCodeAdapter::new();
+        let build = |c: &CliAdapterContext| {
+            adapter
+                .build_command_with_config_sources(c, None, None, None, None)
+                .unwrap()
+                .env_inject
+        };
+        assert!(!build(&c).contains_key("OPENCODE_CONFIG_CONTENT"));
+
+        c.disable_unlisted_mcp_servers = true;
+        c.allowed_mcp_server_ids = vec!["picked".to_string(), "shared-a".to_string()];
+        let env = build(&c);
+        let content: serde_json::Value =
+            serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        assert_eq!(content["mcp"]["proj-only"]["enabled"], false);
+        assert!(content["mcp"].get("picked").is_none());
+        assert!(content["mcp"].get("shared-a").is_none());
+        assert!(!env["OPENCODE_CONFIG_CONTENT"].contains("proj-only-cmd"));
     }
 
     #[test]

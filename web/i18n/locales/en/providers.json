@@ -106,7 +106,7 @@
   "sectionBasicDesc": "Set an alias, restrict the applicable CLI, and choose the Provider to inject explicitly.",
   "fieldAlias": "Alias",
   "fieldKimiConfigSource": "Kimi config source",
-  "kimiNativeHint": "Uses the ~/.kimi login state; no --config-file is passed and KIMI_SHARE_DIR is not injected at launch.",
+  "kimiNativeHint": "Uses Kimi Code's own login and config.toml; no KIMI_MODEL_* variables are injected at launch.",
   "kimiManagedHint": "Explicit Kimi Providers don't fully support model config yet; Provider selection is disabled.",
   "fieldApplicableCli": "Applicable CLI",
   "fieldRuntime": "Runtime location",
@@ -249,5 +249,9 @@
     "stdioOnly": "This CLI only consumes stdio servers: HTTP/SSE entries are skipped, shared MCP is injected with its original stdio command, and CC-Panes MCP goes through a local proxy.",
     "projectFile": "This CLI has no per-launch MCP flag, so CC-Panes writes its servers into the project's own config file. Sessions in the same project share that file; it is excluded from git and cleaned up when the last session ends.",
     "noRemoteHeaders": "Remote MCP servers that need request headers cannot reach this CLI."
+  },
+  "mcpIsolationGap": {
+    "declareOnly": "This CLI cannot block MCP servers from its own config: it only receives the servers this profile selects, but anything already in its user or project config still loads.",
+    "none": "This CLI ignores the profile's MCP selection: servers from its own config still load."
   }
 }

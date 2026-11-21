@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckboxRow } from "@/components/ui/CheckboxRow";
 import { SegmentedTabs } from "@/components/ui/segmented";
-import { hasAnyMcp, mcpProfileHints } from "@/lib/cliInjectionRules";
+import { hasAnyMcp, mcpIsolationGap, mcpProfileHints } from "@/lib/cliInjectionRules";
 import { useInjectionProfile } from "@/stores/useCliInjectionProfilesStore";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import type { LaunchProfileDraft } from "@/types";
@@ -27,6 +27,8 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
   const profile = useInjectionProfile(activeTool);
   const mcpSupported = activeTool === "none" || hasAnyMcp(profile);
   const hints = mcpProfileHints(profile);
+  // 启动档收窄了 MCP，但这个 CLI 挡不住它自己配置里的 server（docs/110 批 3）
+  const isolationGap = mcpIsolationGap(profile, draft.mcpPolicy);
 
   if (!mcpSupported) {
     return (
@@ -78,6 +80,21 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
           {hints.map((hint) => (
             <div key={hint}>{t(`mcpProfileHint.${hint}`)}</div>
           ))}
+        </div>
+      )}
+
+      {isolationGap && (
+        <div
+          data-testid="mcp-isolation-gap"
+          role="note"
+          className="mt-2 rounded-md border px-3 py-2 text-xs"
+          style={{
+            borderColor: "var(--app-status-warning-border)",
+            background: "var(--app-status-warning-bg)",
+            color: "var(--app-status-warning)",
+          }}
+        >
+          {t(`mcpIsolationGap.${isolationGap}`)}
         </div>
       )}
 

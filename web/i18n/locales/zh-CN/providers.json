@@ -106,7 +106,7 @@
   "sectionBasicDesc": "设置别名、限定适用 CLI，并选择要显式注入的供应商。",
   "fieldAlias": "别名",
   "fieldKimiConfigSource": "Kimi 配置来源",
-  "kimiNativeHint": "使用 ~/.kimi 登录态；启动时不传 --config-file，也不注入 KIMI_SHARE_DIR。",
+  "kimiNativeHint": "使用 Kimi Code 自己的登录态与 config.toml；启动时不注入 KIMI_MODEL_* 环境变量。",
   "kimiManagedHint": "Kimi 显式供应商暂未支持完整模型配置；供应商选择已禁用。",
   "fieldApplicableCli": "适用 CLI",
   "fieldRuntime": "运行位置",
@@ -249,5 +249,9 @@
     "stdioOnly": "此 CLI 只认 stdio 型服务器：HTTP/SSE 条目会被跳过；共享 MCP 以原始 stdio 命令注入，CC-Panes MCP 走本地代理。",
     "projectFile": "此 CLI 没有按次启动的 MCP 参数，CC-Panes 会把服务写进项目自己的配置文件。同一项目的会话共用这份文件；它被排除出 git，最后一个会话结束时清理。",
     "noRemoteHeaders": "需要请求头的远程 MCP 到不了此 CLI。"
+  },
+  "mcpIsolationGap": {
+    "declareOnly": "这个 CLI 挡不住它自己配置里的 MCP：只会收到本启动档选中的那部分，但它用户级或项目级配置里已有的 server 仍会加载。",
+    "none": "这个 CLI 不处理启动档的 MCP 选择：它自己配置里的 server 仍会加载。"
   }
 }

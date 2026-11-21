@@ -48,6 +48,28 @@ impl GeminiAdapter {
     }
 }
 
+/// 白名单为空时 Gemini 视为不过滤（`mcp-client-manager.ts`：`allowedNames.length > 0` 才生效），
+/// 所以「一个都不放行」要传一个不可能存在的名字。
+const NO_SERVER_SENTINEL: &str = "__ccpanes_no_mcp__";
+
+/// 隔离白名单：本次写进项目文件的条目 + 启动档显式允许的名字（用户自己配置、被启动档选中的
+/// server 照常连接）。逗号分隔——参数本身支持逗号与重复两种写法；server 名经
+/// `is_valid_server_name` 校验，不含逗号。
+fn allowed_server_names(ctx: &CliAdapterContext, injected: &[String]) -> String {
+    let mut names: Vec<&str> = injected
+        .iter()
+        .chain(&ctx.allowed_mcp_server_ids)
+        .map(String::as_str)
+        .filter(|name| !name.is_empty() && !name.contains(','))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        return NO_SERVER_SENTINEL.to_string();
+    }
+    names.join(",")
+}
+
 impl Default for GeminiAdapter {
     fn default() -> Self {
         Self::new()
@@ -65,12 +87,16 @@ impl CliToolAdapter for GeminiAdapter {
 
     /// docs/110：
     /// - MCP（批 2）：项目 `.gemini/settings.json`，同项目会话共享；ccpanes 经 ctl stdio 代理（launchId
-    ///   经 `env` 块转发）；远程 HTTP / SSE 带字面请求头；隔离只能声明（批 3 接 `--allowed-mcp-server-names`）。
+    ///   经 `env` 块转发）；远程 HTTP / SSE 带字面请求头。
+    /// - 隔离（批 3）：`--allowed-mcp-server-names` 按次启动白名单，用户 / 扩展 / 项目里的其他
+    ///   server 一律不连（gemini-cli `packages/cli/src/config/config.ts`：给了这个参数就覆盖
+    ///   `mcp.allowed`，且不再看 `mcp.excluded`）。
     /// - 技能：没有临时挂载参数，也没有提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         let mut profile = InjectionProfile::unsupported();
         profile.mcp = project_file_mcp(true, true, vec![McpTransport::Sse]);
+        profile.mcp.isolation = McpIsolation::Full;
         profile
     }
 
@@ -102,6 +128,16 @@ impl CliToolAdapter for GeminiAdapter {
             &crate::project_mcp_dialects::GEMINI,
             &crate::project_mcp::ccpanes_proxy_or_http(ctx),
         );
+
+        if ctx.disable_unlisted_mcp_servers {
+            // option 必须排在位置参数 prompt 之前
+            let at = ctx
+                .initial_prompt
+                .as_ref()
+                .map_or(args.len(), |_| args.len() - 1);
+            args.insert(at, "--allowed-mcp-server-names".to_string());
+            args.insert(at + 1, allowed_server_names(ctx, &mcp.servers));
+        }
 
         let (command, args) = ctx.resolve_launch("gemini", args)?;
 
@@ -164,5 +200,27 @@ mod tests {
         // `--yolo` 与 `--approval-mode` 互斥，绝不能同时出现
         assert!(!args.iter().any(|arg| arg == "--yolo" || arg == "-y"));
         assert!(adapter.capabilities().supports_yolo);
+    }
+
+    /// docs/110 批 3：隔离 = `--allowed-mcp-server-names`（排在 prompt 前）；空白名单用哨兵名。
+    #[test]
+    fn isolation_passes_allowlist_before_prompt() {
+        let adapter = GeminiAdapter::new();
+        let plain = adapter.build_command(&context(false)).unwrap().args;
+        assert!(!plain.iter().any(|arg| arg == "--allowed-mcp-server-names"));
+
+        let mut ctx = context(false);
+        ctx.disable_unlisted_mcp_servers = true;
+        let args = adapter.build_command(&ctx).unwrap().args;
+        let flag = args
+            .iter()
+            .position(|arg| arg == "--allowed-mcp-server-names")
+            .expect("allowlist flag");
+        assert_eq!(args[flag + 1], NO_SERVER_SENTINEL);
+        assert_eq!(args.last().map(String::as_str), Some("hi"));
+
+        ctx.allowed_mcp_server_ids = vec!["zeta".to_string(), "alpha".to_string()];
+        let names = allowed_server_names(&ctx, &["ccpanes".to_string(), "alpha".to_string()]);
+        assert_eq!(names, "alpha,ccpanes,zeta");
     }
 }

@@ -1,10 +1,9 @@
 //! Kimi CLI 适配器
 
 use crate::{
-    atomic_file::write_atomic, CliAdapterContext, CliCommandResult, CliToolAdapter,
-    CliToolCapabilities, CliToolInfo,
+    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -54,48 +53,44 @@ impl KimiAdapter {
         }
     }
 
-    fn write_session_config(&self, ctx: &CliAdapterContext) -> Result<Option<String>> {
+    /// 托管 Provider（Kimi Code，moonshotai.github.io/kimi-code/en/configuration/env-vars）：
+    /// `KIMI_MODEL_NAME` 设了就在内存里合成一个临时 provider + 模型别名，不写回 `config.toml`，
+    /// 优先级高于 `default_model`。这是 Kimi Code 唯一按次启动指定凭证的通道——它没有
+    /// `--config-file`（那是已归档的 Python 版 kimi-cli 的参数，传给 Kimi Code 会直接报错退出），
+    /// 普通 `KIMI_API_KEY` 也不会被读（overrides.md「Provider credentials」）。
+    ///
+    /// `KIMI_MODEL_NAME` 是必填的开关，所以托管模式必须选了模型；没选就拒绝启动并说明原因，
+    /// 不静默退回用户自己的登录态（那会让会话用错账号）。
+    fn managed_provider_env(ctx: &CliAdapterContext) -> Result<Option<HashMap<String, String>>> {
         let Some(provider) = ctx.provider.as_ref() else {
             return Ok(None);
         };
         if provider.provider_type != "kimi" {
             return Ok(None);
         }
-        let Some(api_key) = provider.api_key.as_ref() else {
+        let Some(api_key) = provider
+            .api_key
+            .as_deref()
+            .filter(|key| !key.trim().is_empty())
+        else {
             return Ok(None);
         };
-
-        let adapter_root = ctx.data_dir.join("cli-adapters").join("kimi");
-        let config_dir = adapter_root.join("configs");
-        std::fs::create_dir_all(&config_dir)?;
-
-        let config_path = config_dir.join(format!("{}.json", ctx.session_id));
-        let config = serde_json::json!({
-            "providers": {
-                "ccpanes": {
-                    "type": "kimi",
-                    "api_key": api_key,
-                    "base_url": provider.base_url.as_deref().unwrap_or(DEFAULT_KIMI_BASE_URL),
-                }
-            }
-        });
-
-        write_atomic(&config_path, serde_json::to_vec_pretty(&config)?)?;
-        Ok(Some(config_path.to_string_lossy().into_owned()))
-    }
-
-    fn build_env_inject(&self, ctx: &CliAdapterContext) -> Result<HashMap<String, String>> {
-        if ctx.provider.is_none() {
-            return Ok(HashMap::new());
-        }
-
-        let share_dir = ctx.data_dir.join("cli-adapters").join("kimi").join("share");
-        std::fs::create_dir_all(&share_dir)?;
-
-        Ok(HashMap::from([(
-            "KIMI_SHARE_DIR".to_string(),
-            share_dir.to_string_lossy().into_owned(),
-        )]))
+        let Some(model) = ctx.model_id() else {
+            return Err(anyhow!(
+                "Kimi Code needs a model for a managed Provider (KIMI_MODEL_NAME); choose a model in the launch profile"
+            ));
+        };
+        let base_url = provider
+            .base_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or(DEFAULT_KIMI_BASE_URL);
+        Ok(Some(HashMap::from([
+            ("KIMI_MODEL_NAME".to_string(), model.to_string()),
+            ("KIMI_MODEL_API_KEY".to_string(), api_key.to_string()),
+            ("KIMI_MODEL_PROVIDER_TYPE".to_string(), "kimi".to_string()),
+            ("KIMI_MODEL_BASE_URL".to_string(), base_url.to_string()),
+        ])))
     }
 }
 
@@ -170,11 +165,7 @@ impl CliToolAdapter for KimiAdapter {
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
-
-        if let Some(config_path) = self.write_session_config(ctx)? {
-            args.push("--config-file".to_string());
-            args.push(config_path);
-        }
+        let managed_env = Self::managed_provider_env(ctx)?;
 
         if let Some(workspace_path) = ctx.workspace_path.as_deref() {
             if workspace_path != ctx.project_path {
@@ -183,7 +174,11 @@ impl CliToolAdapter for KimiAdapter {
             }
         }
 
-        crate::push_model_arg(&mut args, ctx);
+        // 托管时模型已由 `KIMI_MODEL_NAME` 合成为临时别名；`-m` 优先级更高，再传会去找一个
+        // 用户 config 里未必存在的别名。
+        if managed_env.is_none() {
+            crate::push_model_arg(&mut args, ctx);
+        }
 
         if ctx.yolo_mode {
             args.push("--yolo".to_string());
@@ -194,7 +189,7 @@ impl CliToolAdapter for KimiAdapter {
             args.push(prompt.clone());
         }
 
-        let mut env_inject = self.build_env_inject(ctx)?;
+        let mut env_inject = managed_env.unwrap_or_default();
         // MCP（docs/110 批 2）：Kimi Code 没有按次启动的 MCP 参数，项目级 `.kimi-code/mcp.json`
         // 是唯一注入面（kimi-code/en/customization/mcp）。ccpanes 走 ctl stdio 代理（不展开环境
         // 变量，代理从继承的环境里拿实例与 launchId），代理不可用时 HTTP + `bearerTokenEnvVar`。
@@ -300,74 +295,62 @@ mod tests {
         assert!(adapter.capabilities().supports_yolo);
     }
 
-    #[test]
-    fn native_provider_mode_does_not_write_generated_provider_config() {
-        let dir = tempdir().unwrap();
-        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
-        ctx.provider = None;
-        let adapter = KimiAdapter::new();
-
-        let config_path = adapter.write_session_config(&ctx).unwrap();
-
-        assert_eq!(config_path, None);
-        assert!(!dir
-            .path()
-            .join("cli-adapters")
-            .join("kimi")
-            .join("configs")
-            .exists());
+    fn env_of(ctx: &CliAdapterContext) -> HashMap<String, String> {
+        KimiAdapter::new().build_command(ctx).unwrap().env_inject
     }
 
+    /// Kimi Code 没有 `--config-file`；托管 Provider 走文档里的 `KIMI_MODEL_*`，不写配置文件、
+    /// 不注入旧 CLI 的 `KIMI_SHARE_DIR`，也不再传 `--model`。
     #[test]
-    fn native_provider_mode_does_not_inject_isolated_share_dir() {
+    fn managed_provider_uses_kimi_model_env_instead_of_config_file() {
         let dir = tempdir().unwrap();
-        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
-        ctx.provider = None;
-        let adapter = KimiAdapter::new();
-
-        let env_inject = adapter.build_env_inject(&ctx).unwrap();
-
-        assert!(!env_inject.contains_key("KIMI_SHARE_DIR"));
-        assert!(!dir
-            .path()
-            .join("cli-adapters")
-            .join("kimi")
-            .join("share")
-            .exists());
-    }
-
-    #[test]
-    fn managed_config_mode_keeps_existing_generated_config_and_share_dir() {
-        let dir = tempdir().unwrap();
-        let ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
-        let adapter = KimiAdapter::new();
-
-        let config_path = adapter.write_session_config(&ctx).unwrap().unwrap();
-        let env_inject = adapter.build_env_inject(&ctx).unwrap();
-
-        assert!(config_path.ends_with("session-1.json"));
-        assert!(env_inject.contains_key("KIMI_SHARE_DIR"));
-        assert!(dir
-            .path()
-            .join("cli-adapters")
-            .join("kimi")
-            .join("share")
-            .exists());
-    }
-
-    #[test]
-    fn explicit_managed_provider_wins_over_legacy_native_option() {
-        let dir = tempdir().unwrap();
-        let ctx = context_with_options(
+        let mut ctx = context_with_options(
             dir.path().to_path_buf(),
-            HashMap::from([("kimiConfigMode".to_string(), json!("native"))]),
+            HashMap::from([("__ccpanesModelId".to_string(), json!("kimi-for-coding"))]),
         );
-        let adapter = KimiAdapter::new();
+        ctx.executable_override = Some("kimi-test".to_string());
+        let result = KimiAdapter::new().build_command(&ctx).unwrap();
+        assert!(!result.args.iter().any(|arg| arg == "--config-file"));
+        assert!(!result.args.iter().any(|arg| arg == "--model"));
+        assert_eq!(result.env_inject["KIMI_MODEL_NAME"], "kimi-for-coding");
+        assert_eq!(result.env_inject["KIMI_MODEL_API_KEY"], "test-key");
+        assert_eq!(result.env_inject["KIMI_MODEL_PROVIDER_TYPE"], "kimi");
+        assert_eq!(
+            result.env_inject["KIMI_MODEL_BASE_URL"],
+            DEFAULT_KIMI_BASE_URL
+        );
+        assert!(!result.env_inject.contains_key("KIMI_SHARE_DIR"));
+        assert!(!result.args.iter().any(|arg| arg.contains("test-key")));
+        assert!(!dir.path().join("cli-adapters").join("kimi").exists());
+    }
 
-        assert!(adapter.write_session_config(&ctx).unwrap().is_some());
-        assert!(adapter
-            .build_env_inject(&ctx)
-            .unwrap()
-            .contains_key("KIMI_SHARE_DIR"));
+    #[test]
+    fn managed_provider_without_model_refuses_to_launch() {
+        let dir = tempdir().unwrap();
+        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
+        ctx.executable_override = Some("kimi-test".to_string());
+        let error = KimiAdapter::new().build_command(&ctx).err().expect("error");
+        assert!(error.to_string().contains("KIMI_MODEL_NAME"));
+    }
+
+    #[test]
+    fn native_provider_mode_injects_no_provider_env_and_keeps_model_flag() {
+        let dir = tempdir().unwrap();
+        let mut ctx = context_with_options(
+            dir.path().to_path_buf(),
+            HashMap::from([("__ccpanesModelId".to_string(), json!("my-alias"))]),
+        );
+        ctx.provider = None;
+        ctx.executable_override = Some("kimi-test".to_string());
+        let result = KimiAdapter::new().build_command(&ctx).unwrap();
+        assert!(!env_of(&ctx)
+            .keys()
+            .any(|key| key.starts_with("KIMI_MODEL_")));
+        let model = result
+            .args
+            .iter()
+            .position(|arg| arg == "--model")
+            .expect("--model");
+        assert_eq!(result.args[model + 1], "my-alias");
     }
 }

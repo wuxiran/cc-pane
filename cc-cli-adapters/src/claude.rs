@@ -334,7 +334,9 @@ impl ClaudeAdapter {
         }
 
         // 合并用户全局 MCP 配置（低优先级）
-        // 跳过已在 shared_mcp_urls 中的 server（它们将以 HTTP 模式注入）
+        // 跳过已在 shared_mcp_urls 中的 server（它们将以 HTTP 模式注入）。
+        // 隔离（docs/110 批 3）：只合并启动档显式允许的名字——会话带 `--strict-mcp-config`，
+        // 不在这份文件里的 server 一律不加载，所以这里就是用户 server 的唯一入口。
         if let Some(serde_json::Value::Object(user_servers)) = if cfg!(test) {
             None
         } else {
@@ -350,6 +352,12 @@ impl ClaudeAdapter {
                 } else if ctx.shared_mcp_urls.contains_key(&name) {
                     skipped += 1;
                     info!("[claude] Skipping stdio '{}' (shared HTTP available)", name);
+                } else if !Self::user_server_allowed(ctx, &name) {
+                    skipped += 1;
+                    info!(
+                        "[claude] Skipping '{}' (not selected by the isolating launch profile)",
+                        name
+                    );
                 } else {
                     mcp_servers.insert(name, config);
                     merged += 1;
@@ -430,6 +438,11 @@ impl ClaudeAdapter {
                 None
             }
         }
+    }
+
+    /// 隔离时只放行启动档允许的用户 server；不隔离时全部放行。
+    fn user_server_allowed(ctx: &CliAdapterContext, name: &str) -> bool {
+        !ctx.disable_unlisted_mcp_servers || ctx.allowed_mcp_server_ids.iter().any(|id| id == name)
     }
 
     /// 读取 ~/.claude.json 的 mcpServers
@@ -940,7 +953,8 @@ impl CliToolAdapter for ClaudeAdapter {
     }
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：每会话 `--mcp-config`；会合并 `~/.claude.json` 且没有 `--strict-mcp-config`，隔离做不到。
+    /// - MCP：每会话 `--mcp-config`；隔离时加 `--strict-mcp-config`，且只合并启动档允许的
+    ///   `~/.claude.json` server（docs/110 批 3）。
     /// - WSL：只进 HTTP 型工作空间层，远程不带请求头（Partial）；技能经 /mnt `--plugin-dir`。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
@@ -956,7 +970,7 @@ impl CliToolAdapter for ClaudeAdapter {
                     McpTransport::Sse,
                 ],
                 remote_headers: true,
-                isolation: McpIsolation::None,
+                isolation: McpIsolation::Full,
                 launch_identity: true,
             },
             skills: SkillsInjection {
@@ -1240,6 +1254,12 @@ impl CliToolAdapter for ClaudeAdapter {
                 "claude: no MCP config generated (orchestrator not running?)"
             );
         }
+        // 隔离（docs/110 批 3）：`--strict-mcp-config` 让 Claude 只用 `--mcp-config` 里的 server，
+        // 忽略 `~/.claude.json`（user / local scope）、项目 `.mcp.json` 与其余来源。没有生成
+        // `--mcp-config`（启动档 MCP 全关）时同样要传——此时会话一个 MCP 都不加载，这正是全关。
+        if ctx.disable_unlisted_mcp_servers {
+            args.push("--strict-mcp-config".to_string());
+        }
 
         // --append-system-prompt
         if let Some(ref prompt) = ctx.append_system_prompt {
@@ -1421,6 +1441,39 @@ mod tests {
             vec!["/ccpanes/builtin", "/ccpanes/extra"],
             "blank entries must be skipped"
         );
+    }
+
+    /// docs/110 批 3：隔离时传 `--strict-mcp-config`（MCP 全关、没有 `--mcp-config` 时也传），
+    /// 不隔离时不传。
+    #[test]
+    fn strict_mcp_config_follows_isolation() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("/test-bin/claude"));
+        let strict = |ctx: &CliAdapterContext| {
+            adapter
+                .build_command(ctx)
+                .unwrap()
+                .args
+                .iter()
+                .any(|arg| arg == "--strict-mcp-config")
+        };
+        assert!(!strict(&ctx));
+        ctx.disable_unlisted_mcp_servers = true;
+        assert!(strict(&ctx), "skip_mcp + isolation still means strict");
+        let args = adapter.build_command(&ctx).unwrap().args;
+        let flag = args.iter().position(|arg| arg == "--strict-mcp-config");
+        let prompt = args.iter().position(|arg| arg == "hello");
+        assert!(flag < prompt, "flag must come before the prompt");
+    }
+
+    #[test]
+    fn isolation_only_admits_allowed_user_servers() {
+        let mut ctx = test_context(None);
+        assert!(ClaudeAdapter::user_server_allowed(&ctx, "anything"));
+        ctx.disable_unlisted_mcp_servers = true;
+        ctx.allowed_mcp_server_ids = vec!["kept".to_string()];
+        assert!(ClaudeAdapter::user_server_allowed(&ctx, "kept"));
+        assert!(!ClaudeAdapter::user_server_allowed(&ctx, "dropped"));
     }
 
     #[test]

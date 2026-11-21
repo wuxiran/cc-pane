@@ -1,6 +1,6 @@
 # 110 · 全 CLI 的 MCP / Skills 适配计划
 
-> 状态：批 0–2 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 3–5 未排期。
+> 状态：批 0–3 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 4–5 进行中。
 > 依据：代码现状盘点（本文 §2，带 file:line）+ 11 个 CLI 官方文档调研（§3，带来源）。
 > 相关：docs/97（技能市场与投递）、docs/103（ccpanes MCP 瘦身）、docs/104（pi/omp/jcode MCP，§5/§7 有 WSL 与隔离 backlog）、docs/101（插件系统草案）。
 
@@ -195,6 +195,20 @@
 - gemini 加 `--allowed-mcp-server-names`。
 - 其余 CLI 在描述里如实标为「只能声明」，启动档勾选隔离时提示哪些 CLI 做不到。
 
+**批 3 已落地（feat/mcp-skills-parity）：**
+
+| CLI | 隔离 批 2 → 批 3 | 机制（官方来源） |
+|---|---|---|
+| claude | none → **full** | 隔离时加 `--strict-mcp-config`（`claude --help`：Only use MCP servers from --mcp-config, ignoring all other MCP configurations），并且只把启动档允许的 `~/.claude.json` server 合并进每会话 `--mcp-config`；启动档 MCP 全关（没有 `--mcp-config`）时同样传，会话一个 server 都不加载 |
+| opencode | none → **full** | 把 OpenCode 会读的配置（全局 `config.json`/`opencode.json(c)`、启动目录到 git 根的 `opencode.json(c)` 与 `.opencode/`、`~/.opencode/`、`OPENCODE_CONFIG_DIR`）里出现、但启动档没选中的 server 写成 `enabled:false`，经 **`OPENCODE_CONFIG_CONTENT`** 注入（与父进程已有的值合并；解析不了就保留原值并放弃隔离）。不能写进每会话 `OPENCODE_CONFIG`：加载顺序是 全局 → `OPENCODE_CONFIG` → 项目文件 → `.opencode/` → `OPENCODE_CONFIG_CONTENT`（sst/opencode v1.17.11 `packages/opencode/src/config/config.ts`、`config/paths.ts`），项目文件里显式的 `enabled:true` 会盖回去。组织账号的远程配置与 MDM 托管配置排在它之后，不在隔离范围 |
+| gemini | declareOnly → **full** | `--allowed-mcp-server-names <本次写入的条目 + 启动档允许的名字>`（google-gemini/gemini-cli `packages/cli/src/config/config.ts`：给了这个参数就覆盖 `mcp.allowed` 且不看 `mcp.excluded`；`packages/core/src/tools/mcp-client-manager.ts`：名单为空等于不过滤，所以「一个都不放行」传哨兵名 `__ccpanes_no_mcp__`） |
+| codex | full | 不变（`-c mcp_servers.<x>.enabled=false`） |
+| cursor / grok / kimi / antigravity / pi / omp / jcode | declareOnly | 官方文档里没有按次启动的禁用 / 白名单通道：cursor-agent 只有持久的 `mcp disable`；grok 的项目 `config.toml` 同名条目会整体替换用户级，但那是同项目会话共享的持久文件，且 `.mcp.json` / `~/.claude.json` 等兼容来源管不到；Kimi Code 的 `enabled:false` 同样只能写持久的 `mcp.json`。如实标「只能声明」 |
+
+- 前端：启动档 MCP 卡片在「启动档收窄了 MCP」（与 `launch_profile_isolates_mcp` 同口径）且该 CLI 的 `isolation` 不是 `full` 时显示提示（`mcpIsolationGap`，读描述）。
+- 守卫：完整隔离的证据改为「用户 server 的命令不出现」并且三种机制之一可见（逐个禁用提到了它 / argv 有 `--strict-mcp-config` / `--allowed-mcp-server-names` 的名单里没有它）；守卫额外给 OpenCode 与 Gemini 种了用户级配置，并新增「不隔离时不出现隔离参数」的反向用例。
+- Kimi 托管 Provider：Kimi Code 没有 `--config-file`（那是已归档的 Python 版 kimi-cli 的参数，传给 Kimi Code 启动即失败；`kimi-code/en/reference/kimi-command` 的参数表里没有它），普通 `KIMI_API_KEY` 也不读（`configuration/overrides`「Provider credentials」）。改为文档里的 `KIMI_MODEL_NAME` / `KIMI_MODEL_API_KEY` / `KIMI_MODEL_PROVIDER_TYPE=kimi` / `KIMI_MODEL_BASE_URL`（`configuration/env-vars`「Define a model from environment variables」），托管时不再传 `--model`（`-m` 优先级更高，会去找用户 config 里未必存在的别名），也不再写每会话 JSON、不注入旧 CLI 的 `KIMI_SHARE_DIR`。`KIMI_MODEL_NAME` 必填，托管模式没选模型时拒绝启动并说明原因。
+
 ### 批 4 · WSL / SSH
 
 - **WSL**：`build_wsl_supported_cli_command` 改为走 adapter 的 context，不再固定 `skip_mcp:true`。路径转换和 guest 内的文件写入抽到 WSL 适配层。Codex 的内置技能从拷贝改为挂载或符号链接。opencode 在 WSL 下补上提示词。
@@ -218,6 +232,9 @@
 | 6 | Cursor 的 `--plugin-dir` 要求的插件布局 | 批 1 | 文档已说清（cursor.com/docs/reference/plugins）：按清单位置识别，Cursor 插件 = `.cursor-plugin/plugin.json`（必填 `name`），`skills/` 下含 `SKILL.md` 的子目录默认发现；Agent Plugin = 根 `plugin.json`。本机未装 cursor-agent，`--plugin-dir` 下技能目录为符号链接时是否加载未实测（文档只说 `~/.cursor/plugins/local` 里指向外部的链接会被跳过） |
 | 7 | daemon 模式下 portable 提示词是否真的丢失 | 批 1 | 读代码确认属实（daemon 只建 `TerminalService` 不调 `set_sidecar_resource_dir`），已修（见批 1） |
 | 8 | Grok 项目级 `.mcp.json` 与 `.grok/config.toml` 都存在时的优先级 | 批 2 | 官方文档：`.mcp.json` / `.cursor/mcp.json` / `~/.claude.json` 等 compat 来源合并在 config.toml **之下**，项目 `.grok/config.toml` 同名条目整体替换用户级——故选 `.grok/config.toml`。本机未装 grok，未实机 |
+
+| 9 | Claude `--strict-mcp-config` 能否挡住 `~/.claude.json` 与项目 `.mcp.json` | 批 3 | **claude 2.1.330 实测**：临时 `CLAUDE_CONFIG_DIR` 的 `.claude.json` 与项目 `.mcp.json` 各放一个启动即写标记文件的 stdio server，`-p` 跑一次：不带 strict 三个都启动；带 strict 只启动 `--mcp-config` 里那个；只带 strict、不带 `--mcp-config` 一个都不启动 |
+| 10 | OpenCode 的 `enabled:false` 放在哪一层才压得住项目文件 | 批 3 | **opencode 1.17.11 实测**：用户级与项目级各一个 stdio server（项目那个显式 `enabled:true`）：写进 `OPENCODE_CONFIG` 只挡住用户级那个，项目那个仍启动；写进 `OPENCODE_CONFIG_CONTENT` 两个都显示 `disabled` 且都没启动 |
 
 每一项实测结论都写回本文对应行，附 CLI 版本号。
 

@@ -58,6 +58,9 @@ pub struct McpDialect {
     pub proxy_env_ref: Option<fn(&str) -> String>,
     /// 共享 MCP 优先用原始 stdio 定义（绕过 HTTP 桥，兼容只认 stdio 的旧版 jcode）。
     pub shared_stdio_source: bool,
+    /// adapter 自己用按次启动的白名单参数实现隔离（Gemini `--allowed-mcp-server-names`），
+    /// 写入器不再告警「隔离做不到」（docs/110 批 3）。
+    pub launch_allowlist: bool,
 }
 
 pub fn env_ref_dollar_brace(name: &str) -> String {
@@ -432,6 +435,8 @@ pub struct LaunchMcp {
     pub env: HashMap<String, String>,
     /// 项目文件里有本次启动的条目（CLI 需要信任工作区等前置时据此判断）。
     pub active: bool,
+    /// 本次启动渲染出的 server 名（隔离白名单要放行它们）。
+    pub servers: Vec<String>,
 }
 
 /// adapter 入口：渲染 → 同步进项目文件 → 记租约。任何失败只 warn 不阻断启动。
@@ -449,7 +454,7 @@ pub fn sync_for_launch(
     if !rendered.skipped.is_empty() {
         warn!(cli_id, servers = ?rendered.skipped, "project MCP: servers this CLI cannot consume were skipped");
     }
-    if ctx.disable_unlisted_mcp_servers {
+    if ctx.disable_unlisted_mcp_servers && !dialect.launch_allowlist {
         warn!(cli_id, "MCP isolation requested but this CLI has no per-launch disable channel; user-configured servers stay loaded");
     }
     match project_mcp_files::sync(&dialect.target, project, &rendered.servers) {
@@ -470,6 +475,7 @@ pub fn sync_for_launch(
             LaunchMcp {
                 env: rendered.env,
                 active,
+                servers: rendered.servers.keys().cloned().collect(),
             }
         }
         Err(error) => {

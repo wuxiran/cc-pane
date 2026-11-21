@@ -28,6 +28,7 @@ pub mod mcp_config_lifecycle;
 pub mod mcp_file_injection;
 mod omp;
 mod opencode;
+mod opencode_isolation;
 mod pi;
 pub mod project_mcp;
 pub mod project_mcp_dialects;
@@ -1416,6 +1417,43 @@ pub fn ccpanes_enabled_tools_override() -> String {
 /// Codex sees a server entry without a transport.
 pub const CCPANES_TOOLS_AUTO_APPROVE_OVERRIDE: &str =
     "mcp_servers.ccpanes.default_tools_approval_mode=\"approve\"";
+
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use super::CliAdapterContext;
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    /// 所有可选项都为空的 context（各模块单测按需改字段）。
+    pub(crate) fn bare_context(data_dir: &Path) -> CliAdapterContext {
+        CliAdapterContext {
+            session_id: "test-session".to_string(),
+            project_path: data_dir.to_string_lossy().into_owned(),
+            workspace_path: None,
+            provider: None,
+            executable_override: Some("/test-bin/cli".to_string()),
+            adapter_options: HashMap::new(),
+            resume_id: None,
+            issued_session_id: None,
+            skip_mcp: false,
+            skip_ccpanes_mcp: false,
+            yolo_mode: false,
+            append_system_prompt: None,
+            initial_prompt: None,
+            orchestrator_port: None,
+            orchestrator_token: None,
+            launch_id: None,
+            data_dir: data_dir.to_path_buf(),
+            shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
+            allowed_mcp_server_ids: Vec::new(),
+            disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod core_mcp_tools_tests {

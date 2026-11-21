@@ -2297,6 +2297,11 @@ impl TerminalService {
                     cli_args.push(config_path);
                 }
             }
+            // 隔离：与本机 claude.rs 同口径（docs/110 批 3）。guest 自己 `~/.claude.json` 里被启动档
+            // 选中的 server 在宿主侧合并不进来，会随 strict 一起被挡掉（docs/110 批 4 记录的降级）。
+            if workspace_injection.isolate_mcp {
+                cli_args.push("--strict-mcp-config".to_string());
+            }
             // 内置 + 工作空间 skill：宿主目录对 WSL 直接可读（/mnt/…），与本机一样按会话挂载。
             for plugin_dir in &workspace_injection.claude_plugin_dirs {
                 cli_args.push("--plugin-dir".to_string());

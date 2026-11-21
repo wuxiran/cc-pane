@@ -111,7 +111,15 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "CCPANES_CODEX_API_KEY",
         ],
         CliTool::Gemini => &["GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_BASE"],
-        CliTool::Kimi => &["KIMI_API_KEY", "KIMI_BASE_URL", "KIMI_SHARE_DIR"],
+        CliTool::Kimi => &[
+            "KIMI_API_KEY",
+            "KIMI_BASE_URL",
+            "KIMI_SHARE_DIR",
+            "KIMI_MODEL_NAME",
+            "KIMI_MODEL_API_KEY",
+            "KIMI_MODEL_PROVIDER_TYPE",
+            "KIMI_MODEL_BASE_URL",
+        ],
         CliTool::Opencode => &[
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",

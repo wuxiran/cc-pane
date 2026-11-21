@@ -1,6 +1,7 @@
 // 读 CLI 注入描述的纯函数（docs/110 批 0）：规则镜像 cc-cli-adapters/src/injection_profile.rs，
 // 前端所有 MCP / 技能 / 运行时门控都从这里走，不再各自维护 CLI 名单。
-import type { InjectionProfile, NativeSkillSource } from "@/types/cliInjectionProfile";
+import type { InjectionProfile, McpIsolation, NativeSkillSource } from "@/types/cliInjectionProfile";
+import type { LaunchProfileMcpPolicy } from "@/types/launch-profile";
 
 /** 这个 CLI 有没有任何一条 MCP 通道（ccpanes / 共享 / 工作空间层）。 */
 export function hasAnyMcp(profile: InjectionProfile | null | undefined): boolean {
@@ -47,4 +48,33 @@ export function mcpProfileHints(profile: InjectionProfile | null | undefined): M
   if (mcp.ccpanes === "projectFile" || mcp.ccpanes === "stdioProxy") hints.push("projectFile");
   if (mcp.shared && mcp.transports.includes("http") && !mcp.remoteHeaders) hints.push("noRemoteHeaders");
   return hints;
+}
+
+/**
+ * 启动档是否要求「只用选中的 MCP」。与 terminal_service.rs `launch_profile_isolates_mcp` 同口径：
+ * 自定义 / 全关一定隔离；默认模式下动过任何开关（禁用某个、追加某个、关掉 ccpanes 或共享层）也算。
+ */
+export function launchProfileIsolatesMcp(policy: LaunchProfileMcpPolicy | null | undefined): boolean {
+  if (!policy) return false;
+  if (policy.mode !== "default") return true;
+  return (
+    policy.enabledServerIds.length > 0 ||
+    policy.disabledServerIds.length > 0 ||
+    !policy.includeCcpanesMcp ||
+    !policy.includeSharedMcp
+  );
+}
+
+/**
+ * 隔离要求下这个 CLI 实际做到哪一步（docs/110 批 3）：`full` = 用户自己配置的 server 也会被挡住；
+ * 其余 = CLI 照样加载它自己配置里的 server，启动档只收窄 CC-Panes 注入的那部分。
+ * 不要求隔离、或 CLI 根本没有 MCP 时返回 null（不提示）。
+ */
+export function mcpIsolationGap(
+  profile: InjectionProfile | null | undefined,
+  policy: LaunchProfileMcpPolicy | null | undefined,
+): Exclude<McpIsolation, "full"> | null {
+  if (!profile || !hasAnyMcp(profile) || !launchProfileIsolatesMcp(policy)) return null;
+  const level = profile.mcp.isolation;
+  return level === "full" ? null : level;
 }

@@ -103,11 +103,13 @@ fn seed_skill_mount(root: &Path) {
     fs::write(skill.join("SKILL.md"), body).unwrap();
 }
 
-/// 用户自己的 MCP（只存在于用户配置里）：完整隔离的证据是「提到它却不启动它」。
+/// 用户自己的 MCP（只存在于用户配置里）：完整隔离的证据见 [`has_full_isolation_evidence`]。
 fn seed_user_configs(home: &Path) {
     let user_entry = json!({ "mcpServers": { USER_ONLY_SERVER: { "command": USER_ONLY_CMD } } });
+    let opencode_entry =
+        json!({ "mcp": { USER_ONLY_SERVER: { "type": "local", "command": [USER_ONLY_CMD] } } });
     let toml_entry = format!("[mcp_servers.{USER_ONLY_SERVER}]\ncommand = \"{USER_ONLY_CMD}\"\n");
-    let writes: [(PathBuf, String); 4] = [
+    let writes: [(PathBuf, String); 6] = [
         (home.join(".claude.json"), user_entry.to_string()),
         (
             home.join(".cursor").join("mcp.json"),
@@ -115,6 +117,14 @@ fn seed_user_configs(home: &Path) {
         ),
         (home.join(".codex").join("config.toml"), toml_entry.clone()),
         (home.join(".grok").join("config.toml"), toml_entry),
+        (
+            home.join(".gemini").join("settings.json"),
+            user_entry.to_string(),
+        ),
+        (
+            home.join(".config").join("opencode").join("opencode.json"),
+            opencode_entry.to_string(),
+        ),
     ];
     for (path, content) in writes {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -284,7 +294,7 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
         expect(failures, cli, "workspace-layer MCP", ok);
     }
     if mcp.isolation == McpIsolation::Full {
-        let ok = corpus.contains(USER_ONLY_SERVER) && !corpus.contains(USER_ONLY_CMD);
+        let ok = has_full_isolation_evidence(corpus);
         expect(failures, cli, "full MCP isolation", ok);
     }
     if p.skills.mount != SkillMount::None {
@@ -301,6 +311,49 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
         let ok = corpus.contains(SYSTEM_PROMPT_MARKER);
         expect(failures, cli, "skill prompt fallback", ok);
     }
+}
+
+/// 完整隔离（docs/110 批 3）：用户自己配置的 server 的命令不能出现在会话里，并且下面三种
+/// 机制之一可见——
+/// - 逐个禁用：提到了它（Codex `-c mcp_servers.<x>.enabled=false`、OpenCode
+///   `OPENCODE_CONFIG_CONTENT` 的 `enabled:false`）；
+/// - 只用给定配置：`--strict-mcp-config`（Claude）；
+/// - 按次白名单：`--allowed-mcp-server-names` 且名单里没有它（Gemini）。
+fn has_full_isolation_evidence(corpus: &str) -> bool {
+    if corpus.contains(USER_ONLY_CMD) {
+        return false;
+    }
+    let lines: Vec<&str> = corpus.lines().collect();
+    let strict = lines.contains(&"--strict-mcp-config");
+    let allowlist = lines.windows(2).any(|pair| {
+        pair[0] == "--allowed-mcp-server-names"
+            && !pair[1].split(',').any(|name| name == USER_ONLY_SERVER)
+    });
+    strict || allowlist || corpus.contains(USER_ONLY_SERVER)
+}
+
+/// 不隔离时不能有隔离参数（否则用户自己的 server 会被误挡）。
+#[test]
+fn isolation_flags_only_appear_when_isolating() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let registry = CliToolRegistry::with_builtin_adapters();
+    let mut failures = Vec::new();
+    for (cli, _) in registry.injection_profiles() {
+        let sandbox = Sandbox::new();
+        let mut ctx = full_context(&sandbox, &cli, false);
+        ctx.disable_unlisted_mcp_servers = false;
+        let corpus = build_corpus(&registry, &cli, &ctx);
+        for marker in [
+            "--strict-mcp-config",
+            "--allowed-mcp-server-names",
+            "OPENCODE_CONFIG_CONTENT=",
+        ] {
+            if corpus.lines().any(|line| line.starts_with(marker)) {
+                failures.push(format!("{cli}: {marker} without isolation"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn check_proxy_pass(failures: &mut Vec<String>, cli: &str, corpus: &str) {

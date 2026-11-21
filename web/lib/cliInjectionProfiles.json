@@ -35,7 +35,7 @@
     "mcp": {
       "ccpanes": "sessionFile",
       "ctlProxy": true,
-      "isolation": "none",
+      "isolation": "full",
       "launchIdentity": true,
       "remoteHeaders": true,
       "shared": true,
@@ -138,7 +138,7 @@
     "mcp": {
       "ccpanes": "projectFile",
       "ctlProxy": true,
-      "isolation": "declareOnly",
+      "isolation": "full",
       "launchIdentity": true,
       "remoteHeaders": true,
       "shared": true,
@@ -301,7 +301,7 @@
     "mcp": {
       "ccpanes": "sessionFile",
       "ctlProxy": false,
-      "isolation": "none",
+      "isolation": "full",
       "launchIdentity": true,
       "remoteHeaders": true,
       "shared": true,

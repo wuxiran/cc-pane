@@ -36,6 +36,7 @@ pub const KIMI: McpDialect = McpDialect {
     bearer_env_key: Some("bearerTokenEnvVar"),
     proxy_env_ref: None,
     shared_stdio_source: false,
+    launch_allowlist: false,
 };
 
 /// Antigravity：`.agents/mcp_config.json`；远程用 `serverUrl`（Streamable HTTP），不支持 SSE
@@ -54,6 +55,7 @@ pub const ANTIGRAVITY: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: None,
     shared_stdio_source: false,
+    launch_allowlist: false,
 };
 
 /// Gemini CLI：`.gemini/settings.json` 的 `mcpServers`；`httpUrl` = Streamable HTTP，`url` = SSE；
@@ -72,6 +74,7 @@ pub const GEMINI: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: Some(env_ref_dollar),
     shared_stdio_source: false,
+    launch_allowlist: true,
 };
 
 /// Cursor：`.cursor/mcp.json`；stdio 要 `"type":"stdio"`，远程只靠 `url`（HTTP / SSE 自动判定）；
@@ -87,6 +90,7 @@ pub const CURSOR: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: None,
     shared_stdio_source: false,
+    launch_allowlist: false,
 };
 
 /// Grok：`.grok/config.toml` 的 `[mcp_servers.<name>]`（从 cwd 走到 git 根逐个读，项目同名
@@ -109,6 +113,7 @@ pub const GROK: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: None,
     shared_stdio_source: false,
+    launch_allowlist: false,
 };
 
 /// omp：`.omp/mcp.json`（Claude 同形，`type` 标 http/sse），发现期展开 `${VAR}`
@@ -130,6 +135,7 @@ pub const OMP: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: None,
     shared_stdio_source: false,
+    launch_allowlist: false,
 };
 
 /// jcode：`.jcode/mcp.json`；`type` = http / sse，URL 与请求头展开 `${VAR}`
@@ -154,6 +160,7 @@ pub const JCODE: McpDialect = McpDialect {
     bearer_env_key: None,
     proxy_env_ref: None,
     shared_stdio_source: true,
+    launch_allowlist: false,
 };
 
 pub fn dialect_for(cli_id: &str) -> Option<McpDialect> {
