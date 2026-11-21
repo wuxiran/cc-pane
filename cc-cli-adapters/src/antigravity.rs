@@ -18,7 +18,7 @@
 //!   `modelProvider`）/ ADC，与 CC-Panes Provider 模型没有稳定映射。
 //! - `--model` / `--effort`：模型 id 来自 agy 自己的目录（`agy models`），effort
 //!   档位「按模型而定」，透传不受支持的档位可能让启动直接失败。
-//! - MCP 注入：agy 有自己的 MCP 管理（`/mcp`、插件 `mcp.json`），未接注入链。
+//! - MCP 注入：docs/110 批 2 起写工作区 `.agents/mcp_config.json`（见 build_command）。
 //! - 会话历史 / resume id 捕获、hooks、技能目录、`--append-system-prompt` 类能力
 //!   （agy 无对应 flag）。
 //! - ACP：agy 原生提供 `agy acp`，已在「对 agent 说」引擎表登记（src-tauri
@@ -29,7 +29,6 @@ use crate::{
     CliToolCapabilities, CliToolInfo,
 };
 use anyhow::Result;
-use std::collections::HashMap;
 use tracing::info;
 
 /// 可执行文件名（官方安装器的落盘名，Windows 为 `agy.exe`）。
@@ -64,8 +63,8 @@ impl AntigravityAdapter {
                 supports_provider: false,
                 // --conversation 已接线，但没有 resume id 来源
                 supports_resume: false,
-                // v1 不接 MCP 注入
-                supports_mcp: false,
+                // 工作区 `.agents/mcp_config.json` 收据驱动注入（docs/110 批 2）
+                supports_mcp: true,
                 // agy 无 --append-system-prompt 类 flag
                 supports_system_prompt: false,
                 supports_workspace: false,
@@ -102,10 +101,16 @@ impl CliToolAdapter for AntigravityAdapter {
         &self.caps
     }
 
-    /// docs/110：技能经每会话 staging 的 `--add-dir`（批 1）；没有会话提示词通道。WSL / SSH 只能裸启动。
+    /// docs/110：
+    /// - MCP（批 2）：工作区 `.agents/mcp_config.json`，同项目会话共享；ccpanes 经 ctl stdio 代理
+    ///   （launchId 来自各会话环境变量）；远程只有 Streamable HTTP（`serverUrl`），请求头为字面值；
+    ///   隔离只能声明。
+    /// - 技能（批 1）：每会话 staging 的 `--add-dir`；没有会话提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
-        let mut profile = crate::InjectionProfile::unsupported();
-        profile.skills.mount = crate::SkillMount::AddDir;
+        use crate::injection_profile::*;
+        let mut profile = InjectionProfile::unsupported();
+        profile.mcp = project_file_mcp(true, true, vec![]);
+        profile.skills.mount = SkillMount::AddDir;
         profile
     }
 
@@ -154,8 +159,16 @@ impl CliToolAdapter for AntigravityAdapter {
             args.push(prompt.to_string());
         }
 
-        // provider / model / effort / append_system_prompt / MCP 有意不消费：
+        // provider / model / effort / append_system_prompt 有意不消费：
         // v1 未接（见模块头），静默忽略好过拼出 agy 不认的参数导致启动即崩。
+
+        // MCP（docs/110 批 2）：工作区 `.agents/mcp_config.json`（antigravity.google/docs/mcp），
+        // 远程用 `serverUrl`、不支持 SSE；文档未写环境变量展开，ccpanes 走 ctl stdio 代理。
+        let mcp = crate::project_mcp::sync_for_launch(
+            ctx,
+            &crate::project_mcp_dialects::ANTIGRAVITY,
+            &crate::project_mcp::ccpanes_proxy_or_http(ctx),
+        );
 
         let (command, args) = ctx.resolve_launch(ANTIGRAVITY_EXECUTABLE, args)?;
 
@@ -170,7 +183,7 @@ impl CliToolAdapter for AntigravityAdapter {
             command,
             args,
             env_remove: Vec::new(),
-            env_inject: HashMap::new(),
+            env_inject: mcp.env,
         })
     }
 }
@@ -179,6 +192,7 @@ impl CliToolAdapter for AntigravityAdapter {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::HashMap;
 
     fn context() -> CliAdapterContext {
         CliAdapterContext {
@@ -321,7 +335,8 @@ mod tests {
         assert!(caps.supports_yolo);
         assert!(!caps.supports_provider);
         assert!(!caps.supports_resume);
-        assert!(!caps.supports_mcp);
+        // docs/110 批 2：工作区 `.agents/mcp_config.json` 注入
+        assert!(caps.supports_mcp);
         assert!(!caps.supports_system_prompt);
         assert!(!caps.supports_workspace);
         assert!(!caps.supports_project_hooks);
@@ -333,7 +348,8 @@ mod tests {
         assert!(!caps.supports_verbose_option);
         assert!(!caps.supports_max_turns_option);
         assert!(caps.compatible_provider_types.is_empty());
-        assert!(!adapter.can_report_task_result());
+        // 拿到了 ccpanes MCP（项目文件），可以回报结果
+        assert!(adapter.can_report_task_result());
         assert!(adapter.global_skills_dir().is_none());
     }
 }

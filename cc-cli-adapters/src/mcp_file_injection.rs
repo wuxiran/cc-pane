@@ -17,6 +17,9 @@
 //! - skip_mcp / 策略关闭 = 用空集合调 [`sync_project_mcp_file`] → 收据内条目全部
 //!   移除。omp/jcode 实时读文件，残留 = 继续注入，必须清。
 //!
+//! docs/110 批 2 起 omp / jcode 改走通用写入器 [`crate::project_mcp`]（它复用本模块的
+//! [`sync_project_mcp_json`] 与收据），本模块的 [`collect_mcp_servers`] 仍供 pi 扩展桥使用。
+//!
 //! 收据路径与 `.ccpanes/` 布局是跨 crate 契约，镜像 cc-panes-core 的
 //! `utils/project_dirs.rs`（依赖方向 core → adapters，此处只能复制约定，两边
 //! 改动必须同步）。
@@ -77,6 +80,27 @@ pub fn sync_project_mcp_file(
     target_rel: &[&str],
     desired: &BTreeMap<String, Value>,
 ) -> Result<McpFileSyncOutcome> {
+    sync_project_mcp_json(
+        cli_id,
+        project_path,
+        target_rel,
+        "mcpServers",
+        desired,
+        true,
+    )
+}
+
+/// [`sync_project_mcp_file`] 的通用形态（docs/110 批 2）：server 表顶层键可配置，
+/// `tool_dir_guard=false` 时不在工具目录写 `.gitignore`（新接入靠 `.git/info/exclude`，
+/// 见 [`crate::project_mcp_files`]）。
+pub fn sync_project_mcp_json(
+    cli_id: &str,
+    project_path: &Path,
+    target_rel: &[&str],
+    servers_key: &str,
+    desired: &BTreeMap<String, Value>,
+    tool_dir_guard: bool,
+) -> Result<McpFileSyncOutcome> {
     if project_path.as_os_str().is_empty() || target_rel.is_empty() {
         anyhow::bail!("mcp file injection requires a non-empty project path and target");
     }
@@ -123,10 +147,21 @@ pub fn sync_project_mcp_file(
         return Ok(McpFileSyncOutcome::default());
     }
 
-    let outcome = apply_desired(&mut doc, desired, &owned);
+    if doc
+        .get(servers_key)
+        .is_some_and(|servers| !servers.is_object())
+    {
+        warn!(
+            target = %target.display(),
+            servers_key,
+            "{cli_id}: MCP server table is not an object, leaving it untouched"
+        );
+        return Ok(McpFileSyncOutcome::default());
+    }
+    let outcome = apply_desired(&mut doc, servers_key, desired, &owned);
 
     let servers_empty = doc
-        .get("mcpServers")
+        .get(servers_key)
         .and_then(Value::as_object)
         .is_some_and(|map| map.is_empty());
     if parsed_original.is_none() && servers_empty {
@@ -154,7 +189,7 @@ pub fn sync_project_mcp_file(
             );
         }
     }
-    if let Some(tool_dir) = target.parent() {
+    if let Some(tool_dir) = target.parent().filter(|_| tool_dir_guard) {
         ensure_tool_dir_guard(cli_id, tool_dir);
     }
     let mut serialized = serde_json::to_string_pretty(&doc)
@@ -199,16 +234,17 @@ fn owned_names_after_sync(
 
 fn apply_desired(
     doc: &mut Value,
+    servers_key: &str,
     desired: &BTreeMap<String, Value>,
     owned: &BTreeSet<String>,
 ) -> McpFileSyncOutcome {
     let mut outcome = McpFileSyncOutcome::default();
     let root = doc.as_object_mut().expect("doc root checked by caller");
     let servers = root
-        .entry("mcpServers")
+        .entry(servers_key)
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .expect("mcpServers replaced with object when malformed below");
+        .expect("caller rejects a non-object server table");
 
     // 1) 收据内条目：desired 里还有 → upsert；没了 → 移除。
     for name in owned {
@@ -245,7 +281,7 @@ fn apply_desired(
     outcome
 }
 
-fn read_receipt(path: &Path) -> BTreeSet<String> {
+pub(crate) fn read_receipt(path: &Path) -> BTreeSet<String> {
     let Ok(text) = fs::read_to_string(path) else {
         return BTreeSet::new();
     };
@@ -274,7 +310,11 @@ fn read_receipt(path: &Path) -> BTreeSet<String> {
     }
 }
 
-fn write_receipt(path: &Path, names: &BTreeSet<String>, project_path: &Path) -> Result<()> {
+pub(crate) fn write_receipt(
+    path: &Path,
+    names: &BTreeSet<String>,
+    project_path: &Path,
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -485,9 +525,16 @@ pub fn collect_mcp_servers(
                 collected.skipped_invalid_names.push(name.clone());
                 continue;
             }
-            collected
-                .servers
-                .insert(name.clone(), http_server_entry(url, None));
+            // 远程共享 MCP 的请求头一并带上（docs/110 批 2：pi 扩展桥原生支持 headers）
+            let mut entry = http_server_entry(url, None);
+            if let Some(remote) = ctx
+                .shared_mcp_remote
+                .get(name)
+                .filter(|remote| !remote.headers.is_empty())
+            {
+                entry["headers"] = json!(remote.headers);
+            }
+            collected.servers.insert(name.clone(), entry);
         }
     }
 

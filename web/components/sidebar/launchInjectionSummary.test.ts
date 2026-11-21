@@ -54,15 +54,15 @@ describe("summarizeInjection", () => {
     expect(s.memory).toBe("partial");
   });
 
-  it("不支持 MCP 的 CLI 直接 off；没有运行配置按系统默认全开", () => {
-    expect(summarizeInjection(base, "local", "gemini").mcp).toBe("off");
-    expect(summarizeInjection(base, "local", "gemini").reasons.mcp).toBe("injection.mcpUnsupportedCli");
+  it("没有注入描述的 CLI 直接 off；没有运行配置按系统默认全开", () => {
+    expect(summarizeInjection(base, "local", "unknown-cli").mcp).toBe("off");
+    expect(summarizeInjection(base, "local", "unknown-cli").reasons.mcp).toBe("injection.mcpUnsupportedCli");
     const s = summarizeInjection(null, "local", "claude");
     expect([s.mcp, s.skills, s.memory]).toEqual(["on", "on", "on"]);
   });
 
-  it("docs/104：pi / omp / jcode 已接入 MCP 注入链，本机默认策略为 on", () => {
-    for (const cli of ["pi", "omp", "jcode"] as const) {
+  it("docs/104、docs/110 批 2：pi / omp / jcode 与项目文件注入的 CLI 本机默认策略为 on", () => {
+    for (const cli of ["pi", "omp", "jcode", "kimi", "antigravity", "gemini", "cursor", "grok"] as const) {
       expect(summarizeInjection(base, "local", cli).mcp).toBe("on");
     }
   });

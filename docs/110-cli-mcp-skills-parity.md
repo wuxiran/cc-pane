@@ -1,6 +1,6 @@
 # 110 · 全 CLI 的 MCP / Skills 适配计划
 
-> 状态：计划稿（2026-11-21），未排期。实施时每批单独抽 plan。
+> 状态：批 0–2 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 3–5 未排期。
 > 依据：代码现状盘点（本文 §2，带 file:line）+ 11 个 CLI 官方文档调研（§3，带来源）。
 > 相关：docs/97（技能市场与投递）、docs/103（ccpanes MCP 瘦身）、docs/104（pi/omp/jcode MCP，§5/§7 有 WSL 与隔离 backlog）、docs/101（插件系统草案）。
 
@@ -164,6 +164,30 @@
 
 **验收：** 对每个 CLI，用一个 stdio 共享 MCP、一个带鉴权 header 的远程 MCP、一个工作空间层 MCP 起会话，三个都能调通；ccpanes 工具调用时日志里能看到正确的 launchId。
 
+**批 2 已落地（feat/mcp-skills-parity）：**
+
+通用写入器 `cc-cli-adapters/src/project_mcp.rs`（渲染 / 入口 / 回收）+ `project_mcp_files.rs`（JSON / TOML 同步、git、租约）+ `project_mcp_dialects.rs`（各家方言）。沿用 `sync_adapter_project_mcp` 的收据契约（只动自己写过的条目、同名用户条目跳过、语义不变零写入、解析失败原样保留），新增：
+
+- **方言**：文件路径、JSON / TOML、顶层键（`mcpServers` / `mcp_servers`）、远程 URL 键（`url` / `serverUrl` / `httpUrl`）、SSE 的写法（`transport:"sse"` / `type:"sse"` / Gemini 的 `url`）、请求头、环境变量引用语法。
+- **不落秘密、带身份**：能在配置里展开环境变量的 CLI（cursor `${env:X}`，grok / omp / jcode `${X}`），ccpanes 写成 `http://127.0.0.1:${PORT}/mcp?launchId=${CC_PANES_LAUNCH_ID}` + `Authorization: Bearer ${CC_PANES_API_TOKEN}`，远程 MCP 的请求头也换成 `${CC_PANES_MCP_HEADER_<SERVER>_<HEADER>}`，真实值经本会话 env 注入——文件内容对所有会话一致，并发会话各自展开成自己的身份。不能展开的（kimi / antigravity / gemini）ccpanes 走 cc-panes-ctl stdio 代理，参数只有 `mcp-proxy`，实例与身份来自继承的 `CC_PANES_DATA_DIR` / `CC_PANES_LAUNCH_ID`（ctl Auto 模式本来就读它们；dev / release 同项目并发也不会串台），Gemini 会清洗 stdio 子进程环境，故在 `env` 块里用 `$VAR` 显式转发。代理不可用时退回 HTTP：kimi 用 `bearerTokenEnvVar`，antigravity / gemini 只能写字面 token（不带 launchId）。终端服务对 ccpanes 通道为 ProjectFile / StdioProxy 且声明可走代理的 CLI 强制启用代理（不受 `CCPANES_MCP_PROXY` 灰度约束）。
+- **git**：目标文件已被 git 跟踪时不写（不弄脏用户仓库）；写入后把文件与 `.bak` 加进 `.git/info/exclude`（`git rev-parse --show-prefix --git-path info/exclude`，worktree 落在共享 common dir）。
+- **回收**：每次写入记会话租约 `<data>/cli-adapters/project-mcp-leases/<session>.json`；PTY 退出时（`cleanup_session_mcp_configs`）删租约，同 (CLI, 项目) 没有别的 7 天内租约时按收据清掉我们的条目。
+
+| CLI | 批 0 | 批 2 后 |
+|---|---|---|
+| kimi | 无 MCP | 项目 `.kimi-code/mcp.json`；ccpanes 经 ctl 代理（身份 ✅）；共享 + 工作空间 ✅；HTTP / SSE + 字面请求头；隔离只能声明；有条目时注入 `KIMI_CODE_TRUST_WORKSPACE=1` |
+| antigravity | 无 MCP | 项目 `.agents/mcp_config.json`（`serverUrl`）；ccpanes 经 ctl 代理（身份 ✅）；共享 + 工作空间 ✅；只 HTTP（无 SSE）+ 字面请求头 |
+| gemini | 无 MCP | 项目 `.gemini/settings.json`（HTTP=`httpUrl`、SSE=`url`）；ccpanes 经 ctl 代理（`env` 块转发身份）；共享 + 工作空间 ✅ |
+| cursor | 用户级 `~/.cursor/mcp.json`，身份 ❌，无工作空间层 | 项目 `.cursor/mcp.json`；`${env:…}` 占位符（身份 ✅）；共享 + 工作空间 ✅；HTTP / SSE + 请求头占位；首次启动清掉用户级旧条目（签名匹配的 `ccpanes` + 与共享同名且仍是 `{"url":…}` 原样的条目，落标记后不再碰用户级文件）；`cleanup_user_injections` 语义不变 |
+| grok | 用户级 `~/.grok/config.toml`，身份 ❌，无工作空间层 | 项目 `.grok/config.toml`（TOML，`enabled = true`）；`${VAR}` 占位符（身份 ✅）；共享 + 工作空间 ✅；HTTP + 请求头；用户级旧条目同样一次性清理（删表时保留用户写在表头上方的注释） |
+| opencode | 共享无请求头、无工作空间层 | 同一份 `OPENCODE_CONFIG` 补请求头与工作空间层（stdio → `local` 的 command 数组 + environment，HTTP → `remote`；SSE 跳过） |
+| pi | 共享无请求头、身份 ❌ | 扩展桥带远程请求头；ccpanes URL 带本会话 launchId（每会话文件，不会被覆盖） |
+| omp | 字面 token、身份 ❌、无请求头 | 改走通用写入器：`${VAR}` 占位符（身份 ✅，文件里不再有 token）+ 请求头占位 |
+| jcode | 只 stdio，身份 ❌ | 代理参数不再写 `--launch-id`（身份走环境变量 ✅）；放开 HTTP / SSE + `${VAR}` 请求头（v0.96+ 才认，旧版只会跳过）；共享仍优先原始 stdio 定义；代理不可用时退回 HTTP 占位符 |
+| claude / codex | — | 不变 |
+
+前端「哪些 CLI 拿得到」（资源中心 `remoteUnsupportedByProfile`、启动档 MCP 卡片提示、启动器注入摘要）读描述，随之更新。
+
 ### 批 3 · 隔离
 
 - Claude 加 `--strict-mcp-config`，隔离时不再合并 `~/.claude.json`。
@@ -187,13 +211,13 @@
 | # | 事项 | 影响 | 结论 |
 |---|---|---|---|
 | 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | 未测（本批不改 Codex） |
-| 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 | **opencode 1.17.11 实测**：`OPENCODE_CONFIG` 生效；`skills` 只收对象 `{"paths":[...]}`，数组形态报 `Expected object`（官网 V2 文档写的是数组，新版 schema 两种都收，故用对象）。用 adapter 生成的每会话配置挂内置 + 工作空间两个根，`opencode debug skill` 从 1 个变成 33 个（31 个 `ccpanes-*` + 工作空间技能 + 自带 1 个），符号链接的技能目录同样可见。MCP 键名：官网 schema 仍收旧形 `mcp.<name>`（`type`/`url`/`enabled`/`headers`，标 deprecated），新形是 `mcp.servers.<name>` + `disabled` |
-| 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 | 见批 2 |
-| 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 | 见批 2 |
-| 5 | Antigravity 的 `--add-dir` 是否加载 staging 目录里的 `.agents/skills`；`mcp_config.json` 里能否展开 `${VAR}` | 批 1、2 | 本机未装 agy，未实测。文档：`--add-dir` 把目录加进工作区，CLI 读每个工作区根的 `.agents/skills/`（changelog 有 `/add-dir` 后技能动态重载的修复）；风险是它对 `.agents/skills.json` 里经符号链接的条目会跳过，`.agents/skills/` 目录里的链接是否同样被跳过未知——实测若不加载，staging 对 agy 改为复制 |
+| 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 | **opencode 1.17.11 实测**：MCP——adapter 生成的配置经 `opencode debug config` 解析通过，`opencode mcp list` 列出共享远程、共享桥、工作空间 stdio 三个条目并真的去连（本地起一个记录请求头的 HTTP 服务，收到的 POST 带着配置里的 `X-Probe` 头）；技能——`OPENCODE_CONFIG` 生效；`skills` 只收对象 `{"paths":[...]}`，数组形态报 `Expected object`（官网 V2 文档写的是数组，新版 schema 两种都收，故用对象）。用 adapter 生成的每会话配置挂内置 + 工作空间两个根，`opencode debug skill` 从 1 个变成 33 个（31 个 `ccpanes-*` + 工作空间技能 + 自带 1 个），符号链接的技能目录同样可见。MCP 键名：官网 schema 仍收旧形 `mcp.<name>`（`type`/`url`/`enabled`/`headers`，标 deprecated），新形是 `mcp.servers.<name>` + `disabled` |
+| 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 | 官方 docs/MCP_REMOTE.md（master）明确：stdio / Streamable HTTP / SSE 都支持，`type` 取 `http`/`streamable-http`/`sse`，URL 与请求头展开 `${VAR}`。已放开；本机未装 jcode，未实机，旧版（v0.84 实测只认 stdio）会跳过远程条目 |
+| 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 | 官方文档：未信任文件夹里的项目级 MCP 在 trust 提示里列出、默认选「信任」；headless 不能弹提示，`KIMI_CODE_TRUST_WORKSPACE=1` 让本进程信任工作区。我们在写了条目时注入它（与 cursor 始终 `--trust` 同口径；代价是该进程也信任仓库里其他项目级配置）。本机未装 kimi，交互模式下该变量是否同样跳过提示未实测 |
+| 5 | Antigravity 的 `--add-dir` 是否加载 staging 目录里的 `.agents/skills`；`mcp_config.json` 里能否展开 `${VAR}` | 批 1、2 | 本机未装 agy，未实测。`${VAR}`：官方 MCP 文档没写（changelog 只提到插件变量），按不支持处理，ccpanes 走 ctl 代理。文档：`--add-dir` 把目录加进工作区，CLI 读每个工作区根的 `.agents/skills/`（changelog 有 `/add-dir` 后技能动态重载的修复）；风险是它对 `.agents/skills.json` 里经符号链接的条目会跳过，`.agents/skills/` 目录里的链接是否同样被跳过未知——实测若不加载，staging 对 agy 改为复制 |
 | 6 | Cursor 的 `--plugin-dir` 要求的插件布局 | 批 1 | 文档已说清（cursor.com/docs/reference/plugins）：按清单位置识别，Cursor 插件 = `.cursor-plugin/plugin.json`（必填 `name`），`skills/` 下含 `SKILL.md` 的子目录默认发现；Agent Plugin = 根 `plugin.json`。本机未装 cursor-agent，`--plugin-dir` 下技能目录为符号链接时是否加载未实测（文档只说 `~/.cursor/plugins/local` 里指向外部的链接会被跳过） |
 | 7 | daemon 模式下 portable 提示词是否真的丢失 | 批 1 | 读代码确认属实（daemon 只建 `TerminalService` 不调 `set_sidecar_resource_dir`），已修（见批 1） |
-| 8 | Grok 项目级 `.mcp.json` 与 `.grok/config.toml` 都存在时的优先级 | 批 2 | 见批 2 |
+| 8 | Grok 项目级 `.mcp.json` 与 `.grok/config.toml` 都存在时的优先级 | 批 2 | 官方文档：`.mcp.json` / `.cursor/mcp.json` / `~/.claude.json` 等 compat 来源合并在 config.toml **之下**，项目 `.grok/config.toml` 同名条目整体替换用户级——故选 `.grok/config.toml`。本机未装 grok，未实机 |
 
 每一项实测结论都写回本文对应行，附 CLI 版本号。
 

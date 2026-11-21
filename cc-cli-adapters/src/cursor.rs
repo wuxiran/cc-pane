@@ -13,14 +13,16 @@
 //! - model：`--model <id>`（如 `claude-fable-5-high`）。
 //! - workspace：`--workspace <path>`（默认 cwd）；另有 `--add-dir`。
 //! - print 模式：`adapterOptions.print=true` → `-p --output-format text`（无交互 worker）。
-//! - MCP：读/写 `~/.cursor/mcp.json`；启动时 upsert `ccpanes` HTTP entry（同 grok
-//!   用户级注入）；`--approve-mcps` 跳过确认。多并发会话共享同一 entry——最后一次
-//!   启动的 URL（可带 launchId）生效，与 grok 同形降级。
+//! - MCP（docs/110 批 2）：写**项目级** `.cursor/mcp.json`（收据驱动，见
+//!   [`crate::project_mcp`]）；`--approve-mcps` 跳过确认。Cursor 在 `url`/`headers` 里展开
+//!   `${env:NAME}`（cursor.com/docs/mcp），所以 ccpanes 的端口 / token / launchId 都是占位符、
+//!   真实值走本会话环境变量——同项目并发会话共用一份文件也各带各的身份。此前写用户级
+//!   `~/.cursor/mcp.json` 的旧条目在首次启动时清掉（[`CursorAdapter::migrate_legacy_user_mcp`]）。
 
 use crate::{
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,7 +49,7 @@ impl CursorAdapter {
             caps: CliToolCapabilities {
                 supports_provider: true,
                 supports_resume: true,
-                // 用户级 ~/.cursor/mcp.json 注入 ccpanes（无 per-launch 隔离）
+                // 项目级 .cursor/mcp.json 收据驱动注入（docs/110 批 2，无 per-launch 隔离）
                 supports_mcp: true,
                 supports_system_prompt: false,
                 supports_workspace: true,
@@ -67,23 +69,6 @@ impl CursorAdapter {
 
     fn user_mcp_path() -> Option<PathBuf> {
         dirs::home_dir().map(|home| home.join(".cursor").join("mcp.json"))
-    }
-
-    fn ccpanes_mcp_url(ctx: &CliAdapterContext) -> Option<String> {
-        let (port, token) = (ctx.orchestrator_port?, ctx.orchestrator_token.as_ref()?);
-        let mut url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
-        // 与 Claude 对齐：带 launchId 让 orchestrator 识别 caller。
-        // 代价：用户级单 entry，多并发 cursor 会话最后一次启动覆盖（文档已说明）。
-        if let Some(launch_id) = ctx
-            .launch_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            url.push_str("&launchId=");
-            url.push_str(launch_id);
-        }
-        Some(url)
     }
 
     /// URL 是否具备 CC-Panes 签名：loopback + `/mcp` + `token=`。
@@ -133,99 +118,6 @@ impl CursorAdapter {
             .unwrap_or(false)
     }
 
-    /// upsert `mcpServers.ccpanes` + 共享 MCP；幂等；签名不符的用户 entry 不动。
-    #[cfg(test)]
-    fn sync_mcp_at(
-        path: &Path,
-        ccpanes_url: &str,
-        shared_mcp_urls: &HashMap<String, String>,
-    ) -> Result<bool> {
-        Self::sync_mcp_entries_at(path, Some(ccpanes_url), shared_mcp_urls)
-    }
-
-    /// `ccpanes_url=None`：不动 ccpanes 条目，只同步共享 MCP（启动档只关 ccpanes）。
-    fn sync_mcp_entries_at(
-        path: &Path,
-        ccpanes_url: Option<&str>,
-        shared_mcp_urls: &HashMap<String, String>,
-    ) -> Result<bool> {
-        let original = if path.exists() {
-            fs::read_to_string(path)
-                .with_context(|| format!("failed to read Cursor mcp.json {}", path.display()))?
-        } else {
-            String::new()
-        };
-        let mut root: serde_json::Value = if original.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&original)
-                .with_context(|| format!("failed to parse Cursor mcp.json {}", path.display()))?
-        };
-        let servers = root
-            .as_object_mut()
-            .context("Cursor mcp.json root must be an object")?
-            .entry("mcpServers".to_string())
-            .or_insert_with(|| serde_json::json!({}));
-        let servers = servers
-            .as_object_mut()
-            .context("Cursor mcp.json mcpServers must be an object")?;
-
-        let mut changed = false;
-
-        let foreign_ccpanes = servers
-            .get("ccpanes")
-            .map(|entry| !Self::is_ccpanes_managed_server(entry))
-            .unwrap_or(false);
-        if let Some(ccpanes_url) = ccpanes_url {
-            if foreign_ccpanes {
-                warn!(
-                    config = %path.display(),
-                    "cursor: user-defined mcpServers.ccpanes (signature mismatch), leaving untouched"
-                );
-            } else {
-                let entry = serde_json::json!({ "url": ccpanes_url });
-                if servers.get("ccpanes") != Some(&entry) {
-                    servers.insert("ccpanes".to_string(), entry);
-                    changed = true;
-                }
-            }
-        }
-
-        for (name, url) in shared_mcp_urls {
-            let foreign = servers
-                .get(name)
-                .map(|entry| !Self::is_ccpanes_managed_server(entry))
-                .unwrap_or(false);
-            if foreign {
-                warn!(
-                    config = %path.display(),
-                    name,
-                    "cursor: user-defined shared MCP entry (signature mismatch), leaving untouched"
-                );
-                continue;
-            }
-            let entry = serde_json::json!({ "url": url });
-            if servers.get(name) != Some(&entry) {
-                servers.insert(name.clone(), entry);
-                changed = true;
-            }
-        }
-
-        if !changed {
-            return Ok(false);
-        }
-
-        if path.exists() {
-            let backup = path.with_extension("json.bak");
-            let _ = fs::copy(path, &backup);
-        } else if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let pretty = serde_json::to_string_pretty(&root)?;
-        crate::fs_atomic::write_atomic(path, pretty)?;
-        Ok(true)
-    }
-
     fn remove_ccpanes_entry_at(path: &Path) -> Result<bool> {
         if !path.exists() {
             return Ok(false);
@@ -247,53 +139,64 @@ impl CursorAdapter {
         Ok(true)
     }
 
-    fn sync_user_mcp(ctx: &CliAdapterContext) {
+    /// 一次性迁移（docs/110 批 2）：清掉以前写进用户级 `~/.cursor/mcp.json` 的条目——
+    /// 签名匹配的 `ccpanes`，以及与本次共享 MCP 同名且值仍是我们当年写的 `{"url": …}` 的条目。
+    /// 用户自己的条目一律不动。完成后在数据目录落标记，之后不再碰用户级文件。
+    fn migrate_legacy_user_mcp(ctx: &CliAdapterContext) {
+        if ctx.skip_mcp {
+            return;
+        }
+        let marker = ctx
+            .data_dir
+            .join("cli-adapters")
+            .join("cursor")
+            .join("user-mcp-migrated-v1");
+        if marker.exists() {
+            return;
+        }
         let Some(path) = Self::user_mcp_path() else {
             return;
         };
-        if !ctx.wants_ccpanes_mcp() {
-            match Self::remove_ccpanes_entry_at(&path) {
-                Ok(true) => info!(
-                    session_id = %ctx.session_id,
-                    "cursor: skip_mcp, removed ccpanes entry"
-                ),
-                Ok(false) => {}
-                Err(error) => warn!(
-                    session_id = %ctx.session_id,
-                    error = %error,
-                    "cursor: failed to remove ccpanes MCP entry"
-                ),
+        match Self::remove_legacy_entries_at(&path, &ctx.shared_mcp_urls) {
+            Ok(changed) => {
+                if changed {
+                    info!(config = %path.display(), "cursor: removed legacy user-level MCP entries");
+                }
+                let _ = fs::create_dir_all(marker.parent().unwrap_or(&ctx.data_dir));
+                let _ = fs::write(&marker, b"1\n");
             }
-            if ctx.skip_mcp {
-                return;
-            }
+            Err(error) => warn!(%error, "cursor: failed to migrate legacy user-level MCP entries"),
         }
-        // 启动档只关 ccpanes（docs/110 批 0）：上面已摘掉 ccpanes，共享 MCP 照常同步。
-        let url = if ctx.wants_ccpanes_mcp() {
-            let Some(url) = Self::ccpanes_mcp_url(ctx) else {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "cursor: orchestrator not running, skipping MCP config sync"
-                );
-                return;
-            };
-            Some(url)
-        } else {
-            None
+    }
+
+    fn remove_legacy_entries_at(path: &Path, shared: &HashMap<String, String>) -> Result<bool> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let original = fs::read_to_string(path)?;
+        let mut root: serde_json::Value = serde_json::from_str(&original)?;
+        let Some(servers) = root.get_mut("mcpServers").and_then(|v| v.as_object_mut()) else {
+            return Ok(false);
         };
-        match Self::sync_mcp_entries_at(&path, url.as_deref(), &ctx.shared_mcp_urls) {
-            Ok(true) => info!(
-                session_id = %ctx.session_id,
-                config = %path.display(),
-                "cursor: MCP entries synced into user mcp.json"
-            ),
-            Ok(false) => {}
-            Err(error) => warn!(
-                session_id = %ctx.session_id,
-                error = %error,
-                "cursor: failed to sync MCP config; continuing without MCP"
-            ),
+        let mut changed = false;
+        if servers
+            .get("ccpanes")
+            .is_some_and(Self::is_ccpanes_managed_server)
+        {
+            servers.remove("ccpanes");
+            changed = true;
         }
+        for (name, url) in shared {
+            if servers.get(name) == Some(&serde_json::json!({ "url": url })) {
+                servers.remove(name);
+                changed = true;
+            }
+        }
+        if changed {
+            let _ = fs::copy(path, path.with_extension("json.bak"));
+            crate::fs_atomic::write_atomic(path, serde_json::to_string_pretty(&root)?)?;
+        }
+        Ok(changed)
     }
 
     fn print_mode_enabled(ctx: &CliAdapterContext) -> bool {
@@ -361,23 +264,14 @@ impl CliToolAdapter for CursorAdapter {
         &self.caps
     }
 
-    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：写**用户级** `~/.cursor/mcp.json`，所有会话共享一条 ccpanes 条目（launchId 会被
-    ///   并发会话覆盖，不算本会话身份）；没有工作空间层，不处理隔离。
-    /// - 技能：挂载根拼成每会话 staging（Cursor 插件清单）后经 `--plugin-dir`；没有系统提示词通道。
+    /// docs/110 当前注入面，守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP（批 2）：项目级 `.cursor/mcp.json`（同项目会话共享），ccpanes 用 `${env:…}` 占位符、
+    ///   各会话展开成自己的端口 / token / launchId；远程 HTTP / SSE 的请求头同样走占位符；隔离只能声明。
+    /// - 技能（批 1）：挂载根拼成每会话 staging（Cursor 插件清单）后经 `--plugin-dir`；没有提示词通道。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
-            mcp: McpInjection {
-                ccpanes: McpChannel::UserFile,
-                ctl_proxy: false,
-                shared: true,
-                workspace: false,
-                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
-                remote_headers: false,
-                isolation: McpIsolation::None,
-                launch_identity: false,
-            },
+            mcp: project_file_mcp(false, true, vec![McpTransport::Sse]),
             skills: SkillsInjection {
                 mount: SkillMount::PluginDir,
                 prompt_fallback: false,
@@ -402,7 +296,12 @@ impl CliToolAdapter for CursorAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        Self::sync_user_mcp(ctx);
+        Self::migrate_legacy_user_mcp(ctx);
+        let mcp = crate::project_mcp::sync_for_launch(
+            ctx,
+            &crate::project_mcp_dialects::CURSOR,
+            &crate::project_mcp::ccpanes_http(ctx),
+        );
 
         let mut args = Vec::new();
 
@@ -443,7 +342,7 @@ impl CliToolAdapter for CursorAdapter {
             args.push("--force".to_string());
         }
 
-        // 自动批准用户 mcp.json（含我们注入的 ccpanes）
+        // 自动批准项目 / 用户 mcp.json（含我们注入的 ccpanes）
         args.push("--approve-mcps".to_string());
 
         // 技能挂载（docs/110 批 1）：`--plugin-dir <path>` 可重复（cursor.com/docs/cli/reference/
@@ -481,7 +380,7 @@ impl CliToolAdapter for CursorAdapter {
             args.push(prompt.to_string());
         }
 
-        let mut env_inject = HashMap::new();
+        let mut env_inject = mcp.env;
         if let Some(provider) = ctx.provider.as_ref() {
             if provider.provider_type == "cursor" {
                 if let Some(api_key) = provider
@@ -649,56 +548,39 @@ mod tests {
     }
 
     #[test]
-    fn sync_mcp_at_creates_ccpanes_and_preserves_user_servers() {
+    fn legacy_user_entries_are_removed_but_user_servers_survive() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mcp.json");
         fs::write(
             &path,
-            r#"{
-  "mcpServers": {
-    "context7": { "url": "https://mcp.context7.com/mcp" }
-  }
-}"#,
+            r#"{"mcpServers":{
+                "ccpanes":{"url":"http://127.0.0.1:9/mcp?token=x&launchId=l1"},
+                "shared-a":{"url":"http://127.0.0.1:41000/mcp"},
+                "shared-b":{"url":"http://127.0.0.1:41001/mcp","headers":{"A":"b"}},
+                "context7":{"url":"https://mcp.context7.com/mcp"}
+            }}"#,
         )
         .unwrap();
-
-        let changed = CursorAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret&launchId=l1",
-            &HashMap::new(),
-        )
-        .unwrap();
-        assert!(changed);
-        let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("ccpanes"));
-        assert!(content.contains("token=secret"));
-        assert!(content.contains("context7"));
-        // 幂等
-        assert!(!CursorAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret&launchId=l1",
-            &HashMap::new(),
-        )
-        .unwrap());
-    }
-
-    #[test]
-    fn sync_mcp_at_leaves_foreign_ccpanes_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("mcp.json");
-        fs::write(
-            &path,
-            r#"{"mcpServers":{"ccpanes":{"url":"https://example.com/mcp"}}}"#,
-        )
-        .unwrap();
-        let changed = CursorAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret",
-            &HashMap::new(),
-        )
-        .unwrap();
-        assert!(!changed);
-        assert!(fs::read_to_string(&path).unwrap().contains("example.com"));
+        let shared = HashMap::from([
+            (
+                "shared-a".to_string(),
+                "http://127.0.0.1:41000/mcp".to_string(),
+            ),
+            (
+                "shared-b".to_string(),
+                "http://127.0.0.1:41001/mcp".to_string(),
+            ),
+        ]);
+        assert!(CursorAdapter::remove_legacy_entries_at(&path, &shared).unwrap());
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let servers = value["mcpServers"].as_object().unwrap();
+        assert!(!servers.contains_key("ccpanes"));
+        assert!(!servers.contains_key("shared-a"));
+        // 被用户改过（加了 headers）的同名条目不是我们写的原样，保留
+        assert!(servers.contains_key("shared-b"));
+        assert!(servers.contains_key("context7"));
+        assert!(!CursorAdapter::remove_legacy_entries_at(&path, &shared).unwrap());
     }
 
     #[test]

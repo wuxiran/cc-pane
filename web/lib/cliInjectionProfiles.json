@@ -1,14 +1,17 @@
 {
   "antigravity": {
     "mcp": {
-      "ccpanes": "none",
-      "ctlProxy": false,
-      "isolation": "none",
-      "launchIdentity": false,
-      "remoteHeaders": false,
-      "shared": false,
-      "transports": [],
-      "workspace": false
+      "ccpanes": "projectFile",
+      "ctlProxy": true,
+      "isolation": "declareOnly",
+      "launchIdentity": true,
+      "remoteHeaders": true,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -100,17 +103,18 @@
   },
   "cursor": {
     "mcp": {
-      "ccpanes": "userFile",
+      "ccpanes": "projectFile",
       "ctlProxy": false,
-      "isolation": "none",
-      "launchIdentity": false,
-      "remoteHeaders": false,
+      "isolation": "declareOnly",
+      "launchIdentity": true,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
         "stdioBridge",
-        "http"
+        "http",
+        "sse"
       ],
-      "workspace": false
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -132,14 +136,18 @@
   },
   "gemini": {
     "mcp": {
-      "ccpanes": "none",
-      "ctlProxy": false,
-      "isolation": "none",
-      "launchIdentity": false,
-      "remoteHeaders": false,
-      "shared": false,
-      "transports": [],
-      "workspace": false
+      "ccpanes": "projectFile",
+      "ctlProxy": true,
+      "isolation": "declareOnly",
+      "launchIdentity": true,
+      "remoteHeaders": true,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http",
+        "sse"
+      ],
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -161,17 +169,17 @@
   },
   "grok": {
     "mcp": {
-      "ccpanes": "userFile",
+      "ccpanes": "projectFile",
       "ctlProxy": false,
       "isolation": "declareOnly",
-      "launchIdentity": false,
-      "remoteHeaders": false,
+      "launchIdentity": true,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
         "stdioBridge",
         "http"
       ],
-      "workspace": false
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -196,11 +204,13 @@
       "ccpanes": "stdioProxy",
       "ctlProxy": true,
       "isolation": "declareOnly",
-      "launchIdentity": false,
-      "remoteHeaders": false,
+      "launchIdentity": true,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
-        "stdioBridge"
+        "stdioBridge",
+        "http",
+        "sse"
       ],
       "workspace": true
     },
@@ -224,14 +234,18 @@
   },
   "kimi": {
     "mcp": {
-      "ccpanes": "none",
-      "ctlProxy": false,
-      "isolation": "none",
-      "launchIdentity": false,
-      "remoteHeaders": false,
-      "shared": false,
-      "transports": [],
-      "workspace": false
+      "ccpanes": "projectFile",
+      "ctlProxy": true,
+      "isolation": "declareOnly",
+      "launchIdentity": true,
+      "remoteHeaders": true,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http",
+        "sse"
+      ],
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -256,8 +270,8 @@
       "ccpanes": "projectFile",
       "ctlProxy": false,
       "isolation": "declareOnly",
-      "launchIdentity": false,
-      "remoteHeaders": false,
+      "launchIdentity": true,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
         "stdioBridge",
@@ -289,13 +303,13 @@
       "ctlProxy": false,
       "isolation": "none",
       "launchIdentity": true,
-      "remoteHeaders": false,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
         "stdioBridge",
         "http"
       ],
-      "workspace": false
+      "workspace": true
     },
     "runtimes": {
       "ssh": {
@@ -320,8 +334,8 @@
       "ccpanes": "sessionFile",
       "ctlProxy": false,
       "isolation": "declareOnly",
-      "launchIdentity": false,
-      "remoteHeaders": false,
+      "launchIdentity": true,
+      "remoteHeaders": true,
       "shared": true,
       "transports": [
         "stdioBridge",

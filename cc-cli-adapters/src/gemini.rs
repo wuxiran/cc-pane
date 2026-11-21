@@ -4,7 +4,6 @@ use crate::{
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
 };
 use anyhow::Result;
-use std::collections::HashMap;
 use tracing::info;
 
 pub struct GeminiAdapter {
@@ -28,7 +27,8 @@ impl GeminiAdapter {
             caps: CliToolCapabilities {
                 supports_provider: true,
                 supports_resume: false,
-                supports_mcp: false,
+                // 项目 `.gemini/settings.json` 收据驱动注入（docs/110 批 2）
+                supports_mcp: true,
                 supports_system_prompt: false,
                 supports_workspace: false,
                 supports_project_hooks: false,
@@ -63,9 +63,15 @@ impl CliToolAdapter for GeminiAdapter {
         &self.caps
     }
 
-    /// docs/110 批 0：当前代码不接任何 MCP / 技能注入（WSL / SSH 只能裸启动）。
+    /// docs/110：
+    /// - MCP（批 2）：项目 `.gemini/settings.json`，同项目会话共享；ccpanes 经 ctl stdio 代理（launchId
+    ///   经 `env` 块转发）；远程 HTTP / SSE 带字面请求头；隔离只能声明（批 3 接 `--allowed-mcp-server-names`）。
+    /// - 技能：没有临时挂载参数，也没有提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
-        crate::InjectionProfile::unsupported()
+        use crate::injection_profile::*;
+        let mut profile = InjectionProfile::unsupported();
+        profile.mcp = project_file_mcp(true, true, vec![McpTransport::Sse]);
+        profile
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
@@ -87,13 +93,23 @@ impl CliToolAdapter for GeminiAdapter {
             args.push(prompt.clone());
         }
 
+        // MCP（docs/110 批 2，低优先）：项目 `.gemini/settings.json` 的 `mcpServers`
+        // （google-gemini/gemini-cli docs/tools/mcp-server.md）：`httpUrl` = HTTP、`url` = SSE。
+        // Gemini 只在 `env` 块里展开 `$VAR`，并会清洗 stdio 子进程的敏感环境变量，所以 ccpanes
+        // 走 ctl stdio 代理并在 `env` 里显式转发实例与 launchId。项目设置只在受信任文件夹生效。
+        let mcp = crate::project_mcp::sync_for_launch(
+            ctx,
+            &crate::project_mcp_dialects::GEMINI,
+            &crate::project_mcp::ccpanes_proxy_or_http(ctx),
+        );
+
         let (command, args) = ctx.resolve_launch("gemini", args)?;
 
         Ok(CliCommandResult {
             command,
             args,
             env_remove: vec![],
-            env_inject: HashMap::new(),
+            env_inject: mcp.env,
         })
     }
 }
@@ -101,6 +117,7 @@ impl CliToolAdapter for GeminiAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn context(yolo_mode: bool) -> CliAdapterContext {
         CliAdapterContext {

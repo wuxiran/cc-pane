@@ -29,6 +29,9 @@ pub mod mcp_file_injection;
 mod omp;
 mod opencode;
 mod pi;
+pub mod project_mcp;
+pub mod project_mcp_dialects;
+pub mod project_mcp_files;
 pub mod skill_mounts;
 
 pub use antigravity::{
@@ -2506,7 +2509,8 @@ mod registry_tests {
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("opencode").unwrap().can_report_task_result());
-        assert!(!registry.get("gemini").unwrap().can_report_task_result());
+        // docs/110 批 2：gemini 经项目 `.gemini/settings.json` 拿到 ccpanes MCP，能回报结果
+        assert!(registry.get("gemini").unwrap().can_report_task_result());
         assert!(registry.get("pi").unwrap().can_report_task_result());
         // omp shares Pi's CLI surface but not its structured RPC wiring yet.
         assert!(!registry.get("omp").unwrap().can_report_task_result());

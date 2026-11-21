@@ -161,15 +161,33 @@ impl OpenCodeAdapter {
                 );
             }
 
+            // 工作空间层 + 项目覆盖层（docs/110 批 2）：stdio → `local`（command 数组 + environment），
+            // HTTP → `remote`；SSE 不在 opencode 的远程 schema 里（Streamable HTTP），跳过。
+            // 优先级低于共享 MCP 与 ccpanes，与 claude.rs 的合并顺序一致。
+            for (name, value) in ctx.allowed_workspace_mcp_servers() {
+                if name == "ccpanes" {
+                    continue;
+                }
+                if let Some(entry) = opencode_layer_entry(value) {
+                    mcp.insert(name.clone(), entry);
+                }
+            }
+
             for (name, url) in &ctx.shared_mcp_urls {
-                mcp.insert(
-                    name.clone(),
-                    serde_json::json!({
-                        "type": "remote",
-                        "url": url,
-                        "enabled": true
-                    }),
-                );
+                let mut entry = serde_json::json!({
+                    "type": "remote",
+                    "url": url,
+                    "enabled": true
+                });
+                // 远程共享 MCP 的请求头（opencode.ai/docs/mcp-servers：remote 的 `headers`）
+                if let Some(remote) = ctx
+                    .shared_mcp_remote
+                    .get(name)
+                    .filter(|remote| !remote.headers.is_empty())
+                {
+                    entry["headers"] = serde_json::json!(remote.headers);
+                }
+                mcp.insert(name.clone(), entry);
             }
 
             if !mcp.is_empty() {
@@ -695,6 +713,34 @@ impl OpenCodeAdapter {
     }
 }
 
+/// Claude 形状的层条目 → opencode 旧形 `mcp.<name>`（1.17 只认这一形；新版 schema 仍收）。
+fn opencode_layer_entry(value: &serde_json::Value) -> Option<serde_json::Value> {
+    if let Some(command) = value.get("command").and_then(serde_json::Value::as_str) {
+        let mut argv = vec![serde_json::Value::String(command.to_string())];
+        if let Some(args) = value.get("args").and_then(serde_json::Value::as_array) {
+            argv.extend(args.iter().filter(|arg| arg.is_string()).cloned());
+        }
+        let mut entry = serde_json::json!({ "type": "local", "command": argv, "enabled": true });
+        if let Some(env) = value
+            .get("env")
+            .and_then(serde_json::Value::as_object)
+            .filter(|env| !env.is_empty())
+        {
+            entry["environment"] = serde_json::Value::Object(env.clone());
+        }
+        return Some(entry);
+    }
+    let url = value.get("url").and_then(serde_json::Value::as_str)?;
+    if value.get("type").and_then(serde_json::Value::as_str) == Some("sse") {
+        return None;
+    }
+    let mut entry = serde_json::json!({ "type": "remote", "url": url, "enabled": true });
+    if let Some(headers) = value.get("headers").filter(|headers| headers.is_object()) {
+        entry["headers"] = headers.clone();
+    }
+    Some(entry)
+}
+
 impl Default for OpenCodeAdapter {
     fn default() -> Self {
         Self::new()
@@ -711,7 +757,8 @@ impl CliToolAdapter for OpenCodeAdapter {
     }
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 不带请求头，没有工作空间层，不处理隔离。
+    /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 带请求头，含工作空间层（docs/110 批 2）；
+    ///   隔离不处理（批 3）。
     /// - 技能：挂载目录写进同一份配置的 `skills.paths`；`instructions` 是提示词通道。
     /// - WSL：不经 adapter，MCP 与提示词都丢（批 4）。
     fn injection_profile(&self) -> crate::InjectionProfile {
@@ -721,9 +768,9 @@ impl CliToolAdapter for OpenCodeAdapter {
                 ccpanes: McpChannel::SessionFile,
                 ctl_proxy: false,
                 shared: true,
-                workspace: false,
+                workspace: true,
                 transports: vec![McpTransport::StdioBridge, McpTransport::Http],
-                remote_headers: false,
+                remote_headers: true,
                 isolation: McpIsolation::None,
                 launch_identity: true,
             },

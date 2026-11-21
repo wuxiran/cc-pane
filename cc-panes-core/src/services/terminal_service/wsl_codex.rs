@@ -1273,6 +1273,8 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
 
     // 每会话技能 staging（docs/110 批 1）：打退休标记，下次 staging 时按保留期回收。
     cc_cli_adapters::skill_mounts::retire_session_staging(data_dir, &sanitized);
+    // 项目级 MCP 文件（docs/110 批 2）：同项目最后一个会话结束时按收据清掉我们的条目。
+    cc_cli_adapters::project_mcp::release_session(data_dir, &sanitized);
 
     let launch_dir = data_dir.join("wsl-launch");
     if let Ok(entries) = std::fs::read_dir(&launch_dir) {

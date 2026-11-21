@@ -2820,11 +2820,15 @@ impl TerminalService {
         // 旧 app 不带时仍由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
         let sidecar_resource_dir = self.effective_sidecar_resource_dir();
         if !is_ssh && !effective_skip_ccpanes_mcp && injection_profile.mcp.ctl_proxy {
-            // 只认 stdio 的 CLI（ccpanes 通道 = StdioProxy，目前是 jcode）必须走 ctl 代理
-            // （force，不受 CCPANES_MCP_PROXY 灰度开关约束）；ctl 缺失只降级（ccpanes 条目
-            // 不注入），绝不阻断开终端。其余维持灰度 + 错误上抛的原语义（docs/104）。
-            let force_proxy =
-                injection_profile.mcp.ccpanes == cc_cli_adapters::McpChannel::StdioProxy;
+            // 写共享文件的 CLI（ccpanes 通道 = StdioProxy / ProjectFile 且声明可走代理：jcode、
+            // kimi、antigravity、gemini）必须走 ctl 代理——代理从各会话继承的环境变量拿实例与
+            // launchId，共享文件里不落身份也不落 token（docs/104、docs/110 批 2）。force 不受
+            // CCPANES_MCP_PROXY 灰度开关约束；ctl 缺失只降级（adapter 退回 HTTP 或不注入），绝不
+            // 阻断开终端。其余维持灰度 + 错误上抛的原语义。
+            let force_proxy = matches!(
+                injection_profile.mcp.ccpanes,
+                cc_cli_adapters::McpChannel::StdioProxy | cc_cli_adapters::McpChannel::ProjectFile
+            );
             let injected = super::ctl_sidecar::inject_mcp_proxy_options(
                 &mut adapter_options,
                 sidecar_resource_dir.as_deref(),
@@ -8009,13 +8013,19 @@ mod tests {
             &profile(CliTool::Codex),
             "local"
         ));
-        assert!(!remote_mcp_supported(
+        // docs/110 批 2：jcode 放开 http，opencode 放开请求头（SSE 仍不支持）
+        assert!(remote_mcp_supported(
             &remote("http", false),
             &profile(CliTool::Jcode),
             "local"
         ));
-        assert!(!remote_mcp_supported(
+        assert!(remote_mcp_supported(
             &remote("http", true),
+            &profile(CliTool::Opencode),
+            "local"
+        ));
+        assert!(!remote_mcp_supported(
+            &remote("sse", false),
             &profile(CliTool::Opencode),
             "local"
         ));

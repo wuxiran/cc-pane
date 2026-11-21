@@ -16,7 +16,6 @@
 //! 隔离模式（disable_unlisted）v1 不支持：omp 还会从 .claude/.cursor 等
 //! 外部配置导入 server，没有逐源禁用通道，与 grok 同款 warn 降级。
 
-use crate::mcp_file_injection::{self, CollectOptions};
 use crate::pi::{PiFamilyAdapter, OMP_FAMILY_CONFIG};
 use crate::{
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
@@ -78,23 +77,14 @@ impl CliToolAdapter for OmpAdapter {
     }
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：项目级 `.omp/mcp.json`（收据驱动），同项目会话共享，ccpanes 不带 launchId；
-    ///   共享不带请求头；隔离只 warn。
+    /// - MCP：项目级 `.omp/mcp.json`（收据驱动），同项目会话共享；ccpanes 与远程请求头用 `${VAR}`
+    ///   占位符，各会话展开成自己的值（docs/110 批 2）；隔离只 warn。
     /// - 技能：挂载根经 `--plugin-dir`（Claude 插件布局）；`--append-system-prompt` 是提示词通道。
     ///   WSL 不注入；SSH 启动被拒。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
-            mcp: McpInjection {
-                ccpanes: McpChannel::ProjectFile,
-                ctl_proxy: false,
-                shared: true,
-                workspace: true,
-                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
-                remote_headers: false,
-                isolation: McpIsolation::DeclareOnly,
-                launch_identity: false,
-            },
+            mcp: project_file_mcp(false, true, vec![]),
             skills: SkillsInjection {
                 mount: SkillMount::PluginDir,
                 prompt_fallback: true,
@@ -122,25 +112,17 @@ impl CliToolAdapter for OmpAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        // MCP 注入（docs/104）：omp 启动时原生读取 <项目>/.omp/mcp.json，
-        // 这里在拼命令前把有效集合同步进去。ccpanes 内置走 HTTP 直连
-        // （omp 原生支持 headers，能带 Authorization；不附 launchId，
-        // 项目级文件被同项目所有会话共享，见 ccpanes_http_entry 注释）。
-        let ccpanes_entry = ctx
-            .orchestrator_port
-            .zip(ctx.orchestrator_token.as_deref())
-            .filter(|_| ctx.wants_ccpanes_mcp())
-            .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
-        mcp_file_injection::sync_adapter_project_mcp(
-            "omp",
-            &[".omp", "mcp.json"],
+        // MCP 注入（docs/104 → docs/110 批 2）：omp 启动时原生读取 <项目>/.omp/mcp.json，并在
+        // 发现期展开 `${VAR}`（omp docs/mcp-config.md）。ccpanes 的端口 / token / launchId 与远程
+        // 请求头都写成占位符，真实值走本会话环境变量：项目文件被同项目所有会话共享，也各带各的身份。
+        let mcp = crate::project_mcp::sync_for_launch(
             ctx,
-            &CollectOptions {
-                stdio_only: false,
-                ccpanes_entry,
-            },
+            &crate::project_mcp_dialects::OMP,
+            &crate::project_mcp::ccpanes_http(ctx),
         );
-        self.family.build_command(ctx)
+        let mut result = self.family.build_command(ctx)?;
+        result.env_inject.extend(mcp.env);
+        Ok(result)
     }
 }
 
@@ -381,7 +363,8 @@ mod tests {
             "http://127.0.0.1:3101/mcp".to_string(),
         )]);
 
-        OmpAdapter::new().build_command(&ctx).unwrap();
+        ctx.launch_id = Some("launch-omp-1".to_string());
+        let result = OmpAdapter::new().build_command(&ctx).unwrap();
 
         let target = dir.path().join(".omp").join("mcp.json");
         let value: serde_json::Value =
@@ -394,15 +377,20 @@ mod tests {
         );
         // 共享 MCP 走 HTTP 桥 URL
         assert_eq!(value["mcpServers"]["shared1"]["type"], "http");
-        // ccpanes 内置：HTTP + Authorization header，不带 launchId
+        // ccpanes 内置（docs/110 批 2）：HTTP + Authorization，端口 / token / launchId 全是
+        // `${VAR}` 占位符，文件里没有秘密；真实值走本会话环境变量
         assert_eq!(
             value["mcpServers"]["ccpanes"]["url"],
-            "http://127.0.0.1:3100/mcp?token=tok"
+            "http://127.0.0.1:${CC_PANES_API_PORT}/mcp?launchId=${CC_PANES_LAUNCH_ID}"
         );
         assert_eq!(
             value["mcpServers"]["ccpanes"]["headers"]["Authorization"],
-            "Bearer tok"
+            "Bearer ${CC_PANES_API_TOKEN}"
         );
+        assert!(!std::fs::read_to_string(&target).unwrap().contains("tok\""));
+        assert_eq!(result.env_inject["CC_PANES_API_TOKEN"], "tok");
+        assert_eq!(result.env_inject["CC_PANES_API_PORT"], "3100");
+        assert_eq!(result.env_inject["CC_PANES_LAUNCH_ID"], "launch-omp-1");
         // token 守卫：.omp/.gitignore 覆盖 mcp.json
         let guard = std::fs::read_to_string(dir.path().join(".omp").join(".gitignore")).unwrap();
         assert!(guard.contains("mcp.json"));

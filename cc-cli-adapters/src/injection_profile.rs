@@ -177,6 +177,28 @@ impl McpInjection {
     }
 }
 
+/// 走项目级配置文件的 MCP 描述（docs/110 批 2 的通用写入器）：共享 + 工作空间层、HTTP、
+/// 请求头、隔离只能声明；`ctl_proxy` = ccpanes 经 cc-panes-ctl stdio 代理（不能展开环境变量的
+/// CLI），否则 HTTP 占位符。两种都带本会话 launchId（各会话从自己的环境变量展开）。
+pub fn project_file_mcp(
+    ctl_proxy: bool,
+    launch_identity: bool,
+    extra_transports: Vec<McpTransport>,
+) -> McpInjection {
+    let mut transports = vec![McpTransport::StdioBridge, McpTransport::Http];
+    transports.extend(extra_transports);
+    McpInjection {
+        ccpanes: McpChannel::ProjectFile,
+        ctl_proxy,
+        shared: true,
+        workspace: true,
+        transports,
+        remote_headers: true,
+        isolation: McpIsolation::DeclareOnly,
+        launch_identity,
+    }
+}
+
 impl SkillsInjection {
     pub fn none() -> Self {
         Self {
@@ -307,11 +329,15 @@ mod tests {
         assert!(profile("claude").remote_mcp_supported("sse", true, "local"));
         assert!(profile("codex").remote_mcp_supported("http", true, "local"));
         assert!(!profile("codex").remote_mcp_supported("sse", false, "local"));
-        assert!(!profile("jcode").remote_mcp_supported("http", false, "local"));
-        assert!(!profile("opencode").remote_mcp_supported("http", true, "local"));
-        assert!(profile("opencode").remote_mcp_supported("http", false, "local"));
+        // docs/110 批 2：jcode 放开 http/sse，opencode / pi / omp 放开请求头，antigravity 无 SSE
+        assert!(profile("jcode").remote_mcp_supported("sse", true, "local"));
+        assert!(profile("opencode").remote_mcp_supported("http", true, "local"));
+        assert!(!profile("opencode").remote_mcp_supported("sse", false, "local"));
+        assert!(profile("pi").remote_mcp_supported("http", true, "local"));
+        assert!(profile("kimi").remote_mcp_supported("sse", true, "local"));
+        assert!(!profile("antigravity").remote_mcp_supported("sse", false, "local"));
         assert!(!profile("claude").remote_mcp_supported("http", true, "wsl"));
         assert!(profile("claude").remote_mcp_supported("http", false, "wsl"));
-        assert!(!profile("gemini").remote_mcp_supported("http", false, "local"));
+        assert!(profile("gemini").remote_mcp_supported("http", false, "local"));
     }
 }

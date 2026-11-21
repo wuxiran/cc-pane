@@ -32,7 +32,8 @@ impl KimiAdapter {
             caps: CliToolCapabilities {
                 supports_provider: true,
                 supports_resume: false,
-                supports_mcp: false,
+                // 项目级 `.kimi-code/mcp.json` 收据驱动注入（docs/110 批 2）
+                supports_mcp: true,
                 supports_system_prompt: false,
                 supports_workspace: true,
                 supports_project_hooks: false,
@@ -154,10 +155,16 @@ impl CliToolAdapter for KimiAdapter {
         &self.caps
     }
 
-    /// docs/110：技能挂载经 `--skills-dir`（批 1）；没有会话提示词通道。WSL / SSH 只能裸启动。
+    /// docs/110：
+    /// - MCP（批 2）：项目级 `.kimi-code/mcp.json`，同项目会话共享；ccpanes 经 ctl stdio 代理，
+    ///   launchId 来自各会话自己的环境变量（文件里没有身份也没有 token）；远程 HTTP / SSE 带请求头
+    ///   （请求头是字面值，文件已排除出 git）；隔离只能声明。
+    /// - 技能（批 1）：`--skills-dir`；没有会话提示词通道。WSL / SSH 只能裸启动。
     fn injection_profile(&self) -> crate::InjectionProfile {
-        let mut profile = crate::InjectionProfile::unsupported();
-        profile.skills.mount = crate::SkillMount::SkillsDir;
+        use crate::injection_profile::*;
+        let mut profile = InjectionProfile::unsupported();
+        profile.mcp = project_file_mcp(true, true, vec![McpTransport::Sse]);
+        profile.skills.mount = SkillMount::SkillsDir;
         profile
     }
 
@@ -187,7 +194,21 @@ impl CliToolAdapter for KimiAdapter {
             args.push(prompt.clone());
         }
 
-        let env_inject = self.build_env_inject(ctx)?;
+        let mut env_inject = self.build_env_inject(ctx)?;
+        // MCP（docs/110 批 2）：Kimi Code 没有按次启动的 MCP 参数，项目级 `.kimi-code/mcp.json`
+        // 是唯一注入面（kimi-code/en/customization/mcp）。ccpanes 走 ctl stdio 代理（不展开环境
+        // 变量，代理从继承的环境里拿实例与 launchId），代理不可用时 HTTP + `bearerTokenEnvVar`。
+        let mcp = crate::project_mcp::sync_for_launch(
+            ctx,
+            &crate::project_mcp_dialects::KIMI,
+            &crate::project_mcp::ccpanes_proxy_or_http(ctx),
+        );
+        if mcp.active {
+            // 未信任的文件夹里项目级 MCP 不启用；`KIMI_CODE_TRUST_WORKSPACE=1` 让本进程信任工作区
+            // （官方文档给 headless 用的开关）。与 cursor 适配器始终加 `--trust` 同口径。
+            env_inject.insert("KIMI_CODE_TRUST_WORKSPACE".to_string(), "1".to_string());
+        }
+        env_inject.extend(mcp.env);
 
         let (command, args) = ctx.resolve_launch("kimi", args)?;
 

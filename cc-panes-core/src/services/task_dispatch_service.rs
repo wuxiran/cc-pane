@@ -320,14 +320,16 @@ mod tests {
     }
 
     #[test]
-    fn no_mcp_target_remains_dispatchable_as_a_prompt_worker() {
+    fn project_file_mcp_target_reports_results_without_skill_delivery() {
+        // docs/110 批 2：gemini 经项目 `.gemini/settings.json` 拿到 ccpanes MCP，能回报结果；
+        // 它仍没有任何技能投递方式（无挂载参数、无提示词通道）。
         let plan = TaskDispatchService::default()
             .plan(request(Some("gemini")))
             .unwrap();
 
         assert_eq!(plan.cli_tool, CliTool::Gemini);
-        assert!(!plan.envelope.mcp.supported);
-        assert!(!plan.envelope.mcp.can_report_result);
+        assert!(plan.envelope.mcp.supported);
+        assert!(plan.envelope.mcp.can_report_result);
         assert!(plan.envelope.skill_delivery_modes.is_empty());
     }
 

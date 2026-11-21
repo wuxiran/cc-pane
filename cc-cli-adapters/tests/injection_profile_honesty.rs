@@ -254,10 +254,6 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
     let mcp = &p.mcp;
     if !matches!(mcp.ccpanes, McpChannel::None | McpChannel::StdioProxy) {
         expect(failures, cli, "ccpanes MCP", corpus.contains(TOKEN));
-        if mcp.launch_identity {
-            let id = format!("launchId={LAUNCH_ID}");
-            expect(failures, cli, "launch identity", corpus.contains(&id));
-        }
     }
     if mcp.shared && mcp.supports_transport(McpTransport::StdioBridge) {
         let ok = corpus.contains(SHARED_BRIDGE_URL) || corpus.contains(SHARED_BRIDGE_CMD);
@@ -307,17 +303,24 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
     }
 }
 
-fn check_proxy_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, corpus: &str) {
+fn check_proxy_pass(failures: &mut Vec<String>, cli: &str, corpus: &str) {
     expect(
         failures,
         cli,
         "ctl stdio proxy",
         corpus.contains("guard-cc-panes-ctl"),
     );
-    if p.mcp.launch_identity {
-        let ok = corpus.contains("--launch-id") && corpus.contains(LAUNCH_ID);
-        expect(failures, cli, "launch identity via proxy", ok);
-    }
+}
+
+/// 本会话的 launchId 能到达 ccpanes：URL 里直接带、代理参数直接带，或者（共享文件不能带
+/// 每会话身份时）文件里是占位符 / ctl 代理、真实值经本次进程的 `CC_PANES_LAUNCH_ID` 注入。
+fn has_launch_identity(corpus: &str) -> bool {
+    let env = format!("CC_PANES_LAUNCH_ID={LAUNCH_ID}");
+    let via_env = corpus.contains(&env)
+        && (corpus.contains("CC_PANES_LAUNCH_ID}") || corpus.contains("guard-cc-panes-ctl"));
+    corpus.contains(&format!("launchId={LAUNCH_ID}"))
+        || corpus.contains(&format!("--launch-id\n{LAUNCH_ID}"))
+        || via_env
 }
 
 #[test]
@@ -332,11 +335,16 @@ fn every_declared_injection_has_evidence() {
         let corpus = build_corpus(&registry, cli, &full_context(&sandbox, cli, false));
         check_http_pass(&mut failures, cli, profile, &corpus);
         assert!(sandbox.roots().iter().all(|root| root.exists()));
+        let mut identity = has_launch_identity(&corpus);
 
         if profile.mcp.ctl_proxy {
             let sandbox = Sandbox::new();
             let corpus = build_corpus(&registry, cli, &full_context(&sandbox, cli, true));
-            check_proxy_pass(&mut failures, cli, profile, &corpus);
+            check_proxy_pass(&mut failures, cli, &corpus);
+            identity |= has_launch_identity(&corpus);
+        }
+        if profile.mcp.launch_identity && profile.mcp.ccpanes != McpChannel::None {
+            expect(&mut failures, cli, "launch identity", identity);
         }
     }
     assert!(

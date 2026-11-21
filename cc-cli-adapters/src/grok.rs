@@ -11,14 +11,13 @@
 //!   verbose **无对应 flag**（`--debug`/`--debug-file` 是写日志，语义不同），不映射。
 //! - 未映射但存在的能力（按需再接）：`--permission-mode`（六档，比 YOLO 二元更细）、
 //!   `--no-plan`（禁用 plan mode）、`-w/--worktree`（原生 worktree）、`--fork-session`。
-//! - MCP：无 `--mcp-config` / `-c key=val` 之类 per-launch override（`-c` 是 `--continue`），
-//!   唯一注入面是 config.toml 的 `[mcp_servers.<name>]`（`url` + `enabled`，HTTP/SSE/stdio）。
-//!   本 adapter 写用户级 `~/.grok/config.toml`（尊重 `$GROK_HOME`）：
-//!   项目级 `.grok/config.toml` 会把带 token 的 URL 落进用户仓库（git 泄漏风险）；
-//!   GROK_HOME 隔离会切断 `auth.json`（OAuth）与 `sessions/`（resume 历史）——见 Codex
-//!   隔离方案失败后的 `migrate_legacy_isolated_sessions` 善后，不重蹈。
-//!   代价：所有 grok 会话共享同一个 ccpanes entry，URL 不带 per-launch 的 `&launchId=`，
-//!   Orchestrator 暂无法自动识别是哪个 grok 会话在调用（可接受的降级）。
+//! - MCP：无 `--mcp-config` / `-c key=val` 之类 per-launch override（`-c` 是 `--continue`）。
+//!   docs/110 批 2 起写**项目级** `.grok/config.toml` 的 `[mcp_servers.<name>]`（收据驱动，见
+//!   [`crate::project_mcp`]）：Grok 从 cwd 走到 git 根读每个 `.grok/config.toml`，并在
+//!   `url`/`headers`/`env`/`args` 里展开 `${VAR}`（docs.x.ai/build/features/mcp-servers），所以
+//!   ccpanes 的端口 / token / launchId 都写成占位符，真实值走本会话环境变量——文件里没有秘密，
+//!   并发会话也各带各的身份。`.mcp.json` 等 compat 来源优先级低于 config.toml，故选它。
+//!   此前写进用户级 `~/.grok/config.toml` 的旧条目首次启动时清掉（`migrate_legacy_user_mcp`）。
 
 use crate::{
     CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities,
@@ -35,9 +34,6 @@ use tracing::{info, warn};
 
 const CC_PANE_EVENT_UNSUPPORTED: &str =
     "Grok CLI does not expose a confirmed native hook for this event yet.";
-const MCP_ISOLATION_UNSUPPORTED_LOG: &str =
-    "grok: MCP isolation requested but Grok has no per-launch disable channel; \
-     user-configured MCP servers are left untouched";
 
 /// Grok 屏幕模式覆盖环境变量（0.2.101 二进制取证：字符串紧邻
 /// "Reopening session in X mode"）。与 `--fullscreen`/`--minimal` flag 不同，
@@ -161,180 +157,90 @@ impl GrokAdapter {
             .unwrap_or(false)
     }
 
-    fn ccpanes_mcp_url(ctx: &CliAdapterContext) -> Option<String> {
-        let (port, token) = (ctx.orchestrator_port?, ctx.orchestrator_token.as_ref()?);
-        // 不附 &launchId=：entry 为全部 grok 会话共享，附上只会让最后一次启动的
-        // launchId 冒充所有会话的 caller 身份（见模块头注释）。
-        Some(format!("http://127.0.0.1:{}/mcp?token={}", port, token))
-    }
-
-    /// 把 ccpanes + 共享 MCP entry 同步进用户级 config.toml。幂等：值未变化时零写入。
-    /// best-effort：任何失败只 warn，不阻断启动（MCP 缺失不致命）。
-    fn sync_user_config_mcp(ctx: &CliAdapterContext) {
+    /// 一次性迁移（docs/110 批 2）：清掉以前写进用户级 config.toml 的条目——签名匹配的
+    /// `ccpanes`，以及与本次共享 MCP 同名、且只剩我们当年写的 `url` + `enabled` 两个键的条目。
+    /// 完成后在数据目录落标记，之后不再碰用户级文件。
+    fn migrate_legacy_user_mcp(ctx: &CliAdapterContext) {
+        if ctx.skip_mcp {
+            return;
+        }
+        let marker = ctx
+            .data_dir
+            .join("cli-adapters")
+            .join("grok")
+            .join("user-mcp-migrated-v1");
+        if marker.exists() {
+            return;
+        }
         let Some(path) = Self::user_config_path() else {
             return;
         };
-        // 启动档只关 ccpanes（docs/110 批 0）：摘掉托管的 ccpanes 条目，共享 MCP 照常同步。
-        let ccpanes_url = if ctx.wants_ccpanes_mcp() {
-            let Some(url) = Self::ccpanes_mcp_url(ctx) else {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "grok: orchestrator not running, skipping MCP config sync"
-                );
-                return;
-            };
-            Some(url)
-        } else {
-            Self::remove_ccpanes_entry_best_effort(&ctx.session_id);
-            None
-        };
-
-        match Self::sync_mcp_entries_at(&path, ccpanes_url.as_deref(), &ctx.shared_mcp_urls) {
-            Ok(true) => info!(
-                session_id = %ctx.session_id,
-                config = %path.display(),
-                shared_mcp = ctx.shared_mcp_urls.len(),
-                "grok: MCP entries synced into user config"
-            ),
-            Ok(false) => {}
-            Err(error) => warn!(
-                session_id = %ctx.session_id,
-                config = %path.display(),
-                error = %error,
-                "grok: failed to sync MCP config; continuing without MCP"
-            ),
+        match Self::remove_legacy_entries_at(&path, &ctx.shared_mcp_urls) {
+            Ok(changed) => {
+                if changed {
+                    info!(config = %path.display(), "grok: removed legacy user-level MCP entries");
+                }
+                let _ = fs::create_dir_all(marker.parent().unwrap_or(&ctx.data_dir));
+                let _ = fs::write(&marker, b"1\n");
+            }
+            Err(error) => warn!(%error, "grok: failed to migrate legacy user-level MCP entries"),
         }
     }
 
-    /// 在指定 config.toml 中 upsert ccpanes 与共享 MCP entry。返回是否发生写入。
-    ///
-    /// - `toml_edit` 保留用户注释与格式；仅在序列化结果变化时原子写（temp + rename）。
-    /// - 名为 `ccpanes` 但签名不符的用户自定义 entry 保留不动（只 warn）。
-    /// - 首次改动前对原文件做 `.bak` 备份。
-    #[cfg(test)]
-    fn sync_mcp_at(
-        path: &Path,
-        ccpanes_url: &str,
-        shared_mcp_urls: &HashMap<String, String>,
-    ) -> Result<bool> {
-        Self::sync_mcp_entries_at(path, Some(ccpanes_url), shared_mcp_urls)
-    }
-
-    /// 同 [`Self::sync_mcp_at`]，`ccpanes_url=None` 时不动 ccpanes 条目（只同步共享 MCP）。
-    fn sync_mcp_entries_at(
-        path: &Path,
-        ccpanes_url: Option<&str>,
-        shared_mcp_urls: &HashMap<String, String>,
-    ) -> Result<bool> {
-        let original = if path.exists() {
-            fs::read_to_string(path)
-                .with_context(|| format!("failed to read Grok config {}", path.display()))?
-        } else {
-            String::new()
-        };
+    fn remove_legacy_entries_at(path: &Path, shared: &HashMap<String, String>) -> Result<bool> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let original = fs::read_to_string(path)
+            .with_context(|| format!("failed to read Grok config {}", path.display()))?;
         let mut document = original
             .parse::<DocumentMut>()
             .with_context(|| format!("failed to parse Grok config {}", path.display()))?;
-
-        let existing_ccpanes = document
-            .get("mcp_servers")
-            .and_then(|servers| servers.get("ccpanes"));
-        let ccpanes_is_foreign = existing_ccpanes
-            .map(|entry| !Self::is_ccpanes_managed_entry(entry))
-            .unwrap_or(false);
-        if let Some(ccpanes_url) = ccpanes_url {
-            if ccpanes_is_foreign {
-                warn!(
-                    config = %path.display(),
-                    "grok: user-defined mcp_servers.ccpanes entry found (signature mismatch), leaving it untouched"
-                );
-            } else {
-                Self::upsert_mcp_entry(&mut document, "ccpanes", ccpanes_url)?;
+        let Some(servers) = document
+            .get_mut("mcp_servers")
+            .and_then(Item::as_table_like_mut)
+        else {
+            return Ok(false);
+        };
+        let mut stale: Vec<String> = Vec::new();
+        if servers
+            .get("ccpanes")
+            .is_some_and(Self::is_ccpanes_managed_entry)
+        {
+            stale.push("ccpanes".to_string());
+        }
+        for (name, url) in shared {
+            let ours = servers
+                .get(name)
+                .and_then(Item::as_table_like)
+                .is_some_and(|entry| {
+                    entry.len() == 2
+                        && entry.get("url").and_then(Item::as_str) == Some(url.as_str())
+                        && entry.get("enabled").and_then(Item::as_bool) == Some(true)
+                });
+            if ours {
+                stale.push(name.clone());
             }
         }
-
-        for (name, url) in shared_mcp_urls {
-            // 与 ccpanes entry 同款归属校验：同名 entry 存在且签名不符 = 用户
-            // 自己的配置，保留不动。少了这层，用户手写的同名 MCP 会被静默覆盖。
-            let foreign = document
-                .get("mcp_servers")
-                .and_then(|servers| servers.get(name.as_str()))
-                .map(|entry| !Self::is_ccpanes_managed_entry(entry))
-                .unwrap_or(false);
-            if foreign {
-                warn!(
-                    config = %path.display(),
-                    name,
-                    "grok: user-defined shared MCP entry found (signature mismatch), leaving it untouched"
-                );
-                continue;
-            }
-            Self::upsert_mcp_entry(&mut document, name, url)?;
-        }
-
-        let updated = document.to_string();
-        if updated == original {
+        if stale.is_empty() {
             return Ok(false);
         }
-
-        if path.exists() {
-            let backup_path = Self::sibling_path_with_suffix(path, ".bak");
-            fs::copy(path, &backup_path).with_context(|| {
-                format!(
-                    "failed to write Grok config backup {}",
-                    backup_path.display()
-                )
-            })?;
-        } else if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create Grok config dir {}", parent.display())
-            })?;
+        let mut orphaned_comments = Vec::new();
+        for name in &stale {
+            if let Some(Item::Table(table)) = servers.remove(name) {
+                // 用户写在被删表头上方的注释属于这张表的 decor，删表会把它一起带走
+                let prefix = table.decor().prefix().and_then(|raw| raw.as_str());
+                if let Some(prefix) = prefix.filter(|text| text.contains('#')) {
+                    orphaned_comments.push((table.position(), prefix.to_string()));
+                }
+            }
         }
-
-        crate::fs_atomic::write_atomic(path, updated)?;
+        for (position, comment) in orphaned_comments {
+            reattach_comment(&mut document, position, &comment);
+        }
+        let _ = fs::copy(path, Self::sibling_path_with_suffix(path, ".bak"));
+        crate::fs_atomic::write_atomic(path, document.to_string())?;
         Ok(true)
-    }
-
-    /// 写 `[mcp_servers.<name>]` 的 `url` + `enabled = true`（保留 entry 其余键）。
-    fn upsert_mcp_entry(document: &mut DocumentMut, name: &str, url: &str) -> Result<()> {
-        let servers = document
-            .entry("mcp_servers")
-            .or_insert(Item::Table(toml_edit::Table::new()));
-        let servers = servers
-            .as_table_like_mut()
-            .context("Grok config mcp_servers must be a TOML table")?;
-        if servers.get(name).is_none() {
-            servers.insert(name, Item::Table(toml_edit::Table::new()));
-        }
-        let entry = servers
-            .get_mut(name)
-            .and_then(Item::as_table_like_mut)
-            .with_context(|| format!("Grok config mcp_servers.{} must be a TOML table", name))?;
-        entry.insert("url", toml_edit::value(url));
-        entry.insert("enabled", toml_edit::value(true));
-        Ok(())
-    }
-
-    /// skip_mcp：把 CC-Panes 管理的 ccpanes entry 移除（签名不符的用户 entry 不动）。
-    /// best-effort，失败只 warn。
-    fn remove_ccpanes_entry_best_effort(session_id: &str) {
-        let Some(path) = Self::user_config_path() else {
-            return;
-        };
-        match Self::remove_ccpanes_entry_at(&path) {
-            Ok(true) => info!(
-                session_id = %session_id,
-                config = %path.display(),
-                "grok: skip_mcp=true, removed CC-Panes ccpanes MCP entry"
-            ),
-            Ok(false) => {}
-            Err(error) => warn!(
-                session_id = %session_id,
-                config = %path.display(),
-                error = %error,
-                "grok: failed to remove ccpanes MCP entry"
-            ),
-        }
     }
 
     fn remove_ccpanes_entry_at(path: &Path) -> Result<bool> {
@@ -376,6 +282,56 @@ impl GrokAdapter {
     }
 }
 
+/// 把被删表头上方的注释挂到文档顺序里的下一张表上（没有就放到文件末尾）。
+fn reattach_comment(document: &mut DocumentMut, position: Option<usize>, comment: &str) {
+    fn collect(
+        table: &toml_edit::Table,
+        path: &mut Vec<String>,
+        out: &mut Vec<(usize, Vec<String>)>,
+    ) {
+        for (key, item) in table.iter() {
+            if let Item::Table(child) = item {
+                path.push(key.to_string());
+                if let (Some(pos), false) = (child.position(), child.is_implicit()) {
+                    out.push((pos, path.clone()));
+                }
+                collect(child, path, out);
+                path.pop();
+            }
+        }
+    }
+    let after = position.unwrap_or(0);
+    let mut candidates = Vec::new();
+    collect(document.as_table(), &mut Vec::new(), &mut candidates);
+    let next = candidates
+        .into_iter()
+        .filter(|(pos, _)| *pos > after)
+        .min_by_key(|(pos, _)| *pos)
+        .map(|(_, path)| path);
+    let target = next.and_then(|path| {
+        let mut table = document.as_table_mut();
+        for key in &path {
+            table = table.get_mut(key)?.as_table_mut()?;
+        }
+        Some(table)
+    });
+    match target {
+        Some(table) => {
+            let existing = table
+                .decor()
+                .prefix()
+                .and_then(|raw| raw.as_str())
+                .unwrap_or("")
+                .to_string();
+            table.decor_mut().set_prefix(format!("{comment}{existing}"));
+        }
+        None => {
+            let trailing = document.trailing().as_str().unwrap_or("").to_string();
+            document.set_trailing(format!("{trailing}{comment}"));
+        }
+    }
+}
+
 impl Default for GrokAdapter {
     fn default() -> Self {
         Self::new()
@@ -391,23 +347,15 @@ impl CliToolAdapter for GrokAdapter {
         &self.caps
     }
 
-    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：写**用户级** `config.toml`，ccpanes 不带 launchId；没有工作空间层；隔离只 warn。
-    /// - 技能：挂载根经 `--plugin-dir`（Claude 插件布局）；`--rules` 是提示词通道。WSL 不经
-    ///   adapter、不传挂载，技能只靠提示词回退（Partial）。
+    /// docs/110 当前注入面，守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP（批 2）：项目级 `.grok/config.toml`（同项目会话共享），ccpanes 与远程请求头都用
+    ///   `${VAR}` 占位符，各会话展开成自己的端口 / token / launchId；没有 SSE；隔离只能声明。
+    /// - 技能（批 1）：挂载根经 `--plugin-dir`（Claude 插件布局）；`--rules` 是提示词通道。WSL 不经
+    ///   adapter、不传挂载，技能只靠提示词回退（Partial），MCP 只有 ccpanes（Partial）。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
-            mcp: McpInjection {
-                ccpanes: McpChannel::UserFile,
-                ctl_proxy: false,
-                shared: true,
-                workspace: false,
-                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
-                remote_headers: false,
-                isolation: McpIsolation::DeclareOnly,
-                launch_identity: false,
-            },
+            mcp: project_file_mcp(false, true, vec![]),
             skills: SkillsInjection {
                 mount: SkillMount::PluginDir,
                 prompt_fallback: true,
@@ -442,19 +390,14 @@ impl CliToolAdapter for GrokAdapter {
 
         crate::push_model_arg(&mut args, ctx);
 
-        // MCP：写用户级 config.toml（无 per-launch override 通道，见模块头注释）
-        if ctx.skip_mcp {
-            Self::remove_ccpanes_entry_best_effort(&ctx.session_id);
-        } else {
-            Self::sync_user_config_mcp(ctx);
-        }
-
-        // MCP 隔离：Grok 只能持久化改 config，per-launch disable 做不到；
-        // 收到隔离请求时降级为不隔离（绝不把 enabled=false 持久化进用户 config，
-        // 那会影响用户自己启动的 grok 会话）。
-        if ctx.disable_unlisted_mcp_servers {
-            warn!(session_id = %ctx.session_id, MCP_ISOLATION_UNSUPPORTED_LOG);
-        }
+        // MCP：项目级 `.grok/config.toml`（见模块头）。隔离请求只能声明：per-launch disable
+        // 做不到，写进项目文件的 enabled=false 会影响同项目的其他会话（由写入器统一 warn）。
+        Self::migrate_legacy_user_mcp(ctx);
+        let mcp = crate::project_mcp::sync_for_launch(
+            ctx,
+            &crate::project_mcp_dialects::GROK,
+            &crate::project_mcp::ccpanes_http(ctx),
+        );
 
         // Resume 优先；新会话由 CC-Panes 预发确定性 id（同 Claude 模式）
         if let Some(ref rid) = ctx.resume_id {
@@ -518,7 +461,7 @@ impl CliToolAdapter for GrokAdapter {
 
         // Grok 的托管会话默认使用 fullscreen；滚轮是否可用由终端的
         // alternate-buffer / mouse-report / viewport 链路独立决定。
-        let mut env_inject = HashMap::new();
+        let mut env_inject = mcp.env;
         let screen_mode = screen_mode_from_options(&ctx.adapter_options);
         if screen_mode != "inherit" {
             env_inject.insert(GROK_SCREEN_MODE_ENV.to_string(), screen_mode);
@@ -830,156 +773,49 @@ mod tests {
     }
 
     #[test]
-    fn sync_mcp_at_creates_config_with_ccpanes_entry() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-
-        let changed = GrokAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret",
-            &HashMap::new(),
-        )
-        .unwrap();
-
-        assert!(changed);
-        let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[mcp_servers.ccpanes]"));
-        assert!(content.contains("url = \"http://127.0.0.1:37123/mcp?token=secret\""));
-        assert!(content.contains("enabled = true"));
-    }
-
-    #[test]
-    fn sync_mcp_at_is_idempotent() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        let url = "http://127.0.0.1:37123/mcp?token=secret";
-
-        assert!(GrokAdapter::sync_mcp_at(&path, url, &HashMap::new()).unwrap());
-        assert!(!GrokAdapter::sync_mcp_at(&path, url, &HashMap::new()).unwrap());
-    }
-
-    #[test]
-    fn sync_mcp_at_preserves_user_config_and_backs_up() {
+    fn legacy_user_entries_are_removed_but_user_servers_survive() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(
             &path,
-            r#"# user comment stays
-permission_mode = "ask"
+            r#"# my grok config
+[mcp_servers.ccpanes]
+url = "http://127.0.0.1:37123/mcp?token=secret"
+enabled = true
 
-[model.my-model]
-model = "grok-4.5"
+[mcp_servers.shared-a]
+url = "http://127.0.0.1:41000/mcp"
+enabled = true
+
+[mcp_servers.shared-b]
+url = "http://127.0.0.1:41001/mcp"
+enabled = true
+startup_timeout_sec = 60
 
 [mcp_servers.fetch]
 url = "http://127.0.0.1:3000/mcp"
 "#,
         )
         .unwrap();
-
-        let changed = GrokAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret",
-            &HashMap::from([(
-                "shared-docs".to_string(),
-                "http://127.0.0.1:4100/mcp?token=shared".to_string(),
-            )]),
-        )
-        .unwrap();
-
-        assert!(changed);
+        let shared = HashMap::from([
+            (
+                "shared-a".to_string(),
+                "http://127.0.0.1:41000/mcp".to_string(),
+            ),
+            (
+                "shared-b".to_string(),
+                "http://127.0.0.1:41001/mcp".to_string(),
+            ),
+        ]);
+        assert!(GrokAdapter::remove_legacy_entries_at(&path, &shared).unwrap());
         let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("# user comment stays"));
-        assert!(content.contains("permission_mode = \"ask\""));
-        assert!(content.contains("[model.my-model]"));
+        assert!(content.contains("# my grok config"));
+        assert!(!content.contains("[mcp_servers.ccpanes]"));
+        assert!(!content.contains("[mcp_servers.shared-a]"));
+        // 用户改过（多了键）的同名条目不是我们写的原样，保留
+        assert!(content.contains("[mcp_servers.shared-b]"));
         assert!(content.contains("[mcp_servers.fetch]"));
-        assert!(content.contains("[mcp_servers.ccpanes]"));
-        assert!(content.contains("[mcp_servers.shared-docs]"));
-
-        let backup =
-            fs::read_to_string(GrokAdapter::sibling_path_with_suffix(&path, ".bak")).unwrap();
-        assert!(backup.contains("# user comment stays"));
-        assert!(!backup.contains("[mcp_servers.ccpanes]"));
-    }
-
-    #[test]
-    fn sync_mcp_at_updates_stale_ccpanes_url() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(
-            &path,
-            r#"[mcp_servers.ccpanes]
-url = "http://127.0.0.1:11111/mcp?token=old"
-enabled = true
-"#,
-        )
-        .unwrap();
-
-        let changed = GrokAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=new",
-            &HashMap::new(),
-        )
-        .unwrap();
-
-        assert!(changed);
-        let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("token=new"));
-        assert!(!content.contains("token=old"));
-    }
-
-    #[test]
-    fn sync_mcp_at_leaves_foreign_ccpanes_entry_untouched() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(
-            &path,
-            r#"[mcp_servers.ccpanes]
-url = "https://example.com/mcp"
-"#,
-        )
-        .unwrap();
-
-        let changed = GrokAdapter::sync_mcp_at(
-            &path,
-            "http://127.0.0.1:37123/mcp?token=secret",
-            &HashMap::new(),
-        )
-        .unwrap();
-
-        assert!(!changed);
-        let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("https://example.com/mcp"));
-        assert!(!content.contains("token=secret"));
-    }
-
-    #[test]
-    fn sync_mcp_at_leaves_foreign_shared_entry_untouched() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        // 用户自己配了一个叫 github 的 MCP（非 CC-Panes 签名）
-        fs::write(
-            &path,
-            r#"[mcp_servers.github]
-url = "https://github.example.com/mcp"
-enabled = false
-"#,
-        )
-        .unwrap();
-        let shared = HashMap::from([(
-            "github".to_string(),
-            "http://127.0.0.1:37123/mcp?token=secret&shared=github".to_string(),
-        )]);
-
-        let changed =
-            GrokAdapter::sync_mcp_at(&path, "http://127.0.0.1:37123/mcp?token=secret", &shared)
-                .unwrap();
-
-        // ccpanes entry 会被写入（changed=true），但用户的 github entry 必须原样保留
-        assert!(changed);
-        let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("https://github.example.com/mcp"));
-        assert!(content.contains("enabled = false"));
-        assert!(!content.contains("shared=github"));
+        assert!(!GrokAdapter::remove_legacy_entries_at(&path, &shared).unwrap());
     }
 
     #[test]
@@ -1030,18 +866,6 @@ url = "https://example.com/mcp"
         assert!(!GrokAdapter::is_ccpanes_mcp_url(
             "http://127.0.0.1:9000/mcp"
         ));
-    }
-
-    #[test]
-    fn ccpanes_mcp_url_omits_launch_id() {
-        let mut ctx = test_context(None);
-        ctx.orchestrator_port = Some(37123);
-        ctx.orchestrator_token = Some("secret".to_string());
-        ctx.launch_id = Some("launch-1".to_string());
-
-        let url = GrokAdapter::ccpanes_mcp_url(&ctx).unwrap();
-        assert_eq!(url, "http://127.0.0.1:37123/mcp?token=secret");
-        assert!(!url.contains("launchId"));
     }
 
     // ============ cc-pane 抽象事件映射测试 ============

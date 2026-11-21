@@ -776,7 +776,21 @@ fn inject_pi_mcp_bridge(ctx: &CliAdapterContext, result: &mut CliCommandResult) 
         .orchestrator_port
         .zip(ctx.orchestrator_token.as_deref())
         .filter(|_| ctx.wants_ccpanes_mcp())
-        .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
+        .map(|(port, token)| {
+            // 每会话文件，不像项目级文件那样被并发会话共享：可以带本会话的 launchId。
+            let mut entry = mcp_file_injection::ccpanes_http_entry(port, token);
+            if let Some(launch_id) = ctx
+                .launch_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                entry["url"] = Value::String(format!(
+                    "http://127.0.0.1:{port}/mcp?token={token}&launchId={launch_id}"
+                ));
+            }
+            entry
+        });
     let collected = mcp_file_injection::collect_mcp_servers(
         ctx,
         &CollectOptions {
@@ -854,7 +868,8 @@ impl CliToolAdapter for PiAdapter {
     }
 
     /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
-    /// - MCP：扩展桥 + 每会话 `CCPANES_MCP_CONFIG`；ccpanes 条目不带 launchId、共享不带请求头；
+    /// - MCP：扩展桥 + 每会话 `CCPANES_MCP_CONFIG`；ccpanes 条目带本会话 launchId（每会话文件，
+    ///   不会被并发会话覆盖），远程共享 MCP 带请求头（桥原生支持，docs/110 批 2）；
     ///   隔离只收窄 CC-Panes 注入的集合。
     /// - 技能：挂载路径里的每个技能目录一次 `--skill`；`--append-system-prompt` 是提示词通道
     ///   （挂载被消费时不回退，避免同一技能两遍）。
@@ -868,9 +883,9 @@ impl CliToolAdapter for PiAdapter {
                 shared: true,
                 workspace: true,
                 transports: vec![McpTransport::StdioBridge, McpTransport::Http],
-                remote_headers: false,
+                remote_headers: true,
                 isolation: McpIsolation::DeclareOnly,
-                launch_identity: false,
+                launch_identity: true,
             },
             skills: SkillsInjection {
                 mount: SkillMount::SkillFlag,
