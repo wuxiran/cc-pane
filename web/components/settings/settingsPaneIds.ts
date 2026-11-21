@@ -17,7 +17,6 @@ export type SettingsPaneId =
   | "proxy"
   | "web-access"
   | "notification"
-  | "island"
   | "performance"
   | "im-bridge"
   | "screenshot"

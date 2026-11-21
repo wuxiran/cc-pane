@@ -17,7 +17,6 @@ pub mod filesystem;
 pub mod git;
 pub mod heavy_command;
 mod history;
-pub mod island_settings;
 pub mod launch_profile;
 pub mod layout_snapshot;
 pub mod orchestrator_settings;

@@ -16,7 +16,6 @@ import { useTabAttentionWiring } from "@/hooks/useTabAttentionWiring";
 import { useTabResourceBadgeWiring } from "@/hooks/useTabResourceBadgeWiring";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
-import { useIslandBridge } from "@/hooks/useIslandBridge";
 import { useLayoutScopeSync } from "@/hooks/useLayoutScopeSync";
 import { useLaunchWarnings } from "@/hooks/useLaunchWarnings";
 import {
@@ -120,7 +119,6 @@ function MainApp() {
   useLayoutSwitcherSync();
 
   // 灵动岛窗口的数据来自主窗口 store（开启时才挂订阅）。
-  useIslandBridge();
 
   // 启动非致命警告（如所选启动配置因 CLI/环境不匹配被回落）toast 提示。
   useLaunchWarnings();
