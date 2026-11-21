@@ -2,7 +2,7 @@
 // 打开终端本身是同步写 store 的，新标签立刻可见；PTY 会话 id 要等 TerminalView 建好会话才回填，
 // 所以先按「打开前后的标签差集」认出我们的标签，再等它的 sessionId，最后等 shell 有首屏输出再提交。
 import { terminalService } from "@/services";
-import { usePanesStore } from "@/stores";
+import { useActivityBarStore, usePanesStore } from "@/stores";
 import { eachLayoutTree } from "@/stores/paneLayoutHelpers";
 import { collectTabs, collectTerminalSessionIds } from "@/lib/paneSessions";
 
@@ -56,6 +56,8 @@ async function shellHasOutput(sessionId: string): Promise<true | null> {
 export async function runCommandInNewTerminal(open: () => void, command: string): Promise<InstallRunResult> {
   const before = terminalTabIds();
   open();
+  // 从首页点进来时主视图还是首页：TerminalView 不挂载就不会建 PTY 会话，必须切到分屏视图。
+  useActivityBarStore.getState().setAppViewMode("panes");
   const tabId = await waitFor(() => [...terminalTabIds()].find((id) => !before.has(id)) ?? null, SESSION_TIMEOUT_MS);
   if (!tabId) return "no-terminal";
   const sessionId = await waitFor(() => sessionOfTab(tabId), SESSION_TIMEOUT_MS);

@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
+const { setAppViewMode } = vi.hoisted(() => ({ setAppViewMode: vi.fn() }));
 const state = vi.hoisted(() => ({
   tabs: [{ id: "old", contentType: "terminal", sessionId: "s-old" }] as Array<{ id: string; contentType: string; sessionId: string | null }>,
   outputCalls: 0,
 }));
 
 vi.mock("@/stores", () => ({
+  useActivityBarStore: { getState: () => ({ setAppViewMode }) },
   usePanesStore: {
     getState: () => ({
       findTabAcrossLayouts: (id: string) => {
@@ -44,5 +46,7 @@ describe("runCommandInNewTerminal", () => {
     }, "npm install -g @openai/codex");
     expect(await result).toBe("sent");
     expect(submitToSession).toHaveBeenCalledWith("s-new", "npm install -g @openai/codex");
+    // 首页上点的：必须切到分屏视图，否则 TerminalView 不挂载、会话永远起不来。
+    expect(setAppViewMode).toHaveBeenCalledWith("panes");
   });
 });
