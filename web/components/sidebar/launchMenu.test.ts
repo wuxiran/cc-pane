@@ -26,6 +26,7 @@ const CLI_TOOLS = [
   "cursor",
   "grok",
   "jcode",
+  "antigravity",
 ];
 // SSH 启动面未放开的工具（Pi 家族 + jcode），只有 default/local/WSL 三变体
 const LOCAL_WSL_ONLY_TOOLS = ["pi", "omp", "jcode"];

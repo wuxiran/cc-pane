@@ -77,10 +77,19 @@ describe("CliLaunchersSection", () => {
     expect(onChange).toHaveBeenCalledWith({ overrides: { claude: { command: "custom-claude" } } });
 
     await user.click(screen.getByRole("combobox", { name: i18n.t("settings:cliToolSelect") }));
-    expect(screen.getAllByRole("option")).toHaveLength(10);
+    expect(screen.getAllByRole("option")).toHaveLength(11);
     expect(screen.queryByText(i18n.t("settings:cliNotInstalled"))).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Codex CLI" }));
     expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "codex");
+  });
+
+  it("uses agy as the fallback executable for Antigravity (id differs from binary name)", async () => {
+    mockTools([], false);
+    const user = userEvent.setup();
+    render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
+    await selectTool(user, "Antigravity");
+    expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "antigravity");
+    expect(screen.getByPlaceholderText("agy")).toBeInTheDocument();
   });
 
   it("replaces fallback metadata with a late real detection without losing the selected editor", async () => {

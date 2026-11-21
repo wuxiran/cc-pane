@@ -898,6 +898,7 @@
   "tabCursor": "Cursor",
   "tabGrok": "Grok",
   "tabJcode": "Jcode",
+  "tabAntigravity": "Antigravity",
   "cliInstalled": "Installed",
   "cliNotInstalled": "Not installed",
   "cliToolSelect": "Select CLI",

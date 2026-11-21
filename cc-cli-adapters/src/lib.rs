@@ -12,6 +12,7 @@ pub use session_fork::{
     supports_session_fork,
 };
 
+mod antigravity;
 mod atomic_file;
 mod claude;
 mod codex;
@@ -28,6 +29,10 @@ mod omp;
 mod opencode;
 mod pi;
 
+pub use antigravity::{
+    AntigravityAdapter, ANTIGRAVITY_EXECUTABLE, ANTIGRAVITY_INITIAL_PROMPT_FLAG,
+    ANTIGRAVITY_RESUME_FLAG, ANTIGRAVITY_YOLO_FLAG,
+};
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
 
@@ -696,6 +701,9 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // jcode 的 PowerShell 安装器（irm https://jcode.sh/install.ps1 | iex）
         // 把 jcode.exe 放在这里，PATH 更新对已运行的桌面 app 不可见。
         home.join("AppData").join("Local").join("jcode").join("bin"),
+        // Antigravity CLI（agy）的 PowerShell/CMD 安装器把 agy.exe 放在
+        // `%LOCALAPPDATA%\agy\bin`（install.ps1 的 TARGET_DIR），同样只写用户 PATH。
+        home.join("AppData").join("Local").join("agy").join("bin"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -2162,6 +2170,8 @@ mod path_resolution_tests {
         assert!(dirs.contains(&home.join("AppData").join("Roaming").join("npm")));
         // omp 的两个官方安装落点都要能被运行中的应用探测到。
         assert!(dirs.contains(&home.join("AppData").join("Local").join("omp")));
+        // Antigravity CLI 官方安装器落点 %LOCALAPPDATA%\agy\bin。
+        assert!(dirs.contains(&home.join("AppData").join("Local").join("agy").join("bin")));
     }
 
     #[test]
@@ -2237,6 +2247,7 @@ impl CliToolRegistry {
         registry.register(Arc::new(PiAdapter::new()));
         registry.register(Arc::new(OmpAdapter::new()));
         registry.register(Arc::new(JcodeAdapter::new()));
+        registry.register(Arc::new(AntigravityAdapter::new()));
         registry
     }
 
@@ -2437,8 +2448,17 @@ mod registry_tests {
         assert_eq!(
             ids,
             vec![
-                "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp",
-                "jcode"
+                "claude",
+                "codex",
+                "gemini",
+                "kimi",
+                "opencode",
+                "cursor",
+                "grok",
+                "pi",
+                "omp",
+                "jcode",
+                "antigravity"
             ]
         );
         assert!(registry.get("claude").is_some());

@@ -162,6 +162,7 @@
   "cliToolCursor": "Cursor CLI",
   "cliToolGrok": "Grok CLI",
   "cliToolJcode": "Jcode",
+  "cliToolAntigravity": "Antigravity",
   "cliLocalVariant": "{{label}} (Local)",
   "cliWslVariant": "{{label}} (WSL)",
   "cliSshVariant": "{{label}} (SSH)",

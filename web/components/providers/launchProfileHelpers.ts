@@ -57,6 +57,7 @@ export const TOOL_LABELS: Record<KnownCliTool, string> = {
   cursor: "Cursor",
   grok: "Grok",
   jcode: "Jcode",
+  antigravity: "Antigravity",
 };
 
 export const inputClass = "h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-70";

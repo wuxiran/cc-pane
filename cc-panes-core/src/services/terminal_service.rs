@@ -3519,6 +3519,7 @@ impl TerminalService {
                 | CliTool::Pi
                 | CliTool::Omp
                 | CliTool::Jcode
+                | CliTool::Antigravity
                 | CliTool::Kimi => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
@@ -6198,6 +6199,9 @@ impl TerminalService {
             CliTool::Omp => "omp",
             // v1 未在启动菜单放开 SSH（supportsSsh: false），此行为穷举兜底。
             CliTool::Jcode => "jcode --no-update",
+            // agy 官方 README 明确支持 SSH 远端会话（打印授权 URL 完成登录）。
+            CliTool::Antigravity if yolo_mode => "agy --dangerously-skip-permissions",
+            CliTool::Antigravity => "agy",
         }
     }
 
@@ -7849,6 +7853,15 @@ mod tests {
         assert_eq!(
             TerminalService::ssh_remote_cli_command(CliTool::Grok, true),
             "grok --always-approve"
+        );
+        // Antigravity：可执行名是 agy（不是工具 id）；YOLO 加 --dangerously-skip-permissions。
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Antigravity, false),
+            "agy"
+        );
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Antigravity, true),
+            "agy --dangerously-skip-permissions"
         );
     }
 

@@ -2083,6 +2083,7 @@ impl TerminalService {
             CliTool::Pi => "pi",
             CliTool::Omp => "omp",
             CliTool::Jcode => "jcode",
+            CliTool::Antigravity => "agy",
             other => {
                 return Err(anyhow!(
                     "WSL generic launch does not support CLI tool {:?}",
@@ -2438,6 +2439,22 @@ impl TerminalService {
                 cli_args.push(resume_id.to_string());
             }
             cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
+        } else if cli_tool == CliTool::Antigravity {
+            // 与本地 antigravity.rs build_command 同口径（v1：无 Provider/MCP/effort）。
+            // 初始 prompt 必须走 --prompt-interactive：位置参数语义未文档化，
+            // 而 -p 是 headless print 模式，跑完即退。
+            if let Some(resume_id) = resume_id {
+                cli_args.push(cc_cli_adapters::ANTIGRAVITY_RESUME_FLAG.to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            if yolo_mode {
+                cli_args.push(cc_cli_adapters::ANTIGRAVITY_YOLO_FLAG.to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
+            if let Some(prompt) = initial_prompt.filter(|prompt| !prompt.trim().is_empty()) {
+                cli_args.push(cc_cli_adapters::ANTIGRAVITY_INITIAL_PROMPT_FLAG.to_string());
+                cli_args.push(prompt.to_string());
+            }
         } else if let Some(prompt) = initial_prompt {
             cli_args.push(prompt.to_string());
         }

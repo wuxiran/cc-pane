@@ -62,6 +62,7 @@ define_cli_tools! {
     Pi => "pi",
     Omp => "omp",
     Jcode => "jcode",
+    Antigravity => "antigravity",
 }
 
 impl<'de> Deserialize<'de> for CliTool {

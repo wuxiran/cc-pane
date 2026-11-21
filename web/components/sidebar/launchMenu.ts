@@ -48,6 +48,8 @@ export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "grok", labelKey: "cliToolGrok" },
   // SSH 启动面未实机验证（jcode 自有 client-server SSH 模式是另一套语义），v1 不放开
   { id: "jcode", labelKey: "cliToolJcode", supportsSsh: false },
+  // agy 官方支持 SSH 远端会话（打印授权 URL 完成登录），SSH 走通用裸命令兜底
+  { id: "antigravity", labelKey: "cliToolAntigravity" },
 ];
 
 const LEGACY_DEFAULT_FAVORITES = ["terminal-default", "claude-local", "codex-local"];

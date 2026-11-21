@@ -17,12 +17,17 @@ type LauncherTool = Omit<CliToolInfo, "installed"> & { installed?: boolean };
 const FALLBACK_TOOL_LABELS: Record<string, string> = {
   claude: "Claude Code", codex: "Codex CLI", pi: "Pi", omp: "OMP", gemini: "Gemini CLI",
   kimi: "Kimi CLI", opencode: "OpenCode", cursor: "Cursor Agent", grok: "Grok CLI", jcode: "JCode",
+  antigravity: "Antigravity",
+};
+/** CLI id 与可执行名不一致的条目（其余 id 即可执行名）。 */
+const FALLBACK_TOOL_EXECUTABLES: Record<string, string> = {
+  cursor: "cursor-agent", antigravity: "agy",
 };
 // Editing a command needs static metadata, not successful host detection.
 // Keep this fallback local: an unknown install state must never gate launching.
 const FALLBACK_LAUNCHER_TOOLS: LauncherTool[] = CLI_TOOL_TABS.map(({ id }) => ({
   id, displayName: FALLBACK_TOOL_LABELS[id] ?? id,
-  executable: id === "cursor" ? "cursor-agent" : id,
+  executable: FALLBACK_TOOL_EXECUTABLES[id] ?? id,
   versionArgs: ["--version"], version: null, path: null,
 }));
 

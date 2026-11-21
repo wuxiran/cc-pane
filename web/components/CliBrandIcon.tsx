@@ -4,7 +4,8 @@ import { CLI_TOOL_TABS } from "@/types/provider";
 /**
  * 各 CLI 的品牌标（24×24，currentColor）。
  * Claude / Codex / Gemini / Cursor / Kimi / OpenCode 取自 Simple Icons；
- * Grok / Pi / Oh My Pi / jcode 无收录，用可辨识的几何标。
+ * Grok / Pi / Oh My Pi / jcode / Antigravity 无收录，用可辨识的几何标
+ * （Antigravity 取其 logo 的拱形「A」轮廓，非官方 SVG）。
  */
 const PATHS: Record<string, string> = {
   claude:
@@ -23,6 +24,8 @@ const PATHS: Record<string, string> = {
   omp: "M3.6 5.2h16.8v2.1H17.4v11.5h-2.5V7.3H9.1v11.5H6.6V7.3H3.6zM12 16.2a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 0 1 0-3.2",
   jcode:
     "M8 4h8v2.2h-2.6v9.3c0 2.3-1.7 3.9-4.2 3.9c-1.6 0-2.9-.5-3.8-1.4l1.4-1.7c.6.6 1.4.9 2.3.9c1.1 0 1.8-.7 1.8-1.8V6.2H8z",
+  antigravity:
+    "M12 2.5c1.1 0 2 .6 2.5 1.6l7.1 14.6c.4.8.1 1.8-.7 2.2c-.8.4-1.8.1-2.2-.7L12 7.4l-6.7 12.8c-.4.8-1.4 1.1-2.2.7c-.8-.4-1.1-1.4-.7-2.2L9.5 4.1c.5-1 1.4-1.6 2.5-1.6",
 };
 
 export const CLI_BRAND_ICON_TOOLS = CLI_TOOL_TABS.map((tab) => tab.id);

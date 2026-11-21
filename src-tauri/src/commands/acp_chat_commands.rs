@@ -196,6 +196,15 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         args: &["acp"],
         requirement: "Jcode CLI (native ACP)",
     },
+    // `agy acp`：官方文档 antigravity.google/docs/cli/acp 的原生 ACP 服务端
+    // （stdin/stdout JSON-RPC，复用交互 agy 的登录态，未登录时 `agy acp --login`）。
+    AcpEngineSpec {
+        id: "antigravity",
+        label: "Antigravity",
+        executable: "agy",
+        args: &["acp"],
+        requirement: "Antigravity CLI (native ACP, signed in)",
+    },
     AcpEngineSpec {
         id: "openclaw",
         label: "OpenClaw",

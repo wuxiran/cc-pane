@@ -16,7 +16,8 @@ export interface InjectionSummary {
 // docs/104：pi（扩展桥）/ omp（原生 .omp/mcp.json）/ jcode（原生
 // .jcode/mcp.json，仅 stdio）已接入注入链，从名单移除。剩下的是 adapter
 // 能力位 supports_mcp=false 的工具（与后端 capabilities 对齐）。
-const MCP_UNSUPPORTED_CLIS = new Set(["gemini", "kimi"]);
+// antigravity（agy）v1 未接 MCP 注入链。
+const MCP_UNSUPPORTED_CLIS = new Set(["gemini", "kimi", "antigravity"]);
 
 export function summarizeInjection(
   profile: LaunchProfile | null,

@@ -27,6 +27,9 @@ const FALLBACK_CLI_TO_PROVIDER_TYPES: Record<Exclude<KnownCliTool, "none">, Prov
   // jcode 原生读取 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL（anthropic-api 通道），
   // 与 cc-cli-adapters/src/jcode.rs 的 compatible_provider_types 对齐
   jcode: ["anthropic", "proxy"],
+  // Antigravity（agy）v1 不接 Provider：只认 Google 登录 / GEMINI_API_KEY，
+  // 与 cc-cli-adapters/src/antigravity.rs 的空 compatible_provider_types 对齐
+  antigravity: [],
 };
 
 function fallbackCompatibleProviderTypes(cliTool: string): ProviderType[] | null {

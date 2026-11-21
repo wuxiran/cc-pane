@@ -18602,7 +18602,7 @@ mod tests {
     #[test]
     fn test_parse_launch_cli_tool_keeps_remaining_legacy_rejections() {
         let registry = CliToolRegistry::with_builtin_adapters();
-        for tool in ["kimi", "gemini", "omp", "jcode"] {
+        for tool in ["kimi", "gemini", "omp", "jcode", "antigravity"] {
             let error = parse_launch_cli_tool(&registry, Some(tool))
                 .expect_err(&format!("{tool} must stay rejected"));
             assert!(

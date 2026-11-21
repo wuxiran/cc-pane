@@ -177,6 +177,9 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "JCODE_PROVIDER",
             "JCODE_MODEL",
         ],
+        // Antigravity（agy）v1 不接 Provider（adapter supports_provider=false，
+        // compatible_provider_types 为空），不存在 managed 启动，无需清理继承 env。
+        CliTool::Antigravity => &[],
         CliTool::None => &[],
     }
 }
