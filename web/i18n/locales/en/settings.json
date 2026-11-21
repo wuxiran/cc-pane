@@ -1064,6 +1064,70 @@
       "failed": "Failed",
       "skipped_missed": "Missed",
       "skipped_overlap": "Skipped (still running)"
+    },
+    "panelTitle": "Scheduled tasks",
+    "newTask": "New task",
+    "editTask": "Edit task",
+    "search": "Search tasks",
+    "searchPlaceholder": "Search by name or prompt",
+    "noMatches": "No matching tasks",
+    "sectionEnabled": "Enabled",
+    "sectionPaused": "Paused",
+    "listEmpty": "No tasks yet. Pick a template on the right to start.",
+    "heroTitle": "Schedule a task",
+    "heroDescription": "Let an agent handle recurring work on a schedule, so you don't have to do it by hand.",
+    "everyWeekday": "Every {{day}} {{time}}",
+    "todayAt": "Today {{time}}",
+    "tomorrowAt": "Tomorrow {{time}}",
+    "paused": "Paused",
+    "enabledLabel": "Enabled",
+    "deleteConfirm": "Click again to delete",
+    "runsEmptyHint": "Runs will show up here once it fires. Use \"Run now\" to try it first.",
+    "lastRun": "Last run",
+    "duration": "{{seconds}}s",
+    "promptPlaceholder": "Describe what the agent should do on every run. Be specific.",
+    "advanced": "Advanced",
+    "templates": {
+      "standup": {
+        "title": "Daily standup summary",
+        "description": "Weekday mornings: yesterday's commits, unmerged branches and open work.",
+        "prompt": "Summarize this repository's git commits from the last 24 hours (author, key points), list unmerged local branches and uncommitted changes in the working tree, and finish with the 3 most important things to do today. Output concise Markdown."
+      },
+      "testPatrol": {
+        "title": "Test patrol",
+        "description": "Run the tests daily and explain any failures with likely fixes.",
+        "prompt": "Run this project's test suite. If everything passes, reply with one line and the duration. For each failure, give the error summary, the most likely cause and the suggested fix location (file:line). Do not modify code."
+      },
+      "dependencyAudit": {
+        "title": "Dependency audit",
+        "description": "Every Monday, check dependencies for known vulnerabilities and stale versions.",
+        "prompt": "Audit this project's dependencies: run the applicable audit commands (npm audit, cargo audit, pip-audit, ...), list packages with known vulnerabilities, their severity and the safe version to upgrade to, then list dependencies more than one major version behind. Do not modify lock files."
+      },
+      "weeklyReport": {
+        "title": "Weekly report draft",
+        "description": "Friday evening: draft a weekly report from this week's commits.",
+        "prompt": "Based on this repository's git commits since Monday, draft a weekly report grouped into features, fixes and refactors with key points for each, and end with suggestions for next week. Use Markdown."
+      },
+      "todoSweep": {
+        "title": "TODO sweep",
+        "description": "Weekly scan of TODO / FIXME comments, sorted by urgency.",
+        "prompt": "Scan the repository for TODO, FIXME and HACK comments, group them by file, flag the ones that look most urgent or stale, and output a table (location, text, suggested action). Do not modify code."
+      },
+      "branchCleanup": {
+        "title": "Branch cleanup",
+        "description": "Fridays: list merged or stale branches for you to confirm deleting.",
+        "prompt": "List local and remote branches in this repository that are merged into the main branch or have had no commits for 30+ days, with last commit date and author. Only give the list and recommendations; do not delete anything."
+      },
+      "docsDrift": {
+        "title": "Docs drift check",
+        "description": "Weekly check that the docs still match the code.",
+        "prompt": "Compare the README and docs/ with the current code. Find outdated commands, config keys, file paths or API descriptions and list each with its location and a suggested edit. Do not edit files directly."
+      },
+      "logTriage": {
+        "title": "Error log triage",
+        "description": "Every morning, group recent errors and spot new ones.",
+        "prompt": "Review this project's error logs from the last 24 hours (find them per the project's conventions), group and count errors by type, flag errors that are new today, and name the one most worth fixing first and why."
+      }
     }
   },
   "quickCommands": {

@@ -4,12 +4,12 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { useAutomationsDialogStore } from "@/stores/useAutomationsDialogStore";
 
-const AutomationsSection = lazyWithRetry(
-  () => import("@/components/settings/AutomationsSection"),
-  "AutomationsSection",
+const AutomationsWorkspace = lazyWithRetry(
+  () => import("./AutomationsWorkspace"),
+  "AutomationsWorkspace",
 );
 
-/** 自动化独立弹窗（不再挂在设置里）。标题与说明由 AutomationsSection 自己的头部卡片展示。 */
+/** 定时任务独立弹窗（不挂在设置里）：左栏任务列表 + 右栏模板/详情/编辑，尺寸与设置弹窗一致。 */
 export default function AutomationsDialog() {
   const { t } = useTranslation("settings");
   const open = useAutomationsDialogStore((s) => s.open);
@@ -18,17 +18,22 @@ export default function AutomationsDialog() {
     <Dialog open={open} onOpenChange={(next) => { if (!next) closeDialog(); }}>
       <DialogContent
         data-testid="automations-dialog"
-        className="flex max-h-[85vh] flex-col overflow-hidden border-[var(--app-border)] bg-[var(--app-content)] p-5 sm:max-w-4xl"
+        resizable
+        className="shape-panel !flex flex-col !gap-0 overflow-hidden !rounded-lg border-[var(--app-border)] bg-[var(--app-content)] !p-0 shadow-2xl"
+        style={{
+          width: "88vw",
+          height: "82vh",
+          maxWidth: "calc(100vw - 2rem)",
+          maxHeight: "calc(100vh - 2rem)",
+        }}
       >
-        <DialogTitle className="sr-only">{t("automations.title")}</DialogTitle>
+        <DialogTitle className="sr-only">{t("automations.panelTitle")}</DialogTitle>
         <DialogDescription className="sr-only">{t("automations.description")}</DialogDescription>
-        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
-          {open ? (
-            <Suspense fallback={null}>
-              <AutomationsSection />
-            </Suspense>
-          ) : null}
-        </div>
+        {open ? (
+          <Suspense fallback={null}>
+            <AutomationsWorkspace />
+          </Suspense>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

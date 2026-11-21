@@ -1,10 +1,9 @@
 import { getCurrentWindowIfTauri } from "@/services/runtime";
-import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastInfo } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
-import { SegmentedTabs } from "@/components/ui/segmented";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +22,7 @@ import {
   scrollToSettingsSection,
 } from "./settings/SettingsSearchContext";
 import SettingsSidebar from "./settings/SettingsSidebar";
+import SettingsPaneAccordion from "./settings/SettingsPaneAccordion";
 import {
   createSettingsDraft,
   resetSettingsSection,
@@ -67,7 +67,13 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   const getDefaults = useSettingsStore((state) => state.getDefaults);
   const setBrowserWebviewBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked);
   const { draft, updateDraft, lastSavedAt, flush, discard } = useSettingsAutosave(open);
-  const [activePaneId, setActivePaneId] = useState<SettingsPaneId>("general");
+  const [activePaneId, setActivePaneIdRaw] = useState<SettingsPaneId>("general");
+  // 分段折叠：多分段页里当前分段可被收起（全部收起时不挂载任何正文）
+  const [paneCollapsed, setPaneCollapsed] = useState(false);
+  const setActivePaneId = useCallback((paneId: SettingsPaneId) => {
+    setActivePaneIdRaw(paneId);
+    setPaneCollapsed(false);
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
@@ -94,7 +100,9 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   const activePane = getSettingsPane(activePaneId);
   const activePage = getSettingsPageForPane(activePaneId);
   const activePagePanes = getSettingsPanesForPage(activePage.id, panes);
-  const resettableKeys = SECTION_DRAFT_KEYS[activePaneId];
+  const usesAccordion = activePagePanes.length > 1;
+  const contentMounted = !(usesAccordion && paneCollapsed);
+  const resettableKeys = contentMounted ? SECTION_DRAFT_KEYS[activePaneId] : undefined;
   const translate = (key: string) => t(key as never);
   const searchResults = useMemo(
     () => searchSettings(panes, translate, appliedQuery),
@@ -139,7 +147,7 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
       setHighlightedSectionId(first.targetSectionId);
       scrollToSettingsSection(first.targetSectionId);
     });
-  }, [appliedQuery, requestProviderNavigation, searchResults]);
+  }, [appliedQuery, requestProviderNavigation, searchResults, setActivePaneId]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -156,7 +164,7 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
     };
     window.addEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
     return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
-  }, [panes, requestProviderNavigation]);
+  }, [panes, requestProviderNavigation, setActivePaneId]);
 
   const requestCloseRef = useRef<() => void>(() => undefined);
   requestCloseRef.current = () => handleClose(false);
@@ -204,8 +212,20 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   }
 
   function handleSelectPane(paneId: SettingsPaneId) {
-    if (paneId === activePaneId) return;
+    if (paneId === activePaneId && !paneCollapsed) return;
     requestProviderNavigation(() => selectPaneNow(paneId));
+  }
+
+  /** 分段标题点击：点开着的那段 = 收起（收起会卸载正文，同样过未保存守卫）。 */
+  function handleTogglePane(paneId: SettingsPaneId) {
+    if (paneId === activePaneId && !paneCollapsed) {
+      requestProviderNavigation(() => {
+        setPaneCollapsed(true);
+        setResetArmed(false);
+      });
+      return;
+    }
+    handleSelectPane(paneId);
   }
 
   function handleSelectPage(pageId: SettingsPageId) {
@@ -237,6 +257,17 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
     updateDraft(resetSettingsSection(draft, defaults, activePaneId));
     toastInfo(t("sectionResetDone"));
   }
+
+  const paneContent = (
+    <Suspense fallback={<div role="status">{t("loading", { ns: "common" })}</div>}>
+      <SettingsPaneContent
+        paneId={activePaneId}
+        draft={draft}
+        updateDraft={updateDraft}
+        onUnsavedChangesChange={setProviderDirty}
+      />
+    </Suspense>
+  );
 
   return (
     <>
@@ -273,22 +304,8 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
             <DialogTitle className={isWindow ? "sr-only" : "hidden truncate text-[length:var(--text-body)] font-semibold sm:block"}>{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
-          <div className="min-w-0 overflow-x-auto">
-            {activePagePanes.length > 1 && (
-              <div className="flex min-w-max justify-start">
-                <SegmentedTabs<SettingsPaneId>
-                  value={activePaneId}
-                  onValueChange={handleSelectPane}
-                  items={activePagePanes.map((pane) => ({
-                    value: pane.id,
-                    label: t(pane.titleKey),
-                  }))}
-                  size="md"
-                  className="min-w-max rounded-md"
-                  aria-label={t("paneNavigation")}
-                />
-              </div>
-            )}
+          <div className="min-w-0 truncate text-[length:var(--text-body)] font-medium text-[var(--app-text-primary)]">
+            {t(activePage.titleKey)}
           </div>
           {!isWindow && (<button
             type="button"
@@ -315,10 +332,10 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
             )}
           />
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className={activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
+            <div className={usesAccordion || activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
               <div
                 data-testid="settings-content-container"
-                className={activePane.layout === "wide" ? "h-full min-h-0 w-full" : "w-full py-5 sm:py-6"}
+                className={usesAccordion || activePane.layout === "wide" ? "h-full min-h-0 w-full" : "w-full py-5 sm:py-6"}
                 style={{ paddingInline: "var(--settings-content-gutter)" }}
               >
                 <SettingsSearchProvider value={{
@@ -326,14 +343,15 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
                   matchedSectionIds,
                   highlightedSectionId,
                 }}>
-                  <Suspense fallback={<div role="status">{t("loading", { ns: "common" })}</div>}>
-                    <SettingsPaneContent
-                      paneId={activePaneId}
-                      draft={draft}
-                      updateDraft={updateDraft}
-                      onUnsavedChangesChange={setProviderDirty}
-                    />
-                  </Suspense>
+                  {usesAccordion ? (
+                    <SettingsPaneAccordion
+                      panes={activePagePanes}
+                      expandedPaneId={paneCollapsed ? null : activePaneId}
+                      onToggle={handleTogglePane}
+                    >
+                      {paneContent}
+                    </SettingsPaneAccordion>
+                  ) : paneContent}
                 </SettingsSearchProvider>
               </div>
             </div>

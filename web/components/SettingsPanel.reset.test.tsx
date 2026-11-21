@@ -46,7 +46,7 @@ describe("settings reset respects visible section ownership", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: t("pages.system.title") }));
-    await user.click(screen.getByRole("tab", { name: t("performance.title") }));
+    await user.click(screen.getByRole("button", { name: new RegExp(t("performance.title")) }));
     const saved = await resetActive(user);
     expect(saved.terminal.lowerSessionPriority).toBe(true);
     expect(saved.terminal.sessionCpuWeight).toBeNull();

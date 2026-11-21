@@ -166,7 +166,7 @@ describe("SettingsPanel", () => {
     expect(screen.getByRole("button", { name: tSettings("setupGuide.title") })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: tSettings("experimental.title") })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: tSettings("pages.general.title") })).not.toBeInTheDocument();
-    expect(screen.getByRole("tablist", { name: tSettings("paneNavigation") })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: tSettings("paneNavigation") })).toBeInTheDocument();
     expect(screen.getByText("CC-Panes")).toBeInTheDocument();
   });
 
@@ -201,7 +201,7 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     expect(await screen.findByTestId("provider-section")).toBeInTheDocument();
     // 技能已移到资源库，AI 工具页不再有 Skills 标签
-    expect(screen.queryByRole("tab", { name: "Skills" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Skills/ })).not.toBeInTheDocument();
   });
 
   it("lets full-height settings panes constrain their internal scroll areas", async () => {
@@ -222,7 +222,7 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "profiles");
 
-    await user.click(screen.getByRole("tab", { name: tSettings("providerCredentialsTab") }));
+    await user.click(screen.getByRole("button", { name: new RegExp(tSettings("providerCredentialsTab")) }));
     expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "providers");
   });
 
@@ -273,11 +273,33 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("expands panes in place as an accordion and collapses the open pane on click", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    const accordion = screen.getByTestId("settings-pane-accordion");
+    const header = (paneId: string) =>
+      accordion.querySelector(`[data-pane-id="${paneId}"] > button`) as HTMLButtonElement;
+
+    expect(header("general")).toHaveAttribute("aria-expanded", "true");
+    expect(header("modules")).toHaveAttribute("aria-expanded", "false");
+    expect(await screen.findByTestId("general-section")).toBeInTheDocument();
+
+    await user.click(header("general"));
+    expect(header("general")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settings-pane-body")).not.toBeInTheDocument();
+
+    await user.click(header("modules"));
+    expect(header("modules")).toHaveAttribute("aria-expanded", "true");
+    expect(header("general")).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("opens the registry-backed module settings pane", async () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("modules.title") }));
+    await user.click(screen.getByRole("button", { name: new RegExp(tSettings("modules.title")) }));
 
     expect(await screen.findByTestId("module-setting-ssh", {}, { timeout: 5000 })).toBeInTheDocument();
     const configurableModuleCount = MODULE_REGISTRY.filter((module) => module.configurable !== false).length;
@@ -309,7 +331,7 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.system.title") }));
-    expect(screen.getByRole("tab", { name: tSettings("screenshot") })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(tSettings("screenshot")) })).toBeInTheDocument();
   });
 
   it("searches the registry and lazily opens the highest-ranked pane", async () => {

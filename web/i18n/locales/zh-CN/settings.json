@@ -1064,6 +1064,70 @@
       "failed": "失败",
       "skipped_missed": "已错过",
       "skipped_overlap": "已跳过（上次未结束）"
+    },
+    "panelTitle": "定时任务",
+    "newTask": "新建任务",
+    "editTask": "编辑任务",
+    "search": "搜索任务",
+    "searchPlaceholder": "按名称或 Prompt 搜索",
+    "noMatches": "没有匹配的任务",
+    "sectionEnabled": "已开启",
+    "sectionPaused": "已暂停",
+    "listEmpty": "还没有任务。从右侧挑一个模板开始。",
+    "heroTitle": "安排任务",
+    "heroDescription": "让 Agent 按日程替你处理重复的工作，不必每次亲自动手。",
+    "everyWeekday": "每{{day}} {{time}}",
+    "todayAt": "今天 {{time}}",
+    "tomorrowAt": "明天 {{time}}",
+    "paused": "已暂停",
+    "enabledLabel": "启用",
+    "deleteConfirm": "再点一次确认删除",
+    "runsEmptyHint": "到点后会在这里出现运行记录；也可以点「立即运行」先试一次。",
+    "lastRun": "上次运行",
+    "duration": "耗时 {{seconds}} 秒",
+    "promptPlaceholder": "描述 Agent 每次运行要做什么，越具体越好。",
+    "advanced": "高级",
+    "templates": {
+      "standup": {
+        "title": "每日站会摘要",
+        "description": "工作日早上汇总昨天的提交、未合并的分支和待处理事项。",
+        "prompt": "汇总这个仓库过去 24 小时的 git 提交（作者、要点），列出尚未合并的本地分支和工作区里未提交的改动，最后给出今天最值得先做的 3 件事。输出简洁的 Markdown。"
+      },
+      "testPatrol": {
+        "title": "测试巡检",
+        "description": "每天跑一遍测试，有失败时说明原因和可能的修复。",
+        "prompt": "运行这个项目的测试套件。全部通过就只回复一句通过和用时；有失败时，对每个失败用例给出报错摘要、最可能的原因和建议的修复位置（文件:行）。不要直接修改代码。"
+      },
+      "dependencyAudit": {
+        "title": "依赖安全检查",
+        "description": "每周一检查依赖的已知漏洞和过期版本。",
+        "prompt": "检查这个项目的依赖：运行适用的审计命令（如 npm audit、cargo audit、pip-audit），列出有已知漏洞的包、严重程度和可升级到的安全版本，再列出落后超过一个大版本的依赖。不要修改锁文件。"
+      },
+      "weeklyReport": {
+        "title": "周报草稿",
+        "description": "每周五傍晚根据本周提交起草一份周报。",
+        "prompt": "根据这个仓库本周（周一至今）的 git 提交，起草一份周报：按功能/修复/重构分组，每组列要点，最后写下周计划的建议。用中文 Markdown。"
+      },
+      "todoSweep": {
+        "title": "整理 TODO",
+        "description": "每周扫一遍代码里的 TODO / FIXME，按紧急程度排好。",
+        "prompt": "扫描仓库中所有 TODO、FIXME、HACK 注释，按文件归类，标出看起来最紧急或已过期的条目，输出一张表（位置、内容、建议处理方式）。不要修改代码。"
+      },
+      "branchCleanup": {
+        "title": "清理分支",
+        "description": "每周五列出已合并或长期不动的分支，供你确认删除。",
+        "prompt": "列出这个仓库里已合并到主分支或超过 30 天没有新提交的本地和远程分支，附最后提交时间和作者。只给清单和建议，不要删除任何分支。"
+      },
+      "docsDrift": {
+        "title": "文档同步检查",
+        "description": "每周检查文档与代码是否脱节。",
+        "prompt": "对比 README 和 docs/ 目录里的说明与当前代码，找出已经过时的命令、配置项、文件路径或接口描述，逐条给出位置和建议的修改。不要直接改文件。"
+      },
+      "logTriage": {
+        "title": "错误日志巡检",
+        "description": "每天早上查看最近的错误日志，归类并找出新出现的问题。",
+        "prompt": "查看这个项目最近 24 小时的错误日志（日志位置按项目约定查找），按错误类型归类并计数，标出今天新出现的错误，给出最值得优先处理的一条及原因。"
+      }
     }
   },
   "quickCommands": {
