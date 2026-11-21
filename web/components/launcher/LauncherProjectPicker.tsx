@@ -1,13 +1,16 @@
-// 项目选择：工作空间项目下拉 / 最近启动快捷项 / 手动目录（plugin-dialog）。
-import { useEffect, useMemo, useState } from "react";
-import { Clock, FolderOpen } from "lucide-react";
+// 项目选择：一个可搜索的下拉。最近启动 → 各工作空间的项目 → 浏览目录…
+// 取代原来「工作空间下拉 + 项目下拉 + 历史标签」三件套；每项都带路径，同名项目不再分不清。
+// autoSelectRecent：打开时没有预选就默认填最近一次的项目，「启动」开箱即可点。
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronsUpDown, Clock, Folder, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
 import { historyService, type LaunchRecord } from "@/services";
 import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { buildLaunchRecordTerminalOptions } from "@/utils";
+import { cn } from "@/lib/utils";
 import type { LauncherProjectSource } from "./launcherModel";
 
 const RECENT_FETCH = 40;
@@ -26,161 +29,161 @@ function dedupeByPath(records: LaunchRecord[], max: number): LaunchRecord[] {
   return result;
 }
 
+const baseName = (path: string) => path.split(/[/\\]/).filter(Boolean).pop() || path;
+
 interface LauncherProjectPickerProps {
   value: LauncherProjectSource | null;
   onChange: (source: LauncherProjectSource | null) => void;
+  autoSelectRecent?: boolean;
 }
 
-export default function LauncherProjectPicker({ value, onChange }: LauncherProjectPickerProps) {
+export default function LauncherProjectPicker({ value, onChange, autoSelectRecent }: LauncherProjectPickerProps) {
   const { t } = useTranslation("launcher");
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const machines = useSshMachinesStore((s) => s.machines);
   const [records, setRecords] = useState<LaunchRecord[]>([]);
-  const [recordsLoaded, setRecordsLoaded] = useState(false);
-  const showRecordsSkeleton = useDelayedLoading(!recordsLoaded);
+  const [open, setOpen] = useState(false);
+  const autoSelected = useRef(false);
+
+  const visibleWorkspaces = useMemo(
+    () => workspaces.filter((ws) => !ws.hidden && !ws.archivedAt && ws.projects.length > 0),
+    [workspaces],
+  );
+
+  function recentSource(record: LaunchRecord): LauncherProjectSource {
+    const options = buildLaunchRecordTerminalOptions(record, useWorkspacesStore.getState().workspaces, machines);
+    return { kind: "recent", options, label: record.projectName };
+  }
 
   useEffect(() => {
     let disposed = false;
     historyService
       .list(RECENT_FETCH)
       .then((list) => {
-        if (!disposed) setRecords(dedupeByPath(list, RECENT_SHOWN));
+        if (disposed) return;
+        const recent = dedupeByPath(list, RECENT_SHOWN);
+        setRecords(recent);
+        if (autoSelectRecent && !autoSelected.current && !value && recent[0]) {
+          autoSelected.current = true;
+          onChange(recentSource(recent[0]));
+        }
       })
       .catch(() => {
-        /* 历史不可用时隐藏最近区，不报错 */
-      })
-      .finally(() => {
-        if (!disposed) setRecordsLoaded(true);
+        /* 历史不可用时只是少了「最近」分组 */
       });
     return () => {
       disposed = true;
     };
+    // 只在挂载时拉一次历史
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedWorkspaceId = value?.kind === "workspace" ? value.workspaceId : "";
-  const selectedWorkspace = useMemo(
-    () => workspaces.find((ws) => ws.id === selectedWorkspaceId),
-    [workspaces, selectedWorkspaceId],
-  );
-  const selectedProjectId = value?.kind === "workspace" ? value.projectId : "";
+  const selected = useMemo(() => {
+    if (!value) return null;
+    if (value.kind === "manual") return { name: baseName(value.path), path: value.path };
+    if (value.kind === "recent") return { name: value.label, path: value.options.path };
+    const workspace = workspaces.find((ws) => ws.id === value.workspaceId);
+    const project = workspace?.projects.find((p) => p.id === value.projectId);
+    if (!workspace || !project) return null;
+    return { name: project.alias || baseName(project.path), path: project.path, workspace: workspace.alias || workspace.name };
+  }, [value, workspaces]);
 
-  function selectWorkspace(workspaceId: string) {
-    if (!workspaceId) {
-      onChange(null);
-      return;
-    }
-    const workspace = workspaces.find((ws) => ws.id === workspaceId);
-    const firstProject = workspace?.projects[0];
-    onChange(firstProject ? { kind: "workspace", workspaceId, projectId: firstProject.id } : null);
-  }
-
-  function selectRecent(record: LaunchRecord) {
-    const options = buildLaunchRecordTerminalOptions(
-      record,
-      useWorkspacesStore.getState().workspaces,
-      machines,
-    );
-    onChange({ kind: "recent", options, label: record.projectName });
+  function pick(source: LauncherProjectSource) {
+    onChange(source);
+    setOpen(false);
   }
 
   async function browseManual() {
-    const selected = await openDirectoryDialog({
-      directory: true,
-      multiple: false,
-      title: t("pickDirectory"),
-    });
-    if (typeof selected === "string" && selected) {
-      onChange({ kind: "manual", path: selected });
-    }
+    setOpen(false);
+    const path = await openDirectoryDialog({ directory: true, multiple: false, title: t("pickDirectory") });
+    if (typeof path === "string" && path) onChange({ kind: "manual", path });
   }
 
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        <select
-          className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-          value={selectedWorkspaceId}
-          onChange={(event) => selectWorkspace(event.target.value)}
-          aria-label={t("workspace")}
-        >
-          <option value="">{t("workspacePlaceholder")}</option>
-          {workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.alias || workspace.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-          value={selectedProjectId}
-          onChange={(event) =>
-            selectedWorkspaceId
-            && onChange({
-              kind: "workspace",
-              workspaceId: selectedWorkspaceId,
-              projectId: event.target.value,
-            })
-          }
-          disabled={!selectedWorkspace}
-          aria-label={t("project")}
-        >
-          {(selectedWorkspace?.projects ?? []).map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.alias || project.path.split(/[/\\]/).pop() || project.path}
-            </option>
-          ))}
-        </select>
-      </div>
+  const isActive = (source: LauncherProjectSource) => {
+    if (!value || value.kind !== source.kind) return false;
+    if (value.kind === "workspace" && source.kind === "workspace") return value.projectId === source.projectId;
+    if (value.kind === "recent" && source.kind === "recent") return value.options.path === source.options.path;
+    return false;
+  };
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        {!recordsLoaded && showRecordsSkeleton
-          ? Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-[24px] w-20 rounded-md" data-testid="recent-project-skeleton" />
-            ))
-          : records.map((record) => {
-          const active = value?.kind === "recent" && value.options.path === record.projectPath;
-          return (
-            <button
-              key={record.id}
-              type="button"
-              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-              style={
-                active
-                  ? {
-                      borderColor: "var(--app-accent)",
-                      background: "color-mix(in srgb, var(--app-accent) 10%, transparent)",
-                      color: "var(--app-accent)",
-                    }
-                  : { borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }
-              }
-              onClick={() => selectRecent(record)}
-              title={record.projectPath}
-            >
-              <Clock className="h-3 w-3" />
-              {record.projectName}
-            </button>
-          );
-        })}
+  const row = (name: string, path: string, active: boolean, icon: React.ReactNode) => (
+    <>
+      {icon}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{name}</span>
+        <span className="block truncate font-mono text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{path}</span>
+      </span>
+      {active && <Check aria-hidden="true" />}
+    </>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-          style={
-            value?.kind === "manual"
-              ? {
-                  borderColor: "var(--app-accent)",
-                  background: "color-mix(in srgb, var(--app-accent) 10%, transparent)",
-                  color: "var(--app-accent)",
-                }
-              : { borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }
-          }
-          onClick={() => void browseManual()}
+          role="combobox"
+          aria-expanded={open}
+          aria-label={t("sectionProject")}
+          className="flex h-11 w-full items-center gap-2.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-3 text-left transition-colors duration-[var(--dur-fast)] hover:border-[var(--app-home-border-hover)]"
         >
-          <FolderOpen className="h-3 w-3" />
-          {value?.kind === "manual"
-            ? value.path.split(/[/\\]/).pop() || value.path
-            : t("browseDirectory")}
+          <Folder className="size-4 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
+          {selected ? (
+            <span className="flex min-w-0 flex-1 items-baseline gap-2">
+              <span className="truncate text-[length:var(--text-body)] font-medium text-[var(--app-text-primary)]">{selected.name}</span>
+              <span className="min-w-0 truncate font-mono text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
+                {"workspace" in selected && selected.workspace ? `${selected.workspace} · ` : ""}{selected.path}
+              </span>
+            </span>
+          ) : (
+            <span className="flex-1 text-[length:var(--text-body)] text-[var(--app-text-tertiary)]">{t("pickProject")}</span>
+          )}
+          <ChevronsUpDown className="size-4 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
         </button>
-      </div>
-    </div>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[length:var(--text-micro)] [&_[cmdk-group-heading]]:text-[var(--app-text-tertiary)]">
+          <CommandInput placeholder={t("searchProject")} />
+          <CommandList>
+            <CommandEmpty>{t("noProjectMatch")}</CommandEmpty>
+            {records.length > 0 && (
+              <CommandGroup heading={t("recentGroup")}>
+                {records.map((record) => {
+                  const source = recentSource(record);
+                  return (
+                    <CommandItem key={record.id} value={`recent ${record.projectName} ${record.projectPath}`} onSelect={() => pick(source)}>
+                      {row(record.projectName, record.projectPath, isActive(source), <Clock aria-hidden="true" />)}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+            {visibleWorkspaces.map((workspace) => (
+              <CommandGroup key={workspace.id} heading={workspace.alias || workspace.name}>
+                {workspace.projects.filter((project) => !project.archivedAt).map((project) => {
+                  const source: LauncherProjectSource = { kind: "workspace", workspaceId: workspace.id, projectId: project.id };
+                  const name = project.alias || baseName(project.path);
+                  return (
+                    <CommandItem
+                      key={project.id}
+                      value={`${workspace.name} ${workspace.alias ?? ""} ${name} ${project.path} ${project.id}`}
+                      onSelect={() => pick(source)}
+                    >
+                      {row(name, project.path, isActive(source), <Folder aria-hidden="true" />)}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            ))}
+            <CommandGroup>
+              <CommandItem value="__browse__" forceMount onSelect={() => void browseManual()} className={cn(value?.kind === "manual" && "text-[var(--app-accent)]")}>
+                <FolderOpen aria-hidden="true" />
+                {t("browseDirectory")}
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -81,6 +81,9 @@ pub(crate) struct PiFamilyConfig {
     pub(crate) supports_native_provider_options: bool,
     pub(crate) supports_session_name: bool,
     pub(crate) supports_project_trust: bool,
+    /// YOLO 映射的启动 flag。Pi 本身没有权限确认（上游 README「No permission
+    /// popups」），始终全自动，故为 None；omp 有 approval mode，`--yolo` 强制本进程 yolo。
+    pub(crate) yolo_flag: Option<&'static str>,
 }
 
 pub(crate) const PI_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
@@ -93,6 +96,7 @@ pub(crate) const PI_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
     supports_native_provider_options: true,
     supports_session_name: true,
     supports_project_trust: true,
+    yolo_flag: None,
 };
 
 pub(crate) const OMP_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
@@ -105,6 +109,7 @@ pub(crate) const OMP_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
     supports_native_provider_options: false,
     supports_session_name: false,
     supports_project_trust: false,
+    yolo_flag: Some("--yolo"),
 };
 
 /// Produce a path-safe, deterministic component for a CC-Panes launch id.
@@ -579,6 +584,12 @@ impl PiFamilyAdapter {
                 PiProjectTrust::Inherit => {}
                 PiProjectTrust::Approve => args.push("--approve".to_string()),
                 PiProjectTrust::Deny => args.push("--no-approve".to_string()),
+            }
+        }
+
+        if ctx.yolo_mode {
+            if let Some(flag) = config.yolo_flag {
+                args.push(flag.to_string());
             }
         }
 
@@ -1084,6 +1095,8 @@ mod tests {
         let result = PiAdapter::new().build_command(&ctx).unwrap();
         assert!(!result.args.iter().any(|arg| arg == "--approve"));
         assert!(!result.args.iter().any(|arg| arg == "--no-approve"));
+        // Pi 没有权限确认可跳过：YOLO 不产生任何 flag（omp 才有 --yolo）
+        assert!(!result.args.iter().any(|arg| arg == "--yolo"));
 
         ctx.adapter_options
             .insert(PI_PROJECT_TRUST_OPTION.to_string(), json!("approve"));

@@ -38,7 +38,10 @@ impl KimiAdapter {
                 supports_issued_session_id: false,
                 supports_rpc: false,
                 supports_structured_result: false,
-                supports_yolo: false,
+                // `--yolo`：老 kimi-cli = 全部自动批准；Kimi Code = Ask When Needed
+                // （例行操作自动，危险命令仍确认）。Kimi Code 的全自动是 `--auto`
+                // （0.5.0+），老版没有该 flag，传了会启动失败，故统一用 `--yolo`。
+                supports_yolo: true,
                 supports_orchestrated_launch: false,
                 // build_command 不消费任何 per-launch 参数键
                 supports_effort_option: false,
@@ -131,6 +134,10 @@ impl CliToolAdapter for KimiAdapter {
 
         crate::push_model_arg(&mut args, ctx);
 
+        if ctx.yolo_mode {
+            args.push("--yolo".to_string());
+        }
+
         if let Some(prompt) = ctx.initial_prompt.as_ref() {
             args.push(prompt.clone());
         }
@@ -203,6 +210,28 @@ mod tests {
             workspace_mcp_servers: Default::default(),
             adapter_options,
         }
+    }
+
+    #[test]
+    fn yolo_mode_adds_kimi_yolo_flag_before_prompt() {
+        let dir = tempdir().unwrap();
+        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
+        ctx.provider = None;
+        ctx.executable_override = Some("kimi-test".to_string());
+        ctx.initial_prompt = Some("hi".to_string());
+        let adapter = KimiAdapter::new();
+        assert!(!adapter
+            .build_command(&ctx)
+            .unwrap()
+            .args
+            .contains(&"--yolo".to_string()));
+
+        ctx.yolo_mode = true;
+        let args = adapter.build_command(&ctx).unwrap().args;
+        let yolo = args.iter().position(|arg| arg == "--yolo").expect("--yolo");
+        let prompt = args.iter().position(|arg| arg == "hi").expect("prompt");
+        assert!(yolo < prompt);
+        assert!(adapter.capabilities().supports_yolo);
     }
 
     #[test]

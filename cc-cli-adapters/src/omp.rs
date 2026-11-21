@@ -58,7 +58,8 @@ fn omp_capabilities() -> CliToolCapabilities {
         supports_issued_session_id: false,
         supports_rpc: false,
         supports_structured_result: false,
-        supports_yolo: false,
+        // omp 有 tools.approvalMode；`--yolo` 强制本进程 yolo（omp.sh/docs/approvals）
+        supports_yolo: true,
         supports_orchestrated_launch: false,
         supports_effort_option: false,
         supports_verbose_option: false,
@@ -201,6 +202,16 @@ mod tests {
     }
 
     #[test]
+    fn yolo_mode_forces_omp_yolo_approval() {
+        let mut ctx = context(None);
+        let result = OmpAdapter::new().build_command(&ctx).unwrap();
+        assert!(!result.args.iter().any(|arg| arg == "--yolo"));
+        ctx.yolo_mode = true;
+        let result = OmpAdapter::new().build_command(&ctx).unwrap();
+        assert!(result.args.iter().any(|arg| arg == "--yolo"));
+    }
+
+    #[test]
     fn native_command_omits_pi_only_flags_and_ignores_stale_pi_options() {
         let mut ctx = context(None);
         // Launch profiles shared across tools can carry leftover Pi keys; omp
@@ -318,7 +329,7 @@ mod tests {
             caps.supports_mcp,
             "omp natively reads .omp/mcp.json (docs/104)"
         );
-        assert!(!caps.supports_yolo);
+        assert!(caps.supports_yolo);
         assert!(!caps.supports_orchestrated_launch);
         assert!(!caps.supports_effort_option);
         assert!(!caps.supports_verbose_option);

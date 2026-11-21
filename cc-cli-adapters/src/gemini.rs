@@ -35,7 +35,8 @@ impl GeminiAdapter {
                 supports_issued_session_id: false,
                 supports_rpc: false,
                 supports_structured_result: false,
-                supports_yolo: false,
+                // `--approval-mode=yolo`（`--yolo` 已标 deprecated，且两者互斥）
+                supports_yolo: true,
                 supports_orchestrated_launch: false,
                 // build_command 不消费任何 per-launch 参数键
                 supports_effort_option: false,
@@ -77,6 +78,10 @@ impl CliToolAdapter for GeminiAdapter {
 
         crate::push_model_arg(&mut args, ctx);
 
+        if ctx.yolo_mode {
+            args.push("--approval-mode=yolo".to_string());
+        }
+
         // [PROMPT] positional argument
         if let Some(ref prompt) = ctx.initial_prompt {
             args.push(prompt.clone());
@@ -90,5 +95,57 @@ impl CliToolAdapter for GeminiAdapter {
             env_remove: vec![],
             env_inject: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn context(yolo_mode: bool) -> CliAdapterContext {
+        CliAdapterContext {
+            session_id: "session-1".to_string(),
+            project_path: "/repo".to_string(),
+            workspace_path: None,
+            provider: None,
+            executable_override: Some("gemini-test".to_string()),
+            issued_session_id: None,
+            yolo_mode,
+            launch_id: None,
+            resume_id: None,
+            skip_mcp: false,
+            skip_ccpanes_mcp: false,
+            append_system_prompt: None,
+            initial_prompt: Some("hi".to_string()),
+            orchestrator_port: None,
+            orchestrator_token: None,
+            data_dir: std::env::temp_dir(),
+            shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
+            allowed_mcp_server_ids: Vec::new(),
+            disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
+            adapter_options: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn yolo_mode_uses_approval_mode_flag_before_prompt() {
+        let adapter = GeminiAdapter::new();
+        let plain = adapter.build_command(&context(false)).unwrap().args;
+        assert!(!plain.iter().any(|arg| arg.starts_with("--approval-mode")));
+
+        let args = adapter.build_command(&context(true)).unwrap().args;
+        let yolo = args
+            .iter()
+            .position(|arg| arg == "--approval-mode=yolo")
+            .expect("approval flag");
+        let prompt = args.iter().position(|arg| arg == "hi").expect("prompt");
+        assert!(yolo < prompt);
+        // `--yolo` 与 `--approval-mode` 互斥，绝不能同时出现
+        assert!(!args.iter().any(|arg| arg == "--yolo" || arg == "-y"));
+        assert!(adapter.capabilities().supports_yolo);
     }
 }

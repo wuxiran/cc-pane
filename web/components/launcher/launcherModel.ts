@@ -78,12 +78,26 @@ export function createDefaultDraft(partial?: Partial<LauncherDraft>): LauncherDr
   };
 }
 
+/**
+ * 本身没有权限确认、始终全自动的 CLI：Pi（上游「No permission popups」）、jcode（TUI 无审批层）。
+ * 它们没有 YOLO flag 可传，启动器把 YOLO 显示为「始终开启」，草稿里不存 yolo。
+ */
+export const YOLO_INHERENT_CLI_TOOLS: ReadonlySet<CliTool> = new Set<CliTool>(["pi", "jcode"]);
+
+const PI_FAMILY_LIKE = (cliTool: CliTool) => cliTool === "pi" || cliTool === "omp" || cliTool === "jcode";
+
+/** 切 CLI 时的约束：Pi 家族 / jcode 不支持禁 MCP 的旧语义清零；自带全自动的 CLI 清掉 yolo。 */
+function cliConstraintPatch(cliTool: CliTool): Partial<LauncherDraft> {
+  return {
+    ...(PI_FAMILY_LIKE(cliTool) ? { skipMcp: false } : {}),
+    ...(YOLO_INHERENT_CLI_TOOLS.has(cliTool) ? { yolo: undefined } : {}),
+  };
+}
+
 export function cliToolDraftPatch(cliTool: CliTool): Partial<LauncherDraft> {
   return cliTool === "none"
     ? { cliTool, providerSelection: "none", providerId: undefined }
-    : cliTool === "pi" || cliTool === "omp" || cliTool === "jcode"
-      ? { cliTool, yolo: undefined, skipMcp: false }
-    : { cliTool };
+    : { cliTool, ...cliConstraintPatch(cliTool) };
 }
 
 /** effort/verbose/maxTurns 收拢为 adapterOptions；Pi terminal launches always override profiles to PTY. */
@@ -123,9 +137,7 @@ export function buildPendingLaunch(
 ): BuildPendingLaunchResult {
   const effectiveDraft = draft.cliTool === "none"
     ? { ...draft, providerSelection: "none" as const, providerId: undefined }
-    : draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode"
-      ? { ...draft, yolo: undefined, skipMcp: false }
-    : draft;
+    : { ...draft, ...cliConstraintPatch(draft.cliTool) };
   const base = resolveBaseOptions(effectiveDraft, deps);
   if ("issue" in base) return { launch: null, issue: base.issue };
   if (effectiveDraft.providerSelection === "explicit" && !effectiveDraft.providerId?.trim()) {

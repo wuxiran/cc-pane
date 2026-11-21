@@ -20,7 +20,6 @@ vi.mock("./LauncherChips", () => ({ default: () => null }));
 vi.mock("./LauncherInjectionRow", () => ({ default: () => null }));
 vi.mock("./LauncherLayoutRow", () => ({ default: () => null }));
 vi.mock("./LauncherArgsPreviewView", () => ({ default: () => null }));
-vi.mock("./CcchanPeek", () => ({ default: () => null }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -29,6 +28,8 @@ beforeEach(() => {
 async function setup() {
   render(<LauncherDialog />);
   await userEvent.click(screen.getByRole("button", { name: "Choose project" }));
+  // worktree 设置收在「高级」里
+  await userEvent.click(screen.getByRole("button", { name: /高级/ }));
   await userEvent.click(screen.getByRole("button", { name: "Configure worktree" }));
 }
 

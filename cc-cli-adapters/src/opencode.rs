@@ -55,7 +55,8 @@ impl OpenCodeAdapter {
                 supports_issued_session_id: false,
                 supports_rpc: false,
                 supports_structured_result: false,
-                supports_yolo: false,
+                // YOLO 经会话配置 `permission: "allow"` 注入（见 build_command）
+                supports_yolo: true,
                 supports_orchestrated_launch: true,
                 // build_command 不消费任何 per-launch 参数键
                 supports_effort_option: false,

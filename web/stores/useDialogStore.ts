@@ -38,6 +38,8 @@ export interface LauncherContext {
   workspaceName?: string;
   projectPath?: string;
   targetLayoutId?: string;
+  /** 预选的 CLI（首页 Agent 行「启动」）；非法值回落到设置里的默认 CLI。 */
+  cliTool?: string;
 }
 
 interface DialogState {

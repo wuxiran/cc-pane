@@ -1,5 +1,5 @@
-// 参数 chips：YOLO（两态：未勾 = undefined 跟随 profile）/ effort 六档（default + 5）/
-// 禁 MCP / 详细日志 / 最大轮数 / 追加系统提示 / 初始 prompt。
+// 高级参数：禁 MCP / 详细日志 / effort 六档（default + 5）/ 最大轮数 / 追加系统提示。
+// YOLO 与首条 prompt 在启动器主表单上（常用项不进「高级」）。
 //
 // **effort / 详细日志 / 最大轮数按目标 CLI 的能力位置灰**：这三个键由 adapter 的
 // build_command 各自消费，不支持的会被静默丢弃（实测 8 个 adapter 里 5 个三键全不消费）。
@@ -62,27 +62,14 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
   const { tools } = useCliTools();
   const support = resolveLaunchOptionSupport(draft.cliTool, tools);
   const capabilities = tools.find((tool) => tool.id === draft.cliTool)?.capabilities;
-  // YOLO / 禁 MCP 按能力位门控，口径同 resolveLaunchOptionSupport：字段缺失 =
-  // 支持，显式 false 才是真信号。docs/104：pi/omp/jcode 接入 MCP 后「禁 MCP」
-  // 对三者可用（清掉项目文件/桥配置里的残留注入）；YOLO 仍按 supports_yolo。
-  // 能力未加载完时 YOLO 回退旧硬编码名单，禁 MCP 乐观显示。
-  const legacyYoloHidden =
-    draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode";
-  const hideYoloChip = capabilities ? capabilities.supportsYolo === false : legacyYoloHidden;
+  // 禁 MCP 按能力位门控，口径同 resolveLaunchOptionSupport：字段缺失 = 支持，显式 false 才是真信号。
+  // docs/104：pi/omp/jcode 接入 MCP 后「禁 MCP」对三者可用。YOLO 已移到启动器主表单（LauncherCliRow）。
   const hideSkipMcpChip = capabilities ? capabilities.supportsMcp === false : false;
   const unsupportedHint = t("optionUnsupported", { cli: draft.cliTool });
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        {!hideYoloChip && (
-          <ToggleChip
-            active={draft.yolo === true}
-            label="YOLO"
-            title={t("yoloHint")}
-            onClick={() => onChange({ yolo: draft.yolo ? undefined : true })}
-          />
-        )}
         {!hideSkipMcpChip && (
           <ToggleChip
             active={draft.skipMcp}
@@ -148,14 +135,6 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
         value={draft.appendSystemPrompt}
         onChange={(event) => onChange({ appendSystemPrompt: event.target.value })}
         aria-label={t("appendSystemPrompt")}
-      />
-      <textarea
-        rows={2}
-        className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-[length:var(--text-small)]"
-        placeholder={t("initialPromptPlaceholder")}
-        value={draft.initialPrompt}
-        onChange={(event) => onChange({ initialPrompt: event.target.value })}
-        aria-label={t("initialPrompt")}
       />
     </div>
   );

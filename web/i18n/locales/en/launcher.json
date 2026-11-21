@@ -115,5 +115,19 @@
   "worktreeProject": "Project",
   "worktreeProjectPlaceholder": "Choose a project",
   "worktreeProjectOption": "{{name}} ({{branch}})",
-  "worktreePickProject": "The workspace root isn't a Git repository. Choose one of its projects for the worktree."
+  "worktreePickProject": "The workspace root isn't a Git repository. Choose one of its projects for the worktree.",
+  "sectionWhere": "Where",
+  "sectionAgent": "Agent",
+  "sectionTask": "What to do (optional)",
+  "taskPlaceholder": "First message sent to the agent after launch. Leave empty to just open the session. ⌘/Ctrl + Enter to launch",
+  "pickProject": "Choose a project…",
+  "searchProject": "Search projects, workspaces or paths…",
+  "recentGroup": "Recent",
+  "noProjectMatch": "No matching project",
+  "needProjectHint": "Choose a project first",
+  "advanced": "Advanced",
+  "advancedDefault": "All defaults",
+  "summaryWorktree": "New worktree",
+  "summaryInjection": "Content injected",
+  "yoloInherent": "{{cli}} has no permission prompts; it always runs fully automatically"
 }

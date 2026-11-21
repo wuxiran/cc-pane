@@ -115,5 +115,19 @@
   "worktreeProject": "项目",
   "worktreeProjectPlaceholder": "选择项目",
   "worktreeProjectOption": "{{name}}（{{branch}}）",
-  "worktreePickProject": "工作空间根目录不是 Git 仓库，选择其中一个项目创建 worktree"
+  "worktreePickProject": "工作空间根目录不是 Git 仓库，选择其中一个项目创建 worktree",
+  "sectionWhere": "在哪里",
+  "sectionAgent": "用什么",
+  "sectionTask": "要做什么（可选）",
+  "taskPlaceholder": "启动后自动发给 Agent 的第一句话，留空就只打开会话。⌘/Ctrl + Enter 启动",
+  "pickProject": "选择项目…",
+  "searchProject": "搜索项目、工作空间或路径…",
+  "recentGroup": "最近",
+  "noProjectMatch": "没有匹配的项目",
+  "needProjectHint": "先选一个项目",
+  "advanced": "高级",
+  "advancedDefault": "全部默认",
+  "summaryWorktree": "新 worktree",
+  "summaryInjection": "已注入内容",
+  "yoloInherent": "{{cli}} 本身不做权限确认，始终全自动运行"
 }

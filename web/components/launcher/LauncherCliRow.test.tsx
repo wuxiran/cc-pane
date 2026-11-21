@@ -15,8 +15,8 @@ it("pending and timed-out detection leave launch choices enabled; late confirmed
   vi.mocked(listCliTools).mockReturnValue(new Promise((done) => { resolve = done; }));
   const onChange = vi.fn();
   render(<LauncherCliRow value="none" onChange={onChange} />);
-  const claude = screen.getByRole("button", { name: "Claude Code" });
-  const codex = screen.getByRole("button", { name: "Codex" });
+  const claude = screen.getByRole("radio", { name: "Claude Code" });
+  const codex = screen.getByRole("radio", { name: "Codex" });
   expect(claude).toBeEnabled();
   expect(codex).toBeEnabled();
   await act(async () => { await vi.advanceTimersByTimeAsync(CLI_TOOLS_REQUEST_TIMEOUT_MS); });
@@ -38,7 +38,7 @@ describe("failed detection", () => {
     vi.mocked(listCliTools).mockRejectedValue(new Error("IPC unavailable"));
     render(<LauncherCliRow value="none" onChange={vi.fn()} />);
     await act(async () => {});
-    expect(screen.getByRole("button", { name: "Claude Code" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Codex" })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: "Claude Code" })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: "Codex" })).toBeEnabled();
   });
 });

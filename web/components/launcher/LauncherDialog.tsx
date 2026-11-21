@@ -29,7 +29,8 @@ import LauncherChips from "./LauncherChips";
 import LauncherInjectionRow from "./LauncherInjectionRow";
 import LauncherWorktreeRow from "./LauncherWorktreeRow";
 import LauncherLayoutRow from "./LauncherLayoutRow";
-import CcchanPeek from "./CcchanPeek";
+import LauncherAdvanced, { useAdvancedSummary } from "./LauncherAdvanced";
+import { loadCliPrefs, saveCliPrefs } from "./launcherPrefs";
 // 文件名带 View 后缀：Windows 大小写不敏感，避免与纯函数 launcherArgsPreview.ts 解析冲突
 import LauncherArgsPreview from "./LauncherArgsPreviewView";
 import {
@@ -40,18 +41,20 @@ import {
   createDefaultDraft,
   isDraftLocalEnvironment,
   resolveDraftProjectPath,
+  YOLO_INHERENT_CLI_TOOLS,
   type LauncherDraft,
 } from "./launcherModel";
+import type { CliTool } from "@/types";
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+/** 切换 / 预选 CLI：带上该 CLI 记住的高级参数，再叠能力约束（Pi 家族清 YOLO 等）。 */
+function cliSwitchPatch(cliTool: CliTool): Partial<LauncherDraft> {
+  return { ...loadCliPrefs(cliTool), ...cliToolDraftPatch(cliTool) };
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div
-        className="text-[length:var(--text-micro)] font-semibold uppercase tracking-[0.09em]"
-        style={{ color: "var(--app-text-tertiary)" }}
-      >
-        {label}
-      </div>
+      <div className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">{label}</div>
       {children}
     </div>
   );
@@ -70,6 +73,10 @@ export default function LauncherDialog() {
     const tool = coerceDefaultCliTool(
       useSettingsStore.getState().settings?.general.defaultCliTool,
     );
+    return tool ? { cliTool: tool } : {};
+  };
+  const contextCliToolPartial = (cliTool: string | undefined): Partial<LauncherDraft> => {
+    const tool = coerceDefaultCliTool(cliTool);
     return tool ? { cliTool: tool } : {};
   };
   const [draft, setDraft] = useState<LauncherDraft>(() =>
@@ -96,17 +103,17 @@ export default function LauncherDialog() {
         )
         ?? ctxWorkspace.projects[0]
       : undefined;
-    setDraft(
-      createDefaultDraft({
+    const base = createDefaultDraft({
         // 默认设置在前：调用点后续显式指定的字段（含 cliTool）优先级更高
         ...defaultCliToolPartial(),
+        ...contextCliToolPartial(context?.cliTool),
         source:
           ctxWorkspace && ctxProject
             ? { kind: "workspace", workspaceId: ctxWorkspace.id, projectId: ctxProject.id }
             : null,
         targetLayoutId: context?.targetLayoutId,
-      }),
-    );
+      });
+    setDraft({ ...base, ...cliSwitchPatch(base.cliTool) });
     setError(null);
     setSubmitting(false);
     // workspaces 变化不重置正在编辑的草稿
@@ -144,6 +151,8 @@ export default function LauncherDialog() {
   const resolvedEnvironment = localEnvironment ? "local"
     : recentEnvironment?.ssh || sshProject ? "ssh"
       : recentEnvironment?.wsl ? "wsl" : draft.environment;
+
+  const advancedSummary = useAdvancedSummary(draft, resolvedEnvironment);
 
   async function handleLaunch() {
     if (launchLock.current) return;
@@ -192,6 +201,7 @@ export default function LauncherDialog() {
     if (activity.appViewMode !== "panes") {
       activity.setAppViewMode("panes");
     }
+    saveCliPrefs(draft);
     useDialogStore.getState().setPendingLaunch(finalLaunch);
     useDialogStore.getState().closeLauncher();
   }
@@ -203,7 +213,7 @@ export default function LauncherDialog() {
         submitting ? undefined : next ? useDialogStore.getState().openLauncher(context ?? undefined) : useDialogStore.getState().closeLauncher()
       }
     >
-      <DialogContent className="launcher-dialog rounded-3xl border-[var(--app-border)] bg-[var(--app-content)] p-5 sm:max-w-3xl sm:p-6">
+      <DialogContent className="launcher-dialog rounded-3xl border-[var(--app-border)] bg-[var(--app-content)] p-5 sm:max-w-2xl sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-medium">
             <Rocket className="h-4 w-4" style={{ color: "var(--app-accent)" }} />
@@ -211,71 +221,81 @@ export default function LauncherDialog() {
           </DialogTitle>
         </DialogHeader>
 
-        <fieldset disabled={submitting} className="flex max-h-[65vh] flex-col gap-5 overflow-y-auto pr-1">
-          <div className="grid gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] p-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Section label={t("sectionProject")}>
+        {/* 默认只有三件事：在哪里 / 用什么 / 要做什么；其余收进「高级」 */}
+        <fieldset disabled={submitting} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
+          <Field label={t("sectionWhere")}>
             <LauncherProjectPicker
               value={draft.source}
+              autoSelectRecent={!context?.workspaceName}
               onChange={(source) => patch({ source, worktree: undefined })}
             />
-          </Section>
+          </Field>
 
-          <Section label={t("launchSettings")}>
-            <LauncherWorktreeRow
-              draft={draft}
-              onChange={patch}
-              projectPath={resolvedProjectPath}
-              isLocal={localEnvironment}
-              disabled={submitting}
-              environment={resolvedEnvironment}
-              environmentLocked={Boolean(sshProject)}
+          <Field label={t("sectionAgent")}>
+            <LauncherCliRow
+              value={draft.cliTool}
+              onChange={(cliTool) => patch(cliSwitchPatch(cliTool))}
+              yolo={draft.yolo === true}
+              onYoloChange={(yolo) => patch({ yolo: yolo ? true : undefined })}
             />
-          </Section>
+          </Field>
 
-          </div>
-
-          <Section label={t("sectionCli")}>
-            <LauncherCliRow value={draft.cliTool} onChange={(cliTool) => patch(cliToolDraftPatch(cliTool))} />
-          </Section>
-
-          <Section label={t("sectionScenario")}>
-            <LauncherScenarioRow draft={draft} onChange={patch} />
-          </Section>
-
-          <Section label={t("sectionOptions")}>
-            <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] p-4 [&_textarea]:min-h-24 [&_textarea]:rounded-xl [&_textarea]:border-transparent [&_textarea]:bg-[var(--app-content)] [&_textarea]:px-3 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:leading-relaxed">
-              <LauncherChips draft={draft} onChange={patch} />
-            </div>
-          </Section>
-
-          <Section label={t("sectionInjection")}>
-            <LauncherInjectionRow
-              draft={draft}
-              onChange={patch}
-              projectPath={resolvedProjectPath}
+          <Field label={t("sectionTask")}>
+            <textarea
+              rows={3}
+              className="w-full resize-none rounded-xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-3 py-2.5 text-[length:var(--text-body)] leading-relaxed outline-none placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)]"
+              placeholder={t("taskPlaceholder")}
+              value={draft.initialPrompt}
+              onChange={(event) => patch({ initialPrompt: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void handleLaunch();
+                }
+              }}
+              aria-label={t("initialPrompt")}
             />
-          </Section>
+          </Field>
 
-          <Section label={t("sectionLayout")}>
-            <LauncherLayoutRow
-              value={draft.targetLayoutId}
-              onChange={(targetLayoutId) => patch({ targetLayoutId })}
-              workspaceName={resolvedWorkspaceName}
-            />
-          </Section>
-
-          <LauncherArgsPreview
-            input={{
-              cliTool: draft.cliTool,
-              skipMcp: draft.skipMcp,
-              appendSystemPrompt: draft.appendSystemPrompt,
-              initialPrompt: draft.initialPrompt,
-              yolo:
-                draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode"
-                  ? undefined
-                  : draft.yolo,
-              adapterOptions: buildAdapterOptions(draft),
-            }}
+          <LauncherAdvanced
+            summary={advancedSummary}
+            environment={
+              <LauncherWorktreeRow
+                draft={draft}
+                onChange={patch}
+                projectPath={resolvedProjectPath}
+                isLocal={localEnvironment}
+                disabled={submitting}
+                environment={resolvedEnvironment}
+                environmentLocked={Boolean(sshProject)}
+              />
+            }
+            scenario={<LauncherScenarioRow draft={draft} onChange={patch} />}
+            options={
+              <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-sidebar)] p-3 [&_textarea]:min-h-20 [&_textarea]:rounded-lg [&_textarea]:bg-[var(--app-content)]">
+                <LauncherChips draft={draft} onChange={patch} />
+              </div>
+            }
+            injection={<LauncherInjectionRow draft={draft} onChange={patch} projectPath={resolvedProjectPath} />}
+            layout={
+              <LauncherLayoutRow
+                value={draft.targetLayoutId}
+                onChange={(targetLayoutId) => patch({ targetLayoutId })}
+                workspaceName={resolvedWorkspaceName}
+              />
+            }
+            preview={
+              <LauncherArgsPreview
+                input={{
+                  cliTool: draft.cliTool,
+                  skipMcp: draft.skipMcp,
+                  appendSystemPrompt: draft.appendSystemPrompt,
+                  initialPrompt: draft.initialPrompt,
+                  yolo: YOLO_INHERENT_CLI_TOOLS.has(draft.cliTool) ? undefined : draft.yolo,
+                  adapterOptions: buildAdapterOptions(draft),
+                }}
+              />
+            }
           />
 
           {error && (
@@ -286,8 +306,12 @@ export default function LauncherDialog() {
         </fieldset>
 
         <DialogFooter className="items-center border-t border-[var(--app-border)] pt-4">
-          {/* cc酱露脸：footer 左侧空白角落的静态小形象，纯装饰；窄屏堆叠时不占位 */}
-          <CcchanPeek className="hidden sm:mr-auto sm:inline-block" />
+          {/* 启动按钮为什么是灰的：直接写出来 */}
+          {!draft.source && (
+            <span className="text-[length:var(--text-small)] text-[var(--app-text-tertiary)] sm:mr-auto" data-testid="launcher-blocked-reason">
+              {t("needProjectHint")}
+            </span>
+          )}
           <Button variant="outline" disabled={submitting} onClick={() => useDialogStore.getState().closeLauncher()}>
             {t("cancel")}
           </Button>

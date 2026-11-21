@@ -6,6 +6,7 @@
 //
 // 判定口径见 `resolveLaunchOptionSupport`：**字段缺失 = 支持**，这与直觉相反但必须如此。
 import type { CliTool, CliToolCapabilities, CliToolInfo } from "@/types";
+import { YOLO_INHERENT_CLI_TOOLS } from "./launcherModel";
 
 /** 受 capability 门控的 per-launch 参数。 */
 export type LaunchOptionKey = "effort" | "verbose" | "maxTurns";
@@ -44,4 +45,19 @@ export function resolveLaunchOptionSupport(
   };
 
   return { effort: resolve("effort"), verbose: resolve("verbose"), maxTurns: resolve("maxTurns") };
+}
+
+/**
+ * YOLO 在该 CLI 上的形态：
+ * - "flag"：有跳过审批的启动参数，开关可用（能力位缺失 = 支持，口径同上）；
+ * - "inherent"：CLI 本身没有权限确认，始终全自动（Pi / jcode），开关显示为常开；
+ * - "none"：仅终端，或能力位显式声明不支持。
+ */
+export type YoloSupport = "flag" | "inherent" | "none";
+
+export function resolveYoloSupport(cliTool: CliTool, tools: CliToolInfo[]): YoloSupport {
+  if (cliTool === "none") return "none";
+  if (YOLO_INHERENT_CLI_TOOLS.has(cliTool)) return "inherent";
+  const capabilities = tools.find((tool) => tool.id === cliTool)?.capabilities;
+  return capabilities?.supportsYolo === false ? "none" : "flag";
 }
