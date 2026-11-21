@@ -1,32 +1,26 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Settings, SquareTerminal } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
-import {
-  useDialogStore,
-  useHomePreferencesStore,
-  useSettingsStore,
-  useWorkspacesStore,
-} from "@/stores";
+import { useDialogStore, useWorkspacesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import { waitForTauri } from "@/utils";
 import { isTauriRuntime } from "@/services/runtime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { useCliTools } from "@/hooks/useCliTools";
 import HomeHeader from "./HomeHeader";
-import HomeQuickActions from "./HomeQuickActions";
 import HomeAgentPrompt from "./HomeAgentPrompt";
-import HomeActiveSessions from "./HomeActiveSessions";
-import HomeGettingStarted from "./HomeGettingStarted";
+import HomeQuickStart from "./HomeQuickStart";
+import HomeAgentList from "./HomeAgentList";
+import HomeWorkbench from "./HomeWorkbench";
+import HomeAgentInstall from "./HomeAgentInstall";
 import HomeRecentProjects from "./HomeRecentProjects";
-import HomePinnedWorkspaces from "./HomePinnedWorkspaces";
+import HomeSetupDialogs from "./HomeSetupDialogs";
 import type { OpenTerminalOptions } from "@/types";
-
-// 宣传卡只给新用户看，不进入口 chunk。
-const HomeDesignHighlights = lazy(() => import("./HomeDesignHighlights"));
 
 interface HomeDashboardProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -36,12 +30,11 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   const { t } = useTranslation("home");
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const setSidebarVisible = useActivityBarStore((s) => s.setSidebarVisible);
-  const settings = useSettingsStore((s) => s.settings);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const workspacesLoading = useWorkspacesStore((s) => s.loading);
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
-  const showDesignHighlights = useHomePreferencesStore((s) => s.showDesignHighlights);
-  const setShowDesignHighlights = useHomePreferencesStore((s) => s.setShowDesignHighlights);
+  const { tools: cliTools, installedTools, loading: cliToolsLoading, refresh: refreshCliTools } = useCliTools();
+  const [cliToolsReady, setCliToolsReady] = useState(false);
   const [version, setVersion] = useState("...");
   const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -74,6 +67,17 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   }, [loadWorkspaces, workspaces.length, workspacesLoading]);
 
   useEffect(() => {
+    if (!cliToolsLoading) setCliToolsReady(true);
+  }, [cliToolsLoading]);
+
+  // 用户去终端装完 CLI 回到窗口时重新检测，新装的自动从「安装其他 Agent」移到 Agent 列表。
+  useEffect(() => {
+    const handleFocus = () => void refreshCliTools();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [refreshCliTools]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!isTauriRuntime()) {
       setVersion(packageJson.version);
@@ -101,69 +105,68 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
     setSidebarVisible(true);
   }, [setAppViewMode, setSidebarVisible]);
 
-  // Settings is loaded before the shell is released. Treat an unavailable value as
-  // the established dashboard so a transient settings fetch cannot flash onboarding.
-  const isNovice = settings?.general?.onboardingCompleted === false;
-
   const historySkeleton = (
-    <div className="min-w-0" data-testid="home-recent-projects-skeleton" aria-hidden="true">
-      <div className="mb-3 h-4 w-28 rounded bg-[var(--app-hover)] animate-pulse" />
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {[0, 1, 2, 3].map((item) => (
-          <div key={item} className="flex h-16 items-center gap-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3">
-            <Skeleton className="size-10 shrink-0 rounded-xl" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <Skeleton className="h-3 w-3/5" />
-              <Skeleton className="h-2.5 w-2/5" />
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="space-y-2 p-2" data-testid="home-recent-projects-skeleton" aria-hidden="true">
+      {[0, 1, 2, 3].map((item) => (
+        <Skeleton key={item} className="h-6 w-full" />
+      ))}
     </div>
   );
 
   return (
     <div className="app-scrollbar relative flex h-full flex-col overflow-y-auto" data-testid="home-dashboard" style={{ background: "var(--app-bg-deep)" }}>
-      {/* 首页是启动器：内容靠上、限宽，打开后眼睛不用找 */}
-      <div className="relative flex w-full max-w-[1280px] flex-col mx-auto px-6 pt-6 pb-10 space-y-5">
-        {/* 问候区 + 打开工作空间 */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="min-w-0 flex-1 basis-[420px]">
-            <HomeHeader version={version} />
-          </div>
-          <Button onClick={handleEnterWorkspace} className="shrink-0">
-            {t("enterWorkspace")}
-            <ArrowRight aria-hidden="true" />
-          </Button>
+      {/* 首页是启动器（参考 magpie 的分段节奏）：一段一张大卡、卡内一行一项，限宽靠上。
+          宽屏时「继续工作」挂到右侧栏（吸顶），窄屏落到主栏下方。 */}
+      <div className="relative mx-auto flex w-full max-w-[1460px] gap-8 px-6 pb-12 pt-6 max-xl:flex-col">
+        <div className="flex min-w-0 max-w-[1100px] flex-1 flex-col space-y-8">
+          <HomeHeader
+            version={version}
+            actions={
+              <>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleNewTerminal} data-testid="home-new-terminal">
+                  <SquareTerminal aria-hidden="true" />
+                  {t("newTerminal")}
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => useDialogStore.getState().openSettings()}>
+                  <Settings aria-hidden="true" />
+                  {t("settings")}
+                </Button>
+                <Button size="sm" onClick={handleEnterWorkspace}>
+                  {t("enterWorkspace")}
+                  <ArrowRight aria-hidden="true" />
+                </Button>
+              </>
+            }
+          />
+
+          {/* 对 agent 说：首页只发起，对话在工作区的 agent-chat 标签里进行 */}
+          <HomeAgentPrompt />
+
+          <HomeQuickStart installedTools={installedTools} />
+
+          <HomeAgentList
+            tools={cliTools}
+            installedTools={installedTools}
+            loading={cliToolsLoading}
+            onRefresh={() => void refreshCliTools()}
+          onOpenTerminal={onOpenTerminal}
+          />
+
+          <HomeAgentInstall installedTools={installedTools} ready={cliToolsReady} onOpenTerminal={onOpenTerminal} />
+          <HomeSetupDialogs />
         </div>
-        <HomeQuickActions onNewTerminal={handleNewTerminal} />
 
-        {/* 对 agent 说：首页只发起，对话在工作区的 agent-chat 标签里进行 */}
-        <HomeAgentPrompt />
-
-        {/* 活跃会话：真实信息密度，空态优雅降级 */}
-        <HomeActiveSessions />
-
-        {isNovice ? (
-          <HomeGettingStarted />
-        ) : (
-          <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-            {historyLoaded ? (
-              <HomeRecentProjects records={launchHistory} onOpenTerminal={onOpenTerminal} />
-            ) : showHistorySkeleton ? historySkeleton : null}
-            <HomePinnedWorkspaces workspaces={workspaces} onOpenTerminal={onOpenTerminal} />
-          </div>
-        )}
-
-        {/* 功能介绍只给新用户：老用户每次打开都看宣传卡是干扰。 */}
-        {isNovice && showDesignHighlights && (
-          <Suspense fallback={null}>
-            <HomeDesignHighlights
-              compact={false}
-              onDismiss={() => setShowDesignHighlights(false)}
-            />
-          </Suspense>
-        )}
+        <aside className="w-full shrink-0 xl:sticky xl:top-6 xl:max-h-[calc(100vh-5rem)] xl:w-80 xl:self-start xl:overflow-y-auto app-scrollbar">
+          <HomeWorkbench
+            workspaces={workspaces}
+            onOpenTerminal={onOpenTerminal}
+            recent={
+              historyLoaded ? (
+                <HomeRecentProjects records={launchHistory} onOpenTerminal={onOpenTerminal} />
+              ) : showHistorySkeleton ? historySkeleton : null
+            }
+          />
+        </aside>
       </div>
     </div>
   );

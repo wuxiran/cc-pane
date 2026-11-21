@@ -2316,11 +2316,6 @@ textarea,
 }
 
 /* Home Dashboard — hover styles */
-.home-quick-action:hover {
-  background: var(--app-hover) !important;
-  border-color: var(--app-accent) !important;
-}
-
 .home-project-card:hover {
   background: var(--app-hover) !important;
 }

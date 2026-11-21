@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowUpCircle, CheckCircle2 } from "lucide-react";
 import { useUpdateStore } from "@/stores";
@@ -7,6 +7,8 @@ import logoUrl from "@/assets/logo.svg";
 
 interface HomeHeaderProps {
   version: string;
+  /** 版本号右侧的操作按钮（新建终端 / 设置 / 打开工作空间）。 */
+  actions?: ReactNode;
 }
 
 function getGreetingKey(): "goodMorning" | "goodAfternoon" | "goodEvening" {
@@ -16,14 +18,14 @@ function getGreetingKey(): "goodMorning" | "goodAfternoon" | "goodEvening" {
   return "goodEvening";
 }
 
-export default function HomeHeader({ version }: HomeHeaderProps) {
+export default function HomeHeader({ version, actions }: HomeHeaderProps) {
   const { t } = useTranslation("home");
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
   const greetingKey = useMemo(getGreetingKey, []);
 
   return (
-    <div className="flex items-center justify-between gap-4 px-1">
+    <div className="flex flex-wrap items-center justify-between gap-4 px-1">
       <div className="flex items-center gap-3 min-w-0">
         <img
           src={logoUrl}
@@ -39,8 +41,8 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
         </h1>
       </div>
 
-      {/* 右侧：版本 + 更新状态 */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* 右侧：版本 + 更新状态 + 操作 */}
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <span className="text-xs tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
           v{version}
         </span>
@@ -65,6 +67,7 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
             {t("upToDate")}
           </span>
         )}
+        {actions ? <div className="ml-3 flex items-center gap-2">{actions}</div> : null}
       </div>
     </div>
   );

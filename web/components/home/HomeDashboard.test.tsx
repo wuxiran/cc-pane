@@ -1,4 +1,5 @@
 import "@/i18n";
+import type { ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
@@ -24,23 +25,36 @@ vi.mock("@/utils", async (importOriginal) => {
 });
 
 vi.mock("./HomeHeader", () => ({
-  default: ({ version }: { version: string }) => <div data-testid="header">{version}</div>,
-}));
-vi.mock("./HomeQuickActions", () => ({
-  default: ({ onNewTerminal }: { onNewTerminal: () => void }) => (
-    <button data-testid="quick-actions" onClick={onNewTerminal} />
+  default: ({ version, actions }: { version: string; actions?: ReactNode }) => (
+    <div data-testid="header">
+      {version}
+      {actions}
+    </div>
   ),
 }));
 vi.mock("./HomeAgentPrompt", () => ({
   default: () => <div data-testid="agent-prompt" />,
 }));
-vi.mock("./HomeDesignHighlights", () => ({
-  default: ({ compact }: { compact?: boolean }) => (
-    <div data-testid={compact ? "highlights-compact" : "highlights-card"} />
-  ),
+vi.mock("./HomeQuickStart", () => ({
+  default: () => <div data-testid="quick-start" />,
+}));
+vi.mock("./HomeAgentList", () => ({
+  default: () => <div data-testid="agent-list" />,
+}));
+vi.mock("./HomeAgentInstall", () => ({
+  default: () => <div data-testid="agent-install" />,
 }));
 vi.mock("./HomeActiveSessions", () => ({
   default: () => <div data-testid="active-sessions" />,
+}));
+vi.mock("@/hooks/useCliTools", () => ({
+  useCliTools: () => ({
+    tools: [],
+    installedTools: [],
+    loading: false,
+    refresh: vi.fn(async () => undefined),
+    getToolById: () => undefined,
+  }),
 }));
 
 describe("HomeDashboard", () => {
@@ -74,21 +88,23 @@ describe("HomeDashboard", () => {
     expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
   });
 
-  it("opens the launcher from the new terminal quick action", () => {
+  it("opens the launcher from the header new-terminal button", () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId("quick-actions"));
+    fireEvent.click(screen.getByTestId("home-new-terminal"));
 
     expect(useDialogStore.getState().launcherOpen).toBe(true);
   });
 
-  it("renders welcome, quick actions and active sessions without marketing cards for established users", () => {
+  it("renders the magpie-style sections in order: prompt, quick start, agents, install, then workbench rail", () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
 
-    expect(screen.getByTestId("header")).toBeInTheDocument();
-    expect(screen.getByTestId("quick-actions")).toBeInTheDocument();
+    const order = ["agent-prompt", "quick-start", "agent-list", "agent-install", "home-workbench"].map((id) =>
+      screen.getByTestId(id),
+    );
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index - 1].compareDocumentPosition(order[index]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     expect(screen.getByTestId("active-sessions")).toBeInTheDocument();
-    expect(screen.queryByTestId("highlights-compact")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("highlights-card")).not.toBeInTheDocument();
   });
 });

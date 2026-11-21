@@ -5,6 +5,7 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import HomeRecentProjects from "./HomeRecentProjects";
+import { useHomeSetupDialogStore } from "./homeSetupDialogStore";
 
 let recordId = 0;
 
@@ -46,9 +47,8 @@ describe("HomeRecentProjects", () => {
 
     fireEvent.click(screen.getByText("创建第一个工作空间"));
 
-    const state = useActivityBarStore.getState();
-    expect(state.appViewMode).toBe("panes");
-    expect(state.activeView).toBe("explorer");
+    // 在首页弹框里就地新建，不再跳去侧边栏
+    expect(useHomeSetupDialogStore.getState().mode).toBe("workspace");
   });
 
   it("同一 projectPath 的记录去重只保留最近一条", () => {

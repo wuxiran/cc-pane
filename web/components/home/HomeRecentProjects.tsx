@@ -5,7 +5,9 @@ import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import type { OpenTerminalOptions } from "@/types";
 import { buildLaunchRecordTerminalOptions } from "@/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { openHomeCreateWorkspace } from "./homeSetupDialogStore";
 
 interface HomeRecentProjectsProps {
   records: LaunchRecord[];
@@ -56,118 +58,66 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
 
   const uniqueRecords = deduplicateRecords(records).slice(0, 8);
 
-  if (uniqueRecords.length === 0) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2
-            className="text-base font-semibold"
-            style={{ color: "var(--app-text-primary)" }}
-          >
-            {t("recentProjects")}
-          </h2>
-        </div>
-        <div
-          className="relative flex flex-col items-center justify-center py-10 rounded-2xl overflow-hidden border border-[var(--app-home-border)] bg-[var(--app-home-surface)]"
-        >
-          {/* 点阵纹理装饰 */}
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: "radial-gradient(circle, var(--app-text-primary) 1px, transparent 1px)",
-              backgroundSize: "16px 16px",
-            }}
-          />
-          <FolderOpen
-            className="w-10 h-10 mb-3 relative"
-            style={{ color: "var(--app-text-tertiary)" }}
-          />
-          <p
-            className="text-sm mb-4 relative"
-            style={{ color: "var(--app-text-tertiary)" }}
-          >
-            {t("noRecentProjects")}
-          </p>
-          <button
-            className="relative px-5 py-2 rounded-lg text-sm font-medium cursor-default transition-all duration-[var(--dur-fast)] hover:opacity-90 hover:-translate-y-[0.5px]"
-            style={{
-              background: "var(--app-accent)",
-              color: "var(--primary-foreground)",
-              boxShadow: "0 2px 8px color-mix(in srgb, var(--app-accent) 25%, transparent)",
-            }}
-            onClick={() => {
-              setAppViewMode("panes");
-              toggleView("explorer");
-            }}
-          >
-            {t("createFirstWorkspace")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h2
-          className="text-base font-semibold"
-          style={{ color: "var(--app-text-primary)" }}
-        >
-          {t("recentProjects")}
-        </h2>
+  const header = (
+    <div className="mb-2 flex items-center justify-between px-2">
+      <h3 className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">{t("recentProjects")}</h3>
+      {uniqueRecords.length > 0 && (
         <button
-          className="flex items-center gap-1 text-xs cursor-default transition-colors duration-[var(--dur-fast)] hover:underline"
-          style={{ color: "var(--app-accent)" }}
+          type="button"
+          className="flex items-center gap-0.5 text-[length:var(--text-small)] text-[var(--app-accent)] hover:underline"
           onClick={() => {
             setAppViewMode("panes");
             toggleView("sessions");
           }}
         >
           {t("viewAll")}
-          <ChevronRight className="w-3 h-3" />
+          <ChevronRight className="size-3" aria-hidden="true" />
         </button>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-        {uniqueRecords.map((record) => (
-          <div
-            key={record.id}
-            className="home-project-card flex items-center gap-3.5 p-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-all duration-[var(--dur-fast)] group hover:-translate-y-[0.5px] hover:bg-[var(--app-home-surface-hover)] hover:shadow-[var(--sh-md)] hover:border-[var(--app-home-border-hover)]"
+      )}
+    </div>
+  );
+
+  if (uniqueRecords.length === 0) {
+    return (
+      <div className="min-w-0">
+        {header}
+        <div className="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
+          <FolderOpen className="mb-1 size-6 text-[var(--app-text-tertiary)]" aria-hidden="true" />
+          <p className="text-[length:var(--text-body)] text-[var(--app-text-secondary)]">{t("noRecentProjects")}</p>
+          <Button
+            type="button"
+            size="sm"
+            className="mt-3"
+            onClick={openHomeCreateWorkspace}
           >
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{
-                background: "color-mix(in srgb, var(--app-accent) 10%, transparent)",
-              }}
-            >
-              <FolderOpen
-                className="w-[18px] h-[18px]"
-                style={{ color: "var(--app-accent)" }}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p
-                className="text-sm font-medium truncate"
-                style={{ color: "var(--app-text-primary)" }}
-              >
-                {record.projectName}
-              </p>
-              <div className="flex items-center gap-1">
-                <Clock
-                  className="w-3 h-3 shrink-0"
-                  style={{ color: "var(--app-text-tertiary)" }}
-                />
-                <p
-                  className="text-xs truncate"
-                  style={{ color: "var(--app-text-tertiary)" }}
-                >
-                  {formatRelativeTime(record.launchedAt)}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-[var(--dur-fast)] translate-x-1 group-hover:translate-x-0 shrink-0">
-              <Tooltip><TooltipTrigger asChild><button
-                className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]" aria-label={t("open")}
+            {t("createFirstWorkspace")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0">
+      {header}
+      <ul>
+        {uniqueRecords.map((record) => (
+          <li
+            key={record.id}
+            className="home-project-card group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
+          >
+            <FolderOpen className="size-4 shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-body)] text-[var(--app-text-primary)]">
+              {record.projectName}
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
+              <Clock className="size-3" aria-hidden="true" />
+              {formatRelativeTime(record.launchedAt)}
+            </span>
+            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-[var(--dur-fast)] focus-within:opacity-100 group-hover:opacity-100">
+              <IconTooltipButton
+                label={t("open")}
+                className="size-7"
                 onClick={() =>
                   openRecentProject({
                     path: record.projectPath,
@@ -178,22 +128,21 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                   })
                 }
               >
-                <Play className="w-3.5 h-3.5" />
-              </button></TooltipTrigger><TooltipContent>{t("open")}</TooltipContent></Tooltip>
+                <Play className="size-3.5" aria-hidden="true" />
+              </IconTooltipButton>
               {record.resumeSessionId && (
-                <Tooltip><TooltipTrigger asChild><button
-                  className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-accent)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]" aria-label={t("resume")}
-                  onClick={() =>
-                    openRecentProject(buildLaunchRecordTerminalOptions(record, workspaces, machines))
-                  }
+                <IconTooltipButton
+                  label={t("resume")}
+                  className="size-7 text-[var(--app-accent)]"
+                  onClick={() => openRecentProject(buildLaunchRecordTerminalOptions(record, workspaces, machines))}
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button></TooltipTrigger><TooltipContent>{t("resume")}</TooltipContent></Tooltip>
+                  <RotateCcw className="size-3.5" aria-hidden="true" />
+                </IconTooltipButton>
               )}
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

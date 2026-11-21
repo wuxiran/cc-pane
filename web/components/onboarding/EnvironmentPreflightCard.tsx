@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { CheckCircle2, Copy, Loader2, MinusCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { EnvironmentInfo } from "@/types";
+import { primaryInstallCommand } from "@/components/home/agentCatalog";
 
 interface EnvironmentPreflightCardProps {
   environment: EnvironmentInfo | null;
@@ -20,20 +21,19 @@ interface ProbeItem {
 }
 
 function repairCommand(id: string): string | undefined {
+  // Agent CLI 的安装命令与首页「安装其他 Agent」共用一份清单，避免两处漂移。
+  const agentCommand = primaryInstallCommand(id);
+  if (agentCommand) return agentCommand;
   const windows = typeof navigator !== "undefined" && /Win/i.test(navigator.platform);
   const commands: Record<string, string> = windows
     ? {
         node: "winget install OpenJS.NodeJS.LTS",
         git: "winget install --id Git.Git -e",
         wsl: "wsl --install",
-        claude: "npm install -g @anthropic-ai/claude-code",
-        codex: "npm install -g @openai/codex",
       }
     : {
         node: "nvm install --lts",
         git: "sudo apt install git",
-        claude: "npm install -g @anthropic-ai/claude-code",
-        codex: "npm install -g @openai/codex",
       };
   return commands[id];
 }
