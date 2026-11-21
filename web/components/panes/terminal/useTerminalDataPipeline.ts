@@ -1,5 +1,6 @@
 // 终端数据管线：渲染剥色、缓冲类型跟踪、重绘/重排、唯一写入出口、隐藏积压补投。
 // 从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
+import type { TerminalResyncTrigger } from "@/components/panes/terminalResync";
 import { useCallback, useEffect, useMemo } from "react";
 import { registerTerminalPerformanceSource } from "@/services/performanceMetrics";
 import type { Terminal } from "@xterm/xterm";
@@ -39,7 +40,7 @@ export interface UseTerminalDataPipelineParams {
   writeFlowControlRef: RefValue<ReturnType<typeof createTerminalWriteFlowControl> | null>;
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   resyncInProgressRef: RefValue<boolean>;
-  overflowResyncRef: RefValue<(() => Promise<boolean>) | null>;
+  overflowResyncRef: RefValue<TerminalResyncTrigger | null>;
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
 }
 

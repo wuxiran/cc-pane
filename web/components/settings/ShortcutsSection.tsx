@@ -31,6 +31,7 @@ const actionI18nKeys: Record<string, string> = {
   "terminal-zoom-in": "terminal-zoom-in",
   "terminal-zoom-out": "terminal-zoom-out",
   "terminal-zoom-reset": "terminal-zoom-reset",
+  "terminal-rebuild-display": "terminal-rebuild-display",
   "toggle-mini-mode": "toggle-mini-mode",
   "voice-input": "voice-input",
   "toggle-right-dock": "toggle-right-dock",

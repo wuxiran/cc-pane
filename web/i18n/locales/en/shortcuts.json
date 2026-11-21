@@ -24,6 +24,7 @@
   "switch-layout": "Switch to Layout {{index}}",
   "terminal-zoom-in": "Zoom in terminal",
   "terminal-zoom-out": "Zoom out terminal",
+  "terminal-rebuild-display": "Rebuild terminal display",
   "terminal-zoom-reset": "Reset terminal zoom",
   "close-pane": "Close Pane",
   "equalize-panes": "Equalize Splits",

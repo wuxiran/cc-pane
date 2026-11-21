@@ -41,9 +41,12 @@ function setup(options: {
   daemonLast?: number | null;
   daemonRecent?: boolean;
   rebindOutput?: () => Promise<unknown>;
+  resyncRunning?: boolean;
 }) {
   const flushHiddenWrites = vi.fn().mockResolvedValue("flushed");
-  const overflowResync = vi.fn().mockResolvedValue(true);
+  const overflowResync = Object.assign(vi.fn().mockResolvedValue(true), {
+    isRunning: () => options.resyncRunning ?? false,
+  });
   const onRendererFailure = vi.fn();
   const resyncInProgressRef = { current: options.resync ?? false };
   const debugLog = vi.fn();
@@ -143,6 +146,44 @@ describe("useTerminalWriteWatchdog", () => {
       await vi.advanceTimersByTimeAsync(33_000);
       expect(resyncInProgressRef.current).toBe(false);
       expect(overflowResync).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never opens the gate underneath a resync that is still writing", async () => {
+    vi.useFakeTimers();
+    try {
+      const { overflowResync, resyncInProgressRef, onRendererFailure } = setup({ resync: true, resyncRunning: true });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(resyncInProgressRef.current).toBe(true);
+      expect(overflowResync).not.toHaveBeenCalled();
+      expect(onRendererFailure).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rebuilds the view when a running resync is truly hung", async () => {
+    vi.useFakeTimers();
+    try {
+      const { overflowResync, resyncInProgressRef, onRendererFailure } = setup({ resync: true, resyncRunning: true });
+      await vi.advanceTimersByTimeAsync(123_000);
+      expect(onRendererFailure).toHaveBeenCalledTimes(1);
+      expect(resyncInProgressRef.current).toBe(true);
+      expect(overflowResync).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a hidden view's gate closed while it waits for the visible edge", async () => {
+    vi.useFakeTimers();
+    try {
+      const { overflowResync, resyncInProgressRef } = setup({ resync: true, visible: false, domVisible: false });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(resyncInProgressRef.current).toBe(true);
+      expect(overflowResync).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

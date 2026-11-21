@@ -368,6 +368,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "terminal-zoom-in": "Ctrl+=",
         "terminal-zoom-out": "Ctrl+-",
         "terminal-zoom-reset": "Ctrl+0",
+        "terminal-rebuild-display": "Ctrl+Shift+R",
         "toggle-layouts": "Ctrl+Alt+L",
         "split-right": "Ctrl+\\",
         "split-down": "Ctrl+-",

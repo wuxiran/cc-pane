@@ -1,4 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
+import { TERMINAL_REBUILD_DISPLAY_EVENT } from "./terminalFitEvents";
+import { isSecondaryTerminalView } from "./terminalViewOwnership";
+import type { TerminalResyncTrigger } from "@/components/panes/terminalResync";
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 // xterm 只作类型引用；构造器与 css 经 terminal/terminalXtermModules 动态装载。
 import type { Terminal, IDisposable } from "@xterm/xterm";
@@ -256,7 +259,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const resyncInProgressRef = useRef(false);
     /** 最近收到输出 chunk 的时间戳（watchdog D 输出饿死检测锚点）。 */
     const lastOutputReceivedAtRef = useRef(0);
-    const overflowResyncRef = useRef<(() => Promise<boolean>) | null>(null);
+    const overflowResyncRef = useRef<TerminalResyncTrigger | null>(null);
     const pendingExitDuringResyncRef = useRef<PendingSessionExit | null>(null);
 
     const {
@@ -755,6 +758,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       requestBufferResync: () => overflowResyncRef.current?.() ?? Promise.resolve(false),
       redrawBackend: () => layoutSchedulerRef.current?.redrawBackend(),
     });
+
+    // 快捷键 / 命令面板「重建终端画面」：只由该会话可驱动 PTY 的主视图执行（镜像/只读视图没有这个菜单项）。
+    useEffect(() => {
+      const onRebuild = (event: Event) => {
+        const target = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+        if (!target || target !== currentSessionIdRef.current) return;
+        if (!drivesBackendPty || readOnlyRef.current) return;
+        if (isSecondaryTerminalView(terminalInstanceRef.current)) return;
+        handleMenuResetBuffer();
+      };
+      window.addEventListener(TERMINAL_REBUILD_DISPLAY_EVENT, onRebuild);
+      return () => window.removeEventListener(TERMINAL_REBUILD_DISPLAY_EVENT, onRebuild);
+    }, [drivesBackendPty, handleMenuResetBuffer]);
 
     const sessionMenu = useTerminalSessionMenu({
       tabId: props.tabId,

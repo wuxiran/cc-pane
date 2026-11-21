@@ -163,6 +163,13 @@ async function restoreSnapshot({
   return true;
 }
 
+/**
+ * 重同步触发器：调用即发起（或并入进行中的）一轮快照重建。
+ * `isRunning` 让看门狗分辨「闸门合着是因为恢复还在写」和「闸门合着但没人在干活」——
+ * 前者绝不能强行开闸，否则实时输出会插进写了一半的快照里（花屏）。
+ */
+export type TerminalResyncTrigger = (() => Promise<boolean>) & { isRunning?: () => boolean };
+
 /** 闸门期暂存溢出后最多连续重取几轮快照。 */
 export const MAX_GATE_OVERFLOW_ROUNDS = 3;
 
@@ -220,7 +227,7 @@ export function createTerminalDesyncHandler({
   consumeGateOverflow,
   onResyncSettled,
   debugLog,
-}: CreateTerminalDesyncHandlerOptions): (() => Promise<boolean>) & { dispose: () => void } {
+}: CreateTerminalDesyncHandlerOptions): TerminalResyncTrigger & { dispose: () => void; isRunning: () => boolean } {
   let activeResync: Promise<boolean> | null = null;
   let coreResyncActive = false;
   let snapshotRequested = false;
@@ -309,5 +316,6 @@ export function createTerminalDesyncHandler({
     return completion;
   };
   handler.dispose = () => { if (disposed) return; disposed = true; setResyncActive(false); };
+  handler.isRunning = () => !disposed && activeResync !== null;
   return handler;
 }

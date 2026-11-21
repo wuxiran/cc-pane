@@ -40,6 +40,7 @@ const TERMINAL_ONLY_ACTIONS = new Set([
   "terminal-zoom-in",
   "terminal-zoom-out",
   "terminal-zoom-reset",
+  "terminal-rebuild-display",
 ]);
 
 function detectMac(): boolean {

@@ -1,5 +1,6 @@
 // 会话回调绑定：输出/退出/desync 订阅的挂接与注销、SSH 重连。
 // 从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
+import type { TerminalResyncTrigger } from "@/components/panes/terminalResync";
 import { useCallback, useMemo } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
@@ -29,7 +30,7 @@ export interface UseTerminalSessionCallbacksParams {
   resyncInProgressRef: RefValue<boolean>;
   /** 每收到一个输出 chunk 打时间戳（watchdog D 输出饿死检测的对照锚点）。 */
   lastOutputReceivedAtRef?: RefValue<number>;
-  overflowResyncRef: RefValue<(() => Promise<boolean>) | null>;
+  overflowResyncRef: RefValue<TerminalResyncTrigger | null>;
   pendingExitDuringResyncRef: RefValue<PendingSessionExit | null>;
   isSshRef: RefValue<boolean>;
   isDisconnectedRef: RefValue<boolean>;

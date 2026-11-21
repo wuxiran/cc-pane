@@ -1,5 +1,6 @@
 import type { Terminal } from "@xterm/xterm";
 
+import type { TerminalResyncTrigger } from "./terminalResync";
 import { registerCheckpointRequest } from "@/services/terminalCheckpoint";
 import { getRecoverySnapshot } from "@/services/terminalRecovery";
 import { clearTerminalOutputDesyncLatch, terminalService } from "@/services/terminalService";
@@ -23,7 +24,7 @@ interface RefValue<T> {
 }
 type BindingLogger = (event: string, payload?: Record<string, unknown>) => void;
 export type HiddenWriteFlushOutcome = "ready" | "resync";
-type TerminalResyncHandler = () => Promise<boolean>;
+type TerminalResyncHandler = TerminalResyncTrigger;
 
 export interface PendingSessionExit {
   sessionId: string;

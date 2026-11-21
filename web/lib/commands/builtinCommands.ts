@@ -43,6 +43,7 @@ import {
 import { LAYOUT_BAR_TOGGLE_EVENT } from "@/components/LayoutBar";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/components/CommandPalette";
 import { CLOSE_ACTIVE_TAB_EVENT } from "@/components/panes/useTabClosing";
+import { requestTerminalRebuildDisplay } from "@/components/panes/terminalFitEvents";
 import { findPaneFocusTarget, readPaneFocusRects, type PaneFocusDirection } from "@/utils/paneFocus";
 import { buildDeepFeatureCommands } from "./deepFeatureCommands";
 import { buildDockCommands } from "./dockCommands";
@@ -108,6 +109,19 @@ function requestVoiceInput(): void {  const s = usePanesStore.getState();
     return;
   }
   useVoiceInputStore.getState().requestToggle(`${leaf.id}:${leaf.sessionId}`);
+}
+
+/** 当前窗格激活标签里激活的终端分屏会话；没有可用会话时提示并返回 null。 */
+function activeTerminalSessionId(): string | null {
+  const s = usePanesStore.getState();
+  const pane = s.findPaneById(s.activePaneId);
+  const tab = pane?.type === "panel" ? pane.tabs.find((item) => item.id === pane.activeTabId) : undefined;
+  if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return null;
+  const activeLeaf = tab.activeTerminalPaneId
+    ? findTerminalLeaf(tab.terminalRootPane, tab.activeTerminalPaneId)
+    : null;
+  const leaf = activeLeaf ?? firstTerminalLeaf(tab.terminalRootPane);
+  return leaf?.sessionId ?? null;
 }
 
 // 工厂而非模块级常量：i18n.t 在注册时（App effect 里）求值，与旧实现时机一致。
@@ -348,6 +362,18 @@ export function buildBuiltinCommands(): CommandDescriptor[] {
       context: "terminal",
       run: () =>
         useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT),
+    },
+    {
+      // 右键「更多 → 重建终端画面」的快捷入口：buffer 级花屏的对症药，仍会弹确认。
+      id: "terminal-rebuild-display",
+      titleKey: "terminal-rebuild-display",
+      icon: RotateCcw,
+      group: "terminal",
+      context: "terminal",
+      run: () => {
+        const sessionId = activeTerminalSessionId();
+        if (sessionId) requestTerminalRebuildDisplay(sessionId);
+      },
     },
     {
       id: "toggle-mini-mode",

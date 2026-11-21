@@ -24,6 +24,7 @@
   "switch-layout": "切换到布局 {{index}}",
   "terminal-zoom-in": "终端放大",
   "terminal-zoom-out": "终端缩小",
+  "terminal-rebuild-display": "重建终端画面",
   "terminal-zoom-reset": "终端缩放复位",
   "close-pane": "关闭窗格",
   "equalize-panes": "均衡所有分屏",

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { TerminalResyncTrigger } from "@/components/panes/terminalResync";
 import type { Terminal } from "@xterm/xterm";
 import type { TerminalHiddenWriteBuffer } from "../terminalHiddenWriteBuffer";
 import type { createTerminalWriteFlowControl } from "../terminalWriteFlowControl";
@@ -13,7 +14,7 @@ export interface UseTerminalWriteWatchdogParams {
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   writeFlowControlRef: RefValue<ReturnType<typeof createTerminalWriteFlowControl> | null>;
   resyncInProgressRef: RefValue<boolean>;
-  overflowResyncRef: RefValue<(() => Promise<boolean>) | null>;
+  overflowResyncRef: RefValue<TerminalResyncTrigger | null>;
   flushHiddenWrites: (reason: string) => Promise<unknown>;
   onRendererFailure: (error: Error) => void;
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
@@ -29,8 +30,10 @@ export interface UseTerminalWriteWatchdogParams {
 const TICK_MS = 2_000;
 /** 写队列里最老的块等回调超过这个值 = 回调链死了（xterm/渲染器卡住），pump 永久 blocked。 */
 const STUCK_OLDEST_WAIT_MS = 15_000;
-/** resync 闸门合上超过这个值未解开 = 恢复流程挂死，积压永远等不到 flush。 */
+/** resync 闸门合上超过这个值未解开、且没有恢复在跑 = 闸门被遗弃，积压永远等不到 flush。 */
 const RESYNC_STALL_MS = 30_000;
+/** 恢复确实在跑却超过这个值还没结束 = 恢复本身挂死：重建视图，而不是在它写到一半时开闸。 */
+const RESYNC_HUNG_MS = 120_000;
 /** D 类窗口：daemon 在产输出而本视图零收到的判定时长。 */
 const STARVE_CHECK_MS = 12_000;
 /** 重绑后仍饿到这个时长 = 订阅层无救，强 resync 重放。 */
@@ -46,6 +49,9 @@ const RECOVERY_COOLDOWN_MS = 60_000;
  *     born-visible 时此后没有 hidden→visible 边沿，flush 永不触发；
  * B. 流控卡死：xterm 写回调不再回来，pendingCallbacks 顶到高水位，pump 永久 blocked；
  * C. resync 挂死：闸门合上后恢复流程未 settle，flush 永远返回 "resync" 等待。
+ *    只有「闸门合着、视图可见、却没有恢复在跑」才开闸重跑；视图隐藏时合闸是在等
+ *    可见边沿，属正常。恢复在跑时开闸会让实时输出插进写了一半的快照（实测花屏），
+ *    所以在跑的恢复只在久到挂死时走重建视图。
  * 每类都复用既有恢复原语（flush / 关闭旧 writer 并重建视图 / 重跑 resync）。
  */
 export function useTerminalWriteWatchdog({
@@ -65,6 +71,7 @@ export function useTerminalWriteWatchdog({
 }: UseTerminalWriteWatchdogParams): void {
   useEffect(() => {
     let resyncSince: number | null = null;
+    let runningSince: number | null = null;
     let starvedSince: number | null = null;
     let rebindAttempted = false;
     let wasDeliverable = true;
@@ -117,7 +124,21 @@ export function useTerminalWriteWatchdog({
       }
 
       // C：resync 闸门挂死 = 解开闸门并重跑恢复，让积压有出口。
-      if (resyncInProgressRef.current) {
+      const resyncRunning = overflowResyncRef.current?.isRunning?.() ?? false;
+      if (resyncInProgressRef.current && resyncRunning) {
+        resyncSince = null;
+        runningSince ??= now;
+        if (now - runningSince >= RESYNC_HUNG_MS && cooledDown("resync-hung", now)) {
+          debugLog("watchdog.resync-hung", { runningMs: now - runningSince });
+          runningSince = null;
+          onRendererFailure(new Error("Terminal resync did not finish"));
+        }
+      } else if (resyncInProgressRef.current && !(isRenderVisible() || domVisible())) {
+        // 隐藏视图合着闸是在等可见边沿来重建，不算挂死；回到可见再从头计时。
+        resyncSince = null;
+        runningSince = null;
+      } else if (resyncInProgressRef.current) {
+        runningSince = null;
         resyncSince ??= now;
         if (now - resyncSince >= RESYNC_STALL_MS && cooledDown("resync-stall", now)) {
           debugLog("watchdog.resync-stall", { stalledMs: now - resyncSince });
@@ -127,6 +148,7 @@ export function useTerminalWriteWatchdog({
         }
       } else {
         resyncSince = null;
+        runningSince = null;
       }
 
       // D：输出饿死——daemon 近期有产出而本视图零收到（订阅死/闸门卡）。
