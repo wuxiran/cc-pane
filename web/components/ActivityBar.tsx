@@ -1,19 +1,4 @@
-import {
-  SolidBell,
-  SolidBoxes,
-  SolidCalendarClock,
-  SolidClapperboard,
-  SolidContact,
-  SolidFolderTree,
-  SolidHistory,
-  SolidHouse,
-  SolidLibrary,
-  SolidListTodo,
-  SolidMonitorSmartphone,
-  SolidNetwork,
-  SolidSettings,
-  type SolidIcon,
-} from "@/components/icons/solidIcons";
+import { Boxes, CalendarClock, Clapperboard, Contact, FolderTree, House, Library, Settings } from "lucide-react";
 import { ACTIVITY_ICON_ACTIVE, ACTIVITY_ICON_IDLE } from "@/components/activityBarIconStyle";
 import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 import { useTranslation } from "react-i18next";
@@ -50,16 +35,6 @@ import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
-
-// 活动栏用实心款（lucide 只有线框，几何复用自 lucide，见 solidIcons.tsx）；
-// 菜单等文字列表里仍用线框款。没有实心款的模块回落到 lucide。
-const SOLID_MODULE_ICONS: Partial<Record<ModuleId, SolidIcon>> = {
-  ssh: SolidMonitorSmartphone,
-  orchestration: SolidNetwork,
-  todo: SolidListTodo,
-  aiPanel: SolidBell,
-  sessionHistory: SolidHistory,
-};
 
 const ICON_CLASS = "h-[18px] w-[18px]";
 
@@ -264,7 +239,7 @@ export default function ActivityBar() {
         >
           <div className="flex w-full flex-col items-center gap-2 pb-2">
             <ActivityBarIcon
-              icon={<SolidHouse className={ICON_CLASS} />}
+              icon={<House className={ICON_CLASS} />}
               label={t("home")}
               active={appViewMode === "home"}
               onClick={useActivityBarStore.getState().toggleHomeMode}
@@ -277,27 +252,27 @@ export default function ActivityBar() {
 
           <div className="flex w-full flex-col gap-1.5">
             <ActivityBarIcon
-              icon={<SolidFolderTree className={ICON_CLASS} />}
+              icon={<FolderTree className={ICON_CLASS} />}
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
             />
             {/* 通讯录：常驻、有人设的 Bot 联系人（原在资源管理器标题旁） */}
             <ActivityBarIcon
-              icon={<SolidContact className={ICON_CLASS} />}
+              icon={<Contact className={ICON_CLASS} />}
               label={t("bots.tab")}
               active={activeView === "contacts" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("contacts")}
             />
             <ActivityBarIcon
-              icon={<SolidBoxes className={ICON_CLASS} />}
+              icon={<Boxes className={ICON_CLASS} />}
               label={t("moduleNames.resources")}
               active={appViewMode === "resources"}
               onClick={toggleResourcesMode}
             />
             {librarySpaceEnabled && librarySpace.available ? (
               <ActivityBarIcon
-                icon={<SolidLibrary className={ICON_CLASS} />}
+                icon={<Library className={ICON_CLASS} />}
                 label={librarySpace.label}
                 active={false}
                 onClick={librarySpace.open}
@@ -305,20 +280,19 @@ export default function ActivityBar() {
             ) : null}
             {dramaStudioEnabled ? (
               <ActivityBarIcon
-                icon={<SolidClapperboard className={ICON_CLASS} />}
+                icon={<Clapperboard className={ICON_CLASS} />}
                 label={t("dramaStudio")}
                 active={appViewMode === "dramaGen"}
                 onClick={toggleDramaGenMode}
               />
             ) : null}
             {visibleModules.map((module) => {
-              const Solid = SOLID_MODULE_ICONS[module.id];
               const Icon = module.icon;
               return (
                 <ActivityBarIcon
                   key={module.id}
                   moduleId={module.id}
-                  icon={Solid ? <Solid className={ICON_CLASS} /> : <Icon className={ICON_CLASS} strokeWidth={1.5} />}
+                  icon={<Icon className={ICON_CLASS} />}
                   label={t(module.titleKey as never)}
                   active={isModuleActive(module.id)}
                   onClick={() => module.open("activityBar")}
@@ -332,13 +306,13 @@ export default function ActivityBar() {
             {layoutSwitcherMode === "corner" && <LayoutBar />}
             <ModuleAddMenu />
             <ActivityBarIcon
-              icon={<SolidCalendarClock className={ICON_CLASS} />}
+              icon={<CalendarClock className={ICON_CLASS} />}
               label={t("agentChatsAutomations")}
               active={false}
               onClick={openAutomationsDialog}
             />
             <ActivityBarIcon
-              icon={<SolidSettings className={ICON_CLASS} />}
+              icon={<Settings className={ICON_CLASS} />}
               label={t("settings", { ns: "common", defaultValue: "Settings" })}
               active={false}
               onClick={openSettings}

@@ -1,4 +1,4 @@
-import { SolidPlus } from "@/components/icons/solidIcons";
+import { Plus } from "lucide-react";
 import { ACTIVITY_ICON_IDLE } from "@/components/activityBarIconStyle";
 import { useTranslation } from "react-i18next";
 import {
@@ -66,7 +66,7 @@ export default function ModuleAddMenu() {
               aria-label={t("moduleAdd.trigger")}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${ACTIVITY_ICON_IDLE}`}
             >
-              <SolidPlus className="h-[18px] w-[18px]" />
+              <Plus className="h-[18px] w-[18px]" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

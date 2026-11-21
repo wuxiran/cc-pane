@@ -1,6 +1,7 @@
 import { terminalForkSource } from "@/services/chatForkService";
 import { collectTabs } from "@/lib/paneSessions";
 import { usePanesStore } from "@/stores";
+import { eachLayoutTree } from "@/stores/paneLayoutHelpers";
 import ChatForkDialog from "./ChatForkDialog";
 
 interface Props {
@@ -25,8 +26,9 @@ export default function TerminalForkDialog({ open, onOpenChange, tabId, leafId }
         const location = store.findTabAcrossLayouts(tabId);
         if (!location) throw new Error("This terminal is no longer open");
         const { buildTerminalFork } = await import("@/services/chatForkLaunch");
-        const titles = collectTabs(store.rootPane).map((t) => t.title);
-        for (const layout of store.layouts) titles.push(...collectTabs(layout.rootPane).map((t) => t.title));
+        // 全部布局的标签标题（当前布局的活树由 eachLayoutTree 经 layoutTree 取到）
+        const titles: string[] = [];
+        eachLayoutTree(store, (_layout, tree) => titles.push(...collectTabs(tree).map((t) => t.title)));
         const options = await buildTerminalFork(location.tab, mode, leafId, titles);
         store.addTab(location.panel.id, options);
       }}

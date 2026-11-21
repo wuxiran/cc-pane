@@ -5,14 +5,17 @@ import { resolve } from "path";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      "@": resolve(__dirname, "web"),
+    alias: [
+      { find: "@", replacement: resolve(__dirname, "web") },
+      // 与 vite.config.ts 同口径：lucide-react → 实心款映射层。必须用精确正则，
+      // 字符串别名会连 shim 自己引用的 lucide-react/dist/... 深路径一起改写。
+      { find: /^lucide-react$/, replacement: resolve(__dirname, "web/components/icons/lucideSolidShim.ts") },
       // monaco-editor 的 package.json 只有 module 字段、没有 main/exports，
       // vite-node 的 SSR 解析会直接拒绝它；而 Vitest 4 对 vi.mock 的模块做导出
       // 形状分析时仍需完成解析。指向 ESM 入口即可（仅测试环境生效，构建走
       // vite.config.ts，不受本别名影响）。
-      "monaco-editor": resolve(__dirname, "node_modules/monaco-editor/esm/vs/editor/editor.main.js"),
-    },
+      { find: /^monaco-editor$/, replacement: resolve(__dirname, "node_modules/monaco-editor/esm/vs/editor/editor.main.js") },
+    ],
   },
   test: {
     globals: true,

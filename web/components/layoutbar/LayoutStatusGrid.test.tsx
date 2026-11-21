@@ -30,7 +30,8 @@ describe("LayoutStatusGrid", () => {
     const row = screen.getByTestId("layout-status-row");
     const shapes = Array.from(row.querySelectorAll("[data-status-cell]")).map((cell) => {
       const svg = cell.querySelector("svg");
-      return `${svg?.getAttribute("class")}|${svg?.getAttribute("fill")}`;
+      // 实心/空心由图标的粗细档体现（data-icon-weight），fill 属性已统一为颜色
+      return `${svg?.getAttribute("class")}|${svg?.getAttribute("data-icon-weight")}`;
     });
     // 四个形状签名互不相同
     expect(new Set(shapes).size).toBe(4);

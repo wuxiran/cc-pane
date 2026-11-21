@@ -92,7 +92,7 @@ vi.mock("./useWorkspaceActions", () => ({
 }));
 
 vi.mock("@/services", () => ({ worktreeService: { list: vi.fn(async () => []) } }));
-vi.mock("@/services/runtime", () => ({ isTauriRuntime: () => false }));
+vi.mock("@/services/runtime", () => ({ isTauriRuntime: () => false, logErrorSafe: () => Promise.resolve() }));
 vi.mock("@/stores/useActivityBarStore", () => ({
   useActivityBarStore: { getState: () => ({ toggleFilesMode: vi.fn() }) },
 }));

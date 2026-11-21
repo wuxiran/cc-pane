@@ -10,9 +10,11 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": resolve(__dirname, "web"),
-    },
+    alias: [
+      // 全应用图标统一为实心款：lucide-react 指向映射层（见 web/components/icons/lucideSolidShim.ts）
+      { find: /^lucide-react$/, replacement: resolve(__dirname, "web/components/icons/lucideSolidShim.ts") },
+      { find: "@", replacement: resolve(__dirname, "web") },
+    ],
   },
   build: {
     rollupOptions: {
