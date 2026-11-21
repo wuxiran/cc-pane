@@ -5,7 +5,9 @@ use super::cached_which;
 use super::TerminalService;
 use crate::models::{CliTool, WslLaunchInfo};
 #[cfg(windows)]
-use crate::services::default_skill_service::{BUNDLED_NAMESPACE, VERSION_FILE_NAME};
+use crate::services::default_skill_service::BUNDLED_NAMESPACE;
+#[cfg(any(windows, test))]
+use crate::services::default_skill_service::VERSION_FILE_NAME;
 #[cfg(windows)]
 use crate::services::DefaultSkillService;
 use anyhow::{anyhow, Result};
@@ -28,6 +30,8 @@ pub(super) struct WslWorkspaceInjection {
     pub codex_workspace_skills: Vec<(String, String)>,
     /// 用来清理本工作空间旧链接的前缀（`ccpanes-ws-<slug>-`）
     pub codex_workspace_link_prefix: Option<String>,
+    /// 启动档要求「只用选中的 MCP」（docs/110 批 3/4）：Claude 在 WSL 里同样加 `--strict-mcp-config`。
+    pub isolate_mcp: bool,
 }
 
 impl WslWorkspaceInjection {
@@ -86,6 +90,7 @@ impl WslWorkspaceInjection {
             claude_plugin_dirs,
             codex_workspace_skills,
             codex_workspace_link_prefix,
+            isolate_mcp: disable_unlisted_mcp_servers,
         }
     }
 }
@@ -1088,12 +1093,25 @@ fn collect_wsl_pi_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     Ok(dirs)
 }
 
-/// WSL 内 `~/.codex/skills` 下记录「上次由 CC-Panes 同步进来的内置 skill 目录名」的清单文件。
-#[cfg(windows)]
+/// WSL 内 `~/.codex/skills` 下记录「上次由 CC-Panes 放进来的内置 skill 目录名」的清单文件。
+#[cfg(any(windows, test))]
 const WSL_MANAGED_LIST_FILE_NAME: &str = ".ccpanes-managed-skills";
 
-#[cfg(windows)]
-fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String]) -> Vec<String> {
+/// Codex 内置 skill 在 WSL 里的投递：**符号链接**到宿主 managed 目录的 `/mnt/...` 路径，
+/// 不再拷贝（docs/110 批 4）。
+///
+/// 为什么不用本机那条 `-c skills.config=[{path=...}]`：codex 0.169.0 实测它不会把
+/// `~/.codex/skills` / `.agents/skills` 之外的目录加进技能清单（`codex debug prompt-input`
+/// 里看不到，docs/110 §7 #1），在 WSL 里换成它等于把技能全丢了。符号链接 Codex 会跟随
+/// （同一实测），内容始终是宿主那份，不再有过期拷贝；链接本身是 guest 里唯一的残留。
+///
+/// - 只碰我们的东西：清单里有、本次期望集里没有的 `ccpanes-*` 删掉（门控 skill 关掉后要消失）；
+///   期望项是符号链接、不存在、或是清单里记着的旧拷贝时才（重）建链接；用户自建的同名真实
+///   目录（不在清单里）原样保留。`rm -rf` 作用在符号链接上只删链接本身。
+/// - 旧版拷贝留下的版本戳文件一并删掉。
+#[cfg(any(windows, test))]
+fn build_wsl_codex_skill_link_prelude(source_wsl_path: &str, dir_names: &[String]) -> Vec<String> {
+    let expected_list = dir_names.join(" ");
     let mut commands = vec![
         format!(
             "CCPANES_WSL_CODEX_SRC={}",
@@ -1101,63 +1119,32 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
         ),
         "CCPANES_WSL_CODEX_DST=\"${CODEX_HOME:-$HOME/.codex}/skills\"".to_string(),
         format!(
-            "CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE={}",
-            shell_escape_posix(VERSION_FILE_NAME)
+            "CCPANES_WSL_CODEX_MANAGED_LIST=\"$CCPANES_WSL_CODEX_DST/{WSL_MANAGED_LIST_FILE_NAME}\""
         ),
-        "CCPANES_WSL_NEEDS_SYNC=0".to_string(),
-        "if [ ! -f \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CODEX_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" != \"$(cat \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
+        format!(
+            "CCPANES_WSL_CODEX_EXPECTED={}",
+            shell_escape_posix(&expected_list)
+        ),
+        "CCPANES_WSL_CODEX_PREVIOUS=\"$(cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\" 2>/dev/null || true)\""
+            .to_string(),
+        "mkdir -p \"$CCPANES_WSL_CODEX_DST\"".to_string(),
+        "for ccpanes_dir in $CCPANES_WSL_CODEX_PREVIOUS; do case \" $CCPANES_WSL_CODEX_EXPECTED \" in *\" $ccpanes_dir \"*) ;; *) case \"$ccpanes_dir\" in ccpanes-*) rm -rf -- \"$CCPANES_WSL_CODEX_DST/$ccpanes_dir\" ;; esac ;; esac; done"
+            .to_string(),
     ];
-
     for dir_name in dir_names {
+        let name = shell_escape_posix(dir_name);
         commands.push(format!(
-            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ ! -f \"$CCPANES_WSL_CODEX_DST/{}/SKILL.md\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi",
-            dir_name
+            "CCPANES_WSL_CODEX_LINK=\"$CCPANES_WSL_CODEX_DST\"/{name}; case \" $CCPANES_WSL_CODEX_PREVIOUS \" in *\" \"{name}\" \"*) CCPANES_WSL_CODEX_OURS=1 ;; *) CCPANES_WSL_CODEX_OURS=0 ;; esac; if [ -L \"$CCPANES_WSL_CODEX_LINK\" ] || [ ! -e \"$CCPANES_WSL_CODEX_LINK\" ] || [ \"$CCPANES_WSL_CODEX_OURS\" = 1 ]; then rm -rf -- \"$CCPANES_WSL_CODEX_LINK\"; ln -s \"$CCPANES_WSL_CODEX_SRC\"/{name} \"$CCPANES_WSL_CODEX_LINK\"; fi"
         ));
     }
-
-    // 门控 skill（W8 heavy-run）会随设置开关从源集合里消失，版本戳不变。记一份「上次由我们
-    // 同步进来的目录名」清单，和本次期望集不一致就触发同步，并只删清单里有、期望集里没有的目录。
-    let expected_list = dir_names.join(" ");
     commands.push(format!(
-        "CCPANES_WSL_CODEX_MANAGED_LIST=\"$CCPANES_WSL_CODEX_DST/{WSL_MANAGED_LIST_FILE_NAME}\""
-    ));
-    commands.push(format!(
-        "CCPANES_WSL_CODEX_EXPECTED={}",
-        shell_escape_posix(&expected_list)
+        "rm -f -- \"$CCPANES_WSL_CODEX_DST\"/{}",
+        shell_escape_posix(VERSION_FILE_NAME)
     ));
     commands.push(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\" 2>/dev/null)\" != \"$CCPANES_WSL_CODEX_EXPECTED\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi"
+        "printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\""
             .to_string(),
     );
-    commands.push(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST\"; fi"
-            .to_string(),
-    );
-    // 去隔离后 $CCPANES_WSL_CODEX_DST 指向真实 ~/.codex/skills，绝不能像旧隔离目录那样
-    // `find ... -name 'ccpanes-*' -exec rm -rf` 批量删 —— 会误删用户自建的同前缀 skill。
-    // 删除只针对「上次清单里有、本次期望集里没有」且仍带 ccpanes- 前缀的目录——那是我们
-    // 自己放进去的，门控 skill 关掉后就该消失。其余一律 upsert（下方 mkdir+cp）。
-    commands.push(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ] && [ -f \"$CCPANES_WSL_CODEX_MANAGED_LIST\" ]; then for ccpanes_dir in $(cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\"); do case \" $CCPANES_WSL_CODEX_EXPECTED \" in *\" $ccpanes_dir \"*) ;; *) case \"$ccpanes_dir\" in ccpanes-*) rm -rf \"$CCPANES_WSL_CODEX_DST/$ccpanes_dir\" ;; esac ;; esac; done; fi"
-            .to_string(),
-    );
-    for dir_name in dir_names {
-        commands.push(format!(
-            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST/{}\"; fi",
-            dir_name
-        ));
-        commands.push(format!(
-            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CODEX_SRC/{}/SKILL.md\" \"$CCPANES_WSL_CODEX_DST/{}/SKILL.md\"; fi",
-            dir_name, dir_name
-        ));
-    }
-    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CODEX_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\"; fi".to_string());
-    commands.push(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\"; fi"
-            .to_string(),
-    );
-
     commands
 }
 
@@ -1745,9 +1732,8 @@ impl TerminalService {
         // 宿主侧不再写用户的 CLI Home，旧源在迁移清理后就不存在了。
         // 两者布局相同（`<root>/ccpanes-*/SKILL.md` + 版本戳），故同步逻辑无需改动。
         //
-        // 注意：这里仍然是「拷进 WSL 内的 ~/.codex/skills」，即 WSL 侧的污染尚未消除。
-        // 彻底做法是像宿主侧一样按会话挂载（`/mnt/...` 路径对 WSL 直接可读，无需拷贝），
-        // 属 WSL 批次的工作，本批只保证不回归。
+        // docs/110 批 4：改为符号链接到这份目录的 `/mnt/...` 路径，不再拷贝（理由见
+        // build_wsl_codex_skill_link_prelude）。
         let source_root = self
             .app_paths
             .builtin_skills_dir()
@@ -1759,7 +1745,7 @@ impl TerminalService {
             )
         })?;
         let dir_names = collect_wsl_codex_source_dirs(&source_root)?;
-        Ok(build_wsl_codex_skill_sync_prelude(
+        Ok(build_wsl_codex_skill_link_prelude(
             &source_wsl_path,
             &dir_names,
         ))
@@ -2141,7 +2127,8 @@ impl TerminalService {
         // The Pi family always goes through its adapter in WSL, including
         // native mode: provider/model/thinking are command arguments, while
         // the native Linux binary is resolved later by the WSL prelude.
-        if provider.is_some() || pi_family {
+        // OpenCode 不走这里：它的 Provider 与 MCP、提示词写进同一份每会话配置（见下）。
+        if (provider.is_some() && cli_tool != CliTool::Opencode) || pi_family {
             let provider_context = cc_cli_adapters::CliAdapterContext {
                 session_id: session_id.to_string(),
                 project_path: wsl.remote_path.clone(),
@@ -2202,6 +2189,45 @@ impl TerminalService {
                 for (key, value) in env {
                     managed_env.insert(key, value);
                 }
+            }
+        }
+
+        if cli_tool == CliTool::Opencode {
+            // docs/110 批 4：与本机同一个 adapter 生成每会话 `OPENCODE_CONFIG`（ccpanes + 共享 +
+            // 工作空间层 HTTP MCP、提示词回退、Provider），宿主路径与回环地址再换成 guest 可用的形态。
+            let context =
+                super::wsl_opencode::wsl_opencode_context(super::wsl_opencode::WslOpencodeInputs {
+                    session_id,
+                    project_path: &wsl.remote_path,
+                    workspace_path: workspace_remote_path,
+                    provider,
+                    adapter_options,
+                    resume_id,
+                    append_system_prompt,
+                    initial_prompt,
+                    yolo_mode,
+                    skip_ccpanes_mcp: skip_mcp,
+                    env_vars: &*env_vars,
+                    windows_host: wsl.windows_host.as_deref(),
+                    shared_mcp_urls,
+                    workspace_http_servers: &workspace_injection.mcp_http_servers,
+                    data_dir: self.app_paths.data_dir().to_path_buf(),
+                });
+            if let Some(config_path) =
+                cc_cli_adapters::OpenCodeAdapter::new().write_wsl_session_config(&context)?
+            {
+                let mut config: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&config_path)?)?;
+                super::wsl_opencode::rewrite_opencode_config_for_wsl(
+                    &mut config,
+                    &|host: &str| windows_path_to_wsl(Path::new(host)),
+                    wsl.windows_host.as_deref(),
+                )?;
+                std::fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
+                managed_env.insert(
+                    "OPENCODE_CONFIG".to_string(),
+                    translate_wsl_managed_path(&config_path)?,
+                );
             }
         }
 
@@ -2906,11 +2932,11 @@ mod tests {
     };
     #[cfg(windows)]
     use super::{
-        build_wsl_codex_skill_sync_prelude, build_wsl_managed_pi_cleanup_prelude,
-        build_wsl_managed_pi_cleanup_script, build_wsl_pi_skill_sync_prelude,
-        collect_wsl_codex_source_dirs, collect_wsl_pi_source_dirs, configure_managed_pi_wsl_state,
-        forward_wsl_env_vars, push_wsl_provider_env_unsets, push_wsl_provider_env_unsets_except,
-        remove_wsl_env_forwarding, ResolvedWslLaunch, WslManagedPiStateCleanup, VERSION_FILE_NAME,
+        build_wsl_managed_pi_cleanup_prelude, build_wsl_managed_pi_cleanup_script,
+        build_wsl_pi_skill_sync_prelude, collect_wsl_codex_source_dirs, collect_wsl_pi_source_dirs,
+        configure_managed_pi_wsl_state, forward_wsl_env_vars, push_wsl_provider_env_unsets,
+        push_wsl_provider_env_unsets_except, remove_wsl_env_forwarding, ResolvedWslLaunch,
+        WslManagedPiStateCleanup, VERSION_FILE_NAME,
     };
     use super::{
         parse_systemd_scope_probe, plan_wsl_scope, WslScopeProbeCache, WslSystemdScope,
@@ -3304,18 +3330,24 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn wsl_kimi_managed_plan_uses_linux_session_config_and_share_paths() {
+    fn wsl_kimi_managed_plan_uses_kimi_model_env_without_config_file() {
+        // Kimi Code 没有 `--config-file`（docs/110 批 3）：托管 Provider 走 `KIMI_MODEL_*`。
         let dir = unique_temp_dir("kimi-managed-plan");
-        let context = managed_adapter_context(dir.clone(), "kimi");
+        let mut context = managed_adapter_context(dir.clone(), "kimi");
+        context.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("kimi-for-coding"),
+        );
 
         let (args, env) = build_wsl_managed_adapter_plan(CliTool::Kimi, &context).unwrap();
         let args = args.unwrap();
 
-        assert!(args.iter().any(|arg| arg == "--config-file"));
-        assert!(args.iter().any(|arg| arg.starts_with("/mnt/")));
-        assert!(env
-            .get("KIMI_SHARE_DIR")
-            .is_some_and(|path| path.starts_with("/mnt/")));
+        assert!(!args.iter().any(|arg| arg == "--config-file"));
+        assert_eq!(
+            env.get("KIMI_MODEL_NAME").map(String::as_str),
+            Some("kimi-for-coding")
+        );
+        assert!(!env.contains_key("KIMI_SHARE_DIR"));
         assert!(!args.iter().any(|arg| arg.contains("wsl-test-secret")));
         remove_dir(&dir);
     }
@@ -3960,35 +3992,35 @@ mod tests {
         remove_dir(&root);
     }
 
+    /// docs/110 批 4：Codex 内置 skill 在 WSL 里改为符号链接，不再拷贝。
     #[test]
-    #[cfg(windows)]
-    fn build_wsl_codex_skill_sync_prelude_copies_skill_dirs_only() {
-        let commands = build_wsl_codex_skill_sync_prelude(
-            "/mnt/c/Users/test/.codex/skills",
+    fn build_wsl_codex_skill_link_prelude_links_instead_of_copying() {
+        let commands = super::build_wsl_codex_skill_link_prelude(
+            "/mnt/c/Users/test/.cc-panes/skills/builtin/managed",
             &[String::from("ccpanes-launch-task")],
         );
-
-        assert!(commands
-            .iter()
-            .any(|line: &String| line.contains("${CODEX_HOME:-$HOME/.codex}/skills")));
-        // 去隔离后目标是真实 ~/.codex/skills：绝不能批量删 ccpanes-* 目录（会误删用户自建）。
-        assert!(!commands
-            .iter()
-            .any(|line: &String| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
-        // 仍正常 upsert 内置 skill。
-        assert!(commands.iter().any(|line: &String| line
-            .contains("mkdir -p \"$CCPANES_WSL_CODEX_DST/ccpanes-launch-task\"")));
-        assert!(commands.iter().any(|line: &String| line
-            .contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")));
+        let script = commands.join("\n");
+        assert!(script.contains("${CODEX_HOME:-$HOME/.codex}/skills"));
+        assert!(script.contains(
+            "ln -s \"$CCPANES_WSL_CODEX_SRC\"/'ccpanes-launch-task' \"$CCPANES_WSL_CODEX_LINK\""
+        ));
+        assert!(!script.contains("cp "), "no copies any more:\n{script}");
+        assert!(!script.contains("find "));
+        // 用户同名真实目录（不在清单里）不动：只在链接 / 不存在 / 我们的旧拷贝时重建
+        assert!(script.contains("if [ -L \"$CCPANES_WSL_CODEX_LINK\" ] || [ ! -e \"$CCPANES_WSL_CODEX_LINK\" ] || [ \"$CCPANES_WSL_CODEX_OURS\" = 1 ]"));
+        // 旧拷贝留下的版本戳删掉，清单写回
+        assert!(script.contains("rm -f -- \"$CCPANES_WSL_CODEX_DST\"/"));
+        assert!(script.contains(
+            "printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\""
+        ));
     }
 
-    /// W8：门控 skill 关掉后要从 WSL 侧消失——只删「上次清单里有、本次期望集里没有」且仍带
-    /// ccpanes- 前缀的目录；清单不一致也触发同步（版本戳不变时唯一的信号）。
+    /// W8：门控 skill 关掉后要从 WSL 侧消失——只删「上次清单里有、本次期望集里没有」且带
+    /// ccpanes- 前缀的条目。
     #[test]
-    #[cfg(windows)]
-    fn build_wsl_codex_skill_sync_prelude_removes_only_previously_managed_dirs() {
-        let commands = build_wsl_codex_skill_sync_prelude(
-            "/mnt/c/Users/test/.codex/skills",
+    fn build_wsl_codex_skill_link_prelude_removes_only_previously_managed_dirs() {
+        let commands = super::build_wsl_codex_skill_link_prelude(
+            "/mnt/c/src",
             &[
                 String::from("ccpanes-heavy-run"),
                 String::from("ccpanes-launch-task"),
@@ -3999,24 +4031,81 @@ mod tests {
             script.contains("CCPANES_WSL_CODEX_EXPECTED='ccpanes-heavy-run ccpanes-launch-task'")
         );
         assert!(script.contains(".ccpanes-managed-skills"));
-        // 清单与期望集不一致 → 需要同步
-        assert!(
-            script.contains("!= \"$CCPANES_WSL_CODEX_EXPECTED\" ]; then CCPANES_WSL_NEEDS_SYNC=1")
-        );
-        // 删除分支：来自清单、不在期望集、ccpanes- 前缀三重守卫；绝无 find 批删
         let remove_line = commands
             .iter()
-            .find(|line| line.contains("rm -rf"))
+            .find(|line| line.starts_with("for ccpanes_dir"))
             .expect("delete branch");
-        assert!(remove_line.contains("cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\""));
+        assert!(remove_line.contains("$CCPANES_WSL_CODEX_PREVIOUS"));
         assert!(remove_line.contains("case \"$ccpanes_dir\" in ccpanes-*)"));
         assert!(remove_line.contains("*\" $ccpanes_dir \"*) ;;"));
-        assert!(!script.contains("find "));
-        // 同步完成后写回清单
-        assert!(script.contains(
-            "printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\""
-        ));
     }
+
+    /// 生成的前置块在真 shell 里跑一遍：旧拷贝换成链接、用户自建目录不动、关掉的 skill 消失。
+    #[cfg(unix)]
+    #[test]
+    fn build_wsl_codex_skill_link_prelude_runs_in_a_real_shell() {
+        let root = tempfile::tempdir().unwrap();
+        let src = root.path().join("src");
+        let home = root.path().join("codex");
+        let dst = home.join("skills");
+        for name in ["ccpanes-a", "ccpanes-b"] {
+            fs::create_dir_all(src.join(name)).unwrap();
+            fs::write(src.join(name).join("SKILL.md"), name).unwrap();
+        }
+        // 上次的拷贝：ccpanes-a（仍期望）、ccpanes-old（已关掉）；用户自建 ccpanes-b 真实目录
+        for name in ["ccpanes-a", "ccpanes-old", "ccpanes-b"] {
+            fs::create_dir_all(dst.join(name)).unwrap();
+            fs::write(dst.join(name).join("SKILL.md"), "stale").unwrap();
+        }
+        fs::write(dst.join(".ccpanes-managed-skills"), "ccpanes-a ccpanes-old").unwrap();
+        fs::write(dst.join(VERSION_FILE_NAME_FOR_TEST), "1").unwrap();
+        let commands = super::build_wsl_codex_skill_link_prelude(
+            &src.to_string_lossy(),
+            &[String::from("ccpanes-a"), String::from("ccpanes-b")],
+        );
+        let status = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(commands.join("\n"))
+            .env("CODEX_HOME", &home)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(fs::symlink_metadata(dst.join("ccpanes-a"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_to_string(dst.join("ccpanes-a").join("SKILL.md")).unwrap(),
+            "ccpanes-a"
+        );
+        assert!(!dst.join("ccpanes-old").exists());
+        // 用户的真实目录不在清单里：不动
+        assert!(!fs::symlink_metadata(dst.join("ccpanes-b"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(!dst.join(VERSION_FILE_NAME_FOR_TEST).exists());
+        assert_eq!(
+            fs::read_to_string(dst.join(".ccpanes-managed-skills")).unwrap(),
+            "ccpanes-a ccpanes-b"
+        );
+        // 再跑一次是幂等的
+        let status = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(commands.join("\n"))
+            .env("CODEX_HOME", &home)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(fs::symlink_metadata(dst.join("ccpanes-a"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[cfg(unix)]
+    const VERSION_FILE_NAME_FOR_TEST: &str =
+        crate::services::default_skill_service::VERSION_FILE_NAME;
 
     #[test]
     #[cfg(windows)]

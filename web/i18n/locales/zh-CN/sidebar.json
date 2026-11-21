@@ -236,6 +236,8 @@
     "mcpUnsupportedCli": "这个 CLI 不支持 MCP",
     "skillsFull": "挂载内置和工作空间 skills",
     "skillsWslMounted": "内置和工作空间 skills 通过 /mnt 路径挂进 WSL 会话",
+    "skillsWslPrompt": "这个 CLI 在 WSL 里挂不了技能目录，可移植的内置技能与工作空间技能改由会话提示词送达",
+    "skillsWslNone": "这个 CLI 在 WSL 里收不到 CC-Panes 的技能",
     "skillsSshNone": "SSH 会话拿不到 CC-Panes 挂载的 skills。要完整功能，请把这台机器添加为「设备」",
     "skillsWorkspaceOff": "该运行配置未启用工作空间 skills，只挂内置",
     "skillsDisabledByProfile": "该运行配置关闭了 skills",

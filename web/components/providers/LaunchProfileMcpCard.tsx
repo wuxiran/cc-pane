@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckboxRow } from "@/components/ui/CheckboxRow";
 import { SegmentedTabs } from "@/components/ui/segmented";
-import { hasAnyMcp, mcpIsolationGap, mcpProfileHints } from "@/lib/cliInjectionRules";
+import { hasAnyMcp, mcpIsolationGap, mcpProfileHints, runtimeMcpNote } from "@/lib/cliInjectionRules";
 import { useInjectionProfile } from "@/stores/useCliInjectionProfilesStore";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import type { LaunchProfileDraft } from "@/types";
@@ -29,6 +29,8 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
   const hints = mcpProfileHints(profile);
   // 启动档收窄了 MCP，但这个 CLI 挡不住它自己配置里的 server（docs/110 批 3）
   const isolationGap = mcpIsolationGap(profile, draft.mcpPolicy);
+  // 绑定到 WSL / SSH 的启动档：该运行时下 MCP 到不了或只到一部分（docs/110 批 4，读描述）
+  const runtimeNote = runtimeMcpNote(profile, draft.targetRuntime);
 
   if (!mcpSupported) {
     return (
@@ -80,6 +82,16 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
           {hints.map((hint) => (
             <div key={hint}>{t(`mcpProfileHint.${hint}`)}</div>
           ))}
+        </div>
+      )}
+
+      {runtimeNote && (
+        <div
+          data-testid="mcp-runtime-note"
+          className="mt-2 rounded-md border border-dashed border-[var(--app-border)] px-3 py-2 text-xs"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          {t(`mcpRuntimeNote.${runtimeNote}`)}
         </div>
       )}
 

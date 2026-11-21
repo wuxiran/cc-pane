@@ -43,9 +43,19 @@ describe("summarizeInjection", () => {
   });
 
   it("WSL 下不注入 MCP 的 CLI 显示 off（读注入描述，不再一律 partial）", () => {
-    const s = summarizeInjection(base, "wsl", "opencode");
+    const s = summarizeInjection(base, "wsl", "cursor");
     expect(s.mcp).toBe("off");
     expect(s.reasons.mcp).toBe("injection.mcpWslNone");
+    expect(s.skills).toBe("off");
+    expect(s.reasons.skills).toBe("injection.skillsWslNone");
+  });
+
+  it("docs/110 批 4：opencode 在 WSL 里 MCP 只进 HTTP 型、技能走提示词", () => {
+    const s = summarizeInjection(base, "wsl", "opencode");
+    expect(s.mcp).toBe("partial");
+    expect(s.reasons.mcp).toBe("injection.mcpWslHttpOnly");
+    expect(s.skills).toBe("partial");
+    expect(s.reasons.skills).toBe("injection.skillsWslPrompt");
   });
 
   it("skill 全关：skills off，记忆降为 partial（hook 可能没装）", () => {

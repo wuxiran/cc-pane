@@ -30,4 +30,19 @@ describe("LaunchProfileMcpCard 隔离提示（docs/110 批 3）", () => {
     renderCard("cursor", {});
     expect(screen.queryByTestId("mcp-isolation-gap")).not.toBeInTheDocument();
   });
+
+  it("绑定 SSH / WSL 的启动档说明该运行时下的 MCP（docs/110 批 4）", () => {
+    const base = defaultLaunchProfileDraft();
+    render(
+      <LaunchProfileMcpCard
+        draft={{ ...base, targetRuntime: "ssh" }}
+        setDraft={() => {}}
+        activeTool="claude"
+        setMcpMode={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("mcp-runtime-note")).toHaveTextContent(
+      String(i18n.t("providers:mcpRuntimeNote.sshNone" as never)),
+    );
+  });
 });

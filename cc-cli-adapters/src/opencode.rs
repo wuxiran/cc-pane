@@ -285,6 +285,13 @@ impl OpenCodeAdapter {
             .ok_or_else(|| anyhow!("Selected OpenCode Provider produced no session configuration"))
     }
 
+    /// WSL 会话的每会话配置（docs/110 批 4）：MCP、`instructions`（提示词回退）与 Provider 都写进
+    /// 同一份文件，路径仍是宿主路径，由调用方换成 `/mnt/...` 后经 `OPENCODE_CONFIG` 交给 guest。
+    /// 不写主题（guest 的 TUI 配置不归我们管）；没有任何内容时返回 None。
+    pub fn write_wsl_session_config(&self, ctx: &CliAdapterContext) -> Result<Option<String>> {
+        self.write_session_config(ctx, None)
+    }
+
     fn default_user_config_path(file_name: &str) -> Option<PathBuf> {
         let config_root = std::env::var_os("XDG_CONFIG_HOME")
             .filter(|path| !path.is_empty())
@@ -800,7 +807,9 @@ impl CliToolAdapter for OpenCodeAdapter {
     /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 带请求头，含工作空间层（docs/110 批 2）；
     ///   隔离（批 3）：没选中的 server 经 `OPENCODE_CONFIG_CONTENT` 写成 `enabled:false`。
     /// - 技能：挂载目录写进同一份配置的 `skills.paths`；`instructions` 是提示词通道。
-    /// - WSL：不经 adapter，MCP 与提示词都丢（批 4）。
+    /// - WSL（批 4）：同一个 adapter 生成每会话配置（`terminal_service/wsl_opencode.rs`），路径换成
+    ///   `/mnt/...`。MCP 只进 HTTP 型（工作空间 stdio 是宿主命令；远程不带请求头 / SSE），隔离做不到
+    ///   （guest 的配置宿主读不到）→ Partial；技能不挂载，走 `instructions` 提示词回退 → Partial。
     fn injection_profile(&self) -> crate::InjectionProfile {
         use crate::injection_profile::*;
         InjectionProfile {
@@ -820,7 +829,11 @@ impl CliToolAdapter for OpenCodeAdapter {
                 native_sources: vec![],
             },
             runtimes: InjectionRuntimes {
-                wsl: RuntimeInjection::launch_only(),
+                wsl: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::Partial,
+                    skills: RuntimeSupport::Partial,
+                },
                 ssh: RuntimeInjection::launch_only(),
             },
         }

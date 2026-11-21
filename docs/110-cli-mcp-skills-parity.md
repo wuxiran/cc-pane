@@ -1,6 +1,6 @@
 # 110 · 全 CLI 的 MCP / Skills 适配计划
 
-> 状态：批 0–3 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 4–5 进行中。
+> 状态：批 0–4 已在 feat/mcp-skills-parity 落地（2026-11-21）；批 5 进行中。
 > 依据：代码现状盘点（本文 §2，带 file:line）+ 11 个 CLI 官方文档调研（§3，带来源）。
 > 相关：docs/97（技能市场与投递）、docs/103（ccpanes MCP 瘦身）、docs/104（pi/omp/jcode MCP，§5/§7 有 WSL 与隔离 backlog）、docs/101（插件系统草案）。
 
@@ -214,6 +214,18 @@
 - **WSL**：`build_wsl_supported_cli_command` 改为走 adapter 的 context，不再固定 `skip_mcp:true`。路径转换和 guest 内的文件写入抽到 WSL 适配层。Codex 的内置技能从拷贝改为挂载或符号链接。opencode 在 WSL 下补上提示词。
 - **SSH**：MCP 需要反向隧道，**本计划不做**，只在描述里如实标出。技能经提示词回退或远端 staging 投递，可选。
 
+**批 4 已落地（feat/mcp-skills-parity）：**
+
+| CLI | WSL MCP | WSL 技能 | 做法 |
+|---|---|---|---|
+| opencode | none → **partial** | none → **partial** | WSL 分支改用本机同一个 adapter 生成每会话 `OPENCODE_CONFIG`（ccpanes + 共享 + 工作空间层 HTTP MCP、`instructions`、托管 Provider 合在一份里），宿主写文件后把 `instructions` 路径换成 `/mnt/...`、回环 MCP 地址换成探活得到的 Windows 主机（`terminal_service/wsl_opencode.rs`，纯数据变换，全平台编译 + 测试）。技能不挂载，内置可移植技能与工作空间技能走提示词回退（以前 WSL 下提示词整段丢失）。Partial 的原因：工作空间 stdio 条目是宿主命令；远程不带请求头 / SSE；隔离做不到（要禁用的名字在 guest 的配置里） |
+| claude | partial（不变） | full（不变） | 启动档隔离时 WSL 同样加 `--strict-mcp-config`。降级：guest 自己 `~/.claude.json` 里被启动档选中的 server 宿主侧合并不进来，会一起被挡掉 |
+| codex | partial（不变） | full（不变） | 内置技能从**拷贝**进 guest `~/.codex/skills` 改为**符号链接**到宿主 managed 目录的 `/mnt/...` 路径（清单里记着的旧拷贝换成链接、关掉的 `ccpanes-*` 删除、用户同名真实目录不动、旧版本戳删除；`build_wsl_codex_skill_link_prelude`，前置块在 macOS 的 bash 里真跑过一遍）。没有改用本机那条 `-c skills.config`：它在 codex 0.169.0 里加载不了外部目录（§7 #1） |
+| 其余 | 不变 | 不变 | WSL 仍不经 adapter；项目文件型 CLI 要在宿主侧写 guest 路径下的项目文件、ctl 代理要走 interop，本批没做 |
+| SSH（全部） | none | none | 描述本来就标 none；启动档绑定 SSH / WSL 时 MCP 卡片按描述说明该运行时下到不了 / 只到一部分；右键菜单注入摘要的 WSL 技能状态改读 `runtimes.wsl.skills`（以前一律显示「已挂载」） |
+
+本机（macOS）编译不到、只能靠代码审读的部分（全在 `#[cfg(windows)]` 下）：`build_wsl_supported_cli_command` 里新增的 OpenCode 配置生成与 Claude `--strict-mcp-config`、OpenCode 被排除出托管 Provider 计划、`build_wsl_codex_skill_sync_commands` 改调链接前置块、`terminal_service.rs` 里 Windows 主机探活加上 OpenCode。纯逻辑（`wsl_opencode.rs`、`build_wsl_codex_skill_link_prelude`、`WslWorkspaceInjection::isolate_mcp`）在 `cfg(any(windows, test))` 下，本机测试覆盖。
+
 ### 批 5 · 入口
 
 - 技能市场的「安装到」在界面上开放工作空间目标（hook 已经支持）。
@@ -224,7 +236,7 @@
 
 | # | 事项 | 影响 | 结论 |
 |---|---|---|---|
-| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | 未测（本批不改 Codex） |
+| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | **codex 0.169.0 实测：不能。** 临时 `CODEX_HOME` 下用 `codex debug prompt-input` 看模型可见的技能清单：`-c skills.config=[{path=…,enabled=true}]` 指向插件根、`skills/` 目录、单个技能目录、`SKILL.md` 文件四种写法，技能都不出现；同一个技能放进 `$CODEX_HOME/skills`、项目 `.agents/skills`、或以**符号链接**放进 `$CODEX_HOME/skills` 都出现。即本机 Codex 的「按会话挂载内置 / 工作空间技能」实际没有生效（守卫只看到 argv 里有路径），**未修**：可行的通道（`~/.codex/skills` 或 `~/.agents/skills` 下的链接）都要写用户的 CLI 主目录，与 docs/97 的零写入承诺冲突，需要单独决策。WSL 已改为链接（批 4） |
 | 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 | **opencode 1.17.11 实测**：MCP——adapter 生成的配置经 `opencode debug config` 解析通过，`opencode mcp list` 列出共享远程、共享桥、工作空间 stdio 三个条目并真的去连（本地起一个记录请求头的 HTTP 服务，收到的 POST 带着配置里的 `X-Probe` 头）；技能——`OPENCODE_CONFIG` 生效；`skills` 只收对象 `{"paths":[...]}`，数组形态报 `Expected object`（官网 V2 文档写的是数组，新版 schema 两种都收，故用对象）。用 adapter 生成的每会话配置挂内置 + 工作空间两个根，`opencode debug skill` 从 1 个变成 33 个（31 个 `ccpanes-*` + 工作空间技能 + 自带 1 个），符号链接的技能目录同样可见。MCP 键名：官网 schema 仍收旧形 `mcp.<name>`（`type`/`url`/`enabled`/`headers`，标 deprecated），新形是 `mcp.servers.<name>` + `disabled` |
 | 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 | 官方 docs/MCP_REMOTE.md（master）明确：stdio / Streamable HTTP / SSE 都支持，`type` 取 `http`/`streamable-http`/`sse`，URL 与请求头展开 `${VAR}`。已放开；本机未装 jcode，未实机，旧版（v0.84 实测只认 stdio）会跳过远程条目 |
 | 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 | 官方文档：未信任文件夹里的项目级 MCP 在 trust 提示里列出、默认选「信任」；headless 不能弹提示，`KIMI_CODE_TRUST_WORKSPACE=1` 让本进程信任工作区。我们在写了条目时注入它（与 cursor 始终 `--trust` 同口径；代价是该进程也信任仓库里其他项目级配置）。本机未装 kimi，交互模式下该变量是否同样跳过提示未实测 |

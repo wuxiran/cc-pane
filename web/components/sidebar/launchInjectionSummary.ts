@@ -28,6 +28,7 @@ export function summarizeInjection(
   const mcpChannels = cliProfile?.mcp;
   const hasMcp = hasAnyMcp(cliProfile);
   const wslMcp = cliProfile?.runtimes.wsl.mcp ?? "none";
+  const wslSkills = cliProfile?.runtimes.wsl.skills ?? "none";
 
   let mcp: InjectionState;
   let mcpReason: string;
@@ -69,6 +70,10 @@ export function summarizeInjection(
   } else if (environment === "ssh") {
     skills = "off";
     skillsReason = "injection.skillsSshNone";
+  } else if (environment === "wsl" && wslSkills !== "full") {
+    // WSL 不经本机 adapter：挂载只有描述为 full 的 CLI 做得到，其余走提示词或什么都没有（docs/110 批 4）
+    skills = wslSkills === "none" ? "off" : "partial";
+    skillsReason = wslSkills === "none" ? "injection.skillsWslNone" : "injection.skillsWslPrompt";
   } else if (skillPolicy && !skillPolicy.includeWorkspaceSkills) {
     skills = "partial";
     skillsReason = "injection.skillsWorkspaceOff";

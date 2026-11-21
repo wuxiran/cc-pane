@@ -236,6 +236,8 @@
     "mcpUnsupportedCli": "This CLI does not support MCP",
     "skillsFull": "Mounts bundled and workspace skills",
     "skillsWslMounted": "Bundled and workspace skills are mounted into the WSL session via /mnt paths",
+    "skillsWslPrompt": "Inside WSL this CLI cannot mount skill directories; portable bundled skills and workspace skills are sent through the session prompt instead",
+    "skillsWslNone": "This CLI receives no CC-Panes skills inside WSL",
     "skillsSshNone": "SSH sessions do not receive CC-Panes mounted skills. Add the machine under Devices for the full setup",
     "skillsWorkspaceOff": "This launch profile does not include workspace skills; bundled only",
     "skillsDisabledByProfile": "This launch profile has skills turned off",

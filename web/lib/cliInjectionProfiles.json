@@ -319,8 +319,8 @@
       },
       "wsl": {
         "launch": true,
-        "mcp": "none",
-        "skills": "none"
+        "mcp": "partial",
+        "skills": "partial"
       }
     },
     "skills": {

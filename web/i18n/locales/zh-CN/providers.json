@@ -253,5 +253,10 @@
   "mcpIsolationGap": {
     "declareOnly": "这个 CLI 挡不住它自己配置里的 MCP：只会收到本启动档选中的那部分，但它用户级或项目级配置里已有的 server 仍会加载。",
     "none": "这个 CLI 不处理启动档的 MCP 选择：它自己配置里的 server 仍会加载。"
+  },
+  "mcpRuntimeNote": {
+    "sshNone": "SSH 会话只在远端跑裸 CLI：CC-Panes、共享与工作空间层的 MCP 都带不过去。",
+    "wslNone": "这个 CLI 在 WSL 里不注入任何 MCP。",
+    "wslPartial": "在 WSL 里只有 HTTP 型 server 能到达这个 CLI：工作空间层的 stdio 条目是宿主命令，远程 server 不带请求头、不走 SSE。"
   }
 }

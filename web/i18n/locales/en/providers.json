@@ -253,5 +253,10 @@
   "mcpIsolationGap": {
     "declareOnly": "This CLI cannot block MCP servers from its own config: it only receives the servers this profile selects, but anything already in its user or project config still loads.",
     "none": "This CLI ignores the profile's MCP selection: servers from its own config still load."
+  },
+  "mcpRuntimeNote": {
+    "sshNone": "SSH sessions run the bare CLI on the remote machine: no MCP (CC-Panes, shared or workspace) reaches it.",
+    "wslNone": "This CLI gets no MCP injection inside WSL.",
+    "wslPartial": "Inside WSL only HTTP servers reach this CLI: workspace stdio entries are host commands, and remote servers go without request headers or SSE."
   }
 }

@@ -50,6 +50,8 @@ mod shell_integration;
 mod windows_codex;
 mod wsl_codex;
 mod wsl_mcp_proxy;
+#[cfg(any(windows, test))]
+mod wsl_opencode;
 
 use self::wsl_codex::{
     strip_wsl_proxy_env_vars, windows_path_to_wsl, WslManagedPiStateCleanup, WSL_PROXY_ENV_KEYS,
@@ -3410,7 +3412,11 @@ impl TerminalService {
                 }
             }
 
-            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !wsl_skip_mcp {
+            if matches!(
+                cli_tool,
+                CliTool::Codex | CliTool::Claude | CliTool::Opencode
+            ) && !wsl_skip_mcp
+            {
                 if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
                     match port_value.parse::<u16>() {
                         Ok(port) => match self.resolve_reachable_wsl_windows_host(

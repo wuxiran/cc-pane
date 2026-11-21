@@ -78,3 +78,19 @@ export function mcpIsolationGap(
   const level = profile.mcp.isolation;
   return level === "full" ? null : level;
 }
+
+/** 启动档绑定到 WSL / SSH 时，这个 CLI 的 MCP 在该运行时能到哪一步（docs/110 批 4）。本机或完整时 null。 */
+export type RuntimeMcpNote = "sshNone" | "wslNone" | "wslPartial";
+
+export function runtimeMcpNote(
+  profile: InjectionProfile | null | undefined,
+  runtime: string | null | undefined,
+): RuntimeMcpNote | null {
+  if (!profile || !hasAnyMcp(profile)) return null;
+  if (runtime === "ssh") return profile.runtimes.ssh.mcp === "full" ? null : "sshNone";
+  if (runtime === "wsl") {
+    const support = profile.runtimes.wsl.mcp;
+    return support === "full" ? null : support === "none" ? "wslNone" : "wslPartial";
+  }
+  return null;
+}
