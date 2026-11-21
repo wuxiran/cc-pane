@@ -80,20 +80,113 @@ export function parseContextWindowFromModel(model: string): number {
   return contextSizeToTokens(model.slice(start + 1, end));
 }
 
+/** 密钥 / 敏感值存在哪：`keychain` = 系统钥匙串；`file` = 当前环境没有钥匙串，仍在 providers.json（未进钥匙串）。 */
+export type SecretStorage = "none" | "keychain" | "file";
+
+/** 一条自定义环境变量。敏感条目的值不回传：读到的 `value` 为空，只看 `storage`。 */
+export interface ProviderEnvVar {
+  name: string;
+  /** 非敏感：明文值。敏感：仅在写入时填新值；留空且 `storage` 非 none 表示保持原值。 */
+  value?: string | null;
+  sensitive?: boolean;
+  storage?: SecretStorage;
+}
+
+export type ProviderEndpointKind = "anthropic" | "chat" | "responses" | "gemini";
+
+/** 一条供应商的多个接口地址。哪种 CLI 用哪种接口，就取哪个地址。 */
+export type ProviderEndpoints = Partial<Record<ProviderEndpointKind, string | null>>;
+
+/** 支持登录账号的 CLI，以及各自指目录的环境变量（镜像后端 `login_dir_env_var`）。 */
+export const LOGIN_ACCOUNT_DIR_ENV = {
+  claude: "CLAUDE_CONFIG_DIR",
+  codex: "CODEX_HOME",
+  gemini: "GEMINI_CLI_HOME",
+  antigravity: "GEMINI_HOME",
+  grok: "GROK_HOME",
+} as const;
+
+export type LoginAccountCliTool = keyof typeof LOGIN_ACCOUNT_DIR_ENV;
+
+/** 供应商下的账号：一把密钥（`api_key`），或一套 CLI 自己的登录（`login`，对应一个独立目录）。 */
+export interface ProviderAccount {
+  id: string;
+  name: string;
+  color?: string | null;
+  kind: "api_key" | "login";
+  /** 密钥账号：密钥存在哪。`none` / 缺省 = 没有密钥。 */
+  secretStorage?: SecretStorage;
+  /** 仅写入：新密钥明文。读到的永远为空；留空且 `secretStorage` 非 none 表示保持原密钥。 */
+  secret?: string | null;
+  /** 登录账号：属于哪个 CLI。 */
+  cliTool?: LoginAccountCliTool | null;
+  /** 登录账号：对应的目录。 */
+  configDir?: string | null;
+  env?: ProviderEnvVar[];
+}
+
+export interface ProviderOrigin {
+  kind: "manual" | "cc_switch" | "magpie" | "local_gateway";
+  externalId?: string | null;
+  importedAt?: string | null;
+  fingerprint?: string | null;
+}
+
 export interface Provider {
   id: string;
   name: string;
   providerType: ProviderType;
+  /**
+   * 兼容写入：默认账号的密钥。**读到的永远为空**（密钥不出后端）。
+   * 写入时 `null` / 缺省 = 不动，非空 = 换成新密钥。是否已有密钥看 {@link providerHasSecret}。
+   */
   apiKey?: string | null;
+  /** 兼容视图：主接口地址（`endpoints` 里该类型对应那一项）的镜像；写入时同样落到主接口。 */
   baseUrl?: string | null;
   region?: string | null;
   projectId?: string | null;
   awsProfile?: string | null;
+  /** 兼容视图：默认账号是登录账号时它的目录。 */
   configDir?: string | null;
   codexWireApi?: string | null;
   models?: ProviderModel[];
   defaultModelId?: string | null;
   isDefault: boolean;
+  /** 以下为账号化之后的字段。旧界面不带它们保存时，后端整组沿用已存的值。 */
+  endpoints?: ProviderEndpoints;
+  env?: ProviderEnvVar[];
+  accounts?: ProviderAccount[];
+  defaultAccountId?: string | null;
+  source?: ProviderOrigin | null;
+}
+
+/** 供应商的默认账号（`defaultAccountId` 失效时退回第一个）。 */
+export function providerDefaultAccount(provider: Provider): ProviderAccount | undefined {
+  const accounts = provider.accounts ?? [];
+  return accounts.find((account) => account.id === provider.defaultAccountId) ?? accounts[0];
+}
+
+/** 默认账号是否已存有密钥（密钥本身读不到，只能看标记）。 */
+export function providerHasSecret(provider: Provider): boolean {
+  const account = providerDefaultAccount(provider);
+  return account?.kind === "api_key" && !!account.secretStorage && account.secretStorage !== "none";
+}
+
+/** 注入预览的一行（`preview_provider_env`）。敏感值已打码。 */
+export interface ProviderEnvPreviewEntry {
+  name: string;
+  value: string;
+  sensitive: boolean;
+  layer: "generated" | "provider" | "account";
+  /** 用户填的值盖掉了自动生成的同名变量。 */
+  overridesGenerated: boolean;
+}
+
+/** 测试连接 / 拉模型列表 / 一次性补全用的凭据（`resolve_provider_api_credentials`）。只在内存里用。 */
+export interface ProviderApiCredentials {
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  endpoints?: ProviderEndpoints;
 }
 
 /**

@@ -120,4 +120,42 @@ describe("providerService", () => {
       });
     });
   });
+
+  describe("账号与密钥", () => {
+    it("previewProviderEnv 把供应商、账号、目标 CLI 交给后端并返回打码后的列表", async () => {
+      const preview = [
+        { name: "ANTHROPIC_API_KEY", value: "••••", sensitive: true, layer: "generated", overridesGenerated: false },
+      ];
+      mockTauriInvoke({ preview_provider_env: preview });
+
+      const result = await providerService.previewProviderEnv("p-1", "work", "claude");
+
+      expect(invoke).toHaveBeenCalledWith("preview_provider_env", {
+        providerId: "p-1",
+        accountId: "work",
+        cliTool: "claude",
+      });
+      expect(result).toEqual(preview);
+    });
+
+    it("resolveApiCredentials 不指定账号时用默认账号", async () => {
+      mockTauriInvoke({
+        resolve_provider_api_credentials: { apiKey: "sk-x", baseUrl: "https://api.example.com" },
+      });
+
+      const result = await providerService.resolveApiCredentials("p-1");
+
+      expect(invoke).toHaveBeenCalledWith("resolve_provider_api_credentials", {
+        providerId: "p-1",
+        accountId: null,
+      });
+      expect(result.apiKey).toBe("sk-x");
+    });
+
+    it("getSecretStatus 返回钥匙串是否可用", async () => {
+      mockTauriInvoke({ get_provider_secret_status: { keychainAvailable: false } });
+
+      expect(await providerService.getSecretStatus()).toEqual({ keychainAvailable: false });
+    });
+  });
 });

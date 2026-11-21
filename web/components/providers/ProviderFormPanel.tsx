@@ -18,7 +18,7 @@ import ProviderAvatar from "./ProviderAvatar";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
 import { useProviderFormUnsavedChanges } from "./useProviderFormUnsavedChanges";
 import {
-  PROVIDER_TYPE_META, isValidProviderContextWindowTokens,
+  PROVIDER_TYPE_META, isValidProviderContextWindowTokens, providerHasSecret,
   type Provider,
   type ProviderType,
   type ProviderPreset,
@@ -348,7 +348,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
               <FormField label={t("apiKey")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
                 {({ id }) => (
                   <Input id={id} className="h-10 text-sm" type="password" value={form.apiKey}
-                    onChange={(e) => updateForm({ apiKey: e.target.value })} placeholder="sk-ant-..." />
+                    onChange={(e) => updateForm({ apiKey: e.target.value })} placeholder={editProvider && !duplicateSeed && providerHasSecret(editProvider) ? t("apiKeyStoredPlaceholder") : "sk-ant-..."} />
                 )}
               </FormField>
             )}

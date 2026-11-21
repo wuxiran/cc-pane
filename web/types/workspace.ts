@@ -109,6 +109,8 @@ export interface Workspace {
   createdAt: string;
   projects: WorkspaceProject[];
   providerId?: string;
+  /** 绑定的账号（属于 providerId）；不指定时用供应商的默认账号。 */
+  providerAccountId?: string;
   launchProfileId?: string;
   path?: string;
   defaultEnvironment?: WorkspaceLaunchEnvironment;

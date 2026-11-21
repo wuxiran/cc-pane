@@ -198,6 +198,8 @@ export interface TerminalPaneLeaf {
   launchFailure?: TerminalLaunchFailure;
   workspaceName?: string;
   providerId?: string;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
@@ -253,6 +255,8 @@ export interface Tab {
   resumeIdSource?: string;
   workspaceName?: string;
   providerId?: string;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
@@ -320,6 +324,8 @@ export interface CreateSessionRequest {
   rows: number;
   workspaceName?: string;
   providerId?: string;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
@@ -351,6 +357,8 @@ export interface OpenTerminalOptions {
   launchCwd?: string;
   workspaceName?: string;
   providerId?: string;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string;
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;

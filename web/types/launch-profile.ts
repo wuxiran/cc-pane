@@ -51,6 +51,8 @@ export interface LaunchProfile {
   alias?: string | null;
   description?: string | null;
   providerId?: string | null;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string | null;
   modelId?: string | null;
   adapterOptions?: LaunchProfileAdapterOptions;
   targetTools: string[];
@@ -78,6 +80,8 @@ export interface LaunchProfilePreviewRequest {
   workspaceName?: string | null;
   projectId?: string | null;
   providerId?: string | null;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string | null;
   modelId?: string | null;
   providerSelection?: LaunchProviderSelection;
   cliTool?: string | null;
@@ -121,7 +125,10 @@ export interface LaunchProfileResolution {
   profileName?: string | null;
   profileAlias?: string | null;
   providerId?: string | null;
+  /** 供应商下的账号；不指定时用供应商的默认账号。 */
+  providerAccountId?: string | null;
   providerName?: string | null;
+  providerAccountName?: string | null;
   modelId?: string | null;
   modelLabel?: string | null;
   modelSource?: "request" | "launchProfile" | "providerDefault" | "nativeDefault" | null;

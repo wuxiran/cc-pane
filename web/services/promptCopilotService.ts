@@ -1,4 +1,5 @@
-import type { Provider } from "@/types/provider";
+import { providerHasSecret, type Provider, type ProviderApiCredentials } from "@/types/provider";
+import { providerService } from "./providerService";
 
 /**
  * One-shot LLM text completion (used by the drama studio's screenplay
@@ -37,14 +38,17 @@ async function readError(response: Response): Promise<string> {
   return `HTTP ${response.status}: ${body.slice(0, 300)}`;
 }
 
-async function completeAnthropic(request: PromptCompletionRequest): Promise<string> {
-  const base = normalizeBase(request.provider.baseUrl?.trim() || ANTHROPIC_DEFAULT_BASE);
+async function completeAnthropic(
+  request: PromptCompletionRequest,
+  credentials: ProviderApiCredentials,
+): Promise<string> {
+  const base = normalizeBase(credentials.baseUrl?.trim() || ANTHROPIC_DEFAULT_BASE);
   const response = await fetch(endpointFor(base, "/messages"), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": request.provider.apiKey ?? "",
-      "authorization": `Bearer ${request.provider.apiKey ?? ""}`,
+      "x-api-key": credentials.apiKey ?? "",
+      "authorization": `Bearer ${credentials.apiKey ?? ""}`,
       "anthropic-version": "2023-06-01",
       // Anthropic rejects browser-origin requests unless this opt-in is set.
       "anthropic-dangerous-direct-browser-access": "true",
@@ -66,14 +70,17 @@ async function completeAnthropic(request: PromptCompletionRequest): Promise<stri
   return text.trim();
 }
 
-async function completeOpenAi(request: PromptCompletionRequest): Promise<string> {
-  const rawBase = request.provider.baseUrl?.trim();
+async function completeOpenAi(
+  request: PromptCompletionRequest,
+  credentials: ProviderApiCredentials,
+): Promise<string> {
+  const rawBase = credentials.baseUrl?.trim();
   if (!rawBase) throw new Error("Provider has no base URL");
   const response = await fetch(endpointFor(normalizeBase(rawBase), "/chat/completions"), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "authorization": `Bearer ${request.provider.apiKey ?? ""}`,
+      "authorization": `Bearer ${credentials.apiKey ?? ""}`,
     },
     body: JSON.stringify({
       model: request.modelId,
@@ -91,15 +98,21 @@ async function completeOpenAi(request: PromptCompletionRequest): Promise<string>
   return text.trim();
 }
 
-/** True when the provider stores enough credentials for a direct completion. */
+/**
+ * True when the provider stores enough credentials for a direct completion.
+ * The key itself never reaches the provider list; only the "has a key" marker does.
+ */
 export function supportsPromptCompletion(provider: Provider): boolean {
-  if (!provider.apiKey?.trim()) return false;
+  if (!providerHasSecret(provider)) return false;
   if (ANTHROPIC_PROTOCOL_TYPES.has(provider.providerType)) return true;
   return Boolean(provider.baseUrl?.trim());
 }
 
 export async function completePrompt(request: PromptCompletionRequest): Promise<string> {
+  // The key lives in the system credential store: fetch it for this one call and
+  // keep it in this scope only (never in a store, never logged).
+  const credentials = await providerService.resolveApiCredentials(request.provider.id);
   return ANTHROPIC_PROTOCOL_TYPES.has(request.provider.providerType)
-    ? completeAnthropic(request)
-    : completeOpenAi(request);
+    ? completeAnthropic(request, credentials)
+    : completeOpenAi(request, credentials);
 }

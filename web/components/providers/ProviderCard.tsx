@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ProviderAvatar, { PROVIDER_TYPE_COLORS } from "./ProviderAvatar";
-import { PROVIDER_TYPE_META, isSystemProvider, type Provider } from "@/types/provider";
+import { PROVIDER_TYPE_META, isSystemProvider, providerHasSecret, type Provider } from "@/types/provider";
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
 
 /**
@@ -18,11 +18,8 @@ function getAccentColor(provider: Provider): string {
   return preset?.accentColor || PROVIDER_TYPE_COLORS[provider.providerType] || "#6B7280";
 }
 
-function maskApiKey(key: string | null | undefined): string {
-  if (!key) return "";
-  if (key.length <= 10) return "***";
-  return `${key.slice(0, 6)}***${key.slice(-3)}`;
-}
+/** 密钥不出后端：卡片上只能显示「有密钥」的打码占位。 */
+const STORED_SECRET_MASK = "••••";
 
 /** 查找 Provider 对应的预设 website */
 function getPresetWebsite(provider: Provider): string | undefined {
@@ -194,10 +191,10 @@ export default function ProviderCard({
 
           <div className="flex items-center gap-1.5 text-xs mb-1" style={{ color: "var(--app-text-tertiary)" }}>
             <span>{meta ? t(meta.labelKey) : provider.providerType}</span>
-            {provider.apiKey && (
+            {providerHasSecret(provider) && (
               <>
                 <span className="opacity-40">·</span>
-                <span className="font-mono text-[length:var(--text-caption)]">{maskApiKey(provider.apiKey)}</span>
+                <span className="font-mono text-[length:var(--text-caption)]">{STORED_SECRET_MASK}</span>
               </>
             )}
           </div>

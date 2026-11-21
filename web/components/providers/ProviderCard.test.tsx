@@ -51,15 +51,21 @@ describe("ProviderCard", () => {
     vi.clearAllMocks();
   });
 
-  it("shows name and masks a long API key as first6***last3", () => {
-    renderCard(makeProvider({ apiKey: "sk-ant-1234567890abc" }));
+  it("shows name and a masked marker when the default account has a stored key", () => {
+    renderCard(makeProvider({
+      accounts: [{ id: "default", name: "默认", kind: "api_key", secretStorage: "keychain" }],
+      defaultAccountId: "default",
+    }));
     expect(screen.getByText("My Provider")).toBeInTheDocument();
-    expect(screen.getByText("sk-ant***abc")).toBeInTheDocument();
+    expect(screen.getByText("••••")).toBeInTheDocument();
   });
 
-  it("masks short API keys entirely", () => {
-    renderCard(makeProvider({ apiKey: "short" }));
-    expect(screen.getByText("***")).toBeInTheDocument();
+  it("shows no key marker when the default account has no key", () => {
+    renderCard(makeProvider({
+      accounts: [{ id: "default", name: "默认", kind: "api_key", secretStorage: "none" }],
+      defaultAccountId: "default",
+    }));
+    expect(screen.queryByText("••••")).not.toBeInTheDocument();
   });
 
   it("shows an inert default marker instead of the set-default action for the default provider", () => {

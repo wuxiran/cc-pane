@@ -1,4 +1,10 @@
-import type { Provider, ConfigDirInfo, SystemProviderInfo } from "@/types/provider";
+import type {
+  ConfigDirInfo,
+  Provider,
+  ProviderApiCredentials,
+  ProviderEnvPreviewEntry,
+  SystemProviderInfo,
+} from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import { apiDelete, apiGet, apiJson, apiNoContent, invokeOrApi } from "./apiClient";
 
@@ -83,6 +89,51 @@ export const providerService = {
       settingsSummary: null,
       files: [],
     }));
+  },
+
+  /** 注入预览：选定账号和 CLI 后将要带给会话的环境变量，敏感值已打码。 */
+  async previewProviderEnv(
+    providerId: string,
+    accountId?: string | null,
+    cliTool?: string | null,
+  ): Promise<ProviderEnvPreviewEntry[]> {
+    const query = new URLSearchParams();
+    if (accountId) query.set("accountId", accountId);
+    if (cliTool) query.set("cliTool", cliTool);
+    return invokeOrApi<ProviderEnvPreviewEntry[]>(
+      "preview_provider_env",
+      { providerId, accountId: accountId ?? null, cliTool: cliTool ?? null },
+      () => apiGet<ProviderEnvPreviewEntry[]>(
+        `/api/providers/${encodeURIComponent(providerId)}/env-preview?${query.toString()}`,
+      ),
+    );
+  },
+
+  /**
+   * 读出某个账号的密钥与接口地址（测试连接 / 拉模型列表 / 一次性补全用）。
+   * 结果只在内存里用：不要放进 store、不要落盘、不要打日志。
+   */
+  async resolveApiCredentials(
+    providerId: string,
+    accountId?: string | null,
+  ): Promise<ProviderApiCredentials> {
+    const query = accountId ? `?accountId=${encodeURIComponent(accountId)}` : "";
+    return invokeOrApi<ProviderApiCredentials>(
+      "resolve_provider_api_credentials",
+      { providerId, accountId: accountId ?? null },
+      () => apiJson<ProviderApiCredentials>(
+        `/api/providers/${encodeURIComponent(providerId)}/credentials${query}`,
+        "POST",
+        {},
+      ),
+    );
+  },
+
+  /** 当前环境有没有可用的系统钥匙串；没有时密钥留在 providers.json（未进钥匙串）。 */
+  async getSecretStatus(): Promise<{ keychainAvailable: boolean }> {
+    return invokeOrApi<{ keychainAvailable: boolean }>("get_provider_secret_status", undefined, () =>
+      apiGet<{ keychainAvailable: boolean }>("/api/providers/secret-status"),
+    );
   },
 
   async openPathInExplorer(path: string): Promise<void> {

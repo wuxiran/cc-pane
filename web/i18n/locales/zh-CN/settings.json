@@ -561,6 +561,7 @@
   "providerNamePlaceholder": "例如：我的 Anthropic",
   "providerType": "类型",
   "apiKey": "API Key",
+  "apiKeyStoredPlaceholder": "已保存（留空则保持不变）",
   "baseUrl": "Base URL（可选）",
   "region": "Region",
   "awsProfile": "AWS Profile（可选）",

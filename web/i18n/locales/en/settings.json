@@ -561,6 +561,7 @@
   "providerNamePlaceholder": "e.g. My Anthropic",
   "providerType": "Type",
   "apiKey": "API Key",
+  "apiKeyStoredPlaceholder": "Saved (leave blank to keep)",
   "baseUrl": "Base URL (optional)",
   "region": "Region",
   "awsProfile": "AWS Profile (optional)",
