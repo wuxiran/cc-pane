@@ -13,7 +13,10 @@ use std::time::Duration;
 use serde::Serialize;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
-const NPM_REGISTRIES: &[&str] = &["https://registry.npmjs.org", "https://registry.npmmirror.com"];
+const NPM_REGISTRIES: &[&str] = &[
+    "https://registry.npmjs.org",
+    "https://registry.npmmirror.com",
+];
 const BREW_API: &str = "https://formulae.brew.sh/api";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,13 +58,41 @@ struct KnownAgent {
 }
 
 const KNOWN_AGENTS: &[KnownAgent] = &[
-    KnownAgent { id: "claude", npm_package: Some("@anthropic-ai/claude-code"), self_update: Some("claude update") },
-    KnownAgent { id: "codex", npm_package: Some("@openai/codex"), self_update: None },
-    KnownAgent { id: "gemini", npm_package: Some("@google/gemini-cli"), self_update: None },
-    KnownAgent { id: "opencode", npm_package: Some("opencode-ai"), self_update: Some("opencode upgrade") },
-    KnownAgent { id: "grok", npm_package: Some("@xai-official/grok"), self_update: None },
-    KnownAgent { id: "pi", npm_package: Some("@earendil-works/pi-coding-agent"), self_update: None },
-    KnownAgent { id: "omp", npm_package: Some("@oh-my-pi/pi-coding-agent"), self_update: None },
+    KnownAgent {
+        id: "claude",
+        npm_package: Some("@anthropic-ai/claude-code"),
+        self_update: Some("claude update"),
+    },
+    KnownAgent {
+        id: "codex",
+        npm_package: Some("@openai/codex"),
+        self_update: None,
+    },
+    KnownAgent {
+        id: "gemini",
+        npm_package: Some("@google/gemini-cli"),
+        self_update: None,
+    },
+    KnownAgent {
+        id: "opencode",
+        npm_package: Some("opencode-ai"),
+        self_update: Some("opencode upgrade"),
+    },
+    KnownAgent {
+        id: "grok",
+        npm_package: Some("@xai-official/grok"),
+        self_update: None,
+    },
+    KnownAgent {
+        id: "pi",
+        npm_package: Some("@earendil-works/pi-coding-agent"),
+        self_update: None,
+    },
+    KnownAgent {
+        id: "omp",
+        npm_package: Some("@oh-my-pi/pi-coding-agent"),
+        self_update: None,
+    },
 ];
 
 fn known(id: &str) -> Option<&'static KnownAgent> {
@@ -70,7 +101,10 @@ fn known(id: &str) -> Option<&'static KnownAgent> {
 
 fn segment_after<'a>(path: &'a str, marker: &str) -> Option<&'a str> {
     let start = path.find(marker)? + marker.len();
-    path[start..].split('/').next().filter(|segment| !segment.is_empty())
+    path[start..]
+        .split('/')
+        .next()
+        .filter(|segment| !segment.is_empty())
 }
 
 /// `.../node_modules/@scope/name/...` 或 `.../node_modules/name/...` → 包名（取最后一层 node_modules）。
@@ -91,27 +125,50 @@ fn package_after_node_modules(path: &str) -> Option<String> {
 pub fn detect_source_from_path(real_path: &str) -> DetectedSource {
     let path = real_path.replace('\\', "/");
     if let Some(cask) = segment_after(&path, "/Caskroom/") {
-        return DetectedSource { source: InstallSource::BrewCask, package: Some(cask.to_string()) };
+        return DetectedSource {
+            source: InstallSource::BrewCask,
+            package: Some(cask.to_string()),
+        };
     }
     if let Some(formula) = segment_after(&path, "/Cellar/") {
-        return DetectedSource { source: InstallSource::Brew, package: Some(formula.to_string()) };
+        return DetectedSource {
+            source: InstallSource::Brew,
+            package: Some(formula.to_string()),
+        };
     }
     if let Some(package) = package_after_node_modules(&path) {
-        let source = if path.contains("/.bun/") { InstallSource::Bun } else { InstallSource::Npm };
-        return DetectedSource { source, package: Some(package) };
+        let source = if path.contains("/.bun/") {
+            InstallSource::Bun
+        } else {
+            InstallSource::Npm
+        };
+        return DetectedSource {
+            source,
+            package: Some(package),
+        };
     }
-    DetectedSource { source: InstallSource::Native, package: None }
+    DetectedSource {
+        source: InstallSource::Native,
+        package: None,
+    }
 }
 
 /// 真实路径里看不出 node_modules 时（Windows 的 `codex.cmd` 垫片、非链接的拷贝），
 /// 到垫片旁边找全局包目录：Windows `<npm>/node_modules/<pkg>`，Unix `<prefix>/lib/node_modules/<pkg>`。
 fn npm_package_beside_shim(executable: &Path, package: &str) -> bool {
-    let Some(dir) = executable.parent() else { return false };
+    let Some(dir) = executable.parent() else {
+        return false;
+    };
     let candidates = [
         dir.join("node_modules").join(package),
-        dir.join("..").join("lib").join("node_modules").join(package),
+        dir.join("..")
+            .join("lib")
+            .join("node_modules")
+            .join(package),
     ];
-    candidates.iter().any(|candidate| candidate.join("package.json").is_file())
+    candidates
+        .iter()
+        .any(|candidate| candidate.join("package.json").is_file())
 }
 
 pub fn detect_source(id: &str, executable_path: &str) -> DetectedSource {
@@ -123,7 +180,10 @@ pub fn detect_source(id: &str, executable_path: &str) -> DetectedSource {
     }
     if let Some(package) = known(id).and_then(|agent| agent.npm_package) {
         if npm_package_beside_shim(executable, package) {
-            return DetectedSource { source: InstallSource::Npm, package: Some(package.to_string()) };
+            return DetectedSource {
+                source: InstallSource::Npm,
+                package: Some(package.to_string()),
+            };
         }
     }
     detected
@@ -136,7 +196,9 @@ pub fn update_command(id: &str, detected: &DetectedSource) -> Option<String> {
         InstallSource::Bun => package.map(|name| format!("bun add -g {name}@latest")),
         InstallSource::Brew => package.map(|name| format!("brew upgrade {name}")),
         InstallSource::BrewCask => package.map(|name| format!("brew upgrade --cask {name}")),
-        InstallSource::Native => known(id).and_then(|agent| agent.self_update).map(str::to_string),
+        InstallSource::Native => known(id)
+            .and_then(|agent| agent.self_update)
+            .map(str::to_string),
     }
 }
 
@@ -176,17 +238,27 @@ async fn brew_latest(client: &reqwest::Client, detected: &DetectedSource) -> Opt
         _ => return None,
     };
     let body = get_json(client, &format!("{BREW_API}/{kind}/{name}.json")).await?;
-    body.pointer(pointer).and_then(|value| value.as_str()).map(clean_brew_version)
+    body.pointer(pointer)
+        .and_then(|value| value.as_str())
+        .map(clean_brew_version)
 }
 
-async fn latest_version(client: &reqwest::Client, id: &str, detected: &DetectedSource) -> Option<String> {
+async fn latest_version(
+    client: &reqwest::Client,
+    id: &str,
+    detected: &DetectedSource,
+) -> Option<String> {
     match detected.source {
-        InstallSource::Npm | InstallSource::Bun => npm_latest(client, detected.package.as_deref()?).await,
+        InstallSource::Npm | InstallSource::Bun => {
+            npm_latest(client, detected.package.as_deref()?).await
+        }
         // 第三方 tap 的 formula 不在官方 API 里：退回同一个上游的 npm 包版本。
-        InstallSource::Brew | InstallSource::BrewCask => match brew_latest(client, detected).await {
-            Some(version) => Some(version),
-            None => npm_latest(client, known(id)?.npm_package?).await,
-        },
+        InstallSource::Brew | InstallSource::BrewCask => {
+            match brew_latest(client, detected).await {
+                Some(version) => Some(version),
+                None => npm_latest(client, known(id)?.npm_package?).await,
+            }
+        }
         InstallSource::Native => npm_latest(client, known(id)?.npm_package?).await,
     }
 }
@@ -244,46 +316,96 @@ mod tests {
 
     #[test]
     fn npm_global_package_is_detected_from_real_path() {
-        let detected = source("/Users/u/.nvm/versions/node/v24.8.0/lib/node_modules/@openai/codex/bin/codex.js");
-        assert_eq!(detected, DetectedSource { source: InstallSource::Npm, package: Some("@openai/codex".into()) });
+        let detected = source(
+            "/Users/u/.nvm/versions/node/v24.8.0/lib/node_modules/@openai/codex/bin/codex.js",
+        );
+        assert_eq!(
+            detected,
+            DetectedSource {
+                source: InstallSource::Npm,
+                package: Some("@openai/codex".into())
+            }
+        );
         let unscoped = source("/usr/local/lib/node_modules/opencode-ai/bin/opencode.exe");
         assert_eq!(unscoped.package.as_deref(), Some("opencode-ai"));
     }
 
     #[test]
     fn bun_global_package_is_detected() {
-        let detected = source("/Users/u/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js");
+        let detected = source(
+            "/Users/u/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+        );
         assert_eq!(detected.source, InstallSource::Bun);
-        assert_eq!(detected.package.as_deref(), Some("@oh-my-pi/pi-coding-agent"));
+        assert_eq!(
+            detected.package.as_deref(),
+            Some("@oh-my-pi/pi-coding-agent")
+        );
     }
 
     #[test]
     fn homebrew_formula_and_cask_are_detected() {
         let formula = source("/opt/homebrew/Cellar/gemini-cli/0.1.9/libexec/lib/node_modules/@google/gemini-cli/dist/index.js");
-        assert_eq!(formula, DetectedSource { source: InstallSource::Brew, package: Some("gemini-cli".into()) });
+        assert_eq!(
+            formula,
+            DetectedSource {
+                source: InstallSource::Brew,
+                package: Some("gemini-cli".into())
+            }
+        );
         let cask = source("/opt/homebrew/Caskroom/codex/0.169.0/codex-aarch64-apple-darwin");
-        assert_eq!(cask, DetectedSource { source: InstallSource::BrewCask, package: Some("codex".into()) });
+        assert_eq!(
+            cask,
+            DetectedSource {
+                source: InstallSource::BrewCask,
+                package: Some("codex".into())
+            }
+        );
     }
 
     #[test]
     fn windows_paths_are_normalized() {
-        let detected = source(r"C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js");
-        assert_eq!(detected.package.as_deref(), Some("@anthropic-ai/claude-code"));
+        let detected =
+            source(r"C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js");
+        assert_eq!(
+            detected.package.as_deref(),
+            Some("@anthropic-ai/claude-code")
+        );
     }
 
     #[test]
     fn anything_else_is_native() {
-        assert_eq!(source("/Users/u/.local/share/claude/versions/2.1.330").source, InstallSource::Native);
+        assert_eq!(
+            source("/Users/u/.local/share/claude/versions/2.1.330").source,
+            InstallSource::Native
+        );
     }
 
     #[test]
     fn update_command_follows_install_source() {
-        let npm = DetectedSource { source: InstallSource::Npm, package: Some("@openai/codex".into()) };
-        assert_eq!(update_command("codex", &npm).as_deref(), Some("npm install -g @openai/codex@latest"));
-        let cask = DetectedSource { source: InstallSource::BrewCask, package: Some("codex".into()) };
-        assert_eq!(update_command("codex", &cask).as_deref(), Some("brew upgrade --cask codex"));
-        let native = DetectedSource { source: InstallSource::Native, package: None };
-        assert_eq!(update_command("claude", &native).as_deref(), Some("claude update"));
+        let npm = DetectedSource {
+            source: InstallSource::Npm,
+            package: Some("@openai/codex".into()),
+        };
+        assert_eq!(
+            update_command("codex", &npm).as_deref(),
+            Some("npm install -g @openai/codex@latest")
+        );
+        let cask = DetectedSource {
+            source: InstallSource::BrewCask,
+            package: Some("codex".into()),
+        };
+        assert_eq!(
+            update_command("codex", &cask).as_deref(),
+            Some("brew upgrade --cask codex")
+        );
+        let native = DetectedSource {
+            source: InstallSource::Native,
+            package: None,
+        };
+        assert_eq!(
+            update_command("claude", &native).as_deref(),
+            Some("claude update")
+        );
         assert_eq!(update_command("cursor", &native), None);
     }
 
@@ -301,11 +423,13 @@ mod tests {
     async fn live_check_against_local_install() {
         let installed = ["claude", "codex", "opencode"]
             .iter()
-            .filter_map(|id| which::which(id).ok().map(|path| InstalledCli {
-                id: (*id).to_string(),
-                path: path.to_string_lossy().into_owned(),
-                version: None,
-            }))
+            .filter_map(|id| {
+                which::which(id).ok().map(|path| InstalledCli {
+                    id: (*id).to_string(),
+                    path: path.to_string_lossy().into_owned(),
+                    version: None,
+                })
+            })
             .collect();
         for info in check_updates(installed).await {
             println!("{info:?}");

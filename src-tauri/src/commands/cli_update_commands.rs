@@ -21,7 +21,11 @@ pub async fn check_cli_updates(
         .into_iter()
         .filter(|tool| tool.installed)
         .filter_map(|tool| {
-            tool.path.map(|path| InstalledCli { id: tool.id, path, version: tool.version })
+            tool.path.map(|path| InstalledCli {
+                id: tool.id,
+                path,
+                version: tool.version,
+            })
         })
         .collect();
     Ok(cli_update_service::check_updates(installed).await)
