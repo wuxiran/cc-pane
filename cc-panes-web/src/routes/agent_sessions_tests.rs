@@ -91,6 +91,7 @@ fn index_entry(id: &str, cli_tool: &str, workspace: &str, mtime_ms: i64) -> Sess
         project_name: "project".to_string(),
         workspace_name: Some(workspace.to_string()),
         first_prompt: format!("first {id}"),
+        title: String::new(),
         last_summary: format!("summary {id}"),
         message_count: 4,
         mtime_ms,
