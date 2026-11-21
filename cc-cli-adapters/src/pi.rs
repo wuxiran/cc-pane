@@ -737,6 +737,7 @@ fn inject_pi_mcp_bridge(ctx: &CliAdapterContext, result: &mut CliCommandResult) 
     let ccpanes_entry = ctx
         .orchestrator_port
         .zip(ctx.orchestrator_token.as_deref())
+        .filter(|_| ctx.wants_ccpanes_mcp())
         .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
     let collected = mcp_file_injection::collect_mcp_servers(
         ctx,
@@ -814,6 +815,36 @@ impl CliToolAdapter for PiAdapter {
         self.family.capabilities()
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：扩展桥 + 每会话 `CCPANES_MCP_CONFIG`；ccpanes 条目不带 launchId、共享不带请求头；
+    ///   隔离只收窄 CC-Panes 注入的集合。
+    /// - 技能：不消费挂载路径；PiSkill 投递压掉了提示词回退（批 1 修）。
+    /// - WSL 固定 skip_mcp；SSH 启动被 provider_resolver 拒绝。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::SessionFile,
+                ctl_proxy: false,
+                shared: true,
+                workspace: true,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: false,
+                isolation: McpIsolation::DeclareOnly,
+                launch_identity: false,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: false,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection::launch_only(),
+                ssh: RuntimeInjection::unavailable(),
+            },
+        }
+    }
+
     fn global_skills_dir(&self) -> Option<PathBuf> {
         self.family.global_skills_dir()
     }
@@ -851,6 +882,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

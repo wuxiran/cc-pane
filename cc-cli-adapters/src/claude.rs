@@ -268,8 +268,13 @@ impl ClaudeAdapter {
     /// 生成 MCP 配置文件，返回路径
     /// 配置 CC-Panes 的 HTTP/stdio MCP 端点 + 用户全局 MCP 服务器
     fn generate_mcp_config(&self, ctx: &CliAdapterContext) -> Option<String> {
-        let proxy = crate::mcp_proxy_invocation(ctx);
-        let http_endpoint = if proxy.is_none() {
+        // 启动档关掉 ccpanes 时只写共享 + 工作空间层（docs/110 批 0），不再要求
+        // orchestrator 在线。
+        let wants_ccpanes = ctx.wants_ccpanes_mcp();
+        let proxy = wants_ccpanes
+            .then(|| crate::mcp_proxy_invocation(ctx))
+            .flatten();
+        let http_endpoint = if wants_ccpanes && proxy.is_none() {
             Some((ctx.orchestrator_port?, ctx.orchestrator_token.as_ref()?))
         } else {
             None
@@ -297,12 +302,14 @@ impl ClaudeAdapter {
 
         crate::mcp_config_lifecycle::collect_retired_configs(&ctx.data_dir, &file_name);
 
-        let ccpanes_server = if let Some(proxy) = proxy {
-            serde_json::json!({
+        let ccpanes_server = if !wants_ccpanes {
+            None
+        } else if let Some(proxy) = proxy {
+            Some(serde_json::json!({
                 "type": "stdio",
                 "command": proxy.command,
                 "args": proxy.args,
-            })
+            }))
         } else {
             let (port, token) = http_endpoint?;
             // HTTP 灰度关闭路径保持原行为。launchId 继续传给 orchestrator，
@@ -312,13 +319,13 @@ impl ClaudeAdapter {
                 mcp_url.push_str("&launchId=");
                 mcp_url.push_str(launch_id);
             }
-            serde_json::json!({
+            Some(serde_json::json!({
                 "type": "http",
                 "url": mcp_url,
                 "headers": {
                     "Authorization": format!("Bearer {}", token)
                 }
-            })
+            }))
         };
 
         let mut mcp_servers = serde_json::Map::new();
@@ -394,7 +401,11 @@ impl ClaudeAdapter {
         }
 
         // ccpanes 服务器（最高优先级，覆盖同名）
-        mcp_servers.insert("ccpanes".to_string(), ccpanes_server);
+        if let Some(ccpanes_server) = ccpanes_server {
+            mcp_servers.insert("ccpanes".to_string(), ccpanes_server);
+        } else if mcp_servers.is_empty() {
+            return None;
+        }
 
         let config = serde_json::json!({ "mcpServers": mcp_servers });
 
@@ -928,6 +939,46 @@ impl CliToolAdapter for ClaudeAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：每会话 `--mcp-config`；会合并 `~/.claude.json` 且没有 `--strict-mcp-config`，隔离做不到。
+    /// - WSL：只进 HTTP 型工作空间层，远程不带请求头（Partial）；技能经 /mnt `--plugin-dir`。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::SessionFile,
+                ctl_proxy: true,
+                shared: true,
+                workspace: true,
+                transports: vec![
+                    McpTransport::StdioBridge,
+                    McpTransport::Http,
+                    McpTransport::Sse,
+                ],
+                remote_headers: true,
+                isolation: McpIsolation::None,
+                launch_identity: true,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::PluginDir,
+                prompt_fallback: false,
+                native_sources: vec![NativeSkillSource::Claude, NativeSkillSource::Plugin],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::Partial,
+                    skills: RuntimeSupport::Full,
+                },
+                ssh: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::None,
+                    skills: RuntimeSupport::None,
+                },
+            },
+        }
+    }
+
     fn permission_request_capability(&self) -> Option<PermissionRequestCapability> {
         Some(PermissionRequestCapability::ClaudeSynchronousHook)
     }
@@ -1176,8 +1227,9 @@ impl CliToolAdapter for ClaudeAdapter {
             );
             args.push("--mcp-config".to_string());
             args.push(mcp_config_path);
-        } else if crate::mcp_proxy_invocation(ctx).is_some()
-            || (ctx.orchestrator_port.is_some() && ctx.orchestrator_token.is_some())
+        } else if ctx.wants_ccpanes_mcp()
+            && (crate::mcp_proxy_invocation(ctx).is_some()
+                || (ctx.orchestrator_port.is_some() && ctx.orchestrator_token.is_some()))
         {
             return Err(anyhow!(
                 "Failed to create per-session Claude MCP configuration; launch cancelled"
@@ -1390,6 +1442,7 @@ mod tests {
             resume_id: None,
             issued_session_id: Some("issued-session".to_string()),
             skip_mcp: true,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: Some("hello".to_string()),
@@ -2291,6 +2344,37 @@ mod tests {
             .to_string();
         assert!(error.contains("MCP configuration"));
         assert!(!error.contains("fixture-token"));
+    }
+
+    #[test]
+    fn skip_ccpanes_mcp_keeps_shared_servers_without_orchestrator() {
+        let dir = tempdir().unwrap();
+        let mut ctx = test_context(Some("claude"));
+        ctx.skip_mcp = false;
+        ctx.skip_ccpanes_mcp = true;
+        ctx.data_dir = dir.path().into();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("fixture-token".into());
+        ctx.shared_mcp_urls
+            .insert("shared".into(), "http://127.0.0.1:3101/mcp".into());
+        let result = ClaudeAdapter::new().build_command(&ctx).unwrap();
+        let index = result
+            .args
+            .iter()
+            .position(|arg| arg == "--mcp-config")
+            .expect("shared MCP still injected");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&result.args[index + 1]).unwrap()).unwrap();
+        assert!(config["mcpServers"].get("ccpanes").is_none());
+        assert_eq!(
+            config["mcpServers"]["shared"]["url"],
+            "http://127.0.0.1:3101/mcp"
+        );
+
+        // 没有任何可注入项时不写空配置
+        ctx.shared_mcp_urls.clear();
+        let result = ClaudeAdapter::new().build_command(&ctx).unwrap();
+        assert!(!result.args.iter().any(|arg| arg == "--mcp-config"));
     }
 
     #[test]

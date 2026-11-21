@@ -321,17 +321,25 @@ impl LaunchProfileService {
             })
     }
 
+    /// 本次启动是否关掉**全部** MCP 注入（请求显式跳过 / 启动档 MCP 模式为 Disabled）。
+    ///
+    /// `include_ccpanes_mcp=false` 不再算在这里（docs/110 批 0）：它只关 ccpanes 自身，
+    /// 见 [`Self::should_skip_ccpanes_mcp_for_profile`]。
     pub fn should_skip_mcp_for_profile(
         profile: Option<&LaunchProfile>,
         requested_skip_mcp: bool,
     ) -> bool {
         requested_skip_mcp
             || profile
-                .map(|profile| {
-                    profile.mcp_policy.mode == LaunchProfileMcpMode::Disabled
-                        || !profile.mcp_policy.include_ccpanes_mcp
-                })
+                .map(|profile| profile.mcp_policy.mode == LaunchProfileMcpMode::Disabled)
                 .unwrap_or(false)
+    }
+
+    /// 启动档是否只关掉 ccpanes 内置 MCP（共享与工作空间层照常注入）。
+    pub fn should_skip_ccpanes_mcp_for_profile(profile: Option<&LaunchProfile>) -> bool {
+        profile
+            .map(|profile| !profile.mcp_policy.include_ccpanes_mcp)
+            .unwrap_or(false)
     }
 
     pub fn should_sync_project_hooks_for_profile(profile: Option<&LaunchProfile>) -> bool {
@@ -1246,7 +1254,9 @@ fn resolve_skill_compatibility(
     };
 
     let delivery_modes = adapter.skill_delivery_modes();
-    let can_use_portable_skills = !delivery_modes.is_empty();
+    // 能否送达读注入描述（docs/110 批 0）：投递模式非空不等于真的有人消费——jcode 声明了
+    // NativeSkill，但没人写 `~/.jcode/skills`，此前 UI 据此误报「可用」。
+    let can_use_portable_skills = adapter.injection_profile().skills.deliverable();
     let ccpanes_mcp_enabled = mcp_servers
         .iter()
         .any(|server| server.id == "ccpanes" && server.enabled);

@@ -35,9 +35,17 @@ describe("summarizeInjection", () => {
     expect(s.reasons.skills).toBe("injection.skillsSshNone");
   });
 
-  it("运行配置关掉 MCP 或 ccpanes：MCP off", () => {
+  it("运行配置关掉 MCP：off；只关 ccpanes：本机 partial（共享 / 工作空间层照常），WSL off", () => {
     expect(summarizeInjection({ ...base, mcpPolicy: { ...base.mcpPolicy, mode: "disabled" } }, "local", "claude").mcp).toBe("off");
-    expect(summarizeInjection({ ...base, mcpPolicy: { ...base.mcpPolicy, includeCcpanesMcp: false } }, "local", "claude").mcp).toBe("off");
+    const noCcpanes = { ...base, mcpPolicy: { ...base.mcpPolicy, includeCcpanesMcp: false } };
+    expect(summarizeInjection(noCcpanes, "local", "claude").mcp).toBe("partial");
+    expect(summarizeInjection(noCcpanes, "wsl", "claude").mcp).toBe("off");
+  });
+
+  it("WSL 下不注入 MCP 的 CLI 显示 off（读注入描述，不再一律 partial）", () => {
+    const s = summarizeInjection(base, "wsl", "opencode");
+    expect(s.mcp).toBe("off");
+    expect(s.reasons.mcp).toBe("injection.mcpWslNone");
   });
 
   it("skill 全关：skills off，记忆降为 partial（hook 可能没装）", () => {

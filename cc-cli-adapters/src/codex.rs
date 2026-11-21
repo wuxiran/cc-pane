@@ -431,8 +431,14 @@ impl CodexAdapter {
     }
 
     fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
-        let proxy = crate::mcp_proxy_invocation(ctx);
-        if let Some(invocation) = proxy.as_ref() {
+        let proxy = ctx
+            .wants_ccpanes_mcp()
+            .then(|| crate::mcp_proxy_invocation(ctx))
+            .flatten();
+        if !ctx.wants_ccpanes_mcp() {
+            // 启动档只关 ccpanes：显式禁用残留的全局 ccpanes 段，共享 / 工作空间层照常注入
+            Self::push_mcp_enabled_override(args, "ccpanes", false);
+        } else if let Some(invocation) = proxy.as_ref() {
             Self::push_mcp_stdio_override(args, "ccpanes", invocation);
             Self::push_mcp_enabled_override(args, "ccpanes", true);
             Self::push_ccpanes_enabled_tools_override(args);
@@ -1757,6 +1763,42 @@ impl CliToolAdapter for CodexAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：每次启动 `-c mcp_servers.*`；隔离用 `enabled=false` 显式禁用；不支持 SSE。
+    /// - 技能：`-c skills.config=[...]`。WSL 下技能拷进 guest（Full），MCP 只进 HTTP 型（Partial）。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::SessionFlag,
+                ctl_proxy: true,
+                shared: true,
+                workspace: true,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: true,
+                isolation: McpIsolation::Full,
+                launch_identity: true,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::ConfigArray,
+                prompt_fallback: false,
+                native_sources: vec![NativeSkillSource::Codex],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::Partial,
+                    skills: RuntimeSupport::Full,
+                },
+                ssh: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::None,
+                    skills: RuntimeSupport::None,
+                },
+            },
+        }
+    }
+
     fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
         dirs::home_dir().map(|h| h.join(".codex").join("skills"))
     }
@@ -2035,6 +2077,7 @@ mod tests {
             resume_id: Some("thread-123".to_string()),
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: Some("hello".to_string()),
@@ -2095,6 +2138,25 @@ mod tests {
         assert!(hooks.contains("PostToolUse"));
         assert!(hooks.contains("tool-after"));
         assert!(!hooks.contains("Loading CC-Panes context"));
+    }
+
+    #[test]
+    fn skip_ccpanes_mcp_disables_ccpanes_but_keeps_shared_overrides() {
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.skip_mcp = false;
+        ctx.skip_ccpanes_mcp = true;
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("fixture-token".into());
+        ctx.shared_mcp_urls
+            .insert("shared".into(), "http://127.0.0.1:3101/mcp".into());
+        let args = CodexAdapter::new().build_command(&ctx).unwrap().args;
+        assert!(args
+            .iter()
+            .any(|arg| arg == "mcp_servers.ccpanes.enabled=false"));
+        assert!(!args.iter().any(|arg| arg.contains("fixture-token")));
+        assert!(args
+            .iter()
+            .any(|arg| arg.starts_with("mcp_servers.shared.url=")));
     }
 
     #[test]

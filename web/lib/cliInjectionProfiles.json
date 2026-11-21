@@ -1,0 +1,350 @@
+{
+  "antigravity": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "claude": {
+    "mcp": {
+      "ccpanes": "sessionFile",
+      "ctlProxy": true,
+      "isolation": "none",
+      "launchIdentity": true,
+      "remoteHeaders": true,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http",
+        "sse"
+      ],
+      "workspace": true
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "partial",
+        "skills": "full"
+      }
+    },
+    "skills": {
+      "mount": "pluginDir",
+      "nativeSources": [
+        "claude",
+        "plugin"
+      ],
+      "promptFallback": false
+    }
+  },
+  "codex": {
+    "mcp": {
+      "ccpanes": "sessionFlag",
+      "ctlProxy": true,
+      "isolation": "full",
+      "launchIdentity": true,
+      "remoteHeaders": true,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": true
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "partial",
+        "skills": "full"
+      }
+    },
+    "skills": {
+      "mount": "configArray",
+      "nativeSources": [
+        "codex"
+      ],
+      "promptFallback": false
+    }
+  },
+  "cursor": {
+    "mcp": {
+      "ccpanes": "userFile",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "gemini": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "grok": {
+    "mcp": {
+      "ccpanes": "userFile",
+      "ctlProxy": false,
+      "isolation": "declareOnly",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "partial",
+        "skills": "full"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": true
+    }
+  },
+  "jcode": {
+    "mcp": {
+      "ccpanes": "stdioProxy",
+      "ctlProxy": true,
+      "isolation": "declareOnly",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge"
+      ],
+      "workspace": true
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "kimi": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "omp": {
+    "mcp": {
+      "ccpanes": "projectFile",
+      "ctlProxy": false,
+      "isolation": "declareOnly",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": true
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "opencode": {
+    "mcp": {
+      "ccpanes": "sessionFile",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": true,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": true
+    }
+  },
+  "pi": {
+    "mcp": {
+      "ccpanes": "sessionFile",
+      "ctlProxy": false,
+      "isolation": "declareOnly",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": true,
+      "transports": [
+        "stdioBridge",
+        "http"
+      ],
+      "workspace": true
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  }
+}

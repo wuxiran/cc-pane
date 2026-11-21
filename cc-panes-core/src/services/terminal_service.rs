@@ -22,7 +22,6 @@ use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchR
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{
     CliAdapterContext, CliProvider, CliToolRegistry, PiAdapterOptions, PiTransport,
-    SkillDeliveryMode,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
@@ -131,21 +130,16 @@ fn merge_session_prompts(parts: impl IntoIterator<Item = Option<String>>) -> Opt
 /// Avoid loading a bundled Skill twice. Adapters with a native command or
 /// native Skill directory receive the bundle there; this fallback is only for
 /// adapters whose sole supported portable transport is a session prompt.
+/// 内置可移植技能 / 工作空间技能是否以会话提示词送达：读 adapter 的注入描述
+/// （docs/110 批 0 单源），不再自己从投递模式推断。
 fn uses_portable_skill_session_prompt_fallback(
     registry: &CliToolRegistry,
     cli_tool: CliTool,
 ) -> bool {
-    let Some(adapter) = registry.get(cli_tool.as_id()) else {
-        return false;
-    };
-    let modes = adapter.skill_delivery_modes();
-    modes.contains(&SkillDeliveryMode::SessionPrompt)
-        && !modes.iter().any(|mode| {
-            matches!(
-                mode,
-                SkillDeliveryMode::NativeCommand | SkillDeliveryMode::NativeSkill
-            )
-        })
+    registry.get(cli_tool.as_id()).is_some_and(|adapter| {
+        let skills = adapter.injection_profile().skills;
+        skills.prompt_fallback && skills.mount == cc_cli_adapters::SkillMount::None
+    })
 }
 
 fn launch_cancelled_error(launch_id: Option<&str>, stage: &str) -> AppError {
@@ -219,7 +213,9 @@ fn skill_mount_paths_for_profile(
     paths
 }
 
-/// Inline workspace skills for CLIs that cannot mount a plugin folder (Cursor, Gemini, …).
+/// Inline workspace skills for CLIs whose injection profile has `prompt_fallback` and no
+/// mount channel (today: OpenCode, Grok). Cursor / Gemini / Kimi / Antigravity have no
+/// session-prompt channel at all and receive nothing (docs/110 §2.2).
 /// Mount-capable CLIs must not get this — they would see every skill twice.
 fn workspace_skill_session_prompt(
     profile: Option<&LaunchProfile>,
@@ -280,32 +276,20 @@ fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
 /// 共享 MCP 服务器的原始 stdio 定义（Claude 条目形状，docs/104）。
 /// 只认 stdio 的 CLI（jcode）用它绕过 HTTP 桥直接注入源命令；只收本次实际
 /// 暴露（出现在 URL 表）的服务器。HTTP 原生型共享服务器没有 stdio 源，不在表中。
-/// 这个 CLI 能不能连上这条远程 MCP。只有 Claude、Codex 能带请求头，Codex 不支持 SSE，
-/// jcode 只认 stdio；WSL / SSH 走另一条注入路径，也带不了请求头。前端按同一规则置灰。
+/// 这个 CLI 能不能连上这条远程 MCP：transport / 请求头 / 运行时规则全部来自 adapter 的
+/// 注入描述（`InjectionProfile::remote_mcp_supported`，docs/110 批 0）。前端读同一份描述置灰。
 fn remote_mcp_supported(
     remote: &crate::models::shared_mcp::SharedMcpRemote,
-    cli_tool: CliTool,
+    profile: &cc_cli_adapters::InjectionProfile,
     runtime_kind: &str,
 ) -> bool {
-    if matches!(cli_tool, CliTool::Jcode) {
-        return false;
-    }
-    let sse = remote.transport == "sse";
-    let headers = !remote.headers.is_empty();
-    if runtime_kind != "local" {
-        return !headers && !sse;
-    }
-    match cli_tool {
-        CliTool::Claude => true,
-        CliTool::Codex => !sse,
-        _ => !headers && !sse,
-    }
+    profile.remote_mcp_supported(&remote.transport, !remote.headers.is_empty(), runtime_kind)
 }
 
 fn retain_supported_remote_mcp(
     mut urls: HashMap<String, String>,
     shared_mcp_config: &SharedMcpConfig,
-    cli_tool: CliTool,
+    profile: &cc_cli_adapters::InjectionProfile,
     runtime_kind: &str,
 ) -> HashMap<String, String> {
     urls.retain(|name, _| {
@@ -313,7 +297,7 @@ fn retain_supported_remote_mcp(
             .servers
             .get(name)
             .and_then(|server| server.remote.as_ref())
-            .is_none_or(|remote| remote_mcp_supported(remote, cli_tool, runtime_kind))
+            .is_none_or(|remote| remote_mcp_supported(remote, profile, runtime_kind))
     });
     urls
 }
@@ -2442,6 +2426,7 @@ impl TerminalService {
             resume_id: resume_id.map(str::to_string),
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: true,
             // Pi's project trust is controlled by piProjectTrust, not the
             // generic terminal YOLO setting.
             yolo_mode: false,
@@ -2821,18 +2806,22 @@ impl TerminalService {
         );
         let effective_skip_mcp =
             LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
+        // 启动档 include_ccpanes_mcp=false 只关 ccpanes 自身（docs/110 批 0），共享与工作空间层
+        // 照常注入。WSL 仍走旧语义（关 ccpanes = 全关），批 4 改走 adapter 后再拆。
+        let effective_skip_ccpanes_mcp = effective_skip_mcp
+            || LaunchProfileService::should_skip_ccpanes_mcp_for_profile(resolved_profile.as_ref());
+        let wsl_skip_mcp = effective_skip_ccpanes_mcp;
+        let injection_profile = self.cli_registry.injection_profile(cli_tool.as_id());
         // 注意：daemon 模式下 create_session 跑在 daemon 进程里，而
         // `set_sidecar_resource_dir` 只有 app 侧调用 —— 此处恒为 None，ctl 路径
         // 实际由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
         let sidecar_resource_dir = self.sidecar_resource_dir.read().clone();
-        if !is_ssh
-            && !effective_skip_mcp
-            && matches!(cli_tool, CliTool::Claude | CliTool::Codex | CliTool::Jcode)
-        {
-            // jcode 只认 stdio：ccpanes 内置 MCP 必须走 ctl 代理（force，不受
-            // CCPANES_MCP_PROXY 灰度开关约束）；ctl 缺失只降级（ccpanes 条目不注入），
-            // 绝不阻断开终端。Claude/Codex 维持灰度 + 错误上抛的原语义（docs/104）。
-            let force_proxy = matches!(cli_tool, CliTool::Jcode);
+        if !is_ssh && !effective_skip_ccpanes_mcp && injection_profile.mcp.ctl_proxy {
+            // 只认 stdio 的 CLI（ccpanes 通道 = StdioProxy，目前是 jcode）必须走 ctl 代理
+            // （force，不受 CCPANES_MCP_PROXY 灰度开关约束）；ctl 缺失只降级（ccpanes 条目
+            // 不注入），绝不阻断开终端。其余维持灰度 + 错误上抛的原语义（docs/104）。
+            let force_proxy =
+                injection_profile.mcp.ccpanes == cc_cli_adapters::McpChannel::StdioProxy;
             let injected = super::ctl_sidecar::inject_mcp_proxy_options(
                 &mut adapter_options,
                 sidecar_resource_dir.as_deref(),
@@ -2869,7 +2858,7 @@ impl TerminalService {
                 effective_skip_mcp,
             ),
             &shared_mcp_config,
-            cli_tool,
+            &injection_profile,
             runtime_kind,
         );
         log_launch_stage(
@@ -2970,7 +2959,7 @@ impl TerminalService {
         let portable_bundled_skill_prompt = self.portable_bundled_skill_prompt(
             cli_tool,
             resolved_profile.as_ref(),
-            !effective_skip_mcp,
+            !effective_skip_ccpanes_mcp,
         );
         let workspace_skill_prompt = match workspace_skill_name {
             Some(name)
@@ -3324,7 +3313,7 @@ impl TerminalService {
                 self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
                 wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
             }
-            let wsl_mcp_proxy_enabled = !effective_skip_mcp
+            let wsl_mcp_proxy_enabled = !wsl_skip_mcp
                 && cc_cli_adapters::mcp_proxy_invocation_from_options(
                     &adapter_options,
                     self.app_paths.data_dir(),
@@ -3409,7 +3398,7 @@ impl TerminalService {
                 }
             }
 
-            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !effective_skip_mcp {
+            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !wsl_skip_mcp {
                 if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
                     match port_value.parse::<u16>() {
                         Ok(port) => match self.resolve_reachable_wsl_windows_host(
@@ -3471,7 +3460,7 @@ impl TerminalService {
                     );
                     // 收口 #7：清掉 WSL 内 ~/.codex/config.toml 残留的旧 CC-Panes ccpanes 段
                     // （本地迁移只动 Windows 侧，够不到 WSL Linux 侧这份）。best-effort。
-                    if !effective_skip_mcp {
+                    if !wsl_skip_mcp {
                         cc_cli_adapters::CodexAdapter::migrate_stale_wsl_ccpanes_mcp_config(
                             &resolved_wsl.wsl_path,
                             &resolved_wsl.distro,
@@ -3482,7 +3471,7 @@ impl TerminalService {
                             &session_id,
                             &resolved_wsl,
                             &env_vars,
-                            effective_skip_mcp,
+                            wsl_skip_mcp,
                         )?;
                     }
                     self.build_wsl_command(
@@ -3494,7 +3483,7 @@ impl TerminalService {
                         resume_id,
                         launch_append_system_prompt.as_deref(),
                         initial_prompt,
-                        effective_skip_mcp,
+                        wsl_skip_mcp,
                         &effective_shared_mcp_urls,
                         &allowed_mcp_server_ids,
                         disable_unlisted_mcp_servers,
@@ -3531,7 +3520,7 @@ impl TerminalService {
                     issued_session_id.as_deref(),
                     launch_append_system_prompt.as_deref(),
                     initial_prompt,
-                    effective_skip_mcp,
+                    wsl_skip_mcp,
                     effective_yolo_mode,
                     &adapter_options,
                     &effective_shared_mcp_urls,
@@ -3656,6 +3645,7 @@ impl TerminalService {
                     resume_id: resume_id.map(|s| s.to_string()),
                     issued_session_id: issued_session_id.clone(),
                     skip_mcp: effective_skip_mcp,
+                    skip_ccpanes_mcp: effective_skip_ccpanes_mcp,
                     yolo_mode: effective_yolo_mode,
                     append_system_prompt: effective_prompt,
                     initial_prompt: initial_prompt.map(|s| s.to_string()),
@@ -7972,6 +7962,8 @@ mod tests {
     #[test]
     fn remote_mcp_support_matches_each_cli() {
         use crate::models::shared_mcp::SharedMcpRemote;
+        let registry = CliToolRegistry::with_builtin_adapters();
+        let profile = |cli: CliTool| registry.injection_profile(cli.as_id());
         let remote = |transport: &str, header: bool| SharedMcpRemote {
             url: "https://example.com/mcp".to_string(),
             transport: transport.to_string(),
@@ -7983,42 +7975,42 @@ mod tests {
         };
         assert!(remote_mcp_supported(
             &remote("sse", true),
-            CliTool::Claude,
+            &profile(CliTool::Claude),
             "local"
         ));
         assert!(remote_mcp_supported(
             &remote("http", true),
-            CliTool::Codex,
+            &profile(CliTool::Codex),
             "local"
         ));
         assert!(!remote_mcp_supported(
             &remote("sse", false),
-            CliTool::Codex,
+            &profile(CliTool::Codex),
             "local"
         ));
         assert!(!remote_mcp_supported(
             &remote("http", false),
-            CliTool::Jcode,
+            &profile(CliTool::Jcode),
             "local"
         ));
         assert!(!remote_mcp_supported(
             &remote("http", true),
-            CliTool::Opencode,
+            &profile(CliTool::Opencode),
             "local"
         ));
         assert!(remote_mcp_supported(
             &remote("http", false),
-            CliTool::Opencode,
+            &profile(CliTool::Opencode),
             "local"
         ));
         assert!(!remote_mcp_supported(
             &remote("http", true),
-            CliTool::Claude,
+            &profile(CliTool::Claude),
             "wsl"
         ));
         assert!(remote_mcp_supported(
             &remote("http", false),
-            CliTool::Claude,
+            &profile(CliTool::Claude),
             "wsl"
         ));
     }

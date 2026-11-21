@@ -181,6 +181,7 @@ use commands::{
     get_app_cwd,
     get_available_shells,
     get_bridge_stats,
+    get_cli_injection_profiles,
     // Local History - 分支感知 + Worktree
     get_current_branch,
     get_data_dir_info,
@@ -3228,6 +3229,7 @@ pub fn run() {
             get_available_shells,
             get_windows_build_number,
             check_environment,
+            get_cli_injection_profiles,
             list_cli_tools,
             commands::check_cli_updates,
             get_terminal_daemon_client_info,

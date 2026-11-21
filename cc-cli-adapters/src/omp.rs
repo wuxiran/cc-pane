@@ -76,6 +76,35 @@ impl CliToolAdapter for OmpAdapter {
         self.family.capabilities()
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：项目级 `.omp/mcp.json`（收据驱动），同项目会话共享，ccpanes 不带 launchId；
+    ///   共享不带请求头；隔离只 warn。
+    /// - 技能：不消费挂载路径，没有提示词回退。WSL 不注入；SSH 启动被拒。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::ProjectFile,
+                ctl_proxy: false,
+                shared: true,
+                workspace: true,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: false,
+                isolation: McpIsolation::DeclareOnly,
+                launch_identity: false,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: false,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection::launch_only(),
+                ssh: RuntimeInjection::unavailable(),
+            },
+        }
+    }
+
     /// Oh My Pi reads Agent Skills from `~/.omp/agent/skills` using the same
     /// SKILL.md layout as Pi, so the Pi skill bundle is directly compatible.
     fn global_skills_dir(&self) -> Option<PathBuf> {
@@ -98,6 +127,7 @@ impl CliToolAdapter for OmpAdapter {
         let ccpanes_entry = ctx
             .orchestrator_port
             .zip(ctx.orchestrator_token.as_deref())
+            .filter(|_| ctx.wants_ccpanes_mcp())
             .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
         mcp_file_injection::sync_adapter_project_mcp(
             "omp",
@@ -136,6 +166,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

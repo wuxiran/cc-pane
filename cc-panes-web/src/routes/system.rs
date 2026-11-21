@@ -42,6 +42,13 @@ pub async fn list_cli_tools(
         .map_err(service_error)
 }
 
+/// docs/110 批 0：与 Tauri `get_cli_injection_profiles` 同源。
+pub async fn get_cli_injection_profiles(
+    State(state): State<AppState>,
+) -> Json<std::collections::BTreeMap<String, cc_cli_adapters::InjectionProfile>> {
+    Json(state.cli_registry.injection_profiles())
+}
+
 pub async fn get_project_cli_hooks(
     State(state): State<AppState>,
     Query(query): Query<ProjectPathQuery>,

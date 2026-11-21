@@ -238,6 +238,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/runtime/cwd", get(system::get_app_cwd))
         .route("/api/cli-tools", get(system::list_cli_tools))
+        .route(
+            "/api/cli-injection-profiles",
+            get(system::get_cli_injection_profiles),
+        )
         .route("/api/device/info", get(device::get_device_info))
         .route("/api/environment", get(device::get_environment))
         .route("/api/project-cli-hooks", get(system::get_project_cli_hooks))

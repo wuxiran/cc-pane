@@ -2,6 +2,7 @@
 // 结合运行时（本机 / WSL / SSH）和 CLI 能力算出 on / partial / off。
 import type { LaunchProfile } from "@/types";
 import type { WorkspaceLaunchEnvironment } from "@/types/workspace";
+import { injectionProfileFor } from "@/services/cliInjectionProfileService";
 
 export type InjectionState = "on" | "partial" | "off";
 
@@ -13,12 +14,6 @@ export interface InjectionSummary {
   reasons: { mcp: string; skills: string; memory: string };
 }
 
-// docs/104：pi（扩展桥）/ omp（原生 .omp/mcp.json）/ jcode（原生
-// .jcode/mcp.json，仅 stdio）已接入注入链，从名单移除。剩下的是 adapter
-// 能力位 supports_mcp=false 的工具（与后端 capabilities 对齐）。
-// antigravity（agy）v1 未接 MCP 注入链。
-const MCP_UNSUPPORTED_CLIS = new Set(["gemini", "kimi", "antigravity"]);
-
 export function summarizeInjection(
   profile: LaunchProfile | null,
   environment: WorkspaceLaunchEnvironment,
@@ -27,23 +22,39 @@ export function summarizeInjection(
   const mcpPolicy = profile?.mcpPolicy;
   const skillPolicy = profile?.skillPolicy;
 
+  // 门控读 adapter 注入描述（docs/110 批 0 单源），不再维护本地 CLI 名单。
+  const cliProfile = injectionProfileFor(cliTool);
+  const mcpChannels = cliProfile?.mcp;
+  const hasMcp = !!mcpChannels && (mcpChannels.ccpanes !== "none" || mcpChannels.shared || mcpChannels.workspace);
+  const wslMcp = cliProfile?.runtimes.wsl.mcp ?? "none";
+
   let mcp: InjectionState;
   let mcpReason: string;
-  if (MCP_UNSUPPORTED_CLIS.has(cliTool)) {
+  if (!hasMcp) {
     mcp = "off";
     mcpReason = "injection.mcpUnsupportedCli";
-  } else if (mcpPolicy && (mcpPolicy.mode === "disabled" || !mcpPolicy.includeCcpanesMcp)) {
+  } else if (mcpPolicy && mcpPolicy.mode === "disabled") {
     mcp = "off";
-    mcpReason = mcpPolicy.mode === "disabled" ? "injection.mcpDisabledByProfile" : "injection.mcpCcpanesOff";
+    mcpReason = "injection.mcpDisabledByProfile";
   } else if (environment === "ssh") {
     // SSH 远端命令只导出环境变量再跑裸 CLI（build_ssh_remote_command），任何 MCP 都带不过去。
     // 想要完整注入，要把那台机器添加为「设备」，由它本机的 CC-Panes 启动会话（docs/111）。
     mcp = "off";
     mcpReason = "injection.mcpSshNone";
   } else if (environment === "wsl") {
-    // WSL 拿到共享 MCP + 工作空间 / 项目层里的 HTTP 型；stdio 型是宿主命令，进不去
-    mcp = "partial";
-    mcpReason = "injection.mcpWslHttpOnly";
+    // WSL 仍是旧语义：关掉 ccpanes 即全关（docs/110 批 4 再拆）
+    if (wslMcp === "none" || (mcpPolicy && !mcpPolicy.includeCcpanesMcp)) {
+      mcp = "off";
+      mcpReason = wslMcp === "none" ? "injection.mcpWslNone" : "injection.mcpCcpanesOff";
+    } else {
+      mcp = wslMcp === "full" ? "on" : "partial";
+      mcpReason = "injection.mcpWslHttpOnly";
+    }
+  } else if (mcpPolicy && !mcpPolicy.includeCcpanesMcp) {
+    // 本机：只关 ccpanes 自身，共享与工作空间层照常注入（docs/110 批 0）
+    const others = !!mcpChannels && (mcpChannels.shared || mcpChannels.workspace);
+    mcp = others ? "partial" : "off";
+    mcpReason = "injection.mcpCcpanesOff";
   } else {
     mcp = "on";
     mcpReason = "injection.mcpFull";

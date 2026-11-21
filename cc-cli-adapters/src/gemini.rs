@@ -62,6 +62,11 @@ impl CliToolAdapter for GeminiAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码不接任何 MCP / 技能注入（WSL / SSH 只能裸启动）。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        crate::InjectionProfile::unsupported()
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         info!(
             session_id = %ctx.session_id,

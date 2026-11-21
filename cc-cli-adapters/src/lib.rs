@@ -21,6 +21,7 @@ mod cursor;
 mod fs_atomic;
 mod gemini;
 mod grok;
+pub mod injection_profile;
 mod jcode;
 mod kimi;
 pub mod mcp_config_lifecycle;
@@ -44,6 +45,10 @@ pub const CODEX_LOW_SPEC_OPTION: &str = "codexLowSpecMode";
 pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
 pub use grok::GrokAdapter;
+pub use injection_profile::{
+    InjectionProfile, InjectionRuntimes, McpChannel, McpInjection, McpIsolation, McpTransport,
+    NativeSkillSource, RuntimeInjection, RuntimeSupport, SkillMount, SkillsInjection,
+};
 pub use jcode::JcodeAdapter;
 pub use kimi::KimiAdapter;
 pub use omp::OmpAdapter;
@@ -994,6 +999,22 @@ pub trait CliToolAdapter: Send + Sync {
         modes
     }
 
+    /// 结构化注入能力描述（docs/110 批 0）：后端与前端所有 MCP / Skills 门控的单一来源。
+    ///
+    /// 默认值保守（只推导提示词回退，其余视为不支持）；内置 adapter 必须显式给出
+    /// 当前代码的真实值，`tests/injection_profile_honesty.rs` 逐项找证据。
+    fn injection_profile(&self) -> InjectionProfile {
+        let modes = self.skill_delivery_modes();
+        let prompt_fallback = modes.contains(&SkillDeliveryMode::SessionPrompt)
+            && !modes.iter().any(|mode| {
+                matches!(
+                    mode,
+                    SkillDeliveryMode::NativeCommand | SkillDeliveryMode::NativeSkill
+                )
+            });
+        InjectionProfile::derived(prompt_fallback)
+    }
+
     /// Whether a session can persist a durable TaskBinding result.
     ///
     /// Hook-only lifecycle notifications (for example OpenCode's
@@ -1241,7 +1262,11 @@ pub struct CliAdapterContext {
     /// CC-Panes 预先发号的会话 id（仅新会话）。Claude 通过 `--session-id` 使用，
     /// 使 resume id 在启动前即确定，替代事后扫目录反查。
     pub issued_session_id: Option<String>,
+    /// 关掉本次启动的全部 MCP 注入（ccpanes + 共享 + 工作空间层）。
     pub skip_mcp: bool,
+    /// 只关掉 ccpanes 内置 MCP（启动档 `include_ccpanes_mcp=false`）；共享与工作空间层
+    /// 照常注入。`skip_mcp=true` 时本字段无意义。
+    pub skip_ccpanes_mcp: bool,
     /// 本次启动是否启用 YOLO 模式（绕过 CLI 权限确认/沙箱提示）。
     pub yolo_mode: bool,
     pub append_system_prompt: Option<String>,
@@ -1291,6 +1316,11 @@ pub struct CliAdapterContext {
 }
 
 impl CliAdapterContext {
+    /// ccpanes 内置 MCP 本次是否要注入（`skip_mcp` 与 `skip_ccpanes_mcp` 任一为真即不注入）。
+    pub fn wants_ccpanes_mcp(&self) -> bool {
+        !self.skip_mcp && !self.skip_ccpanes_mcp
+    }
+
     /// Workspace-layer servers that pass this launch's MCP policy.
     pub fn allowed_workspace_mcp_servers(
         &self,
@@ -2273,6 +2303,22 @@ impl CliToolRegistry {
             .collect()
     }
 
+    /// 所有工具的注入能力描述（docs/110 批 0），按 CLI id 排序。
+    pub fn injection_profiles(&self) -> BTreeMap<String, InjectionProfile> {
+        self.adapters
+            .iter()
+            .map(|(id, adapter)| (id.clone(), adapter.injection_profile()))
+            .collect()
+    }
+
+    /// 某个 CLI 的注入能力描述；未注册（含 `none`）按「不支持任何注入」处理。
+    pub fn injection_profile(&self, id: &str) -> InjectionProfile {
+        self.adapters
+            .get(id)
+            .map(|adapter| adapter.injection_profile())
+            .unwrap_or_else(InjectionProfile::unsupported)
+    }
+
     /// 检测所有工具的安装状态（保持注册顺序）
     pub fn detect_all(&self) -> Vec<CliToolInfo> {
         self.order
@@ -2419,6 +2465,7 @@ mod registry_tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

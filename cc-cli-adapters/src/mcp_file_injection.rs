@@ -815,6 +815,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

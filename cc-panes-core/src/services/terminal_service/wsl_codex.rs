@@ -2154,6 +2154,7 @@ impl TerminalService {
                 resume_id: resume_id.map(str::to_string),
                 issued_session_id: issued_session_id.map(str::to_string),
                 skip_mcp: true,
+                skip_ccpanes_mcp: true,
                 yolo_mode,
                 append_system_prompt: pi_family
                     .then(|| append_system_prompt.map(str::to_string))
@@ -3277,6 +3278,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: true,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

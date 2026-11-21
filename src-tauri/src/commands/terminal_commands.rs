@@ -650,6 +650,14 @@ pub async fn list_cli_tools(
     Ok(tools)
 }
 
+/// 各 CLI 的结构化注入能力描述（docs/110 批 0）：前端 MCP / Skills 门控的单一来源。
+#[tauri::command]
+pub fn get_cli_injection_profiles(
+    registry: State<'_, Arc<CliToolRegistry>>,
+) -> AppResult<std::collections::BTreeMap<String, cc_cli_adapters::InjectionProfile>> {
+    Ok(registry.injection_profiles())
+}
+
 /// 读取终端会话的最近输出（纯文本，ANSI 已剥离）
 #[tauri::command]
 pub async fn get_terminal_output(

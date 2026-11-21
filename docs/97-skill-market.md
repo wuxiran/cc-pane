@@ -85,7 +85,8 @@
 |-----|---------|
 | Claude Code | `--plugin-dir <root>`（`skill_mount_paths` 多推一个路径，与 builtin 并列） |
 | Codex | 合并进 `-c skills.config=[…]`（同一个数组，读用户 config.toml 合并去重、不回写） |
-| Cursor / Gemini / 其他只支持 session prompt 的 CLI | `<ccpanes-workspace-skills>` 块注入 append_system_prompt，含 `Skill directory:` 路径 |
+| OpenCode / Grok（注入描述 `promptFallback=true` 且无挂载通道） | `<ccpanes-workspace-skills>` 块注入 append_system_prompt，含 `Skill directory:` 路径 |
+| Cursor / Gemini / Kimi / Antigravity / Pi / Omp / Jcode | 目前**收不到**（没有挂载通道也没有提示词回退，见 docs/110 §2.2；以 `InjectionProfile.skills` 为准） |
 
 只在本机 runtime 挂载（SSH/WSL 会话不挂，目录在本机数据目录里）；`WorkspaceSkillService::mount_root` 在工作空间没有任何 skill 或缺 manifest 时返回 `None`，不会挂空目录。启动档技能策略新增 `includeWorkspaceSkills`（默认 true），`Disabled` 模式下与其他 skill 一起全关。**对项目目录和用户 CLI 主目录依旧零写入。**
 

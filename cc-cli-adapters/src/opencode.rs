@@ -137,9 +137,11 @@ impl OpenCodeAdapter {
         if !ctx.skip_mcp {
             let mut mcp = serde_json::Map::new();
 
-            if let (Some(port), Some(token)) =
-                (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
-            {
+            if let (true, Some(port), Some(token)) = (
+                ctx.wants_ccpanes_mcp(),
+                ctx.orchestrator_port,
+                ctx.orchestrator_token.as_ref(),
+            ) {
                 // token 同时经 URL query 与 Authorization header 传递；launchId
                 // 让 orchestrator 在 launch_task 时识别 caller。对齐 claude.rs。
                 let mut url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
@@ -694,6 +696,35 @@ impl CliToolAdapter for OpenCodeAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：每会话 `OPENCODE_CONFIG`；共享 MCP 不带请求头，没有工作空间层，不处理隔离。
+    /// - 技能：不消费挂载路径，内置 / 工作空间技能走提示词（instructions）。
+    /// - WSL：不经 adapter，MCP 与提示词都丢（批 4）。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::SessionFile,
+                ctl_proxy: false,
+                shared: true,
+                workspace: false,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: false,
+                isolation: McpIsolation::None,
+                launch_identity: true,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: true,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection::launch_only(),
+                ssh: RuntimeInjection::launch_only(),
+            },
+        }
+    }
+
     fn project_hooks(&self) -> Vec<ProjectHookDefinition> {
         vec![ProjectHookDefinition {
             name: OPENCODE_PLUGIN_HOOK.to_string(),
@@ -810,6 +841,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

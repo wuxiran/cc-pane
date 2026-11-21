@@ -174,15 +174,22 @@ impl GrokAdapter {
         let Some(path) = Self::user_config_path() else {
             return;
         };
-        let Some(ccpanes_url) = Self::ccpanes_mcp_url(ctx) else {
-            warn!(
-                session_id = %ctx.session_id,
-                "grok: orchestrator not running, skipping MCP config sync"
-            );
-            return;
+        // 启动档只关 ccpanes（docs/110 批 0）：摘掉托管的 ccpanes 条目，共享 MCP 照常同步。
+        let ccpanes_url = if ctx.wants_ccpanes_mcp() {
+            let Some(url) = Self::ccpanes_mcp_url(ctx) else {
+                warn!(
+                    session_id = %ctx.session_id,
+                    "grok: orchestrator not running, skipping MCP config sync"
+                );
+                return;
+            };
+            Some(url)
+        } else {
+            Self::remove_ccpanes_entry_best_effort(&ctx.session_id);
+            None
         };
 
-        match Self::sync_mcp_at(&path, &ccpanes_url, &ctx.shared_mcp_urls) {
+        match Self::sync_mcp_entries_at(&path, ccpanes_url.as_deref(), &ctx.shared_mcp_urls) {
             Ok(true) => info!(
                 session_id = %ctx.session_id,
                 config = %path.display(),
@@ -204,9 +211,19 @@ impl GrokAdapter {
     /// - `toml_edit` 保留用户注释与格式；仅在序列化结果变化时原子写（temp + rename）。
     /// - 名为 `ccpanes` 但签名不符的用户自定义 entry 保留不动（只 warn）。
     /// - 首次改动前对原文件做 `.bak` 备份。
+    #[cfg(test)]
     fn sync_mcp_at(
         path: &Path,
         ccpanes_url: &str,
+        shared_mcp_urls: &HashMap<String, String>,
+    ) -> Result<bool> {
+        Self::sync_mcp_entries_at(path, Some(ccpanes_url), shared_mcp_urls)
+    }
+
+    /// 同 [`Self::sync_mcp_at`]，`ccpanes_url=None` 时不动 ccpanes 条目（只同步共享 MCP）。
+    fn sync_mcp_entries_at(
+        path: &Path,
+        ccpanes_url: Option<&str>,
         shared_mcp_urls: &HashMap<String, String>,
     ) -> Result<bool> {
         let original = if path.exists() {
@@ -225,13 +242,15 @@ impl GrokAdapter {
         let ccpanes_is_foreign = existing_ccpanes
             .map(|entry| !Self::is_ccpanes_managed_entry(entry))
             .unwrap_or(false);
-        if ccpanes_is_foreign {
-            warn!(
-                config = %path.display(),
-                "grok: user-defined mcp_servers.ccpanes entry found (signature mismatch), leaving it untouched"
-            );
-        } else {
-            Self::upsert_mcp_entry(&mut document, "ccpanes", ccpanes_url)?;
+        if let Some(ccpanes_url) = ccpanes_url {
+            if ccpanes_is_foreign {
+                warn!(
+                    config = %path.display(),
+                    "grok: user-defined mcp_servers.ccpanes entry found (signature mismatch), leaving it untouched"
+                );
+            } else {
+                Self::upsert_mcp_entry(&mut document, "ccpanes", ccpanes_url)?;
+            }
         }
 
         for (name, url) in shared_mcp_urls {
@@ -370,6 +389,38 @@ impl CliToolAdapter for GrokAdapter {
 
     fn capabilities(&self) -> &CliToolCapabilities {
         &self.caps
+    }
+
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：写**用户级** `config.toml`，ccpanes 不带 launchId；没有工作空间层；隔离只 warn。
+    /// - 技能：不消费挂载路径，走 `--rules` 提示词。WSL 只注册 ccpanes（Partial），提示词照传。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::UserFile,
+                ctl_proxy: false,
+                shared: true,
+                workspace: false,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: false,
+                isolation: McpIsolation::DeclareOnly,
+                launch_identity: false,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: true,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection {
+                    launch: true,
+                    mcp: RuntimeSupport::Partial,
+                    skills: RuntimeSupport::Full,
+                },
+                ssh: RuntimeInjection::launch_only(),
+            },
+        }
     }
 
     fn cleanup_user_injections(&self) -> Result<Vec<PathBuf>> {
@@ -559,6 +610,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

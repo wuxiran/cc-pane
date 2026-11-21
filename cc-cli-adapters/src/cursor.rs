@@ -134,9 +134,19 @@ impl CursorAdapter {
     }
 
     /// upsert `mcpServers.ccpanes` + 共享 MCP；幂等；签名不符的用户 entry 不动。
+    #[cfg(test)]
     fn sync_mcp_at(
         path: &Path,
         ccpanes_url: &str,
+        shared_mcp_urls: &HashMap<String, String>,
+    ) -> Result<bool> {
+        Self::sync_mcp_entries_at(path, Some(ccpanes_url), shared_mcp_urls)
+    }
+
+    /// `ccpanes_url=None`：不动 ccpanes 条目，只同步共享 MCP（启动档只关 ccpanes）。
+    fn sync_mcp_entries_at(
+        path: &Path,
+        ccpanes_url: Option<&str>,
         shared_mcp_urls: &HashMap<String, String>,
     ) -> Result<bool> {
         let original = if path.exists() {
@@ -166,16 +176,18 @@ impl CursorAdapter {
             .get("ccpanes")
             .map(|entry| !Self::is_ccpanes_managed_server(entry))
             .unwrap_or(false);
-        if foreign_ccpanes {
-            warn!(
-                config = %path.display(),
-                "cursor: user-defined mcpServers.ccpanes (signature mismatch), leaving untouched"
-            );
-        } else {
-            let entry = serde_json::json!({ "url": ccpanes_url });
-            if servers.get("ccpanes") != Some(&entry) {
-                servers.insert("ccpanes".to_string(), entry);
-                changed = true;
+        if let Some(ccpanes_url) = ccpanes_url {
+            if foreign_ccpanes {
+                warn!(
+                    config = %path.display(),
+                    "cursor: user-defined mcpServers.ccpanes (signature mismatch), leaving untouched"
+                );
+            } else {
+                let entry = serde_json::json!({ "url": ccpanes_url });
+                if servers.get("ccpanes") != Some(&entry) {
+                    servers.insert("ccpanes".to_string(), entry);
+                    changed = true;
+                }
             }
         }
 
@@ -239,7 +251,7 @@ impl CursorAdapter {
         let Some(path) = Self::user_mcp_path() else {
             return;
         };
-        if ctx.skip_mcp {
+        if !ctx.wants_ccpanes_mcp() {
             match Self::remove_ccpanes_entry_at(&path) {
                 Ok(true) => info!(
                     session_id = %ctx.session_id,
@@ -252,16 +264,24 @@ impl CursorAdapter {
                     "cursor: failed to remove ccpanes MCP entry"
                 ),
             }
-            return;
+            if ctx.skip_mcp {
+                return;
+            }
         }
-        let Some(url) = Self::ccpanes_mcp_url(ctx) else {
-            warn!(
-                session_id = %ctx.session_id,
-                "cursor: orchestrator not running, skipping MCP config sync"
-            );
-            return;
+        // 启动档只关 ccpanes（docs/110 批 0）：上面已摘掉 ccpanes，共享 MCP 照常同步。
+        let url = if ctx.wants_ccpanes_mcp() {
+            let Some(url) = Self::ccpanes_mcp_url(ctx) else {
+                warn!(
+                    session_id = %ctx.session_id,
+                    "cursor: orchestrator not running, skipping MCP config sync"
+                );
+                return;
+            };
+            Some(url)
+        } else {
+            None
         };
-        match Self::sync_mcp_at(&path, &url, &ctx.shared_mcp_urls) {
+        match Self::sync_mcp_entries_at(&path, url.as_deref(), &ctx.shared_mcp_urls) {
             Ok(true) => info!(
                 session_id = %ctx.session_id,
                 config = %path.display(),
@@ -339,6 +359,35 @@ impl CliToolAdapter for CursorAdapter {
 
     fn capabilities(&self) -> &CliToolCapabilities {
         &self.caps
+    }
+
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：写**用户级** `~/.cursor/mcp.json`，所有会话共享一条 ccpanes 条目（launchId 会被
+    ///   并发会话覆盖，不算本会话身份）；没有工作空间层，不处理隔离。
+    /// - 技能：不消费挂载路径，也没有系统提示词通道。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::UserFile,
+                ctl_proxy: false,
+                shared: true,
+                workspace: false,
+                transports: vec![McpTransport::StdioBridge, McpTransport::Http],
+                remote_headers: false,
+                isolation: McpIsolation::None,
+                launch_identity: false,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: false,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection::launch_only(),
+                ssh: RuntimeInjection::launch_only(),
+            },
+        }
     }
 
     fn cleanup_user_injections(&self) -> Result<Vec<PathBuf>> {
@@ -476,6 +525,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: true,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,

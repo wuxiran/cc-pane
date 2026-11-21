@@ -109,6 +109,11 @@ impl CliToolAdapter for KimiAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码不接任何 MCP / 技能注入（WSL / SSH 只能裸启动）。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        crate::InjectionProfile::unsupported()
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
 
@@ -183,6 +188,7 @@ mod tests {
             launch_id: None,
             resume_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             append_system_prompt: None,
             initial_prompt: None,
             orchestrator_port: None,

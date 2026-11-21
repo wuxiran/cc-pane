@@ -114,6 +114,36 @@ impl CliToolAdapter for JcodeAdapter {
         &self.caps
     }
 
+    /// docs/110 批 0：当前代码的真实注入面（不是目标形态），守卫见 tests/injection_profile_honesty.rs。
+    /// - MCP：只认 stdio，写项目级 `.jcode/mcp.json`；ccpanes 只能经 ctl stdio 代理，代理参数里的
+    ///   launchId 会被同项目的并发会话覆盖，不算本会话身份；远程 MCP 一律到不了。
+    /// - 技能：没有人写 `~/.jcode/skills`，也没有提示词通道——此前 UI 显示「可用」是误报。
+    /// - SSH 启动面未验证，不开放。
+    fn injection_profile(&self) -> crate::InjectionProfile {
+        use crate::injection_profile::*;
+        InjectionProfile {
+            mcp: McpInjection {
+                ccpanes: McpChannel::StdioProxy,
+                ctl_proxy: true,
+                shared: true,
+                workspace: true,
+                transports: vec![McpTransport::StdioBridge],
+                remote_headers: false,
+                isolation: McpIsolation::DeclareOnly,
+                launch_identity: false,
+            },
+            skills: SkillsInjection {
+                mount: SkillMount::None,
+                prompt_fallback: false,
+                native_sources: vec![],
+            },
+            runtimes: InjectionRuntimes {
+                wsl: RuntimeInjection::launch_only(),
+                ssh: RuntimeInjection::unavailable(),
+            },
+        }
+    }
+
     /// jcode 的全局技能目录，SKILL.md 布局与 Claude 一致（实机确认
     /// `~/.jcode/skills/<name>/SKILL.md`），默认投递模式即 NativeSkill。
     fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
@@ -125,9 +155,10 @@ impl CliToolAdapter for JcodeAdapter {
         // 只认 stdio：ccpanes 内置走 ctl mcp-proxy 的 stdio 包装；代理不可用
         // （ctl 缺失/门控被逃生阀关闭）时 ccpanes 条目缺席，只 warn 不阻断。
         let ccpanes_entry = crate::mcp_proxy_invocation(ctx)
+            .filter(|_| ctx.wants_ccpanes_mcp())
             .map(|proxy| json!({ "command": proxy.command, "args": proxy.args }));
         if ccpanes_entry.is_none()
-            && !ctx.skip_mcp
+            && ctx.wants_ccpanes_mcp()
             && ctx.orchestrator_port.is_some()
             && ctx.orchestrator_token.is_some()
         {
@@ -212,6 +243,7 @@ mod tests {
             resume_id: None,
             issued_session_id: None,
             skip_mcp: false,
+            skip_ccpanes_mcp: false,
             yolo_mode: false,
             append_system_prompt: None,
             initial_prompt: None,
