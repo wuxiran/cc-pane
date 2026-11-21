@@ -256,6 +256,16 @@ impl ClaudeAdapter {
         for key in MODEL_ENV_KEYS {
             env.insert((*key).to_string(), model.clone());
         }
+        // 用户在供应商 / 账号上填的环境变量优先于自动生成的值，包括上面强制写入的模型键
+        // （例如中转站要求的 `ANTHROPIC_DEFAULT_HAIKU_MODEL`）。
+        if let Some(custom) = ctx
+            .adapter_options
+            .get(crate::MANAGED_PROVIDER_CUSTOM_ENV_OPTION)
+        {
+            let custom: HashMap<String, String> = serde_json::from_value(custom.clone())
+                .context("managed Claude Provider custom environment is invalid")?;
+            env.extend(custom);
+        }
 
         let file_name = format!("{PROVIDER_SETTINGS_PREFIX}{}.json", ctx.session_id);
         let settings_path = ctx.data_dir.join(&file_name);
@@ -2054,6 +2064,45 @@ mod tests {
                 "模型键 {key} 必须被强制覆盖"
             );
         }
+    }
+
+    /// 用户在供应商 / 账号上填的环境变量优先于自动生成的值，包括被强制写入的模型键。
+    #[test]
+    fn managed_settings_let_user_filled_env_win_over_forced_model_keys() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({
+                "ANTHROPIC_API_KEY": "provider-secret",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2-turbo",
+                "API_TIMEOUT_MS": "600000",
+            }),
+        );
+        ctx.adapter_options.insert(
+            crate::MANAGED_PROVIDER_CUSTOM_ENV_OPTION.to_string(),
+            serde_json::json!({
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2-turbo",
+                "API_TIMEOUT_MS": "600000",
+            }),
+        );
+
+        let settings = managed_settings(&adapter.build_command(&ctx).unwrap());
+
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+            Some(&serde_json::json!("kimi-k2-turbo")),
+            "用户填的模型变量不能被选定模型顶掉"
+        );
+        assert_eq!(
+            settings.pointer("/env/API_TIMEOUT_MS"),
+            Some(&serde_json::json!("600000"))
+        );
+        // 没被用户覆盖的模型键仍然是 CC-Panes 选定的模型。
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_MODEL"),
+            Some(&serde_json::json!("claude-sonnet-5"))
+        );
     }
 
     /// 清理只该删「旧的、别人的」那份。

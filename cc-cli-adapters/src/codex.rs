@@ -155,6 +155,17 @@ impl CodexAdapter {
         let Some(provider) = provider.filter(|provider| provider.provider_type == "open_ai") else {
             return;
         };
+        // 登录账号（没有密钥也没有接口地址）：让 Codex 用它自己的登录（账号目录经
+        // `CODEX_HOME` 环境变量指过去）。此时再声明一个自定义 model_provider 只会得到一个
+        // 既没地址也没密钥的空供应商。
+        let has_value = |value: &Option<String>| {
+            value
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        };
+        if !has_value(&provider.base_url) && !has_value(&provider.api_key) {
+            return;
+        }
 
         let provider_id = Self::codex_provider_id(&provider.id);
         let provider_key = Self::format_toml_key_segment_for_cli(&provider_id);
@@ -2204,6 +2215,27 @@ mod tests {
             .args
             .iter()
             .any(|arg| arg.contains("secret-provider-key")));
+    }
+
+    #[test]
+    fn build_command_leaves_login_account_without_key_or_endpoint_to_codex_own_login() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("codex-test"));
+        ctx.provider = Some(crate::CliProvider {
+            id: "provider/ai".to_string(),
+            name: "ai".to_string(),
+            provider_type: "open_ai".to_string(),
+            config_dir: Some("/accounts/codex-work".to_string()),
+            ..Default::default()
+        });
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("model_provider")));
+        assert!(!result.env_inject.contains_key("CCPANES_CODEX_API_KEY"));
     }
 
     #[test]

@@ -1484,6 +1484,12 @@ mod core_mcp_tools_tests {
 /// The value may contain credentials and must never be logged or forwarded to CLI arguments.
 pub const MANAGED_PROVIDER_ENV_OPTION: &str = "__ccpanesProviderEnv";
 
+/// Internal adapter option carrying only the environment variables the user filled in on the
+/// Provider / account (already merged; a subset of [`MANAGED_PROVIDER_ENV_OPTION`]). Adapters
+/// that rewrite the managed environment themselves must re-apply these last: user-filled values
+/// win over generated ones. May contain sensitive values; never log or forward to CLI arguments.
+pub const MANAGED_PROVIDER_CUSTOM_ENV_OPTION: &str = "__ccpanesProviderCustomEnv";
+
 impl CliAdapterContext {
     pub fn model_id(&self) -> Option<&str> {
         self.adapter_options
