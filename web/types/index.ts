@@ -188,6 +188,7 @@ export type {
   OrchestratorStatus,
   TailscaleStatus,
   EnvironmentInfo,
+  PackageManagerId,
   WallpaperSettings,
   WallpaperVideoSettings,
   WallpaperMusicSettings,

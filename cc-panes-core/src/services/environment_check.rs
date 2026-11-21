@@ -19,6 +19,21 @@ fn probe_version(binary: &str) -> (bool, Option<String>) {
     (installed, version)
 }
 
+/// 首页「安装其他 Agent」按本机有哪些包管理器挑安装方式（有 brew 才推 brew 命令等）。
+/// 只判有无、不跑 `--version`：brew 起一次要半秒多，这里一次要探六个。
+/// 走 `resolve_executable` 而不是裸 `which`：macOS 从访达启动时 PATH 里没有 /opt/homebrew/bin。
+const PACKAGE_MANAGERS: &[&str] = &["brew", "npm", "bun", "curl", "winget", "scoop"];
+
+fn probe_package_managers() -> serde_json::Map<String, serde_json::Value> {
+    PACKAGE_MANAGERS
+        .iter()
+        .map(|name| {
+            let installed = cc_cli_adapters::resolve_executable(name).is_ok();
+            ((*name).to_string(), serde_json::Value::Bool(installed))
+        })
+        .collect()
+}
+
 pub fn check_environment(registry: &CliToolRegistry) -> serde_json::Value {
     let (node_installed, node_version) = probe_version("node");
     let (git_installed, git_version) = probe_version("git");
@@ -33,6 +48,7 @@ pub fn check_environment(registry: &CliToolRegistry) -> serde_json::Value {
         "node": { "installed": node_installed, "version": node_version },
         "git": { "installed": git_installed, "version": git_version },
         "wsl": { "installed": wsl_installed, "version": null, "applicable": wsl_applicable },
-        "cliTools": cli_tools
+        "cliTools": cli_tools,
+        "packageManagers": probe_package_managers()
     })
 }

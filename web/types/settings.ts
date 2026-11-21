@@ -229,7 +229,11 @@ export interface EnvironmentInfoRaw {
   wsl?: { installed: boolean; version: string | null; applicable: boolean };
   /** 动态 CLI 工具检测结果 */
   cliTools: import("./terminal").CliToolInfo[];
+  /** 本机有哪些包管理器（只判有无）；旧后端没有此字段 = 未知。 */
+  packageManagers?: Partial<Record<PackageManagerId, boolean>>;
 }
+
+export type PackageManagerId = "brew" | "npm" | "bun" | "curl" | "winget" | "scoop";
 
 /** 环境检测结果（含向后兼容字段） */
 export interface EnvironmentInfo extends EnvironmentInfoRaw {
