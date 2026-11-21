@@ -27,6 +27,7 @@ pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
 pub mod device_deploy;
+pub mod cli_update_service;
 pub mod device_service;
 pub mod device_token_service;
 mod drama_service;

@@ -14,6 +14,8 @@ mod blocking;
 mod bot_commands;
 mod browser_commands;
 mod claude_commands;
+mod cli_update_commands;
+pub use cli_update_commands::*;
 mod clipboard_commands;
 mod codex_desktop_commands;
 pub use codex_desktop_commands::*;

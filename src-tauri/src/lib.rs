@@ -3241,6 +3241,7 @@ pub fn run() {
             get_windows_build_number,
             check_environment,
             list_cli_tools,
+            commands::check_cli_updates,
             get_terminal_daemon_client_info,
             get_terminal_adoption_snapshot,
             get_terminal_output,
