@@ -64,6 +64,26 @@ describe("syncTerminalProviderAccount", () => {
     expect(onlyTab().providerAccountId).toBe("account-default");
   });
 
+  it("供应商是继承来的：把解析出的供应商和账号成对写回，之后默认供应商换了也回到原来那家", async () => {
+    const paneId = resetStore();
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-1",
+      projectPath: "/tmp/proj1",
+      cliTool: "claude",
+    });
+    const leaf = onlyLeaf();
+    expect(leaf.providerId).toBeUndefined();
+    mockTauriInvoke({
+      find_launch_history_by_launch_id: { id: 1, providerId: "provider-a", providerAccountId: "default" },
+    });
+
+    usePanesStore.getState().syncTerminalProviderAccount(onlyTab().id, leaf.id, leaf.launchId!);
+
+    await vi.waitFor(() => expect(onlyLeaf().providerAccountId).toBe("default"));
+    expect(onlyLeaf().providerId).toBe("provider-a");
+    expect(onlyTab().providerId).toBe("provider-a");
+  });
+
   it("旧记录没有账号时保持原样", async () => {
     openTab("account-work");
     const leaf = onlyLeaf();

@@ -111,6 +111,10 @@ fn create_session_outcome(
         reused_existing,
         resolved_model_id: provider_plan.model_id.clone(),
         resolved_account_id: provider_plan.account_id.clone(),
+        resolved_provider_id: provider_plan
+            .provider
+            .as_ref()
+            .map(|provider| provider.id.clone()),
     }
 }
 
@@ -6923,6 +6927,42 @@ pub fn get_windows_build_number() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_session_outcome_reports_the_resolved_provider_with_its_account() {
+        use crate::services::provider_resolver::{ModelSource, ProviderSource};
+
+        // 请求没点名供应商、继承到默认供应商：outcome 里要带解析出的那一家，
+        // 启动历史 / 会话恢复才能把「供应商 + 账号」成对记下来。
+        let managed = ResolvedProviderPlan {
+            mode: ProviderMode::Managed,
+            selection: LaunchProviderSelection::Inherit,
+            source: ProviderSource::DefaultProvider,
+            provider: Some(crate::models::provider::Provider {
+                id: "provider-a".to_string(),
+                ..Default::default()
+            }),
+            account_id: Some("default".to_string()),
+            model_id: None,
+            model_label: None,
+            model_default_effort: None,
+            model_source: ModelSource::NativeDefault,
+        };
+        let outcome = create_session_outcome("session".to_string(), false, &managed);
+        assert_eq!(outcome.resolved_provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(outcome.resolved_account_id.as_deref(), Some("default"));
+
+        let native = ResolvedProviderPlan {
+            mode: ProviderMode::Native,
+            source: ProviderSource::Native,
+            provider: None,
+            account_id: None,
+            ..managed
+        };
+        let outcome = create_session_outcome("session".to_string(), false, &native);
+        assert_eq!(outcome.resolved_provider_id, None);
+        assert_eq!(outcome.resolved_account_id, None);
+    }
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::settings::CliLauncherOverride;
     use crate::services::SharedMcpService;

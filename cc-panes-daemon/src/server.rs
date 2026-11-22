@@ -526,6 +526,9 @@ pub struct CreateSessionResponse {
     pub resolved_model_id: Option<String>,
     #[serde(default)]
     pub resolved_account_id: Option<String>,
+    /// 实际用的供应商，和 `resolved_account_id` 成对。
+    #[serde(default)]
+    pub resolved_provider_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1020,6 +1023,7 @@ async fn create_session(
                     reused_existing: true,
                     resolved_model_id: None,
                     resolved_account_id: None,
+                    resolved_provider_id: None,
                 }),
             ));
         }
@@ -1133,6 +1137,7 @@ async fn create_session(
     let session_id = outcome.session_id;
     let resolved_model_id = outcome.resolved_model_id;
     let resolved_account_id = outcome.resolved_account_id;
+    let resolved_provider_id = outcome.resolved_provider_id;
     Ok((
         StatusCode::CREATED,
         Json(CreateSessionResponse {
@@ -1140,6 +1145,7 @@ async fn create_session(
             reused_existing: false,
             resolved_model_id,
             resolved_account_id,
+            resolved_provider_id,
         }),
     ))
 }
@@ -2071,6 +2077,7 @@ mod tests {
             reused_existing: false,
             resolved_model_id: None,
             resolved_account_id: None,
+            resolved_provider_id: None,
         })
         .expect("serialize create response");
 
@@ -2085,6 +2092,7 @@ mod tests {
             Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
         resolved_model_id: Mutex<Option<String>>,
         resolved_account_id: Mutex<Option<String>>,
+        resolved_provider_id: Mutex<Option<String>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
         resizes: Mutex<Vec<(String, u16, u16)>>,
@@ -2112,6 +2120,7 @@ mod tests {
                 reused_existing: false,
                 resolved_model_id: self.resolved_model_id.lock().unwrap().clone(),
                 resolved_account_id: self.resolved_account_id.lock().unwrap().clone(),
+                resolved_provider_id: self.resolved_provider_id.lock().unwrap().clone(),
             })
         }
 
@@ -3547,6 +3556,7 @@ mod tests {
         let backend = Arc::new(MockTerminalBackend::default());
         *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
         *backend.resolved_account_id.lock().unwrap() = Some("work".to_string());
+        *backend.resolved_provider_id.lock().unwrap() = Some("provider-a".to_string());
         let app = router(test_config("secret", "127.0.0.1:18084", backend.clone()));
 
         let unauthorized = app
@@ -3590,6 +3600,7 @@ mod tests {
             Some("provider-default")
         );
         assert_eq!(response.resolved_account_id.as_deref(), Some("work"));
+        assert_eq!(response.resolved_provider_id.as_deref(), Some("provider-a"));
         assert_eq!(
             backend.created.lock().unwrap()[0]
                 .extra_env

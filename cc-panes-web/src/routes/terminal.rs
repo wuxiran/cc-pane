@@ -225,6 +225,8 @@ pub struct CreateSessionResponse {
     pub resolved_model_id: Option<String>,
     /// 实际用的供应商账号；前端把它写回 tab，之后恢复 / 续接才会回到同一个账号。
     pub resolved_account_id: Option<String>,
+    /// 实际用的供应商（请求没点名时 = 继承来的那一家），和 `resolved_account_id` 成对。
+    pub resolved_provider_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -349,6 +351,12 @@ pub async fn create_session(
         .resolved_account_id
         .or_else(|| observation_request.provider_account_id.clone());
     observation_request.provider_account_id = resolved_account_id.clone();
+    // 供应商同理记「实际用的那一家」：继承来的供应商之后可能换掉，账号 id 只在原来那家有意义。
+    // 原生启动（没解析出供应商）保持请求原值。
+    let resolved_provider_id = outcome
+        .resolved_provider_id
+        .or_else(|| observation_request.provider_id.clone());
+    observation_request.provider_id = resolved_provider_id.clone();
 
     // 出生凭证必须在 session id 返回给调用方之前落进 SQLite，否则这条会话在 app
     // 重启后会被 identity-mismatch 永久拦下。fail-closed：写不进去就清掉刚建的会话。
@@ -452,6 +460,7 @@ pub async fn create_session(
             session_id,
             resolved_model_id,
             resolved_account_id,
+            resolved_provider_id,
         }),
     ))
 }
@@ -762,6 +771,7 @@ mod tests {
         created_session_id: Mutex<Option<String>>,
         resolved_model_id: Mutex<Option<String>>,
         resolved_account_id: Mutex<Option<String>>,
+        resolved_provider_id: Mutex<Option<String>>,
         create_error: Mutex<Option<AppError>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
@@ -810,6 +820,7 @@ mod tests {
                     .clone()
                     .or(requested_model_id),
                 resolved_account_id: self.resolved_account_id.lock().unwrap().clone(),
+                resolved_provider_id: self.resolved_provider_id.lock().unwrap().clone(),
             })
         }
 
@@ -1127,6 +1138,7 @@ mod tests {
         let backend = Arc::new(MockTerminalBackend::default());
         *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
         *backend.resolved_account_id.lock().unwrap() = Some("work".to_string());
+        *backend.resolved_provider_id.lock().unwrap() = Some("provider-a".to_string());
         let state = test_state(backend);
         state
             .launch_history_service
@@ -1140,7 +1152,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Some("provider-a"),
+                None,
                 None,
                 None,
                 None,
@@ -1155,7 +1167,8 @@ mod tests {
                 launch_id: Some("launch-model".to_string()),
                 project_path: Some("/repo".to_string()),
                 cli_tool: CliTool::Claude,
-                provider_id: Some("provider-a".to_string()),
+                // 供应商是继承来的：请求里没点名
+                provider_id: None,
                 ..Default::default()
             },
             cwd: None,
@@ -1165,6 +1178,7 @@ mod tests {
             .await
             .expect("create session");
         assert_eq!(response.resolved_account_id.as_deref(), Some("work"));
+        assert_eq!(response.resolved_provider_id.as_deref(), Some("provider-a"));
 
         let record = state
             .launch_history_service
@@ -1175,6 +1189,8 @@ mod tests {
         assert_eq!(record.model_id.as_deref(), Some("provider-default"));
         // 请求没点名账号，历史里记的是后端解析出的那个
         assert_eq!(record.provider_account_id.as_deref(), Some("work"));
+        // 供应商同理：记的是解析后实际用的那一家，不是请求里的空值
+        assert_eq!(record.provider_id.as_deref(), Some("provider-a"));
     }
 
     fn restore_test_provenance() -> cc_panes_core::models::TerminalSessionProvenance {
@@ -1521,6 +1537,7 @@ mod tests {
                 reused_existing: true,
                 resolved_model_id: None,
                 resolved_account_id: None,
+                resolved_provider_id: None,
             },
         )
         .expect("release reused session");
@@ -1538,6 +1555,7 @@ mod tests {
                 reused_existing: false,
                 resolved_model_id: None,
                 resolved_account_id: None,
+                resolved_provider_id: None,
             },
         )
         .expect("kill fresh session");

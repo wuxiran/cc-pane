@@ -48,6 +48,9 @@ pub struct CreateSessionOutcome {
     pub resolved_model_id: Option<String>,
     /// 这次启动实际用的供应商账号；原生启动（没走供应商）为 None。
     pub resolved_account_id: Option<String>,
+    /// 这次启动实际用的供应商（请求里没点名时 = 继承来的那一家）；原生启动为 None。
+    /// 和 `resolved_account_id` 是一对：账号 id 只在它所属的供应商里有意义。
+    pub resolved_provider_id: Option<String>,
 }
 
 fn current_epoch_millis() -> u64 {
@@ -81,6 +84,7 @@ pub trait TerminalBackend: Send + Sync {
             session_id,
             resolved_model_id,
             resolved_account_id: None,
+            resolved_provider_id: None,
         })
     }
     fn create_session_published(

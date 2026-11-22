@@ -210,6 +210,11 @@ pub async fn create_terminal_session(
         .resolved_account_id
         .or_else(|| observation_request.provider_account_id.clone());
     observation_request.provider_account_id = resolved_account_id.clone();
+    // 供应商同理记「实际用的那一家」：请求没点名时它是继承来的（运行配置 / 工作空间 / 默认值），
+    // 之后可能换掉，而账号 id 只在原来那家有意义。原生启动（没解析出供应商）保持请求原值。
+    observation_request.provider_id = created
+        .resolved_provider_id
+        .or_else(|| observation_request.provider_id.clone());
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the

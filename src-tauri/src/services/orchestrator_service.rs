@@ -156,6 +156,11 @@ pub struct LaunchTaskResponse {
     pub launch_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    /// 这次启动实际用的供应商和账号（成对）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_account_id: Option<String>,
 }
 
 /// 项目信息
@@ -316,6 +321,21 @@ fn apply_dispatch_parent(request: &mut CreateTaskBindingRequest, parent: Option<
     request.role = Some(TaskBindingRole::Worker);
     request.plan_path = parent.plan_path.clone();
     request.normalized_plan_path = parent.normalized_plan_path.clone();
+}
+
+/// 把这次启动实际用的供应商和账号写进信封。启动响应没带（原生启动）时保留请求原值。
+/// 两者成对替换：解析出的供应商和请求里的不是同一家时，请求里的账号也不能留着。
+fn record_resolved_provider(envelope: &mut TaskDispatchEnvelope, launched: &LaunchTaskResponse) {
+    let Some(provider_id) = launched.provider_id.as_ref() else {
+        return;
+    };
+    if envelope.provider_id.as_ref() != Some(provider_id) {
+        envelope.provider_account_id = None;
+    }
+    envelope.provider_id = Some(provider_id.clone());
+    if launched.provider_account_id.is_some() {
+        envelope.provider_account_id = launched.provider_account_id.clone();
+    }
 }
 
 fn dispatch_binding_metadata(envelope: &TaskDispatchEnvelope) -> serde_json::Value {
@@ -6570,6 +6590,9 @@ impl McpToolHandler {
             );
         }
 
+        // 信封里存解析后实际用的供应商和账号：供应商是继承来的时请求里是空的，
+        // 之后默认供应商换了，重派 / 恢复仍要回到原来那家的原账号。
+        record_resolved_provider(&mut plan.envelope, &launch_response);
         let persistence_warning = self
             .mark_dispatch_binding_running(&binding_id, &launch_response.session_id, &plan.envelope)
             .err();
@@ -6839,7 +6862,7 @@ impl McpToolHandler {
         };
         apply_project_launch_context_to_request(&mut create_request, &project_context);
         create_request.launch_profile_id = launch_profile_id.clone();
-        let (session_id, resolved_model_id, resolved_account_id) = match create_launch_session(
+        let (session_id, resolved_model_id, resolved_provider) = match create_launch_session(
             self.state.terminal_backend.clone(),
             Some(self.state.session_restore_service.clone()),
             Some(self.state.app_handle.clone()),
@@ -6911,8 +6934,8 @@ impl McpToolHandler {
             ws_name.as_deref(),
             ws_path.as_deref(),
             Some(&launch_cwd),
-            params.provider_id.as_deref(),
-            resolved_account_id.as_deref(),
+            resolved_provider.provider_id.as_deref(),
+            resolved_provider.account_id.as_deref(),
             resolved_model_id.as_deref(),
             provider_selection_str,
             launch_profile_id.as_deref(),
@@ -6963,8 +6986,8 @@ impl McpToolHandler {
             launch_cwd: Some(launch_cwd),
             project_id,
             workspace_name: ws_name,
-            provider_id: params.provider_id.clone(),
-            provider_account_id: resolved_account_id.clone(),
+            provider_id: resolved_provider.provider_id.clone(),
+            provider_account_id: resolved_provider.account_id.clone(),
             model_id: resolved_model_id.clone(),
             provider_selection: params.provider_selection.clone(),
             launch_profile_id: launch_profile_id.clone(),
@@ -6998,7 +7021,10 @@ impl McpToolHandler {
             "runtimeKind": runtime.kind.as_str(),
             "runtimeSource": runtime.source,
             "profileId": launch_profile_id,
-            "notice": runtime.notice
+            "notice": runtime.notice,
+            // 实际用的供应商和账号（成对）；dispatch_task 把它们写进派发信封，重派时回到同一对。
+            "providerId": resolved_provider.provider_id,
+            "providerAccountId": resolved_provider.account_id
         })
         .to_string()
     }
@@ -11385,7 +11411,7 @@ async fn handle_launch_task(
     };
     apply_project_launch_context_to_request(&mut create_request, &project_context);
     create_request.launch_profile_id = launch_profile_id.clone();
-    let (session_id, resolved_model_id, resolved_account_id) = match create_launch_session(
+    let (session_id, resolved_model_id, resolved_provider) = match create_launch_session(
         state.terminal_backend.clone(),
         Some(state.session_restore_service.clone()),
         Some(state.app_handle.clone()),
@@ -11395,9 +11421,9 @@ async fn handle_launch_task(
     )
     .await
     {
-        Ok((sid, resolved_model_id, resolved_account_id)) => {
+        Ok((sid, resolved_model_id, resolved_provider)) => {
             info!(session_id = %sid, "REST::launch_task session created");
-            (sid, resolved_model_id, resolved_account_id)
+            (sid, resolved_model_id, resolved_provider)
         }
         Err(e) => {
             error!(project = %req.project_path, err = %e, "REST::launch_task failed to create session");
@@ -11435,8 +11461,8 @@ async fn handle_launch_task(
             wsl_distro: runtime.wsl.as_ref().and_then(|wsl| wsl.distro.as_deref()),
             workspace_name: workspace_name.as_deref(),
             workspace_path: workspace_path.as_deref(),
-            provider_id: req.provider_id.as_deref(),
-            provider_account_id: resolved_account_id.as_deref(),
+            provider_id: resolved_provider.provider_id.as_deref(),
+            provider_account_id: resolved_provider.account_id.as_deref(),
             model_id: resolved_model_id.as_deref(),
             provider_selection: req.provider_selection.as_deref(),
             launch_profile_id: launch_profile_id.as_deref(),
@@ -11466,8 +11492,8 @@ async fn handle_launch_task(
         launch_cwd: Some(launch_cwd),
         project_id,
         workspace_name,
-        provider_id: req.provider_id.clone(),
-        provider_account_id: resolved_account_id,
+        provider_id: resolved_provider.provider_id.clone(),
+        provider_account_id: resolved_provider.account_id.clone(),
         model_id: resolved_model_id,
         provider_selection: req.provider_selection.clone(),
         launch_profile_id: launch_profile_id.clone(),
@@ -11502,6 +11528,8 @@ async fn handle_launch_task(
         runtime_source: runtime.source.to_string(),
         launch_profile_id,
         notice,
+        provider_id: resolved_provider.provider_id,
+        provider_account_id: resolved_provider.account_id,
     };
 
     (StatusCode::OK, Json(serde_json::json!(response)))
@@ -12963,8 +12991,8 @@ async fn create_launch_session(
     mut request: CoreCreateSessionRequest,
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
-) -> std::result::Result<(String, Option<String>, Option<String>), String> {
-    let (session_id, _, _, resolved_model_id, resolved_account_id) =
+) -> std::result::Result<(String, Option<String>, ResolvedLaunchProvider), String> {
+    let (session_id, _, _, resolved_model_id, resolved_provider) =
         create_backend_session_with_deadline(
             terminal_backend.clone(),
             session_restore_service.clone(),
@@ -12974,14 +13002,14 @@ async fn create_launch_session(
         .await?;
 
     let Some(prompt) = deferred_prompt else {
-        return Ok((session_id, resolved_model_id, resolved_account_id));
+        return Ok((session_id, resolved_model_id, resolved_provider));
     };
 
     if wait_for_paste_ready(terminal_backend.clone(), &session_id, ready_timeout).await? {
         submit_text_to_session(terminal_backend.backend(), &session_id, &prompt)
             .await
             .map_err(|error| error.to_string())?;
-        return Ok((session_id, resolved_model_id, resolved_account_id));
+        return Ok((session_id, resolved_model_id, resolved_provider));
     }
 
     warn!(
@@ -12996,7 +13024,7 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let (session_id, _, _, resolved_model_id, resolved_account_id) =
+    let (session_id, _, _, resolved_model_id, resolved_provider) =
         create_backend_session_with_deadline(
             terminal_backend,
             session_restore_service,
@@ -13004,7 +13032,16 @@ async fn create_launch_session(
             request,
         )
         .await?;
-    Ok((session_id, resolved_model_id, resolved_account_id))
+    Ok((session_id, resolved_model_id, resolved_provider))
+}
+
+/// 一次启动实际用的供应商和账号。两者是一对：账号 id 只在它所属的供应商里有意义
+/// （各家都有个叫 `default` 的密钥账号），落库 / 恢复 / 重派都必须成对带着。
+/// 后端没报（旧 daemon、原生启动）时各自退回请求里点名的值。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ResolvedLaunchProvider {
+    provider_id: Option<String>,
+    account_id: Option<String>,
 }
 
 /// 所有 orchestrator 侧的会话创建都汇到这里（launch_task 两次创建路径 + runner），
@@ -13020,7 +13057,7 @@ async fn create_backend_session_with_deadline(
         Arc<dyn TerminalBackend>,
         bool,
         Option<String>,
-        Option<String>,
+        ResolvedLaunchProvider,
     ),
     String,
 > {
@@ -13037,7 +13074,10 @@ async fn create_backend_session_with_deadline(
                     created.backend,
                     created.reused_existing,
                     created.resolved_model_id,
-                    created.resolved_account_id,
+                    ResolvedLaunchProvider {
+                        provider_id: created.resolved_provider_id,
+                        account_id: created.resolved_account_id,
+                    },
                 )
             })
             .map_err(|error| error.to_string()),
@@ -13051,7 +13091,10 @@ async fn create_backend_session_with_deadline(
                         backend,
                         outcome.reused_existing,
                         outcome.resolved_model_id,
-                        outcome.resolved_account_id,
+                        ResolvedLaunchProvider {
+                            provider_id: outcome.resolved_provider_id,
+                            account_id: outcome.resolved_account_id,
+                        },
                     )
                 })
                 .map_err(|error| error.to_string())
@@ -13060,12 +13103,21 @@ async fn create_backend_session_with_deadline(
 
     match tokio::time::timeout(CREATE_LAUNCH_DEADLINE, &mut create_task).await {
         Ok(result) => {
-            let (session_id, backend, reused_existing, resolved_model_id, resolved_account_id) =
+            let (session_id, backend, reused_existing, resolved_model_id, resolved) =
                 result.map_err(|error| error.to_string())??;
-            // 会话恢复记「实际用的账号」；后端没报（旧 daemon）才退回请求里点名的。
-            let resolved_account_id =
-                resolved_account_id.or_else(|| observation_request.provider_account_id.clone());
-            observation_request.provider_account_id = resolved_account_id.clone();
+            // 会话恢复记「实际用的供应商和账号」这一对；后端没报（旧 daemon、原生启动）
+            // 才退回请求里点名的。供应商可能是继承来的（运行配置 / 工作空间 / 默认值），
+            // 之后换掉了也要回到原来那家。
+            let resolved_provider = ResolvedLaunchProvider {
+                provider_id: resolved
+                    .provider_id
+                    .or_else(|| observation_request.provider_id.clone()),
+                account_id: resolved
+                    .account_id
+                    .or_else(|| observation_request.provider_account_id.clone()),
+            };
+            observation_request.provider_id = resolved_provider.provider_id.clone();
+            observation_request.provider_account_id = resolved_provider.account_id.clone();
             // 出生凭证必须在 session id 返回给调用方之前落进 SQLite（与 Tauri 命令 /
             // REST 两条路径同款 fail-closed 语义）。缺凭证的会话在 app 重启后被
             // identity-mismatch 永久拦下，无法自动接管。
@@ -13090,7 +13142,7 @@ async fn create_backend_session_with_deadline(
                 backend,
                 reused_existing,
                 resolved_model_id,
-                resolved_account_id,
+                resolved_provider,
             ))
         }
         Err(_) => {
@@ -15601,6 +15653,7 @@ mod tests {
                 reused_existing: self.reused_existing,
                 resolved_model_id: None,
                 resolved_account_id: None,
+                resolved_provider_id: None,
             })
         }
 
@@ -16669,6 +16722,8 @@ mod tests {
             runtime_source: "default".to_string(),
             launch_profile_id: Some("profile-project".to_string()),
             notice: None,
+            provider_id: None,
+            provider_account_id: None,
         };
 
         let json = serde_json::to_value(response).expect("serialize launch response");
@@ -18775,6 +18830,78 @@ mod tests {
         // SSH 不管是显式传的还是推断出来的都拒绝。
         assert!(fork_runtime_conflict(None, Ssh).unwrap().contains("SSH"));
         assert!(fork_runtime_conflict(Some(Ssh), Ssh).is_some());
+    }
+
+    #[test]
+    fn dispatch_envelope_records_the_resolved_provider_and_account() {
+        let plan_for = |provider_id: Option<&str>, selection: &str| {
+            TaskDispatchService::default()
+                .plan(TaskDispatchRequest {
+                    cli_tool: Some("claude".to_string()),
+                    project_path: "/repo".to_string(),
+                    workspace_name: None,
+                    profile_id: None,
+                    cwd: None,
+                    permission_mode: None,
+                    model_id: None,
+                    provider_id: provider_id.map(str::to_string),
+                    provider_account_id: None,
+                    provider_selection: Some(selection.to_string()),
+                    runtime_kind: Some("local".to_string()),
+                    prompt: Some("do it".to_string()),
+                    resume_id: None,
+                    fork_session_id: None,
+                    parent_binding_id: None,
+                    parent_session_id: None,
+                })
+                .expect("plan dispatch")
+        };
+        let launched = |provider_id: Option<&str>, account_id: Option<&str>| {
+            let mut json = serde_json::json!({
+                "taskId": "task", "sessionId": "session", "status": "launching",
+                "runtimeKind": "local", "runtimeSource": "default",
+            });
+            if let Some(provider_id) = provider_id {
+                json["providerId"] = provider_id.into();
+            }
+            if let Some(account_id) = account_id {
+                json["providerAccountId"] = account_id.into();
+            }
+            serde_json::from_value::<LaunchTaskResponse>(json).expect("launch response")
+        };
+
+        // 供应商是继承来的：请求里是空的，信封里要存解析出的那一家和它的账号
+        let mut inherited = plan_for(None, "inherit");
+        assert!(inherited.envelope.provider_id.is_none());
+        record_resolved_provider(
+            &mut inherited.envelope,
+            &launched(Some("provider-a"), Some("default")),
+        );
+        assert_eq!(
+            inherited.envelope.provider_id.as_deref(),
+            Some("provider-a")
+        );
+        assert_eq!(
+            inherited.envelope.provider_account_id.as_deref(),
+            Some("default")
+        );
+        assert_eq!(
+            inherited.envelope.provider_selection.as_deref(),
+            Some("inherit")
+        );
+
+        // 原生启动没有解析结果：保留请求原值
+        let mut native = plan_for(Some("__system__"), "inherit");
+        record_resolved_provider(&mut native.envelope, &launched(None, None));
+        assert_eq!(native.envelope.provider_id.as_deref(), Some("__system__"));
+        assert!(native.envelope.provider_account_id.is_none());
+
+        // 解析出的是另一家、又没报账号（旧后台）：请求里的账号不能留着套到这家头上
+        let mut switched = plan_for(Some("provider-a"), "inherit");
+        switched.envelope.provider_account_id = Some("work".to_string());
+        record_resolved_provider(&mut switched.envelope, &launched(Some("provider-b"), None));
+        assert_eq!(switched.envelope.provider_id.as_deref(), Some("provider-b"));
+        assert!(switched.envelope.provider_account_id.is_none());
     }
 
     #[test]

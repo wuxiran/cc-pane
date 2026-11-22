@@ -22,7 +22,9 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
 /// - 调用方点名的供应商和记录里的不是同一个：不动——账号 id 只在它所属的供应商里有意义
 ///   （各家都有个叫 `default` 的账号），套到别家就是换了身份。
 /// - 调用方没点名供应商：连同记录里的供应商一起放回，保证账号和供应商是当时那一对。
-///   记录里没有供应商（当时是继承来的）时只放回账号，供应商照旧继承。
+///   启动历史记的是**解析后实际用的供应商**（继承来的也记下是哪一家），所以之后默认
+///   供应商换了，恢复仍回到原来那家的原账号。
+///   只有旧数据（记账号之初、供应商继承时那一列是空的）才会只放回账号、供应商照旧继承。
 pub(super) fn apply_recorded_account(
     record: Option<&LaunchRecord>,
     selection: LaunchProviderSelection,
@@ -147,7 +149,18 @@ mod tests {
     }
 
     #[test]
-    fn resume_keeps_an_inherited_provider_and_only_restores_the_account() {
+    fn resume_returns_to_the_originally_inherited_provider_and_its_default_account() {
+        // 当时供应商是继承来的，历史里记的是解析后的那一家；各家都有个叫 default 的密钥账号，
+        // 不带上供应商就会被套到后来换上的默认供应商头上。
+        let history = history_with(Some("provider-a"), Some("default"));
+        assert_eq!(
+            replay(&history, LaunchProviderSelection::Inherit, None, None),
+            (Some("provider-a".into()), Some("default".into()))
+        );
+    }
+
+    #[test]
+    fn legacy_rows_without_a_provider_only_restore_the_account() {
         let history = history_with(None, Some("work"));
         assert_eq!(
             replay(&history, LaunchProviderSelection::Inherit, None, None),

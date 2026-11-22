@@ -92,10 +92,13 @@ export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLe
     },
 
     syncTerminalProviderAccount: (tabId, terminalPaneId, launchId) => {
-      // 启动历史里记的是后端解析结果（没点名账号时 = 当时的默认账号）。读不到就保持原样。
+      // 启动历史里记的是后端解析结果：实际用的供应商和账号（没点名时 = 当时继承到的那一家、
+      // 那家当时的默认账号）。两者成对写回——账号 id 只在所属供应商里有意义，只写账号的话，
+      // 之后默认供应商一换，恢复就会把这个账号名套到别家头上。读不到就保持原样。
       void historyService.findByLaunchId(launchId).then((record) => {
         const accountId = record?.providerAccountId?.trim();
         if (!accountId) return;
+        const providerId = record?.providerId?.trim() || undefined;
         let changed = false;
         set((state) => {
           const location = findTabAcrossLayouts(state, tabId);
@@ -103,8 +106,10 @@ export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLe
           const leaf = findTerminalPane(location.tab.terminalRootPane, terminalPaneId);
           // launchId 变了 = 这个 leaf 已经重新启动过，旧结果不能写上去。
           if (leaf?.type !== "leaf" || leaf.launchId !== launchId) return;
-          if (leaf.providerAccountId === accountId) return;
+          const nextProviderId = providerId ?? leaf.providerId;
+          if (leaf.providerAccountId === accountId && leaf.providerId === nextProviderId) return;
           leaf.providerAccountId = accountId;
+          leaf.providerId = nextProviderId;
           syncTabTerminalState(location.tab);
           changed = true;
         });

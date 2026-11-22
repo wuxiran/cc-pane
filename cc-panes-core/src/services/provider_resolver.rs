@@ -1647,6 +1647,63 @@ mod tests {
     }
 
     #[test]
+    fn replaying_the_resolved_pair_survives_a_default_provider_switch() {
+        // 两家都只有一个叫 `default` 的密钥账号（旧数据迁移后的常态）。
+        let providers = vec![
+            provider("provider-a", ProviderType::Anthropic),
+            provider("provider-b", ProviderType::Anthropic),
+        ];
+
+        // 第一次启动：请求没点名供应商，继承到当时的默认供应商 A。
+        let first = resolve_accounts(
+            CliTool::Claude,
+            (None, None),
+            (None, None),
+            (None, None),
+            Some("provider-a"),
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(first.source, ProviderSource::DefaultProvider);
+        let recorded_provider = first.provider.as_ref().map(|p| p.id.clone());
+        let recorded_account = first.account_id.clone();
+        assert_eq!(recorded_provider.as_deref(), Some("provider-a"));
+        assert_eq!(recorded_account.as_deref(), Some("default"));
+
+        // 之后默认供应商换成了 B。只带账号回来（旧行为）会静默落到 B 的 `default` 上——
+        // 这正是要堵的洞：
+        let account_only = resolve_accounts(
+            CliTool::Claude,
+            (None, recorded_account.as_deref()),
+            (None, None),
+            (None, None),
+            Some("provider-b"),
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(
+            account_only.provider.as_ref().map(|p| p.id.as_str()),
+            Some("provider-b")
+        );
+
+        // 带着记下的那一对回来：仍是 A 的原账号，和现在的默认值无关。
+        let replayed = resolve_accounts(
+            CliTool::Claude,
+            (recorded_provider.as_deref(), recorded_account.as_deref()),
+            (None, None),
+            (None, None),
+            Some("provider-b"),
+            &providers,
+        )
+        .unwrap();
+        assert_eq!(
+            replayed.provider.as_ref().map(|p| p.id.as_str()),
+            Some("provider-a")
+        );
+        assert_eq!(replayed.account_id.as_deref(), Some("default"));
+    }
+
+    #[test]
     fn account_follows_the_layer_that_selected_the_provider() {
         let providers = vec![provider_with_accounts("p1"), provider_with_accounts("p2")];
 
