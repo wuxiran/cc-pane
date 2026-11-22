@@ -5,6 +5,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dn
 import { CSS } from "@dnd-kit/utilities";
 import { useTerminalStatusStore } from "@/stores";
 import TabBadgeDots from "./TabBadgeDots";
+import TabAccountMark from "./TabAccountMark";
 import InlineRename from "@/components/ui/InlineRename";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { computeTabNumbers } from "@/lib/tabNumbering";
@@ -262,6 +263,7 @@ function SortableTab({
             onDoubleClick={(e) => e.stopPropagation()}
           />
         )}
+        <TabAccountMark providerId={tab.providerId} providerAccountId={tab.providerAccountId} />
         {/* #N 编号移出标题截断预算：shrink-0 独立渲染，长标题只截标题本身 */}
         {displayNumber && !isEditing ? (
           <span className="shrink-0 opacity-60" aria-hidden="true">{`#${displayNumber}`}</span>

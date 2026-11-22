@@ -129,5 +129,17 @@
   "advancedDefault": "全部默认",
   "summaryWorktree": "新 worktree",
   "summaryInjection": "已注入内容",
-  "yoloInherent": "{{cli}} 本身不做权限确认，始终全自动运行"
+  "yoloInherent": "{{cli}} 本身不做权限确认，始终全自动运行",
+  "account": {
+    "label": "账号",
+    "defaultLogin": "默认登录",
+    "defaultSuffix": "{{name}}（默认）",
+    "loginLocalOnly": "登录账号只能在本机运行时使用，WSL / SSH 下请选密钥账号或默认登录",
+    "loginLocalOnlyOption": "{{name}}（仅本机）",
+    "workspaceDefault": "工作空间默认账号",
+    "workspaceProviderHint": "{{provider}} 有多个账号：没点名账号的启动用这里选的",
+    "workspaceSaved": "已更新工作空间默认账号",
+    "workspaceSaveFailed": "更新工作空间默认账号失败：{{error}}",
+    "summary": "账号：{{name}}"
+  }
 }

@@ -8,6 +8,7 @@ import type {
   LaunchEffort,
   LaunchProviderSelection,
   OpenTerminalOptions,
+  Provider,
   SshMachine,
   Workspace,
   WorkspaceLaunchEnvironment,
@@ -18,6 +19,7 @@ import {
   resolveWorkspaceProjectLaunchOptions,
   type WorkspaceLaunchIssue,
 } from "@/utils/workspaceLaunch";
+import { effectiveLaunchAccountId } from "./launcherAccounts";
 
 /** 项目来源：工作空间项目 / 最近启动还原出的 options / 手动目录 */
 export type LauncherProjectSource =
@@ -45,6 +47,8 @@ export interface LauncherDraft {
   maxTurns?: number;
   providerSelection: LaunchProviderSelection;
   providerId?: string;
+  /** 显式供应商下点名的账号；undefined = 供应商默认账号。换供应商时清掉。 */
+  providerAccountId?: string;
   launchProfileId?: string;
   /** undefined = 自动（findLayoutForWorkspace 推导） */
   targetLayoutId?: string;
@@ -96,7 +100,7 @@ function cliConstraintPatch(cliTool: CliTool): Partial<LauncherDraft> {
 
 export function cliToolDraftPatch(cliTool: CliTool): Partial<LauncherDraft> {
   return cliTool === "none"
-    ? { cliTool, providerSelection: "none", providerId: undefined }
+    ? { cliTool, providerSelection: "none", providerId: undefined, providerAccountId: undefined }
     : { cliTool, ...cliConstraintPatch(cliTool) };
 }
 
@@ -128,6 +132,25 @@ export type BuildPendingLaunchResult =
 interface BuildDeps {
   workspaces: Workspace[];
   machines: SshMachine[];
+  /** 已加载的供应商：校验账号是否仍可选；列表已加载却找不到供应商时账号退回默认（不带）。 */
+  providers?: Provider[];
+}
+
+/**
+ * 启动请求里的账号：显式供应商用草稿里选的；否则沿用来源自带的（「最近启动」记录当时实际用的账号）。
+ * 账号失效（被删 / 换了 CLI 不可选 / 远端运行时选了本机登录账号）就不带，交给供应商默认账号。
+ */
+function resolveLaunchAccountId(
+  draft: LauncherDraft,
+  options: OpenTerminalOptions,
+  providerId: string,
+  providers: Provider[] | undefined,
+): string | undefined {
+  const accountId = draft.providerSelection === "explicit" ? draft.providerAccountId : options.providerAccountId;
+  // 供应商列表还没加载：判断不了，原样带上（真失效时后端报 PROVIDER_ACCOUNT_NOT_FOUND，不会悄悄换号）。
+  if (!accountId || !providers || providers.length === 0) return accountId || undefined;
+  const provider = providers.find((item) => item.id === providerId);
+  return effectiveLaunchAccountId(provider, draft.cliTool, accountId, Boolean(options.ssh || options.wsl));
 }
 
 /** 把草稿变成 PendingLaunch；工作空间来源解析失败时返回 issue（调用方 toast，不启动） */
@@ -136,7 +159,7 @@ export function buildPendingLaunch(
   deps: BuildDeps,
 ): BuildPendingLaunchResult {
   const effectiveDraft = draft.cliTool === "none"
-    ? { ...draft, providerSelection: "none" as const, providerId: undefined }
+    ? { ...draft, providerSelection: "none" as const, providerId: undefined, providerAccountId: undefined }
     : { ...draft, ...cliConstraintPatch(draft.cliTool) };
   const base = resolveBaseOptions(effectiveDraft, deps);
   if ("issue" in base) return { launch: null, issue: base.issue };
@@ -156,14 +179,19 @@ export function buildPendingLaunch(
   }
   const appendSystemPrompt = effectiveDraft.appendSystemPrompt.trim() || undefined;
   const initialPrompt = effectiveDraft.initialPrompt.trim() || undefined;
+  const providerId =
+    (effectiveDraft.providerSelection === "explicit" ? effectiveDraft.providerId : options.providerId) ?? "";
+  const providerAccountId = effectiveDraft.providerSelection === "none"
+    ? undefined
+    : resolveLaunchAccountId(effectiveDraft, options, providerId, deps.providers);
   return {
     launch: {
       path: options.path,
       launchCwd: options.launchCwd,
       workspaceName: options.workspaceName,
       workspacePath: options.workspacePath,
-      providerId:
-        (effectiveDraft.providerSelection === "explicit" ? effectiveDraft.providerId : options.providerId) ?? "",
+      providerId,
+      ...(providerAccountId ? { providerAccountId } : {}),
       providerSelection: effectiveDraft.providerSelection,
       launchProfileId: effectiveDraft.launchProfileId ?? options.launchProfileId,
       cliTool: effectiveDraft.cliTool,

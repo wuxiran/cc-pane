@@ -645,5 +645,6 @@
   "botChatRetry": "Retry",
   "agentChatRemoteTarget": "{{machine}} · {{path}}",
   "agentChatRemoteTargetTip": "Running on {{host}}: {{path}}",
-  "agentChatRemoteFileUnavailable": "This file is on the remote machine and can't be opened locally"
+  "agentChatRemoteFileUnavailable": "This file is on the remote machine and can't be opened locally",
+  "tabAccountMark": "Account: {{name}}"
 }

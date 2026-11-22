@@ -258,5 +258,187 @@
     "sshNone": "SSH sessions run the bare CLI on the remote machine: no MCP (CC-Panes, shared or workspace) reaches it.",
     "wslNone": "This CLI gets no MCP injection inside WSL.",
     "wslPartial": "Inside WSL only HTTP servers reach this CLI: workspace stdio entries are host commands, and remote servers go without request headers or SSE."
+  },
+  "providerAccounts": {
+    "endpoints": {
+      "primaryIs": "This is the {{kind}} endpoint.",
+      "more": "More endpoints",
+      "moreFilled": "More endpoints ({{count}} set)",
+      "hint": "Each CLI uses a different endpoint: Claude uses Anthropic, Codex uses Responses (or Chat), Kimi / Grok use Chat, Gemini uses Gemini. Empty endpoints are not injected; the CLI falls back to its own default.",
+      "notSet": "Not set",
+      "kind": {
+        "anthropic": "Anthropic",
+        "chat": "Chat",
+        "responses": "Responses",
+        "gemini": "Gemini"
+      }
+    },
+    "section": {
+      "accounts": "Accounts",
+      "accountsHint": "Accounts answer \"who am I\": one provider can hold several keys or several CLI logins. The default account is used when none is chosen.",
+      "env": "Environment variables",
+      "envOptional": "Environment variables (optional)",
+      "envHint": "Custom variables injected at launch; they win over generated variables with the same name. Sensitive values are not shown again after saving.",
+      "preview": "Injected at launch (preview)",
+      "afterSaveHint": "After saving, edit the provider to add more accounts (more keys, CLI logins) and preview what gets injected at launch."
+    },
+    "account": {
+      "addKey": "Key account",
+      "addLogin": "Login account",
+      "kindKey": "Key",
+      "kindLogin": "Login",
+      "defaultLogin": "Default login",
+      "defaultLoginHint": "The login that already exists on this machine (the CLI's default directory). It cannot be renamed or deleted.",
+      "defaultBadge": "Default",
+      "unsaved": "Unsaved",
+      "unnamed": "Unnamed",
+      "setDefault": "Set as default",
+      "edit": "Edit \"{{name}}\"",
+      "done": "Collapse",
+      "delete": "Delete \"{{name}}\"",
+      "name": "Name",
+      "namePlaceholder": "e.g. Work",
+      "newKeyName": "Key {{index}}",
+      "color": "Color",
+      "colorNone": "No color",
+      "secret": "Key",
+      "secretReplace": "Replace key",
+      "secretStoredPlaceholder": "Saved; leave empty to keep",
+      "secretNewPlaceholder": "Paste the key",
+      "clearSecret": "Clear key",
+      "secretState": {
+        "keychain": "In keychain",
+        "file": "Not in keychain (file)",
+        "none": "No key",
+        "pending": "New key, applied on save"
+      },
+      "env": "Account environment variables",
+      "envHint": "Injected only when launching with this account; they win over provider-level variables with the same name.",
+      "envScope": "Environment variables of account \"{{name}}\""
+    },
+    "colorName": {
+      "red": "Red",
+      "amber": "Amber",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "pink": "Pink",
+      "cyan": "Cyan",
+      "gray": "Gray"
+    },
+    "cli": {
+      "claude": "Claude Code",
+      "codex": "Codex",
+      "gemini": "Gemini CLI",
+      "antigravity": "Antigravity",
+      "grok": "Grok"
+    },
+    "login": {
+      "state": {
+        "loggedIn": "Logged in",
+        "loggedInAs": "Logged in ({{identity}})",
+        "notLoggedIn": "Not logged in",
+        "unknown": "Unknown"
+      },
+      "reason": {
+        "keychain_unavailable": "The system keychain cannot be queried",
+        "antigravity_reports_in_cli": "Antigravity shows the account inside the CLI after login",
+        "credential_file_missing": "No credential file found",
+        "account_file_unreadable": "The account file could not be read",
+        "home_unavailable": "The home directory could not be found",
+        "unsupported_cli": "This CLI does not support login status checks"
+      },
+      "checking": "Checking…",
+      "recheck": "Check login status again",
+      "relogin": "Log in again",
+      "opened": "The login command is running in a new terminal. Finish logging in in the browser, then click \"Check again\".",
+      "copied": "Could not open a terminal automatically. The login command was copied to the clipboard; paste it into a terminal.",
+      "interactiveHint": "Gemini CLI has no separate login command: it asks for a login method on first run; if one was already chosen, type /auth inside it to choose again.",
+      "executableMissing": "{{command}} was not found on this machine, so the login command may fail. Install the CLI first."
+    },
+    "newLogin": {
+      "title": "New login account",
+      "description": "Just give it a name: CC-Panes creates a separate login directory and opens a terminal running the CLI's own login.",
+      "namePlaceholder": "e.g. Personal",
+      "cli": "Which CLI to log in",
+      "cliFixed": "Logs in to {{cli}}",
+      "create": "Create and log in",
+      "creating": "Creating…",
+      "created": "Login account \"{{name}}\" created"
+    },
+    "remove": {
+      "title": "Delete account \"{{name}}\"?",
+      "description": "This cannot be undone.",
+      "consequenceProfiles": "Run configurations and workspaces still pointing at this account will report \"account not found\" at launch; they will not silently switch to another account.",
+      "consequenceHistory": "Existing session history is not affected.",
+      "consequenceLoginDir": "The login directory is kept by default; tick the box below to delete it too.",
+      "deleteDir": "Also delete its login directory",
+      "confirm": "Delete",
+      "deleting": "Deleting…",
+      "done": "Account \"{{name}}\" deleted",
+      "dirDeleted": "The login directory was deleted too",
+      "dirKept": {
+        "external_dir": "This directory was not created by CC-Panes, so it was kept: {{dir}}",
+        "dir_missing": "The login directory no longer exists; nothing to delete",
+        "remove_failed": "The login directory could not be deleted: {{dir}}. You can delete it manually"
+      },
+      "keychainBody": "This account's login credentials may still be in the system keychain. Clear them with the CLI's logout command:",
+      "keychainNoCommand": "Clear them with the CLI's logout command in a terminal.",
+      "copyCommand": "Copy command",
+      "commandCopied": "Command copied",
+      "dismiss": "Dismiss"
+    },
+    "env": {
+      "name": "Name",
+      "value": "Value",
+      "sensitive": "Sensitive",
+      "nameAria": "{{scope}} row {{index}} name",
+      "valueAria": "{{scope}} row {{index}} value",
+      "sensitiveAria": "{{scope}} row {{index}} sensitive",
+      "add": "Add variable",
+      "remove": "Remove this variable",
+      "empty": "No custom variables yet",
+      "storedPlaceholder": "Saved; leave empty to keep",
+      "refillPlaceholder": "Enter the value again",
+      "refillHint": "The name changed or it is no longer sensitive, so the saved value does not carry over. Enter it again.",
+      "storage": {
+        "keychain": "In keychain",
+        "file": "Not in keychain (file)"
+      },
+      "problem": {
+        "name_invalid": "Environment variable name \"{{name}}\" is invalid: use letters, digits and underscores, not starting with a digit",
+        "name_duplicate": "Environment variable \"{{name}}\" is duplicated",
+        "needs_refill": "Environment variable \"{{name}}\" was renamed or is no longer sensitive; enter its value again",
+        "value_required": "Sensitive variable \"{{name}}\" needs a value"
+      }
+    },
+    "accountProblem": {
+      "name_required": "Account name is required",
+      "name_duplicate": "An account named \"{{name}}\" already exists"
+    },
+    "preview": {
+      "account": "Account to preview",
+      "cli": "CLI to preview",
+      "refresh": "Refresh preview",
+      "loading": "Computing…",
+      "empty": "Nothing is injected for this combination",
+      "failed": "Preview failed: {{error}}",
+      "unsavedHint": "The preview uses the saved configuration; unsaved changes show up after saving.",
+      "maskedHint": "Sensitive values are masked.",
+      "layer": {
+        "generated": "Generated",
+        "provider": "Provider",
+        "account": "Account"
+      },
+      "overrides": "Overrides a generated value"
+    },
+    "card": {
+      "accounts": "{{count}} accounts: {{names}}",
+      "keychain": "Keychain",
+      "notKeychain": "Not in keychain",
+      "envCount": "Custom variables: {{count}}",
+      "nameSeparator": ", "
+    },
+    "keychainUnavailable": "No system keychain is available in this environment; keys are currently stored as files in providers.json."
   }
 }

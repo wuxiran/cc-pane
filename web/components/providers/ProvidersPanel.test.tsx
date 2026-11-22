@@ -13,6 +13,7 @@ import {
 } from "@/stores";
 import type { Provider } from "@/types/provider";
 import ProvidersPanel from "./ProvidersPanel";
+import { providerService } from "@/services/providerService";
 
 // 运行配置面板与 Provider 表单都是重组件，桩掉并回显关键 props
 vi.mock("./LaunchProfilesPanel", () => ({
@@ -411,5 +412,20 @@ describe("ProvidersPanel", () => {
         i18n.t("settings:providerLaunchHint", { shortcut: "Ctrl+T" })
       )
     ).toBeInTheDocument();
+  });
+
+  it("explains that keys are stored in providers.json when no keychain is available", async () => {
+    vi.spyOn(providerService, "getSecretStatus").mockResolvedValue({ keychainAvailable: false });
+    setupStores([makeProvider()]);
+    render(<ProvidersPanel view="providers" />);
+    expect(await screen.findByText(i18n.t("providers:providerAccounts.keychainUnavailable"))).toBeInTheDocument();
+  });
+
+  it("shows no keychain notice when the keychain is available", async () => {
+    const spy = vi.spyOn(providerService, "getSecretStatus").mockResolvedValue({ keychainAvailable: true });
+    setupStores([makeProvider()]);
+    render(<ProvidersPanel view="providers" />);
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.queryByText(i18n.t("providers:providerAccounts.keychainUnavailable"))).not.toBeInTheDocument();
   });
 });

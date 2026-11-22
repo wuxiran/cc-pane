@@ -15,7 +15,9 @@ export interface SettingsWindowTarget {
 /** 设置窗口里触发、必须在主窗口执行的操作（两个窗口的 store 互不相通）。 */
 export type SettingsWindowAction =
   | { type: "openOnboarding" }
-  | { type: "openResourceLibrary"; section: ResourceSection; scope: McpLayerTarget | null };
+  | { type: "openResourceLibrary"; section: ResourceSection; scope: McpLayerTarget | null }
+  /** 在主窗口新开一个普通 shell 标签并提交这行命令（新建 / 重新登录登录账号）。 */
+  | { type: "runTerminalCommand"; command: string };
 
 export interface SettingsChangedPayload {
   source?: string;

@@ -129,5 +129,17 @@
   "advancedDefault": "All defaults",
   "summaryWorktree": "New worktree",
   "summaryInjection": "Content injected",
-  "yoloInherent": "{{cli}} has no permission prompts; it always runs fully automatically"
+  "yoloInherent": "{{cli}} has no permission prompts; it always runs fully automatically",
+  "account": {
+    "label": "Account",
+    "defaultLogin": "Default login",
+    "defaultSuffix": "{{name}} (default)",
+    "loginLocalOnly": "Login accounts only work for local runs. Under WSL / SSH pick an API-key account or the default login",
+    "loginLocalOnlyOption": "{{name}} (local only)",
+    "workspaceDefault": "Workspace default account",
+    "workspaceProviderHint": "{{provider}} has several accounts: launches that don't name one use this",
+    "workspaceSaved": "Workspace default account updated",
+    "workspaceSaveFailed": "Failed to update the workspace default account: {{error}}",
+    "summary": "Account: {{name}}"
+  }
 }

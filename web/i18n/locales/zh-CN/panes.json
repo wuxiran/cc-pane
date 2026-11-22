@@ -645,5 +645,6 @@
   "botChatRetry": "重试",
   "agentChatRemoteTarget": "{{machine}} · {{path}}",
   "agentChatRemoteTargetTip": "在 {{host}} 上运行：{{path}}",
-  "agentChatRemoteFileUnavailable": "该文件在远程机器上，无法在本地打开"
+  "agentChatRemoteFileUnavailable": "该文件在远程机器上，无法在本地打开",
+  "tabAccountMark": "账号：{{name}}"
 }

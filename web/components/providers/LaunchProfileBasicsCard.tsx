@@ -11,6 +11,7 @@ import { contextSizeToTokens } from "@/types/provider";
 import { Field, Section } from "./launchProfileParts";
 import { SELECT_NONE, inputClass, toolLabel } from "./launchProfileHelpers";
 import PiProfileOptions from "./PiProfileOptions";
+import LaunchProfileAccountField from "./LaunchProfileAccountField";
 
 type ProviderModel = NonNullable<Provider["models"]>[number];
 
@@ -116,6 +117,8 @@ export default function LaunchProfileBasicsCard({
                 return {
                   ...current,
                   providerId: value === SELECT_NONE ? null : value,
+                  // 账号挂在供应商下面：换供应商就回到新供应商的默认账号
+                  providerAccountId: null,
                   modelId: null,
                   adapterOptions,
                 };
@@ -130,6 +133,14 @@ export default function LaunchProfileBasicsCard({
               </SelectContent>
             </Select>
           </Field>
+        )}
+        {!providerDisabled && draft.providerId && (
+          <LaunchProfileAccountField
+            draft={draft}
+            setDraft={setDraft}
+            provider={providerOptions.find((provider) => provider.id === draft.providerId)}
+            cliTool={activeTool}
+          />
         )}
       </div>
       {!providerDisabled && (

@@ -180,6 +180,25 @@ export async function updateWorkspaceProvider(
   );
 }
 
+/**
+ * 绑定工作空间的默认账号（属于当前绑定的供应商；`null` = 用供应商默认账号）。
+ */
+export async function updateWorkspaceProviderAccount(
+  workspaceName: string,
+  accountId: string | null
+): Promise<void> {
+  return invokeOrApi<void>(
+    "update_workspace_provider_account",
+    { workspaceName, accountId },
+    () =>
+      apiNoContent(`/api/workspaces/${encodeURIComponent(workspaceName)}/provider-account`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId }),
+      }),
+  );
+}
+
 export async function updateWorkspaceLaunchProfile(
   workspaceName: string,
   launchProfileId: string | null

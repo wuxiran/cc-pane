@@ -13,6 +13,7 @@ import { UI_DENSITY_STORAGE_KEY, useDensityStore } from "@/stores/useDensityStor
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { restoreThemeOverridesFromStorage } from "@/stores/useThemeStore";
 import { THEME_OVERRIDES_STORAGE_KEY } from "@/theme/themeOverrides";
+import { runCommandInMainWindowTerminal } from "@/components/providers/accounts/mainWindowTerminal";
 
 /** 主窗口一侧：接收设置窗口转发的操作，并同步它改动的本地偏好。 */
 export function useSettingsWindowBridge(): void {
@@ -22,6 +23,8 @@ export function useSettingsWindowBridge(): void {
       if (action.type === "openOnboarding") useDialogStore.getState().openOnboarding();
       else if (action.type === "openResourceLibrary") {
         openResourceLibrary(action.section, action.scope);
+      } else if (action.type === "runTerminalCommand") {
+        void runCommandInMainWindowTerminal(action.command);
       }
       void getCurrentWindowIfTauri()?.setFocus();
     });

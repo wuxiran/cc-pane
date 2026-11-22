@@ -3,6 +3,9 @@
  * `{"env": {...}}` JSON 互转。无 React 依赖，便于单测与复用。
  */
 import type { Provider, ProviderModel, ProviderPreset, ProviderType } from "@/types/provider";
+import type { KnownCliTool } from "@/types/terminal";
+import { accountDraftsFrom, envDraftsFrom, type AccountDraft, type EnvDraft } from "./accounts/drafts";
+import { EMPTY_ENDPOINTS, endpointDraftFromProvider, type EndpointDraft } from "./accounts/endpoints";
 
 export interface FormState {
   name: string;
@@ -16,6 +19,13 @@ export interface FormState {
   codexWireApi: string;
   models: ProviderModel[];
   defaultModelIndex: number | null;
+  /** 主接口以外的接口地址（主接口就是 baseUrl，这里那一格不用）。 */
+  endpoints: EndpointDraft;
+  /** 供应商一级的自定义环境变量。 */
+  env: EnvDraft[];
+  /** 账号（只在编辑已存的供应商时有）；新增 / 复制走旧字段，后端建默认账号。 */
+  accounts: AccountDraft[];
+  defaultAccountId: string | null;
 }
 
 export const emptyForm: FormState = {
@@ -30,15 +40,33 @@ export const emptyForm: FormState = {
   codexWireApi: "",
   models: [],
   defaultModelIndex: null,
+  endpoints: EMPTY_ENDPOINTS,
+  env: [],
+  accounts: [],
+  defaultAccountId: null,
 };
 
+/** 根据当前 Tab 推导手动创建时的默认 ProviderType */
+export function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
+  switch (tab) {
+    case "codex": return "open_ai";
+    case "pi": case "omp": case "jcode": return "anthropic";
+    case "gemini": return "gemini";
+    case "kimi": return "kimi";
+    case "opencode": return "opencode";
+    case "cursor": return "cursor";
+    case "grok": return "grok";
+    default: return "anthropic";
+  }
+}
 export function createInitialForm(
   seed: Provider | null | undefined,
   preset: ProviderPreset | null | undefined,
   fallbackType: ProviderType,
   presetName: string,
+  asCopy = false,
 ): FormState {
-  if (seed) return formFromProvider(seed);
+  if (seed) return formFromProvider(seed, asCopy);
   if (preset) {
     return {
       ...emptyForm,
@@ -57,14 +85,15 @@ export function createInitialForm(
  * 把一个既有 Provider 摊平成表单初值。编辑与「复制成新 Provider」共用：
  * 两者的表单内容完全同构，差别只在保存路径（update vs add，见 handleSave 的 saveAsUpdate）。
  */
-export function formFromProvider(seed: Provider): FormState {
+export function formFromProvider(seed: Provider, asCopy = false): FormState {
   const models = seed.models ?? [];
   const defaultIndex = models.findIndex((model) => model.id === seed.defaultModelId);
+  const { primary, others } = endpointDraftFromProvider(seed);
   return {
     name: seed.name,
     providerType: seed.providerType,
     apiKey: seed.apiKey || "",
-    baseUrl: seed.baseUrl || "",
+    baseUrl: primary,
     region: seed.region || "",
     projectId: seed.projectId || "",
     awsProfile: seed.awsProfile || "",
@@ -72,6 +101,11 @@ export function formFromProvider(seed: Provider): FormState {
     codexWireApi: seed.codexWireApi || "",
     models: models.map((model) => ({ ...model })),
     defaultModelIndex: models.length === 0 ? null : defaultIndex >= 0 ? defaultIndex : 0,
+    endpoints: others,
+    // 复制成新供应商：敏感值读不到、也不该跟着走，复制过去的敏感变量要重新填值；账号（密钥、登录目录）不复制。
+    env: envDraftsFrom(seed.env, !asCopy),
+    accounts: asCopy ? [] : accountDraftsFrom(seed),
+    defaultAccountId: asCopy ? null : seed.defaultAccountId ?? null,
   };
 }
 

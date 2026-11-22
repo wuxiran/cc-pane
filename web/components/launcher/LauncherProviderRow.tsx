@@ -1,5 +1,6 @@
 // Provider 选择：inherit（跟随工作空间/项目绑定）/ explicit（显式选 Provider）/ none +
 // Launch Profile 下拉（空 = 跟随绑定/默认，由后端解析）。
+// 显式选了供应商且它在当前 CLI 下有多个可选账号时，再出现账号选择；换供应商 / 换模式清掉账号。
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useLaunchProfilesStore, useProvidersStore } from "@/stores";
@@ -7,15 +8,19 @@ import { useCliTools } from "@/hooks/useCliTools";
 import type { LaunchProviderSelection } from "@/types";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { LauncherDraft } from "./launcherModel";
+import LauncherAccountSelect from "./LauncherAccountSelect";
+import { effectiveLaunchAccountId } from "./launcherAccounts";
 
 const SELECTIONS: LaunchProviderSelection[] = ["inherit", "explicit", "none"];
 
 interface LauncherProviderRowProps {
   draft: LauncherDraft;
   onChange: (patch: Partial<LauncherDraft>) => void;
+  /** 运行时是 WSL / SSH：本机登录账号不可选。 */
+  remote?: boolean;
 }
 
-export default function LauncherProviderRow({ draft, onChange }: LauncherProviderRowProps) {
+export default function LauncherProviderRow({ draft, onChange, remote = false }: LauncherProviderRowProps) {
   const { t } = useTranslation("launcher");
   const providers = useProvidersStore((s) => s.providers);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
@@ -40,6 +45,16 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
   const compatibleProviders = providers.filter((provider) =>
     isProviderTypeCompatibleWithCli(provider.providerType, draft.cliTool, tools));
 
+  const selectedProvider = compatibleProviders.find((provider) => provider.id === draft.providerId);
+
+  // 记住的账号失效（被删 / 换了 CLI 不再可选 / 换到远端运行时而它是本机登录账号）就退回默认账号。
+  useEffect(() => {
+    if (!draft.providerAccountId || !selectedProvider) return;
+    if (!effectiveLaunchAccountId(selectedProvider, draft.cliTool, draft.providerAccountId, remote)) {
+      onChange({ providerAccountId: undefined });
+    }
+  }, [draft.cliTool, draft.providerAccountId, onChange, remote, selectedProvider]);
+
   useEffect(() => {
     if (
       draft.providerSelection === "explicit"
@@ -47,7 +62,7 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
       && tools.length > 0
       && !compatibleProviders.some((provider) => provider.id === draft.providerId)
     ) {
-      onChange({ providerId: undefined });
+      onChange({ providerId: undefined, providerAccountId: undefined });
     }
   }, [compatibleProviders, draft.providerId, draft.providerSelection, onChange, tools.length]);
 
@@ -61,6 +76,7 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
           onChange({
             providerSelection: selection,
             providerId: selection === "explicit" ? draft.providerId : undefined,
+            providerAccountId: selection === "explicit" ? draft.providerAccountId : undefined,
           });
         }}
         aria-label={t("providerMode")}
@@ -76,7 +92,7 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
         <select
           className="h-8 min-w-[140px] rounded-md border bg-background px-2 text-xs"
           value={draft.providerId ?? ""}
-          onChange={(event) => onChange({ providerId: event.target.value || undefined })}
+          onChange={(event) => onChange({ providerId: event.target.value || undefined, providerAccountId: undefined })}
           aria-label={t("provider")}
         >
           <option value="">{t("providerPlaceholder")}</option>
@@ -86,6 +102,16 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
             </option>
           ))}
         </select>
+      )}
+
+      {draft.cliTool !== "none" && draft.providerSelection === "explicit" && selectedProvider && (
+        <LauncherAccountSelect
+          provider={selectedProvider}
+          cliTool={draft.cliTool}
+          value={draft.providerAccountId}
+          remote={remote}
+          onChange={(providerAccountId) => onChange({ providerAccountId })}
+        />
       )}
 
       {draft.cliTool !== "none"

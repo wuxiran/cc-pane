@@ -83,6 +83,8 @@ interface WorkspacesState {
   updateProjectAlias: (workspaceName: string, projectId: string, alias: string | null) => Promise<void>;
   updateWorkspaceAlias: (workspaceName: string, alias: string | null) => Promise<void>;
   updateWorkspaceProvider: (workspaceName: string, providerId: string | null) => Promise<void>;
+  /** 工作空间默认账号（属于已绑定的供应商；null = 供应商默认账号）。 */
+  updateWorkspaceProviderAccount: (workspaceName: string, accountId: string | null) => Promise<void>;
   updateWorkspaceLaunchProfile: (workspaceName: string, launchProfileId: string | null) => Promise<void>;
   updateWorkspacePath: (workspaceName: string, path: string | null) => Promise<void>;
   refreshWorkspace: (workspaceId: string) => Promise<Workspace | undefined>;
@@ -315,8 +317,22 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName
-          ? { ...ws, providerId: providerId ?? undefined }
+          ? {
+              ...ws,
+              providerId: providerId ?? undefined,
+              // 后端换供应商时会清掉原来绑定的账号（账号挂在供应商下面），这里同步
+              providerAccountId: (providerId ?? undefined) === ws.providerId ? ws.providerAccountId : undefined,
+            }
           : ws
+      ),
+    }));
+  },
+
+  updateWorkspaceProviderAccount: async (workspaceName, accountId) => {
+    await workspaceService.updateWorkspaceProviderAccount(workspaceName, accountId);
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspaceName ? { ...ws, providerAccountId: accountId ?? undefined } : ws
       ),
     }));
   },

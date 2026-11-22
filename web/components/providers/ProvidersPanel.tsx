@@ -17,6 +17,7 @@ import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
+import KeychainUnavailableNotice from "./accounts/KeychainUnavailableNotice";
 import { countProfilesPerTool } from "./launchProfileHelpers";
 import type { Provider, ProviderPreset } from "@/types/provider";
 import { CLI_TOOL_TABS, createSystemProvider, SYSTEM_PROVIDER_ID } from "@/types/provider";
@@ -449,6 +450,8 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
               <span>{t("providerLaunchHint", { shortcut: launcherShortcut })}</span>
             </div>
           )}
+
+          <KeychainUnavailableNotice />
 
           <div className="flex flex-col gap-2.5">
             {displayProviders.map((p) => (

@@ -39,5 +39,5 @@ export function useProviderFormUnsavedChanges({
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const requestBack = useCallback(() => discardGuard.request(onBack), [discardGuard.request, onBack]);
-  return { configFileIsDirty, discardGuard, requestBack };
+  return { isDirty, configFileIsDirty, discardGuard, requestBack };
 }

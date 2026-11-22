@@ -21,6 +21,7 @@ vi.mock("@/services/providerService", () => ({
   providerService: {
     readConfigDirInfo: vi.fn(),
     openPathInExplorer: vi.fn(),
+    previewProviderEnv: vi.fn().mockResolvedValue([]),
   },
 }));
 

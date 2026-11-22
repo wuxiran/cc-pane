@@ -10,7 +10,7 @@
   "components/panes/TerminalView.tsx": 2226,
   "components/panes/terminalRendererController.ts": 509,
   "components/providers/LaunchProfilesPanel.tsx": 516,
-  "components/providers/ProviderFormPanel.tsx": 575,
+  "components/providers/ProviderFormPanel.tsx": 572,
   "components/sidebar/SshMachineDialog.tsx": 603,
   "components/sidebar/WorkspaceEnvironmentPanel.tsx": 925,
   "components/sidebar/WorkspaceItem.tsx": 533,

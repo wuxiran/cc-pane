@@ -24,5 +24,5 @@ export default function LauncherWorktreeRow({ draft, onChange, projectPath, isLo
     environmentControls={<LauncherEnvRow value={environment} cliTool={draft.cliTool}
       disabled={environmentLocked || draft.source?.kind === "manual" || draft.source?.kind === "recent"}
       onChange={(next) => onChange({ environment: next, worktree: undefined })} />}
-    profileControls={<LauncherProviderRow draft={draft} onChange={onChange} />} />;
+    profileControls={<LauncherProviderRow draft={draft} onChange={onChange} remote={environment !== "local"} />} />;
 }

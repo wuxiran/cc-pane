@@ -60,6 +60,32 @@ describe("ProviderCard", () => {
     expect(screen.getByText("••••")).toBeInTheDocument();
   });
 
+  it("lists account names and the keychain marker when there are several accounts", () => {
+    renderCard(makeProvider({
+      accounts: [
+        { id: "default", name: "工作号", kind: "api_key", secretStorage: "keychain" },
+        { id: "key-2", name: "个人号", kind: "api_key", secretStorage: "keychain" },
+      ],
+      defaultAccountId: "default",
+      env: [{ name: "API_TIMEOUT_MS", value: "1", sensitive: false }],
+    }));
+    const tp = (key: string, options?: Record<string, unknown>) =>
+      String(i18n.t(`providers:providerAccounts.card.${key}` as never, options as never));
+    const names = ["工作号", "个人号"].join(tp("nameSeparator"));
+    expect(screen.getByText(tp("accounts", { count: 2, names }))).toBeInTheDocument();
+    expect(screen.getByText(tp("keychain"))).toBeInTheDocument();
+    expect(screen.getByText(tp("envCount", { count: 1 }))).toBeInTheDocument();
+  });
+
+  it("flags keys that are not in the keychain and hides the count for a single account", () => {
+    renderCard(makeProvider({
+      accounts: [{ id: "default", name: "默认", kind: "api_key", secretStorage: "file" }],
+      defaultAccountId: "default",
+    }));
+    expect(screen.getByText(i18n.t("providers:providerAccounts.card.notKeychain"))).toBeInTheDocument();
+    expect(screen.queryByText(/：|accounts:/)).not.toBeInTheDocument();
+  });
+
   it("shows no key marker when the default account has no key", () => {
     renderCard(makeProvider({
       accounts: [{ id: "default", name: "默认", kind: "api_key", secretStorage: "none" }],

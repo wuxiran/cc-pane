@@ -20,6 +20,7 @@ import { useLaunchProfileNavigation } from "./useLaunchProfileNavigation";
 import { useLaunchProfileDraft } from "./useLaunchProfileDraft";
 import { useExternalSkills } from "./useExternalSkills";
 import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
+import { profileProviderFields } from "./launchProfileAccounts";
 import {
   SYSTEM_DEFAULT_PROFILE_ID,
   WORKSPACE_FILTER_ALL,
@@ -305,8 +306,7 @@ export default function LaunchProfilesPanel({
         ...draft,
         name: draft.name?.trim() || alias,
         alias,
-        providerId: isSystemDefaultSelected ? null : draft.providerId,
-        modelId: isSystemDefaultSelected || !draft.providerId ? null : draft.modelId,
+        ...profileProviderFields(draft, isSystemDefaultSelected, selectedDraftProvider, activeTool),
         adapterOptions: activeTool === "pi"
           ? { ...(draft.adapterOptions ?? {}), piTransport: "pty" as const }
           : draft.adapterOptions ?? {},
@@ -337,7 +337,7 @@ export default function LaunchProfilesPanel({
     } catch (error) {
       toastErr(t("common:saveFailed", { error: String(error) }));
     }
-  }, [activeTool, createProfile, draft, isSystemDefaultSelected, replaceDraft, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
+  }, [activeTool, createProfile, draft, isSystemDefaultSelected, replaceDraft, selectedDraftProvider, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
   const deleteSelectedProfile = useCallback(async () => {
     if (!selectedProfile || isSystemDefaultSelected) return;

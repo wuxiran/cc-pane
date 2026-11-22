@@ -7,6 +7,43 @@ import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ProviderAvatar, { PROVIDER_TYPE_COLORS } from "./ProviderAvatar";
 import { PROVIDER_TYPE_META, isSystemProvider, providerHasSecret, type Provider } from "@/types/provider";
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
+import { Badge } from "@/components/ui/badge";
+
+/** 列表上的密钥存放标记：有密钥在文件里（钥匙串不可用时的回退）就标「未进钥匙串」。 */
+function secretStorageBadge(provider: Provider): "keychain" | "file" | null {
+  const storages = (provider.accounts ?? [])
+    .filter((account) => account.kind === "api_key")
+    .map((account) => account.secretStorage ?? "none");
+  if (storages.includes("file")) return "file";
+  return storages.includes("keychain") ? "keychain" : null;
+}
+
+function AccountSummary({ provider }: { provider: Provider }) {
+  const { t } = useTranslation("providers");
+  const accounts = provider.accounts ?? [];
+  const envCount = provider.env?.length ?? 0;
+  const badge = secretStorageBadge(provider);
+  if (accounts.length <= 1 && envCount === 0 && !badge) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs mb-1" style={{ color: "var(--app-text-tertiary)" }}>
+      {accounts.length > 1 && (
+        <span className="truncate max-w-[320px]">
+          {t("providerAccounts.card.accounts", { count: accounts.length, names: accounts.map((account) => account.name).join(t("providerAccounts.card.nameSeparator")) })}
+        </span>
+      )}
+      {envCount > 0 && <span>{t("providerAccounts.card.envCount", { count: envCount })}</span>}
+      {badge && (
+        <Badge
+          variant={badge === "file" ? "outline" : "secondary"}
+          className="px-1.5 py-0 text-[length:var(--text-nano)]"
+          style={badge === "file" ? { color: "var(--app-status-warning)", borderColor: "var(--app-status-warning)" } : undefined}
+        >
+          {badge === "file" ? t("providerAccounts.card.notKeychain") : t("providerAccounts.card.keychain")}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 /**
  * Provider 的**身份色**（品牌色），仅用于头像等标识性元素。
@@ -198,6 +235,8 @@ export default function ProviderCard({
               </>
             )}
           </div>
+
+          <AccountSummary provider={provider} />
 
           {/* Website URL */}
           {website && (

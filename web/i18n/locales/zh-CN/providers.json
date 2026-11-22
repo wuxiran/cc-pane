@@ -258,5 +258,187 @@
     "sshNone": "SSH 会话只在远端跑裸 CLI：CC-Panes、共享与工作空间层的 MCP 都带不过去。",
     "wslNone": "这个 CLI 在 WSL 里不注入任何 MCP。",
     "wslPartial": "在 WSL 里只有 HTTP 型 server 能到达这个 CLI：工作空间层的 stdio 条目是宿主命令，远程 server 不带请求头、不走 SSE。"
+  },
+  "providerAccounts": {
+    "endpoints": {
+      "primaryIs": "这是 {{kind}} 接口的地址。",
+      "more": "更多接口",
+      "moreFilled": "更多接口（已填 {{count}} 个）",
+      "hint": "不同 CLI 走不同接口：Claude 用 Anthropic，Codex 用 Responses（或 Chat），Kimi / Grok 用 Chat，Gemini 用 Gemini。没填的接口不注入地址，CLI 用它自己的默认地址。",
+      "notSet": "未填",
+      "kind": {
+        "anthropic": "Anthropic",
+        "chat": "Chat",
+        "responses": "Responses",
+        "gemini": "Gemini"
+      }
+    },
+    "section": {
+      "accounts": "账号",
+      "accountsHint": "账号回答「我是谁」：同一个供应商下可以有多把密钥，或多套 CLI 登录。没指定账号时用默认账号。",
+      "env": "环境变量",
+      "envOptional": "环境变量（可选）",
+      "envHint": "启动时注入的自定义变量；和自动生成的变量同名时，以这里的为准。敏感值保存后不再显示。",
+      "preview": "启动时实际注入（预览）",
+      "afterSaveHint": "保存后可以在编辑页添加更多账号（多把密钥、CLI 登录），并预览启动时实际注入的内容。"
+    },
+    "account": {
+      "addKey": "密钥账号",
+      "addLogin": "登录账号",
+      "kindKey": "密钥",
+      "kindLogin": "登录",
+      "defaultLogin": "默认登录",
+      "defaultLoginHint": "机器上原有的那套登录（CLI 的默认目录），不能改名、不能删除。",
+      "defaultBadge": "默认",
+      "unsaved": "未保存",
+      "unnamed": "未命名",
+      "setDefault": "设为默认",
+      "edit": "编辑「{{name}}」",
+      "done": "收起",
+      "delete": "删除「{{name}}」",
+      "name": "名字",
+      "namePlaceholder": "比如：工作号",
+      "newKeyName": "密钥 {{index}}",
+      "color": "颜色",
+      "colorNone": "不设颜色",
+      "secret": "密钥",
+      "secretReplace": "换密钥",
+      "secretStoredPlaceholder": "已保存，留空保持",
+      "secretNewPlaceholder": "粘贴密钥",
+      "clearSecret": "清除密钥",
+      "secretState": {
+        "keychain": "已存入钥匙串",
+        "file": "未进钥匙串（文件）",
+        "none": "无密钥",
+        "pending": "新密钥，保存后生效"
+      },
+      "env": "账号环境变量",
+      "envHint": "只在用这个账号启动时注入；和供应商一级的变量同名时，以这里的为准。",
+      "envScope": "账号「{{name}}」的环境变量"
+    },
+    "colorName": {
+      "red": "红",
+      "amber": "琥珀",
+      "green": "绿",
+      "blue": "蓝",
+      "purple": "紫",
+      "pink": "粉",
+      "cyan": "青",
+      "gray": "灰"
+    },
+    "cli": {
+      "claude": "Claude Code",
+      "codex": "Codex",
+      "gemini": "Gemini CLI",
+      "antigravity": "Antigravity",
+      "grok": "Grok"
+    },
+    "login": {
+      "state": {
+        "loggedIn": "已登录",
+        "loggedInAs": "已登录（{{identity}}）",
+        "notLoggedIn": "未登录",
+        "unknown": "未知"
+      },
+      "reason": {
+        "keychain_unavailable": "查不了系统钥匙串",
+        "antigravity_reports_in_cli": "Antigravity 登录后在 CLI 里自己显示账号",
+        "credential_file_missing": "没找到凭据文件",
+        "account_file_unreadable": "账号信息文件读不懂",
+        "home_unavailable": "找不到用户主目录",
+        "unsupported_cli": "这个 CLI 不支持查询登录状态"
+      },
+      "checking": "检查中…",
+      "recheck": "重新检查登录状态",
+      "relogin": "重新登录",
+      "opened": "已在新终端里运行登录命令。在浏览器里完成登录后，回来点「重新检查」。",
+      "copied": "没能自动打开终端，登录命令已复制到剪贴板，请在终端里粘贴运行。",
+      "interactiveHint": "Gemini CLI 没有单独的登录命令：首次运行时会让你选登录方式；已经选过的，在里面输入 /auth 重新选。",
+      "executableMissing": "本机没找到 {{command}}，登录命令可能跑不起来，请先安装这个 CLI。"
+    },
+    "newLogin": {
+      "title": "新建登录账号",
+      "description": "起个名字就行：CC-Panes 会自动建一个独立的登录目录，然后打开终端跑 CLI 自己的登录。",
+      "namePlaceholder": "比如：个人号",
+      "cli": "登录哪个 CLI",
+      "cliFixed": "登录 {{cli}}",
+      "create": "创建并登录",
+      "creating": "创建中…",
+      "created": "已创建登录账号「{{name}}」"
+    },
+    "remove": {
+      "title": "删除账号「{{name}}」？",
+      "description": "删除后不能恢复。",
+      "consequenceProfiles": "还指着这个账号的运行配置、工作空间，启动时会报「账号不存在」，不会悄悄换成别的号。",
+      "consequenceHistory": "已有的会话历史不受影响。",
+      "consequenceLoginDir": "登录目录默认保留，需要时可以勾选下面一起删除。",
+      "deleteDir": "同时删除它的登录目录",
+      "confirm": "删除",
+      "deleting": "删除中…",
+      "done": "已删除账号「{{name}}」",
+      "dirDeleted": "登录目录已一并删除",
+      "dirKept": {
+        "external_dir": "这个目录不是 CC-Panes 建的，没有删除：{{dir}}",
+        "dir_missing": "登录目录已经不存在，无需删除",
+        "remove_failed": "登录目录没能删除：{{dir}}，可以手动删除"
+      },
+      "keychainBody": "这个号的登录凭据可能还留在系统钥匙串里，可以用该 CLI 的 logout 命令清除：",
+      "keychainNoCommand": "可以在终端里用该 CLI 的 logout 命令清除。",
+      "copyCommand": "复制命令",
+      "commandCopied": "命令已复制",
+      "dismiss": "知道了"
+    },
+    "env": {
+      "name": "名字",
+      "value": "值",
+      "sensitive": "敏感",
+      "nameAria": "{{scope}} 第 {{index}} 条的名字",
+      "valueAria": "{{scope}} 第 {{index}} 条的值",
+      "sensitiveAria": "{{scope}} 第 {{index}} 条是否敏感",
+      "add": "添加一条",
+      "remove": "删除这一条",
+      "empty": "还没有自定义变量",
+      "storedPlaceholder": "已保存，留空保持",
+      "refillPlaceholder": "需要重新填值",
+      "refillHint": "改了名字或取消了敏感，原来保存的值不会跟过来，请重新填写。",
+      "storage": {
+        "keychain": "已存入钥匙串",
+        "file": "未进钥匙串（文件）"
+      },
+      "problem": {
+        "name_invalid": "环境变量名「{{name}}」不合法：只能用字母、数字、下划线，不能以数字开头",
+        "name_duplicate": "环境变量「{{name}}」重复了",
+        "needs_refill": "环境变量「{{name}}」改了名字或取消了敏感，需要重新填值",
+        "value_required": "敏感变量「{{name}}」需要填值"
+      }
+    },
+    "accountProblem": {
+      "name_required": "账号名字不能为空",
+      "name_duplicate": "已经有叫「{{name}}」的账号了"
+    },
+    "preview": {
+      "account": "预览用的账号",
+      "cli": "预览用的 CLI",
+      "refresh": "刷新预览",
+      "loading": "计算中…",
+      "empty": "这个组合启动时不注入任何变量",
+      "failed": "预览失败：{{error}}",
+      "unsavedHint": "预览按已保存的配置计算，未保存的修改要保存后才会体现。",
+      "maskedHint": "敏感值已打码。",
+      "layer": {
+        "generated": "自动生成",
+        "provider": "供应商",
+        "account": "账号"
+      },
+      "overrides": "盖掉了自动生成的值"
+    },
+    "card": {
+      "accounts": "{{count}} 个账号：{{names}}",
+      "keychain": "钥匙串",
+      "notKeychain": "未进钥匙串",
+      "envCount": "{{count}} 个自定义变量",
+      "nameSeparator": "、"
+    },
+    "keychainUnavailable": "当前环境没有可用的系统钥匙串，密钥目前以文件保存在 providers.json。"
   }
 }

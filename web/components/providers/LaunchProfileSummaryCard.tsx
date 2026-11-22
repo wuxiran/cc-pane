@@ -9,6 +9,8 @@ import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace } from "@/types/workspace";
 import { SummaryStat } from "./launchProfileParts";
 import { profileDisplayName, runtimeLabel, toolLabel } from "./launchProfileHelpers";
+import { useLaunchProfileAccountLabel } from "./useLaunchProfileAccountLabel";
+import LaunchProfileWorkspaceAccountRow from "./LaunchProfileWorkspaceAccountRow";
 
 interface LaunchProfileSummaryCardProps {
   draft: LaunchProfileDraft;
@@ -67,6 +69,7 @@ export default function LaunchProfileSummaryCard({
   onDelete,
 }: LaunchProfileSummaryCardProps) {
   const { t } = useTranslation(["providers", "common"]);
+  const accountLabel = useLaunchProfileAccountLabel(draft, activeTool, isSystemDefaultSelected);
   const skillCompatibility = preview?.skillCompatibility ?? null;
   const deliveryModeLabels = {
     nativeCommand: t("skillDeliveryMode.nativeCommand"),
@@ -152,7 +155,7 @@ export default function LaunchProfileSummaryCard({
 
       {/* summary strip：无边框 stat 组 + 竖分隔线，替代四个「假输入框」 */}
       <div className="mx-4 grid grid-cols-2 divide-x divide-[var(--app-border)]/60 border-t border-[var(--app-border)]/60 md:grid-cols-4">
-        <SummaryStat label={t("fieldProviderModel")} value={`${previewProviderLabel} / ${previewModelLabel}`} />
+        <SummaryStat label={t("fieldProviderModel")} value={`${previewProviderLabel} / ${previewModelLabel}`} meta={accountLabel} />
         <SummaryStat label="MCP" value={t("enabledCount", { count: previewMcpCount })} />
         <SummaryStat label="Skill" value={t("enabledCount", { count: previewSkillCount })} />
         <SummaryStat
@@ -195,6 +198,7 @@ export default function LaunchProfileSummaryCard({
               {workspaceContext.launchProfileId ? profileDisplayName(profiles.find((p) => p.id === workspaceContext.launchProfileId) ?? { name: workspaceContext.launchProfileId, alias: null }) : t("notBound")}
             </span>
           )}
+          {workspaceContext && <LaunchProfileWorkspaceAccountRow workspace={workspaceContext} />}
           {workspaces.length === 0 && <span>{t("previewCreateWorkspaceHint")}</span>}
           {!workspaceContext && workspaces.length > 0 && <span>{t("previewSelectWorkspaceHint")}</span>}
         </div>

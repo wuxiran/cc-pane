@@ -13,41 +13,30 @@ import { providerService } from "@/services/providerService";
 import { filesystemService } from "@/services/filesystemService";
 import { isTauriRuntime } from "@/services/runtime";
 import { isJsonFile } from "@/utils/json";
+import { translateError } from "@/utils/errorTranslation";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import ProviderAvatar from "./ProviderAvatar";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
 import { useProviderFormUnsavedChanges } from "./useProviderFormUnsavedChanges";
-import {
-  PROVIDER_TYPE_META, isValidProviderContextWindowTokens, providerHasSecret,
-  type Provider,
-  type ProviderType,
-  type ProviderPreset,
-  type ConfigDirInfo,
-} from "@/types/provider";
+import { PROVIDER_TYPE_META, providerHasSecret, type Provider, type ProviderType, type ProviderPreset, type ConfigDirInfo } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import ProviderTypeSelect from "./ProviderTypeSelect";
 import {
   buildConfigJson,
   createInitialForm,
+  defaultProviderTypeForTab,
   parseConfigJson,
   type FormState,
 } from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 import CodexWireApiField from "./CodexWireApiField";
+import EndpointsField from "./accounts/EndpointsField";
+import ProviderAccountSections from "./accounts/ProviderAccountSections";
+import { applyPersistedAccountChange } from "./accounts/drafts";
+import type { PersistedAccountChange } from "./accounts/ProviderAccountsSection";
+import { moveEndpointsToPrimary, primaryEndpointKind } from "./accounts/endpoints";
+import { accountFormProblem, buildProviderPayload, normalizeFormModels } from "./accounts/providerPayload";
 const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
-/** 根据当前 Tab 推导手动创建时的默认 ProviderType */
-function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
-  switch (tab) {
-    case "codex": return "open_ai";
-    case "pi": case "omp": case "jcode": return "anthropic";
-    case "gemini": return "gemini";
-    case "kimi": return "kimi";
-    case "opencode": return "opencode";
-    case "cursor": return "cursor";
-    case "grok": return "grok";
-    default: return "anthropic";
-  }
-}
 interface ProviderFormPanelProps {
   editProvider?: Provider | null;
   /**
@@ -64,7 +53,7 @@ interface ProviderFormPanelProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved, onDirtyChange }: ProviderFormPanelProps) {
-  const { t } = useTranslation(["settings", "common"]);
+  const { t } = useTranslation(["settings", "common", "providers"]);
   const configDirInputId = useId();
   const providers = useProvidersStore((s) => s.providers);
   const addProvider = useProvidersStore((s) => s.addProvider);
@@ -77,7 +66,11 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
     preset,
     defaultProviderTypeForTab(activeTab),
     preset ? t(preset.nameKey as any) : "",
+    !!duplicateSeed,
   ));
+  // 复制种子路径永远走 add：editProvider 为空或 duplicateSeed 非空 → 一律 add。
+  const saveAsUpdate = !!editProvider && !duplicateSeed;
+  const manageAccounts = saveAsUpdate && initialFormRef.current.accounts.length > 0;
   const [form, setForm] = useState<FormState>(() => initialFormRef.current!);
   const [configDirInfo, setConfigDirInfo] = useState<ConfigDirInfo | null>(null);
   const currentMeta = useMemo(() => PROVIDER_TYPE_META[form.providerType], [form.providerType]);
@@ -91,7 +84,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
   );
   const [showSensitiveJson, setShowSensitiveJson] = useState(false);
   const isUpdatingRef = useRef(false);
-  const { configFileIsDirty, discardGuard, requestBack } = useProviderFormUnsavedChanges({
+  const { isDirty, configFileIsDirty, discardGuard, requestBack } = useProviderFormUnsavedChanges({
     form,
     initialForm: initialFormRef.current!,
     providerType: form.providerType,
@@ -150,6 +143,19 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
     setForm((prev) => ({ ...prev, ...partial }));
   }
 
+  /** 主接口随类型 / wire API 换位时，已填的地址跟着换位（见 moveEndpointsToPrimary）。 */
+  function withPrimaryMoved(partial: Partial<FormState>): Partial<FormState> {
+    const from = primaryEndpointKind(form.providerType, form.codexWireApi);
+    const to = primaryEndpointKind(partial.providerType ?? form.providerType, partial.codexWireApi ?? form.codexWireApi);
+    return { ...partial, endpoints: moveEndpointsToPrimary(from, to, partial.endpoints ?? form.endpoints) };
+  }
+
+  /** 后端已经生效的账号变化：草稿和「未保存」基准一起改，不算未保存修改。 */
+  const applyPersisted = useCallback((change: PersistedAccountChange) => {
+    initialFormRef.current = applyPersistedAccountChange(initialFormRef.current, change);
+    setForm((prev) => applyPersistedAccountChange(prev, change));
+  }, []);
+
   function handleTypeChange(newType: ProviderType) {
     const fields = PROVIDER_TYPE_META[newType].fields;
     const updates: Partial<FormState> = { providerType: newType };
@@ -159,7 +165,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
     if (!fields.includes("projectId")) updates.projectId = "";
     if (!fields.includes("awsProfile")) updates.awsProfile = "";
     if (!fields.includes("configDir")) { updates.configDir = ""; setConfigDirInfo(null); }
-    updateForm(updates);
+    updateForm(withPrimaryMoved(updates));
   }
 
   function shouldShowField(field: string): boolean {
@@ -174,18 +180,10 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
   async function handleSave() {
     if (!form.name.trim()) { toastErr(t("nameRequired")); return; }
-    const models = form.models.map((model) => ({
-      id: model.id.trim(),
-      label: model.label?.trim() || null,
-      defaultEffort: model.defaultEffort ?? null,
-      ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens ?? null }),
-    }));
-    if (models.some((model) => !model.id)) { toastErr(t("providerModelIdRequired")); return; }
-    if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) { toastErr(t("providerModelContextWindowInvalid")); return; }
-    if (new Set(models.map((model) => model.id)).size !== models.length) {
-      toastErr(t("providerModelIdsUnique"));
-      return;
-    }
+    const normalized = normalizeFormModels(form);
+    if ("errorKey" in normalized) { toastErr(t(normalized.errorKey)); return; }
+    const problem = accountFormProblem(form, manageAccounts);
+    if (problem) { toastErr(t(`providers:${problem.key}` as "providers:providerAccounts.env.problem.needs_refill", problem.params)); return; }
     try {
       // 如果 config_profile 且 JSON 文件有修改，先写回文件
       if (isConfigJsonFile && configFileIsDirty) {
@@ -194,28 +192,16 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         toastOk(t("jsonFileSaved"));
       }
 
-      // 复制种子路径永远走 add：editProvider 为空或 duplicateSeed 非空 → 一律 add。
-      const saveAsUpdate = !!editProvider && !duplicateSeed;
-      const provider: Provider = {
-        // 只有 update 路径复用既有 id；add 路径（含复制种子）一律重新生成，
-        // 防御调用方忘记换 id 时把复制写成覆盖原 Provider。
+      // 只有 update 路径复用既有 id；add 路径（含复制种子）一律重新生成，
+      // 防御调用方忘记换 id 时把复制写成覆盖原 Provider。
+      const existing = saveAsUpdate ? providers.find((p) => p.id === editProvider.id) : undefined;
+      const provider = buildProviderPayload(form, {
         id: saveAsUpdate ? editProvider.id : crypto.randomUUID(),
-        name: form.name.trim(),
-        providerType: form.providerType,
-        apiKey: form.apiKey || null,
-        baseUrl: form.baseUrl || null,
-        region: form.region || null,
-        projectId: form.projectId || null,
-        awsProfile: form.awsProfile || null,
-        configDir: form.configDir || null,
-        codexWireApi: form.codexWireApi || null,
-        models,
-        defaultModelId: form.defaultModelIndex === null ? null : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
-        isDefault: false,
-      };
+        models: normalized.models,
+        isDefault: existing?.isDefault ?? false,
+        manageAccounts,
+      });
       if (saveAsUpdate) {
-        const existing = providers.find((p) => p.id === editProvider.id);
-        if (existing) provider.isDefault = existing.isDefault;
         await updateProvider(provider);
         toastOk(t("providerUpdated"));
       } else {
@@ -224,7 +210,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
       }
       (onSaved ?? onBack)();
     } catch (e) {
-      toastErr(t("operationFailed", { error: String(e) }));
+      toastErr(t("operationFailed", { error: translateError(e) }));
     }
   }
 
@@ -344,7 +330,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
             )}
 
             {/* Dynamic fields */}
-            {shouldShowField("apiKey") && (
+            {shouldShowField("apiKey") && !manageAccounts && (
               <FormField label={t("apiKey")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
                 {({ id }) => (
                   <Input id={id} className="h-10 text-sm" type="password" value={form.apiKey}
@@ -354,17 +340,18 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
             )}
 
             {shouldShowField("baseUrl") && (
-              <FormField label={t("baseUrl")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
-                {({ id }) => (
-                  <Input id={id} className="h-10 text-sm" value={form.baseUrl}
-                    onChange={(e) => updateForm({ baseUrl: e.target.value })} placeholder="https://api.anthropic.com"
-                    readOnly={isPresetDefault("baseUrl")}
-                    style={isPresetDefault("baseUrl") ? { opacity: 0.6 } : undefined} />
-                )}
-              </FormField>
+              <EndpointsField
+                primaryKind={primaryEndpointKind(form.providerType, form.codexWireApi)}
+                primary={form.baseUrl}
+                others={form.endpoints}
+                onPrimaryChange={(baseUrl) => updateForm({ baseUrl })}
+                onOthersChange={(endpoints) => updateForm({ endpoints })}
+                placeholder="https://api.anthropic.com"
+                primaryReadOnly={isPresetDefault("baseUrl")}
+              />
             )}
 
-            {form.providerType === "open_ai" && <CodexWireApiField value={form.codexWireApi} onChange={(codexWireApi) => updateForm({ codexWireApi })} />}
+            {form.providerType === "open_ai" && <CodexWireApiField value={form.codexWireApi} onChange={(codexWireApi) => updateForm(withPrimaryMoved({ codexWireApi }))} />}
             {shouldShowField("region") && (
               <FormField label={t("region")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
                 {({ id }) => (
@@ -505,6 +492,16 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                 )}
               </div>
             )}
+
+            <ProviderAccountSections
+              providerId={saveAsUpdate ? editProvider.id : null}
+              manageAccounts={manageAccounts}
+              form={form}
+              dirty={isDirty}
+              activeTab={activeTab}
+              onChange={updateForm}
+              onPersisted={applyPersisted}
+            />
 
             <ProviderModelsEditor
               models={form.models}

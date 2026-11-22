@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import {
   useActivityBarStore,
   useDialogStore,
+  useProvidersStore,
   useSettingsStore,
   useSshMachinesStore,
   useWorkspacesStore,
@@ -114,6 +115,9 @@ export default function LauncherDialog() {
         targetLayoutId: context?.targetLayoutId,
       });
     setDraft({ ...base, ...cliSwitchPatch(base.cliTool) });
+    // 账号校验（「最近启动」带回的账号是否仍可选）要用供应商列表；已加载就不重复拉
+    const providerStore = useProvidersStore.getState();
+    if (!providerStore.providers?.length) providerStore.loadProviders().catch(() => undefined);
     setError(null);
     setSubmitting(false);
     // workspaces 变化不重置正在编辑的草稿
@@ -159,6 +163,7 @@ export default function LauncherDialog() {
     const { launch, issue } = buildPendingLaunch(draft, {
       workspaces,
       machines: useSshMachinesStore.getState().machines,
+      providers: useProvidersStore.getState().providers,
     });
     if (!launch) {
       setError(
