@@ -312,7 +312,10 @@ fn migration_is_idempotent() {
     write_legacy_file(&dir);
     let store = memory_store();
 
-    drop(owner(&dir, &store));
+    let first_service = owner(&dir, &store);
+    let _ = first_service.list_providers();
+    assert_eq!(backups(&dir).len(), 1, "no extra backups within the run");
+    drop(first_service);
     let first = read_file(&dir);
     let second_service = owner(&dir, &store);
     let _ = second_service.list_providers();
@@ -322,7 +325,93 @@ fn migration_is_idempotent() {
 
     assert_eq!(first, second, "a second run must not change the file");
     assert_eq!(read_file(&dir), first);
-    assert_eq!(backups(&dir).len(), 1, "no extra backups on later runs");
+    // 第二次启动是一次验证过的正常加载：带明文的备份删掉了，之后也不再生成。
+    assert!(
+        backups(&dir).is_empty(),
+        "no backups left after a verified load"
+    );
+}
+
+#[test]
+fn migration_backups_are_deleted_after_the_next_verified_start() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_file(&dir);
+    let store = memory_store();
+
+    // 迁移这次启动：备份留着（这时还没被一次正常加载验证过）。
+    drop(owner(&dir, &store));
+    assert_eq!(backups(&dir).len(), 1);
+    assert_eq!(read_json(&dir)["schema_version"], PROVIDER_SCHEMA_VERSION);
+
+    // 跟随者（daemon）只读，不删。
+    drop(ProviderService::follower(
+        providers_path(&dir),
+        store.clone(),
+    ));
+    assert_eq!(backups(&dir).len(), 1);
+
+    // 下次启动：新格式、密钥都在钥匙串里读得到 → 删备份；配置照常可用。
+    let service = owner(&dir, &store);
+    assert!(backups(&dir).is_empty());
+    assert_eq!(
+        service
+            .get_env_vars(Some("p-anthropic"))
+            .get("ANTHROPIC_API_KEY")
+            .map(String::as_str),
+        Some(OLD_ANTHROPIC_KEY)
+    );
+}
+
+#[test]
+fn migration_backups_are_kept_while_a_secret_cannot_be_located() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_file(&dir);
+    drop(owner(&dir, &memory_store()));
+    assert_eq!(backups(&dir).len(), 1);
+
+    // 换了一个空的钥匙串（比如钥匙串被重置）：文件说密钥在钥匙串，实际读不到。
+    // 备份可能是唯一的副本，不能删。
+    drop(owner(&dir, &memory_store()));
+    assert_eq!(backups(&dir).len(), 1);
+
+    // 没有钥匙串的环境同理：标记是 keychain 的找不到。
+    drop(ProviderService::new(providers_path(&dir)));
+    assert_eq!(backups(&dir).len(), 1);
+}
+
+#[test]
+fn migration_backups_are_deleted_when_secrets_stay_in_the_file() {
+    // 没有钥匙串：迁移后密钥以 `file` 留在 providers.json，同样算「能定位」。
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_file(&dir);
+    drop(ProviderService::new(providers_path(&dir)));
+    assert_eq!(backups(&dir).len(), 1);
+
+    drop(ProviderService::new(providers_path(&dir)));
+    assert!(backups(&dir).is_empty());
+}
+
+#[test]
+fn failing_to_delete_a_migration_backup_only_logs() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_file(&dir);
+    let store = memory_store();
+    drop(owner(&dir, &store));
+    // 一个删不掉的「备份」（同名前缀的目录，remove_file 会失败）。
+    let stuck = dir.path().join("providers.json.bak-stuck");
+    std::fs::create_dir(&stuck).unwrap();
+
+    let service = owner(&dir, &store);
+
+    assert!(stuck.exists());
+    assert_eq!(backups(&dir), vec![stuck]);
+    assert_eq!(
+        service
+            .get_env_vars(Some("p-codex"))
+            .get("CODEX_API_KEY")
+            .map(String::as_str),
+        Some(OLD_CODEX_KEY)
+    );
 }
 
 #[test]

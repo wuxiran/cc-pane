@@ -93,7 +93,7 @@ impl ProviderService {
             owns_storage,
             migration_failed: AtomicBool::new(false),
         };
-        let config = service.load_and_migrate().unwrap_or_default();
+        let config = service.load_at_startup().unwrap_or_default();
         *service.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
         service
     }

@@ -13,6 +13,9 @@
 //!
 //! 第 3、4 步任一失败：撤回本次写进钥匙串的条目，原文件一个字节不动，
 //! 本进程继续用内存里的结构工作，下次启动再试。重复执行结果相同。
+//!
+//! 备份带明文密钥，不长留：之后某次启动读到的已是新格式、无需再迁移，并且每个密钥都能
+//! 定位（钥匙串里读得到 / `file` 的明文还在）时，删掉全部备份（见 `load_at_startup`）。
 
 use super::{ProviderService, MAX_PROVIDER_CONFIG_BYTES, MAX_PROVIDER_COUNT, PROVIDER_CLI_TOOLS};
 use crate::models::provider::{
@@ -98,12 +101,29 @@ impl ProviderService {
 
     /// 读文件；需要时把迁移结果落盘（仅拥有者）。落盘失败不影响本次读取结果。
     pub(super) fn load_and_migrate(&self) -> Result<ProviderConfig> {
+        self.load_and_maybe_migrate().map(|(config, _)| config)
+    }
+
+    /// 启动时读文件。读到的文件本来就是新格式、不用再迁移，并且每个密钥都能定位时，
+    /// 说明之前那次迁移已经被一次正常加载验证过：删掉迁移留下的 `providers.json.bak-*`
+    /// （里面是迁移前的原样内容，带明文密钥）。只有拥有者做；删除失败只记日志。
+    pub(super) fn load_at_startup(&self) -> Result<ProviderConfig> {
+        let (config, already_current) = self.load_and_maybe_migrate()?;
+        if self.owns_storage && already_current {
+            let backups = self.migration_backups();
+            if !backups.is_empty() && self.all_secrets_locatable(&config) {
+                Self::remove_migration_backups(&backups);
+            }
+        }
+        Ok(config)
+    }
+
+    /// 返回 `(配置, 文件读进来时就已是新格式且无需迁移)`。
+    fn load_and_maybe_migrate(&self) -> Result<(ProviderConfig, bool)> {
         let LoadedConfig { config, raw } = Self::load_from_file(&self.config_path)?;
-        if !self.owns_storage
-            || self.migration_failed.load(Ordering::Relaxed)
-            || !self.needs_migration(&config)
-        {
-            return Ok(config);
+        let needs_migration = self.needs_migration(&config);
+        if !self.owns_storage || self.migration_failed.load(Ordering::Relaxed) || !needs_migration {
+            return Ok((config, !needs_migration));
         }
         match self.persist_migration(&config, &raw) {
             Ok(migrated) => {
@@ -112,7 +132,7 @@ impl ProviderService {
                     schema_version = PROVIDER_SCHEMA_VERSION,
                     "[ProviderService] Migrated providers config"
                 );
-                Ok(migrated)
+                Ok((migrated, false))
             }
             Err(error) => {
                 // 原文件没动。本进程不再反复重试（每次读都会走到这里），下次启动再试。
@@ -122,9 +142,93 @@ impl ProviderService {
                     error = %error,
                     "[ProviderService] Providers config migration failed; original file kept, will retry on next start"
                 );
-                Ok(config)
+                Ok((config, false))
             }
         }
+    }
+
+    /// 同目录下迁移留下的备份文件。
+    fn migration_backups(&self) -> Vec<PathBuf> {
+        let (dir, prefix) = self.backup_location();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .map(|entry| entry.path())
+            .collect()
+    }
+
+    /// 配置里引用的每个密钥 / 敏感值都找得到：`keychain` 的在钥匙串里读得到，
+    /// `file` 的明文还在文件里。有一个找不到就保留备份（那可能是唯一的副本）。
+    fn all_secrets_locatable(&self, config: &ProviderConfig) -> bool {
+        let located = |inline: bool, storage: SecretStorage, key: String| match storage {
+            SecretStorage::None => true,
+            SecretStorage::File => inline,
+            SecretStorage::Keychain => matches!(self.secrets.load(&key), Ok(Some(_))),
+        };
+        let env_located = |entries: &[ProviderEnvVar], key: &dyn Fn(&str) -> String| {
+            entries
+                .iter()
+                .filter(|entry| entry.sensitive)
+                .all(|entry| located(entry.value.is_some(), entry.storage, key(&entry.name)))
+        };
+        config.providers.iter().all(|provider| {
+            env_located(&provider.env, &|name| {
+                provider_env_secret_key(&provider.id, name)
+            }) && provider.accounts.iter().all(|account| {
+                (account.kind != AccountKind::ApiKey
+                    || located(
+                        account.secret.is_some(),
+                        account.secret_storage,
+                        account_secret_key(&provider.id, &account.id),
+                    ))
+                    && env_located(&account.env, &|name| {
+                        account_env_secret_key(&provider.id, &account.id, name)
+                    })
+            })
+        })
+    }
+
+    /// 删除备份。失败只记路径和错误（备份内容、密钥都不进日志）。
+    fn remove_migration_backups(backups: &[PathBuf]) {
+        let mut removed = 0usize;
+        for path in backups {
+            match std::fs::remove_file(path) {
+                Ok(()) => removed += 1,
+                Err(error) => warn!(
+                    path = %path.display(),
+                    error = %error,
+                    "[ProviderService] Failed to delete a providers migration backup"
+                ),
+            }
+        }
+        if removed > 0 {
+            info!(
+                removed,
+                "[ProviderService] Deleted providers migration backups after a verified load"
+            );
+        }
+    }
+
+    fn backup_location(&self) -> (PathBuf, String) {
+        let file_name = self
+            .config_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("providers.json");
+        let dir = self
+            .config_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        (dir, format!("{file_name}.bak-"))
     }
 
     /// 旧格式，或还有明文等着进钥匙串（含「上次没有钥匙串、现在有了」）。
@@ -171,28 +275,10 @@ impl ProviderService {
 
     /// 迁移前把原文件备份到同目录（带时间戳）。已有内容完全相同的备份时不再重复写。
     fn backup_original(&self, raw: &str) -> Result<PathBuf> {
-        let file_name = self
-            .config_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("providers.json");
-        let prefix = format!("{file_name}.bak-");
-        let dir = self
-            .config_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let is_backup = entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(&prefix));
-                if is_backup
-                    && std::fs::read_to_string(entry.path()).is_ok_and(|content| content == raw)
-                {
-                    return Ok(entry.path());
-                }
+        let (dir, prefix) = self.backup_location();
+        for path in self.migration_backups() {
+            if std::fs::read_to_string(&path).is_ok_and(|content| content == raw) {
+                return Ok(path);
             }
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%3f");

@@ -140,6 +140,17 @@ pub struct DeleteAccountOutcome {
     /// `dir_missing`、`remove_failed`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir_kept_reason: Option<String>,
+    /// 这个号的 CLI 可能还把登录凭据留在系统钥匙串里（CC-Panes 不删别的程序的钥匙串条目）。
+    #[serde(default)]
+    pub keychain_credentials_may_remain: bool,
+    /// 清除那份凭据的命令（POSIX shell，带账号的目录变量）。仅上一项为真时有。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logout_command: Option<String>,
+}
+
+/// POSIX shell 单引号转义（提示命令只在 macOS 上给出）。
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 /// 一个登录账号的会话转录目录（会话索引 / 用量统计扫描用）。
@@ -564,11 +575,15 @@ impl LoginAccountService {
             .remove_account(provider_id, account_id)
             .map_err(AppError::from)?;
         let config_dir = removed.login_dir().map(str::to_string);
+        // 删目录之前算：Codex 的条目名按规范化后的目录路径算，目录没了就算不准。
+        let logout_command = self.keychain_logout_hint(&removed, config_dir.as_deref());
         let mut outcome = DeleteAccountOutcome {
             account_id: removed.id.clone(),
             config_dir: config_dir.clone(),
             dir_deleted: false,
             dir_kept_reason: None,
+            keychain_credentials_may_remain: logout_command.is_some(),
+            logout_command,
         };
         let (true, Some(dir)) = (delete_dir, config_dir) else {
             return Ok(outcome);
@@ -589,6 +604,41 @@ impl LoginAccountService {
             }
         }
         Ok(outcome)
+    }
+
+    /// 被删的登录账号，它的 CLI 是否可能还把登录凭据留在系统钥匙串里；可能的话返回清除用的
+    /// logout 命令（带着这个账号的目录变量）。
+    ///
+    /// 那是 CLI 自己的数据，CC-Panes 不删，只提示用户。目前只有 macOS 上的 Claude Code 和 Codex
+    /// 把登录放钥匙串（按目录分开存）；能查到「条目不在」时不提示，查不了时按「可能还在」提示。
+    fn keychain_logout_hint(&self, account: &ProviderAccount, dir: Option<&str>) -> Option<String> {
+        if account.kind != AccountKind::Login {
+            return None;
+        }
+        let dir = dir?;
+        let cli_tool = account.cli_tool.as_deref()?;
+        let (probe, logout_args) = match cli_tool {
+            "claude" => (
+                self.host
+                    .keychain
+                    .item_exists(&claude_keychain_service(Some(dir)), None),
+                "auth logout",
+            ),
+            "codex" => (
+                self.host.keychain.item_exists(
+                    CODEX_KEYCHAIN_SERVICE,
+                    Some(&codex_keychain_account(Path::new(dir))),
+                ),
+                "logout",
+            ),
+            _ => return None,
+        };
+        let may_remain = match probe {
+            Some(found) => found,
+            None => cfg!(target_os = "macos"),
+        };
+        let env_var = crate::models::provider::login_dir_env_var(cli_tool)?;
+        may_remain.then(|| format!("{env_var}={} {cli_tool} {logout_args}", shell_quote(dir)))
     }
 
     fn marker_account_id(&self, dir: &Path) -> Option<String> {

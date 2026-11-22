@@ -196,6 +196,13 @@ export interface DeleteAccountOutcome {
   dirDeleted: boolean;
   /** 要求删目录却没删时的原因码：external_dir / dir_missing / remove_failed。 */
   dirKeptReason?: "external_dir" | "dir_missing" | "remove_failed";
+  /**
+   * 被删的登录账号，它的 CLI 可能把登录凭据存在系统钥匙串里（macOS 上的 Claude Code / Codex）。
+   * CC-Panes 不删别的程序的钥匙串条目，界面据此提示用户用该 CLI 的 logout 命令清除。
+   */
+  keychainCredentialsMayRemain?: boolean;
+  /** 清除那份凭据的命令（带着这个账号的目录变量），仅 `keychainCredentialsMayRemain` 时有。 */
+  logoutCommand?: string;
 }
 
 export interface ProviderOrigin {

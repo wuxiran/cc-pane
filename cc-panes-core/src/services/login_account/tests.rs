@@ -1003,3 +1003,83 @@ fn accounts_root_lives_under_the_cc_panes_data_dir() {
         paths.data_dir().join("login-accounts")
     );
 }
+
+/// 删除登录账号时不碰 CLI 自己的钥匙串条目，只在结果里提示「凭据可能还在」并给 logout 命令。
+#[test]
+fn deleting_a_login_account_reports_keychain_credentials_that_may_remain() {
+    let fixture = fixture();
+    let claude = create(&fixture, "claude", "claude-work");
+    let codex = create(&fixture, "codex", "codex-work");
+    let grok = create(&fixture, "grok", "grok-work");
+    let claude_dir = claude.config_dir.clone().unwrap();
+    let codex_dir = codex.config_dir.clone().unwrap();
+    let claude_item = claude_keychain_service(Some(&claude_dir));
+    let codex_item = format!(
+        "{CODEX_KEYCHAIN_SERVICE}/{}",
+        codex_keychain_account(Path::new(&codex_dir))
+    );
+
+    // 钥匙串里查得到条目：提示，并给出带目录变量的 logout 命令。
+    let mut service = fixture.service;
+    service.host.keychain = Arc::new(FakeKeychain {
+        existing: vec![claude_item, codex_item],
+        ..FakeKeychain::default()
+    });
+    let outcome = service
+        .delete_account("p-claude", &claude.account_id, true)
+        .unwrap();
+    assert!(outcome.dir_deleted);
+    assert!(outcome.keychain_credentials_may_remain);
+    assert_eq!(
+        outcome.logout_command.as_deref(),
+        Some(format!("CLAUDE_CONFIG_DIR='{claude_dir}' claude auth logout").as_str())
+    );
+    let outcome = service
+        .delete_account("p-codex", &codex.account_id, false)
+        .unwrap();
+    assert!(outcome.keychain_credentials_may_remain);
+    assert_eq!(
+        outcome.logout_command.as_deref(),
+        Some(format!("CODEX_HOME='{codex_dir}' codex logout").as_str())
+    );
+
+    // 凭据只放目录里的 CLI（Grok）不提示。
+    let outcome = service
+        .delete_account("p-grok", &grok.account_id, false)
+        .unwrap();
+    assert!(!outcome.keychain_credentials_may_remain);
+    assert_eq!(outcome.logout_command, None);
+}
+
+#[test]
+fn keychain_hint_follows_what_the_probe_can_tell() {
+    let fixture = fixture();
+    let absent = create(&fixture, "claude", "absent");
+    let unknown = create(&fixture, "claude", "unknown");
+    let mut service = fixture.service;
+
+    // 查得到「条目不在」：不提示。
+    let outcome = service
+        .delete_account("p-claude", &absent.account_id, false)
+        .unwrap();
+    assert!(!outcome.keychain_credentials_may_remain);
+
+    // 查不了：macOS 上按「可能还在」提示，其他平台这两个 CLI 不用钥匙串。
+    service.host.keychain = Arc::new(FakeKeychain {
+        unavailable: true,
+        ..FakeKeychain::default()
+    });
+    let outcome = service
+        .delete_account("p-claude", &unknown.account_id, false)
+        .unwrap();
+    assert_eq!(
+        outcome.keychain_credentials_may_remain,
+        cfg!(target_os = "macos")
+    );
+    assert_eq!(outcome.logout_command.is_some(), cfg!(target_os = "macos"));
+}
+
+#[test]
+fn shell_quote_escapes_single_quotes() {
+    assert_eq!(super::shell_quote("/a b/it's"), r"'/a b/it'\''s'");
+}
