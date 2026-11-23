@@ -4,7 +4,9 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.13.0 - 2026-11-22
+## 0.13.1 - 2026-11-23
+
+0.13.0 was tagged but its macOS and Android builds failed, so it was never published; this release is its public release with the content below, plus fixes for those two builds (the macOS frontend build ran out of memory, and the Android Gradle version was below what the current Flutter requires).
 
 This release has four main threads. Providers now hold multiple accounts (work / personal), a provider can carry several endpoint URLs and arbitrary environment variables, and keys move into the system keychain. Every preset agent gets MCP, skills and YOLO, and Antigravity (agy) is new. The UI is reworked: the explorer, search panel, home page, launcher and context menus are redesigned, and Agent chat no longer needs its own layout. Terminal reliability gets replay de-duplication, Windows rendering fixes and a fix for zsh integration recursion. The project license changes to MIT.
 
