@@ -54,5 +54,9 @@
     "failed": "Failed",
     "unavailable": "Snapshot unavailable",
     "running": "In progress"
-  }
+  },
+  "noRepo": "This folder is not a Git repository, and no Git projects were found in the workspace.",
+  "repo": "Repository",
+  "allRepos": "All repositories ({{count}})",
+  "repoCount": "{{count}} repositories"
 }

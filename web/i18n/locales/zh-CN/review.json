@@ -54,5 +54,9 @@
     "failed": "失败",
     "unavailable": "快照不可用",
     "running": "进行中"
-  }
+  },
+  "noRepo": "这个目录不是 Git 仓库，工作空间下也没有找到 Git 项目。",
+  "repoCount": "{{count}} 个仓库",
+  "repo": "仓库",
+  "allRepos": "全部仓库（{{count}}）"
 }

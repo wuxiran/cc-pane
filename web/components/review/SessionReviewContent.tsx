@@ -7,7 +7,8 @@ import { usePanesStore } from "@/stores/usePanesStore";
 import { turnCheckpointService } from "@/services/turnCheckpointService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage } from "@/utils";
-import { reviewFilePath, type ReviewScope } from "./reviewData";
+import { reviewFilePath, type ReviewFile, type ReviewScope } from "./reviewData";
+import ReviewRepoHeader, { fileKey } from "./ReviewRepoHeader";
 import { useSessionReview } from "./useSessionReview";
 import ReviewFileCard from "./ReviewFileCard";
 
@@ -23,7 +24,7 @@ export interface SessionReviewContentProps {
 export default function SessionReviewContent({ projectPath, checkpointChatId, cliSessionId, open, paneId, onOpenFile }: SessionReviewContentProps) {
   const { t } = useTranslation("review");
   const inputId = useId();
-  const state = useSessionReview(projectPath, checkpointChatId, open);
+  const state = useSessionReview(projectPath, checkpointChatId, open, t("noRepo"));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [wrap, setWrap] = useState(true);
   const [baseDraft, setBaseDraft] = useState("");
@@ -57,21 +58,27 @@ export default function SessionReviewContent({ projectPath, checkpointChatId, cl
     finally { if (epoch === identity.current) setRecording(false); }
   };
   const branchError = state.scope === "branch" ? state.branchError : null;
-  const openFile = (relative: string) => {
-    const path = reviewFilePath(state.root, relative);
+  const openFile = (file: ReviewFile) => {
+    const root = file.repoRoot ?? state.root;
+    const relative = file.path;
+    const path = reviewFilePath(root, relative);
     if (!path) { setActionError(t("invalidPath")); return; }
-    usePanesStore.getState().openEditor(state.root, path, relative.split(/[\\/]/).pop() ?? relative, undefined, { forcePaneTab: true, paneId });
+    usePanesStore.getState().openEditor(root, path, relative.split(/[\\/]/).pop() ?? relative, undefined, { forcePaneTab: true, paneId });
     onOpenFile?.();
   };
 
   return <section className="flex h-full min-h-0 flex-col gap-3 overflow-hidden bg-[var(--app-content)] p-4" aria-label={t("title")}>
-      <header className="shrink-0"><h2 className="text-sm font-medium">{t("title")}</h2><p className="truncate text-xs text-[var(--app-text-tertiary)]" title={state.root}>{state.root}</p></header>
+      <header className="shrink-0"><h2 className="text-sm font-medium">{t("title")}</h2><p className="truncate text-xs text-[var(--app-text-tertiary)]" title={state.root}>{state.root}{state.repos.length > 1 ? ` · ${t("repoCount", { count: state.repos.length })}` : ""}</p></header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--app-border)] pb-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-full bg-[var(--app-sidebar)] px-4 py-1.5">
         <select aria-label={t("scope")} value={state.scope} onChange={(event) => state.setScope(event.target.value as ReviewScope)} className="cursor-default rounded-md border-0 bg-transparent py-1 pr-1 text-sm font-medium outline-none">
           <option value="turn" disabled={!checkpointChatId || !isTauriRuntime()}>{t("turn")}</option>
           <option value="workspace">{t("workspace")}</option><option value="branch">{t("branch")}</option>
         </select>
+        {state.repos.length > 1 && <select aria-label={t("repo")} value={state.repoFilter} onChange={(event) => state.setRepoFilter(event.target.value)} className="max-w-48 cursor-default truncate rounded-md border-0 bg-transparent py-1 pr-6 text-sm text-[var(--app-text-primary)] outline-none">
+          {state.scope !== "branch" && <option value="">{t("allRepos", { count: state.repos.length })}</option>}
+          {state.repos.map((repo) => <option key={repo.root} value={repo.root}>{repo.label}{repo.branch ? ` · ${repo.branch}` : ""}</option>)}
+        </select>}
         <div className="flex gap-2 font-mono text-sm tabular-nums" aria-label={t("totalStats")}>
           <span className="text-[var(--app-status-success)]">+{stats.additions}</span><span className="text-[var(--app-status-danger)]">-{stats.deletions}</span>
           <span className="text-[var(--app-text-tertiary)]">{t("files", { count: state.files.length })}</span>
@@ -82,7 +89,7 @@ export default function SessionReviewContent({ projectPath, checkpointChatId, cl
         <div className="flex items-center gap-0.5 rounded-full bg-[var(--app-sidebar)] p-1 [&_button]:size-8 [&_button]:rounded-full">
         <Button variant="ghost" size="icon" aria-label={t("refresh")} onClick={state.reload}><RefreshCw className={`size-4 ${state.loading ? "animate-spin" : ""}`} /></Button>
         <Button variant="ghost" size="icon" aria-label={t("expandAll")} onClick={() => setCollapsed(new Set())}><ChevronsUpDown className="size-4" /></Button>
-        <Button variant="ghost" size="icon" aria-label={t("collapseAll")} onClick={() => setCollapsed(new Set(state.files.map((file) => file.path)))}><ChevronsDownUp className="size-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label={t("collapseAll")} onClick={() => setCollapsed(new Set(state.files.map(fileKey)))}><ChevronsDownUp className="size-4" /></Button>
         <Button variant={wrap ? "secondary" : "ghost"} size="icon" aria-label={t("wrap")} aria-pressed={wrap} onClick={() => setWrap((value) => !value)}><WrapText className="size-4" /></Button>
         </div>
       </div>
@@ -103,7 +110,10 @@ export default function SessionReviewContent({ projectPath, checkpointChatId, cl
       {(state.notice || actionError || state.error || branchError) && <div role="alert" className="shrink-0 space-y-1 text-sm text-[var(--app-status-warning)]">{[state.notice, actionError, state.error, branchError].filter(Boolean).map((message, index) => <p key={index}>{message}</p>)}</div>}
       <div className="min-h-0 flex-1 space-y-3 overflow-auto" aria-label={t("changedFiles")}>
         {!state.files.length && !state.loading && !state.error && !state.notice && !branchError && !(state.scope === "turn" && state.checkpointError) && <p className="px-3 py-10 text-center text-sm text-[var(--app-text-tertiary)]">{t(state.scope === "turn" && !state.checkpointId ? "noTurn" : state.scope === "branch" && !state.baseRef ? "chooseBase" : "noChanges")}</p>}
-        {state.files.map((file) => <ReviewFileCard key={file.path} file={file} expanded={!collapsed.has(file.path)} wrap={wrap} onOpen={() => openFile(file.path)} onToggle={() => setCollapsed((previous) => { const next = new Set(previous); if (next.has(file.path)) next.delete(file.path); else next.add(file.path); return next; })} />)}
+        {state.files.map((file, index) => <div key={fileKey(file)} className="space-y-3">
+          {state.multiRepo && file.repoRoot !== state.files[index - 1]?.repoRoot && <ReviewRepoHeader repos={state.repos} files={state.files} repoRoot={file.repoRoot} />}
+          <ReviewFileCard file={file} expanded={!collapsed.has(fileKey(file))} wrap={wrap} onOpen={() => openFile(file)} onToggle={() => setCollapsed((previous) => { const next = new Set(previous); const key = fileKey(file); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />
+        </div>)}
       </div>
   </section>;
 }

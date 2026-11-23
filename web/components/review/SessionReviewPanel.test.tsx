@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { gitService, type GitChangedFile } from "@/services/gitService";
 import { computeTextDiff } from "@/services/agentChatService";
 import { turnCheckpointService } from "@/services/turnCheckpointService";
+import { filesystemService } from "@/services/filesystemService";
 import type { DiffResult } from "@/services/localHistoryService";
 import type { TurnCheckpointRecord } from "@/types/turnCheckpoint";
 import SessionReviewPanel from "./SessionReviewPanel";
@@ -13,6 +14,7 @@ import { reviewFilePath } from "./reviewData";
 const { openEditor } = vi.hoisted(() => ({ openEditor: vi.fn() }));
 vi.mock("@/stores/usePanesStore", () => ({ usePanesStore: { getState: () => ({ openEditor }) } }));
 vi.mock("@/services/gitService", () => ({ gitService: { getRepoInfo: vi.fn(), getChangedFiles: vi.fn(), getBranchReview: vi.fn(), getLocalBranches: vi.fn(), getDiff: vi.fn() } }));
+vi.mock("@/services/filesystemService", () => ({ filesystemService: { listDirectory: vi.fn() } }));
 vi.mock("@/services/agentChatService", () => ({ computeTextDiff: vi.fn() }));
 vi.mock("@/services/turnCheckpointService", () => ({ turnCheckpointService: { list: vi.fn(), review: vi.fn(), beginCli: vi.fn(), finishCli: vi.fn() } }));
 const file: GitChangedFile = { status: "modified", oldPath: "a.ts", newPath: "a.ts", oldMode: "100644", newMode: "100644" };
@@ -35,11 +37,41 @@ beforeEach(async () => {
 });
 
 describe("SessionReviewPanel", () => {
+  it("workspace root that is not a repo: finds the repositories inside and groups changes by repo", async () => {
+    const other: GitChangedFile = { status: "added", oldPath: null, newPath: "b.ts", oldMode: null, newMode: "100644" };
+    vi.mocked(gitService.getRepoInfo).mockImplementation(async (path: string) =>
+      path === "/ws" ? { state: "notARepo", repoRoot: null, branch: null, hasChanges: null }
+        : { state: "ok", repoRoot: path, branch: path === "/ws/api" ? "main" : "dev", hasChanges: true });
+    vi.mocked(filesystemService.listDirectory).mockResolvedValue({ path: "/ws", entries: [
+      { name: "api", path: "/ws/api", isDir: true, isFile: false, isSymlink: false, size: 0, modified: null, extension: null, hidden: false },
+      { name: "web", path: "/ws/web", isDir: true, isFile: false, isSymlink: false, size: 0, modified: null, extension: null, hidden: false },
+    ] });
+    vi.mocked(gitService.getChangedFiles).mockImplementation(async (path: string) => (path === "/ws/api" ? [file] : [other]));
+    render(<SessionReviewPanel open onOpenChange={vi.fn()} projectPath="/ws" />);
+    await waitFor(() => expect(document.querySelectorAll("[data-review-repo]")).toHaveLength(2));
+    expect(screen.getByLabelText("Repository")).toHaveTextContent("All repositories (2)");
+    expect(gitService.getDiff).toHaveBeenCalledWith("/ws/api", { mode: "worktreeVsHead", file });
+    expect(gitService.getDiff).toHaveBeenCalledWith("/ws/web", { mode: "worktreeVsHead", file: other });
+    expect(screen.getByText("2 repositories", { exact: false })).toBeInTheDocument();
+    // 选一个仓库只看它
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "/ws/web" } });
+    await waitFor(() => expect(document.querySelectorAll("[data-review-repo]")).toHaveLength(0));
+    expect(await screen.findByText("b.ts")).toBeInTheDocument();
+  });
+
+  it("explains when neither the folder nor the workspace has a Git repository", async () => {
+    vi.mocked(gitService.getRepoInfo).mockResolvedValue({ state: "notARepo", repoRoot: null, branch: null, hasChanges: null });
+    vi.mocked(filesystemService.listDirectory).mockResolvedValue({ path: "/plain", entries: [] });
+    render(<SessionReviewPanel open onOpenChange={vi.fn()} projectPath="/plain" />);
+    expect(await screen.findByText(/no Git projects were found/)).toBeInTheDocument();
+  });
+
   it("renders real file diffs, exact totals, folding, wrapping and current-file editor navigation", async () => {
     const close = vi.fn();
     render(<SessionReviewPanel open onOpenChange={close} projectPath="/repo/sub" />);
     expect(await screen.findByText("new value")).toBeVisible();
-    expect(gitService.getDiff).toHaveBeenCalledWith("/repo/sub", { mode: "worktreeVsHead", file });
+    // 子目录里打开也按它所在的仓库根查
+    expect(gitService.getDiff).toHaveBeenCalledWith("/repo", { mode: "worktreeVsHead", file });
     expect(screen.getByLabelText("Total changed lines")).toHaveTextContent("+1-1");
     expect(screen.getAllByText("+1")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Collapse all files" }));
@@ -130,4 +162,5 @@ it("rejects repository traversal and absolute file paths", () => {
   expect(reviewFilePath("/repo", "/other")).toBeNull();
   expect(reviewFilePath("C:\\repo", "C:\\other")).toBeNull();
   expect(reviewFilePath("C:\\repo", "src/a.ts")).toBe("C:\\repo\\src/a.ts");
+
 });
