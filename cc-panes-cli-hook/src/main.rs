@@ -196,10 +196,7 @@ fn should_dispatch_waiting_input(raw_stdin: &str) -> bool {
         return false;
     }
     const IDLE_COMPOSER_MARKERS: &[&str] = &["type your message", "ask a side question"];
-    if IDLE_COMPOSER_MARKERS.iter().any(|m| message.contains(m)) {
-        return false;
-    }
-    true
+    !IDLE_COMPOSER_MARKERS.iter().any(|m| message.contains(m))
 }
 
 #[cfg(test)]

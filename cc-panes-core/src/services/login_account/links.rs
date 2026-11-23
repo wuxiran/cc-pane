@@ -126,18 +126,15 @@ fn sync_entry(source: &Path, target: &Path) -> io::Result<SharedEntryOutcome> {
 }
 
 fn is_link(meta: &fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
     #[cfg(windows)]
-    {
+    let reparse_point = {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    };
+    #[cfg(not(windows))]
+    let reparse_point = false;
+    meta.file_type().is_symlink() || reparse_point
 }
 
 fn link_points_to(link: &Path, source: &Path) -> bool {

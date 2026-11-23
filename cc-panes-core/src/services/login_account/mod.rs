@@ -655,10 +655,8 @@ impl LoginAccountService {
             ),
             _ => return None,
         };
-        let may_remain = match probe {
-            Some(found) => found,
-            None => cfg!(target_os = "macos"),
-        };
+        // 查不了（钥匙串不可用）时，macOS 上按「可能残留」提示
+        let may_remain = probe.unwrap_or(cfg!(target_os = "macos"));
         let env_var = crate::models::provider::login_dir_env_var(cli_tool)?;
         may_remain.then(|| format!("{env_var}={} {cli_tool} {logout_args}", shell_quote(dir)))
     }

@@ -1762,11 +1762,7 @@ fn is_prefix_of_any_pattern(data: &[u8]) -> bool {
     }
 
     // 模式 D: CONPTY_STYLE_ONLY  (25 字节)
-    if len < CONPTY_STYLE_ONLY.len() && data[0] == 0x1b && data[..] == CONPTY_STYLE_ONLY[..len] {
-        return true;
-    }
-
-    false
+    len < CONPTY_STYLE_ONLY.len() && data[0] == 0x1b && data[..] == CONPTY_STYLE_ONLY[..len]
 }
 
 #[cfg(windows)]

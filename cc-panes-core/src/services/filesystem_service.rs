@@ -144,16 +144,11 @@ impl FileSystemService {
         name: &str,
         #[allow(unused_variables)] meta: Option<&fs::Metadata>,
     ) -> bool {
-        if name.starts_with('.') {
-            return true;
-        }
         #[cfg(windows)]
-        {
-            if let Some(m) = meta {
-                return Self::is_hidden_win_attr(m);
-            }
-        }
-        false
+        let hidden_attr = meta.is_some_and(Self::is_hidden_win_attr);
+        #[cfg(not(windows))]
+        let hidden_attr = false;
+        name.starts_with('.') || hidden_attr
     }
 
     /// Windows 隐藏属性检查（纯属性判断，无 I/O）
