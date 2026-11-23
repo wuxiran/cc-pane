@@ -4,6 +4,15 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.13.2 - 2026-11-23
+
+A fix release: it adds the Android package missing from 0.13.1 and makes the release pipeline fully automatic again. Desktop features are the same as 0.13.1.
+
+### Fixed
+
+- **Android package**: the Android Gradle plugin is upgraded to 9.1.1 (the minimum the current Flutter requires); 0.13.1 shipped without an APK because of this, and this release adds it.
+- **CI**: adapts to the new clippy checks in Rust 1.100, and fixes the `agent_runtime_smoke` example build and a WSL path test on Windows. With CI green, the release is published automatically again instead of by hand.
+
 ## 0.13.1 - 2026-11-23
 
 0.13.0 was tagged but its macOS and Android builds failed, so it was never published; this release is its public release with the content below, plus fixes for those two builds (the macOS frontend build ran out of memory, and the Android Gradle version was below what the current Flutter requires).
