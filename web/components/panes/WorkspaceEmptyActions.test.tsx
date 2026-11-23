@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickPaneContextProject, pickWorkspaceMethods } from "./WorkspaceEmptyActions";
+import { isDistinctLaunchMethod, pickPaneContextProject, pickWorkspaceMethods } from "./WorkspaceEmptyActions";
 import type { LaunchRecord } from "@/services";
 import type { Panel, Tab, Workspace } from "@/types";
 
@@ -48,6 +48,21 @@ describe("pickWorkspaceMethods", () => {
     expect(pickWorkspaceMethods(records, "ws-a")).toHaveLength(3);
     expect(pickWorkspaceMethods(records, "ws-a", 2)).toHaveLength(2);
     expect(pickWorkspaceMethods(records, "ws-missing")).toHaveLength(0);
+  });
+});
+
+describe("isDistinctLaunchMethod", () => {
+  it("本地且无运行配置/供应商的记录与「开始」胶囊等价，不再重复列出", () => {
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude" }))).toBe(false);
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude", runtimeKind: "local" }))).toBe(false);
+  });
+
+  it("WSL / SSH、运行配置、指定供应商或账号的记录保留", () => {
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude", runtimeKind: "wsl" }))).toBe(true);
+    expect(isDistinctLaunchMethod(record({ cliTool: "codex", runtimeKind: "ssh" }))).toBe(true);
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude", launchProfileId: "p1" }))).toBe(true);
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude", providerId: "prov" }))).toBe(true);
+    expect(isDistinctLaunchMethod(record({ cliTool: "claude", providerAccountId: "acc" }))).toBe(true);
   });
 });
 

@@ -11,7 +11,8 @@
 // 解法是给内容块自己加一层磨砂玻璃底（半透明 + backdrop-blur），**不是**调亮文字色
 // （docs/46-frontend-styleguide.md:115 禁止自调透明度造低对比灰字）。
 import { useCallback, useRef, useState } from "react";
-import { Bot, Sparkles, Terminal } from "lucide-react";
+import { Terminal } from "lucide-react";
+import CliBrandIcon from "@/components/CliBrandIcon";
 import { useWallpaperStore } from "@/stores";
 
 /** 窄于此值只留图标按钮 */
@@ -88,24 +89,35 @@ export function useEmptyStateSurfaceStyle(): React.CSSProperties | undefined {
   };
 }
 
+/** 空态里的 CLI 图标：已知 CLI 用品牌标（与新标签页一致），纯终端用终端图标。 */
 export function CliIcon({ cliTool, className }: { cliTool?: string; className?: string }) {
-  if (cliTool === "codex") return <Bot className={className} />;
-  if (cliTool === "none" || !cliTool) return <Terminal className={className} />;
-  return <Sparkles className={className} />;
+  if (cliTool === "none" || !cliTool) return <Terminal className={className} aria-hidden="true" />;
+  return <CliBrandIcon cliTool={cliTool} className={className} />;
 }
 
-export function iconTileStyle(cliTool?: string): React.CSSProperties {
-  if (cliTool === "codex") {
-    return {
-      background: "color-mix(in srgb, var(--app-status-success) 13%, transparent)",
-      color: "var(--app-status-success)",
-    };
-  }
-  if (cliTool === "none" || !cliTool) {
-    return { background: "var(--app-hover)", color: "var(--app-text-tertiary)" };
-  }
-  return {
-    background: "color-mix(in srgb, var(--app-accent) 13%, transparent)",
-    color: "var(--app-accent)",
-  };
+/** 图标底块：统一中性底，不再按 CLI 着色——品牌标本身就能区分，彩色底块会和强调色抢视线。 */
+export const ICON_TILE_CLASS =
+  "flex shrink-0 items-center justify-center rounded-md bg-[var(--app-hover)] text-[var(--app-text-secondary)] "
+  + "transition-colors duration-[var(--dur-fast)] group-hover:text-[var(--app-text-primary)]";
+
+/** 小节标题：与新标签页（NewTabPage）同一写法。 */
+export const SECTION_HEADING_CLASS = "mb-2 text-xs font-medium text-[var(--app-text-tertiary)]";
+
+/** 列表行：与新标签页「工具」行同一写法——无边框，悬停才出底色。 */
+export const LIST_ROW_CLASS =
+  "group flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-[var(--dur-fast)] "
+  + "hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]";
+
+/** 运行环境标注（WSL / SSH），本地不标。 */
+export function RuntimeBadge({ runtimeKind }: { runtimeKind?: string }) {
+  if (runtimeKind !== "wsl" && runtimeKind !== "ssh") return null;
+  const color = runtimeKind === "wsl" ? "var(--app-identity-wsl)" : "var(--app-identity-ssh)";
+  return (
+    <span
+      className="shrink-0 rounded px-1.5 py-px text-[length:var(--text-nano)] font-semibold"
+      style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
+    >
+      {runtimeKind.toUpperCase()}
+    </span>
+  );
 }

@@ -1,10 +1,10 @@
-// 绑定工作空间布局的空态大按钮组：仅终端 / Claude / Codex 固定三个 +
-// 该工作空间启动历史里的常用组合（CLI×运行环境去重）。
+// 绑定工作空间布局的空态：项目标题 + 「开始」胶囊（与新标签页同一组件）+
+// 该工作空间启动历史里**胶囊覆盖不到**的打开方式（WSL / SSH / 运行配置 / 指定供应商）。
 // 启动统一走 resolveWorkspaceProjectLaunchOptions + useDialogStore.pendingLaunch
 // 全局通道（App 级 useOpenTerminal 消费）——禁止在 Panel 内挂 useOpenTerminal，
 // 会导致 pendingLaunch 双消费。
 import { useMemo } from "react";
-import { History, Rocket } from "lucide-react";
+import "@/i18n/newTabPageResources";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
 import { useDialogStore, usePanesStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
@@ -12,7 +12,16 @@ import type { LaunchRecord } from "@/services";
 import { buildLaunchRecordTerminalOptions, formatRelativeTime } from "@/utils";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { resolveWorkspaceProjectLaunchOptions } from "@/utils/workspaceLaunch";
-import { CliIcon, iconTileStyle, type EmptyStateDensity } from "./emptyStateShared";
+import NewTabStartSection from "./NewTabStartSection";
+import { SIDEBAR_LAUNCH_CLI_TOOLS } from "@/components/sidebar/launchMenu";
+import {
+  CliIcon,
+  ICON_TILE_CLASS,
+  LIST_ROW_CLASS,
+  RuntimeBadge,
+  SECTION_HEADING_CLASS,
+  type EmptyStateDensity,
+} from "./emptyStateShared";
 import type { CliTool, OpenTerminalOptions, Panel as PanelType, Workspace } from "@/types";
 
 const MAX_METHODS = 4;
@@ -36,6 +45,14 @@ export function pickWorkspaceMethods(
     if (result.length >= max) break;
   }
   return result;
+}
+
+/** 本地、无运行配置、无指定供应商的记录和「开始」里的胶囊等价，不必再列一遍。 */
+export function isDistinctLaunchMethod(record: LaunchRecord): boolean {
+  return (record.runtimeKind ?? "local") !== "local"
+    || Boolean(record.launchProfileId)
+    || Boolean(record.providerId)
+    || Boolean(record.providerAccountId);
 }
 
 /**
@@ -70,7 +87,7 @@ export default function WorkspaceEmptyActions({
   pane?: PanelType;
   density?: EmptyStateDensity;
 }) {
-  const { t } = useTranslation("panes");
+  const { t } = useTranslation(["panes", "sidebar"]);
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
   const machines = useSshMachinesStore((s) => s.machines);
   const setPendingLaunch = useDialogStore((s) => s.setPendingLaunch);
@@ -82,7 +99,7 @@ export default function WorkspaceEmptyActions({
     ?? workspace.projects[0];
 
   const methods = useMemo(
-    () => pickWorkspaceMethods(records, workspace.name),
+    () => pickWorkspaceMethods(records, workspace.name).filter(isDistinctLaunchMethod),
     [records, workspace.name],
   );
 
@@ -90,6 +107,7 @@ export default function WorkspaceEmptyActions({
 
   const projectLabel =
     targetProject.alias || targetProject.path.split(/[/\\]/).pop() || targetProject.path;
+  const workspaceLabel = workspace.alias || workspace.name;
 
   function dispatch(options: OpenTerminalOptions | null) {
     if (!options) {
@@ -130,172 +148,76 @@ export default function WorkspaceEmptyActions({
     dispatch({ ...options, resumeId: undefined });
   }
 
-  function methodLabel(record: LaunchRecord): string {
-    const base =
-      record.cliTool === "codex"
-        ? t("recentLaunchWithCodex")
-        : record.cliTool === "claude" || !record.cliTool
-          ? t("recentLaunchWithClaude")
-          : t("recentLaunchWithTool", { tool: record.cliTool });
-    const runtime = record.runtimeKind ?? "local";
-    return runtime === "local" ? base : `${base} · ${runtime.toUpperCase()}`;
+  function cliLabel(cliTool?: string): string {
+    const known = SIDEBAR_LAUNCH_CLI_TOOLS.find((tool) => tool.id === cliTool);
+    return known ? t(known.labelKey as never, { ns: "sidebar" }) : (cliTool ?? "");
   }
 
-  const fixedActions: Array<{ cliTool: CliTool; label: string }> = [
-    { cliTool: "none", label: t("workspaceEmptyTerminal") },
-    { cliTool: "claude", label: "Claude Code" },
-    { cliTool: "codex", label: "Codex" },
-  ];
-
   const compact = density !== "full";
-  const mini = density === "mini";
-  // 窄窗格里 4 条常用方式两列排会挤爆，收成 2 条单列
+  // 窄窗格里只留两条，免得把胶囊顶出视野
   const shownMethods = compact ? methods.slice(0, 2) : methods;
 
   return (
-    <div
-      data-testid="workspace-empty-actions"
-      data-density={density}
-      className={
-        mini
-          ? "relative mt-3 flex w-full flex-col gap-1.5 px-2"
-          : compact
-            ? "relative mt-4 flex w-full flex-col gap-2 px-3"
-            : "relative mt-8 flex w-full max-w-xl flex-col gap-3 px-6"
-      }
-    >
-      {!mini && (
-        <div className="flex flex-col gap-0.5">
-          {!compact && (
-            <div
-              className="text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
-              style={{ color: "var(--app-text-tertiary)" }}
-            >
-              {t("workspaceEmptyTitle", { name: workspace.alias || workspace.name })}
-            </div>
-          )}
-          <div className="truncate text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("workspaceEmptyProjectHint", { name: projectLabel })}
-          </div>
-        </div>
+    <div data-testid="workspace-empty-actions" data-density={density} className="flex w-full min-w-0 flex-col gap-7">
+      {density !== "mini" && (
+        <header className="min-w-0">
+          <h1
+            className={`truncate font-semibold text-[var(--app-text-primary)] ${compact ? "text-base" : "text-xl"}`}
+            title={targetProject.path}
+          >
+            {projectLabel}
+          </h1>
+          <p className="mt-1 truncate text-xs text-[var(--app-text-tertiary)]" title={targetProject.path}>
+            {workspaceLabel} · {targetProject.path}
+          </p>
+        </header>
       )}
 
-      {/* full：三卡格子；窄档塌成命令行式单列（图标 / 标签），格子在窄容器里必挤爆 */}
-      <div className={compact ? "flex flex-col gap-1" : "grid grid-cols-3 gap-2"}>
-        {fixedActions.map((action) => (
-          <button
-            key={action.cliTool}
-            type="button"
-            title={mini ? action.label : undefined}
-            className={
-              compact
-                ? "flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-                : "flex flex-col items-center gap-2 rounded-xl border px-3 py-4 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
-            }
-            style={
-              compact
-                ? undefined
-                : { borderColor: "var(--app-border)", background: "var(--app-hover)" }
-            }
-            onClick={() => launchFixed(action.cliTool)}
-          >
-            <span
-              className={`flex flex-shrink-0 items-center justify-center rounded-lg ${
-                compact ? "h-6 w-6" : "h-10 w-10 rounded-xl"
-              }`}
-              style={iconTileStyle(action.cliTool)}
-            >
-              <CliIcon cliTool={action.cliTool} className={compact ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} />
-            </span>
-            {!mini && (
-              <span
-                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[length:var(--text-small)]" : "text-[length:var(--text-row)]"}`}
-                style={{ color: "var(--app-text-primary)" }}
-              >
-                {action.label}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <NewTabStartSection
+        onLaunchCli={(cliTool) => launchFixed(cliTool as CliTool)}
+        onTerminal={() => launchFixed("none")}
+        onAgentChat={() =>
+          usePanesStore.getState().openAgentChat(targetProject.path, pane ? { paneId: pane.id } : undefined)
+        }
+        onMore={() =>
+          useDialogStore.getState().openLauncher({
+            workspaceName: workspace.name,
+            projectPath: targetProject.path,
+            targetLayoutId: usePanesStore.getState().currentLayoutId,
+          })
+        }
+      />
 
       {shownMethods.length > 0 && (
-        <>
-          {!mini && (
-            <div
-              className="mt-1 flex items-center gap-2 text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
-              style={{ color: "var(--app-text-tertiary)" }}
-            >
-              <History className="h-3.5 w-3.5" />
-              {t("workspaceEmptyFrequent")}
-            </div>
-          )}
-          <div className={compact ? "flex flex-col gap-1" : "grid grid-cols-2 gap-2"}>
+        <section aria-labelledby="workspace-empty-recent-heading">
+          <h2 id="workspace-empty-recent-heading" className={SECTION_HEADING_CLASS}>
+            {t("workspaceEmptyFrequent")}
+          </h2>
+          <div className={compact ? "flex flex-col gap-1" : "grid grid-cols-2 gap-1"}>
             {shownMethods.map((method) => (
               <button
                 key={`${method.cliTool}|${method.runtimeKind ?? "local"}`}
                 type="button"
-                title={mini ? methodLabel(method) : undefined}
-                className={
-                  compact
-                    ? "flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-                    : "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
-                }
-                style={
-                  compact
-                    ? undefined
-                    : { borderColor: "var(--app-border)", background: "var(--app-hover)" }
-                }
+                className={LIST_ROW_CLASS}
                 onClick={() => launchMethod(method)}
               >
-                <span
-                  className={`flex flex-shrink-0 items-center justify-center rounded-lg ${
-                    compact ? "h-6 w-6" : "h-8 w-8"
-                  }`}
-                  style={iconTileStyle(method.cliTool)}
-                >
-                  <CliIcon cliTool={method.cliTool} className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+                <span className={`${ICON_TILE_CLASS} size-8`}>
+                  <CliIcon cliTool={method.cliTool} className="size-4" />
                 </span>
-                {!mini && (
-                  <span className="min-w-0 flex-1 text-left">
-                    <span
-                      className="block truncate text-[length:var(--text-small)] font-semibold"
-                      style={{ color: "var(--app-text-primary)" }}
-                    >
-                      {methodLabel(method)}
-                    </span>
-                    {/* 时间戳是次要信息，窄档先砍 */}
-                    {!compact && (
-                      <span
-                        className="block truncate text-[length:var(--text-micro)] tabular-nums"
-                        style={{ color: "var(--app-text-tertiary)" }}
-                      >
-                        {formatRelativeTime(method.launchedAt)}
-                      </span>
-                    )}
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm text-[var(--app-text-primary)]">{cliLabel(method.cliTool)}</span>
+                    <RuntimeBadge runtimeKind={method.runtimeKind} />
                   </span>
-                )}
+                  <span className="block truncate text-xs tabular-nums text-[var(--app-text-tertiary)]">
+                    {formatRelativeTime(method.launchedAt)}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
-        </>
+        </section>
       )}
-
-      <button
-        type="button"
-        className="mt-1 flex items-center gap-1.5 self-start text-[length:var(--text-small)] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
-        style={{ color: "var(--app-text-tertiary)" }}
-        title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
-        onClick={() =>
-          useDialogStore.getState().openLauncher({
-            workspaceName: workspace.name,
-            targetLayoutId: usePanesStore.getState().currentLayoutId,
-          })
-        }
-      >
-        <Rocket className="h-3.5 w-3.5" />
-        {!mini && t("customLaunch", { ns: "launcher" })}
-      </button>
     </div>
   );
 }

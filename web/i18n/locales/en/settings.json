@@ -38,7 +38,7 @@
     "screenshot": "screenshot screen shortcut retention",
     "voice": "voice recording transcription microphone whisper custom",
     "ccchan": "cc-chan pet companion window",
-    "experimental": "experimental preview beta feature flag",
+    "experimental": "experimental preview beta feature flag performance recording lag diagnostics",
     "about": "version update logs uninstall cleanup",
     "island": "dynamic island notch always on top capsule status approval quota"
   },

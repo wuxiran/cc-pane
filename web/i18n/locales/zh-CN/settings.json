@@ -38,7 +38,7 @@
     "screenshot": "截图 屏幕 快捷键 保留",
     "voice": "语音 录音 转写 麦克风 whisper 自定义",
     "ccchan": "cc酱 宠物 伙伴 浮窗",
-    "experimental": "实验 预览 测试 beta feature flag",
+    "experimental": "实验 预览 测试 beta feature flag 性能记录 卡顿 诊断",
     "about": "版本 更新 日志 卸载 清理",
     "island": "灵动岛 刘海 dynamic island 置顶 胶囊 状态 审批 额度"
   },

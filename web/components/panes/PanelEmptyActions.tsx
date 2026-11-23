@@ -4,7 +4,7 @@
 // 启动统一走 useDialogStore.pendingLaunch 全局通道（App 级 useOpenTerminal 消费），
 // 不在 Panel 内挂 useOpenTerminal——那会导致 pendingLaunch 双消费。
 import { useEffect, useState } from "react";
-import { Bot, ChevronDown, Clock, Play, Rocket, Sparkles, Terminal } from "lucide-react";
+import { ChevronDown, Rocket } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
@@ -18,7 +18,14 @@ import { historyService, type LaunchRecord } from "@/services";
 import { buildLaunchRecordTerminalOptions, formatRelativeTime } from "@/utils";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import WorkspaceEmptyActions from "./WorkspaceEmptyActions";
-import { CliIcon, iconTileStyle, type EmptyStateDensity } from "./emptyStateShared";
+import {
+  CliIcon,
+  ICON_TILE_CLASS,
+  LIST_ROW_CLASS,
+  RuntimeBadge,
+  SECTION_HEADING_CLASS,
+  type EmptyStateDensity,
+} from "./emptyStateShared";
 import type { CliTool, Panel as PanelType } from "@/types";
 
 const MAX_RECENT = 5;
@@ -155,19 +162,11 @@ export default function PanelEmptyActions({
   }
 
   const compact = density !== "full";
-  const mini = density === "mini";
-  const containerClass = mini
-    ? "relative mt-3 flex w-full flex-col gap-1 px-2"
-    : compact
-      ? "relative mt-4 flex w-full flex-col gap-1.5 px-3"
-      : "relative mt-8 flex w-full max-w-xl flex-col gap-2 px-6";
 
   const customLaunchButton = (
     <button
       type="button"
-      className="mt-1 flex items-center gap-1.5 self-start text-[length:var(--text-small)] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
-      style={{ color: "var(--app-text-tertiary)" }}
-      title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
+      className="flex items-center gap-1.5 self-start rounded-md px-2.5 py-1.5 text-xs text-[var(--app-text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
       onClick={() =>
         useDialogStore.getState().openLauncher({
           workspaceName: binding?.workspaceName,
@@ -175,180 +174,114 @@ export default function PanelEmptyActions({
         })
       }
     >
-      <Rocket className="h-3.5 w-3.5" />
-      {!mini && t("customLaunch", { ns: "launcher" })}
+      <Rocket className="size-3.5" aria-hidden="true" />
+      {t("customLaunch", { ns: "launcher" })}
     </button>
   );
 
-  if (records.length === 0) {
-    return <div className={containerClass}>{customLaunchButton}</div>;
-  }
-
   return (
-    <div className={containerClass}>
-      {!mini && (
-        <div
-          className="mb-1.5 flex items-center gap-2 text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
-          style={{ color: "var(--app-text-tertiary)" }}
-        >
-          <Clock className="h-3.5 w-3.5" />
-          {t("recentLaunches")}
-        </div>
+    <div className="flex w-full min-w-0 flex-col gap-7">
+      {density !== "mini" && (
+        <header className="min-w-0">
+          <h1 className={`truncate font-semibold text-[var(--app-text-primary)] ${compact ? "text-base" : "text-xl"}`}>
+            {t("ready")}
+          </h1>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--app-text-tertiary)]">{t("selectProject")}</p>
+        </header>
       )}
-      {records.map((record) => {
-        const methods = pickProjectMethods(allRecords, record.projectPath);
-        const historyClis = new Set(methods.map((m) => m.cliTool));
-        return (
-          <div
-            key={record.id}
-            className={`group flex cursor-default items-center rounded-xl border transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)] ${
-              compact ? "gap-2 px-2 py-1.5" : "gap-3.5 px-4 py-3"
-            }`}
-            style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}
-            onClick={() => launch(record)}
-            role="button"
-            title={mini ? record.projectName : undefined}
-            aria-label={t("recentLaunchAria", { name: record.projectName })}
-          >
-            <span
-              className={`flex flex-shrink-0 items-center justify-center rounded-xl ${
-                compact ? "h-6 w-6" : "h-10 w-10"
-              }`}
-              style={iconTileStyle(record.cliTool)}
-            >
-              <CliIcon cliTool={record.cliTool} className={compact ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} />
-            </span>
-            {!mini && (
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`truncate font-semibold ${compact ? "text-[length:var(--text-small)]" : "text-[length:var(--text-body)]"}`}
-                    style={{ color: "var(--app-text-primary)" }}
-                  >
-                    {record.projectName}
-                  </span>
-                  {record.runtimeKind === "wsl" && (
-                    <span
-                      className="flex-shrink-0 rounded px-1.5 py-px text-[length:var(--text-nano)] font-semibold"
-                      style={{ background: "color-mix(in srgb, var(--app-identity-wsl) 16%, transparent)", color: "var(--app-identity-wsl)" }}
-                    >
-                      WSL
-                    </span>
-                  )}
-                  {record.runtimeKind === "ssh" && (
-                    <span
-                      className="flex-shrink-0 rounded px-1.5 py-px text-[length:var(--text-nano)] font-semibold"
-                      style={{ background: "color-mix(in srgb, var(--app-identity-ssh) 16%, transparent)", color: "var(--app-identity-ssh)" }}
-                    >
-                      SSH
-                    </span>
-                  )}
-                </div>
-                {/* 路径是最先被挤爆的一行，窄窗格里直接砍掉 */}
-                {!compact && (
-                  <div
-                    className="mt-0.5 truncate text-[length:var(--text-small)]"
-                    style={{ color: "var(--app-text-tertiary)", fontFamily: "var(--font-mono, monospace)" }}
-                  >
-                    {record.projectPath}
-                  </div>
-                )}
-              </div>
-            )}
-            {!compact && (
-              <span className="flex-shrink-0 text-[length:var(--text-small)] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
-                {formatRelativeTime(record.launchedAt)}
-              </span>
-            )}
-            {/* 显式 split button：主按钮「▷ 启动」（=整行点击语义）+ 紧贴「⌄」打开方式菜单 */}
-            <div
-              className="flex flex-shrink-0 items-stretch"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                className={`flex items-center gap-1.5 rounded-l-md py-1.5 text-[length:var(--text-small)] font-semibold transition-opacity duration-[var(--dur-fast)] hover:opacity-90 ${
-                  compact ? "px-1.5" : "px-2.5"
-                }`}
-                style={{ background: "var(--app-accent)", color: "var(--primary-foreground)" }}
-                title={compact ? t("launchNow") : undefined}
-                onClick={() => launch(record)}
-              >
-                <Play className="h-3 w-3" fill="currentColor" />
-                {!compact && t("launchNow")}
-              </button>
-              <div
-                aria-hidden
-                style={{
-                  width: 1,
-                  background: "color-mix(in srgb, var(--primary-foreground) 25%, var(--app-accent))",
-                }}
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+
+      {records.length > 0 && (
+        <section aria-labelledby="panel-empty-recent-heading">
+          <h2 id="panel-empty-recent-heading" className={SECTION_HEADING_CLASS}>{t("recentLaunches")}</h2>
+          <div className="flex flex-col gap-0.5">
+            {records.map((record) => {
+              const methods = pickProjectMethods(allRecords, record.projectPath);
+              const historyClis = new Set(methods.map((m) => m.cliTool));
+              return (
+                <div key={record.id} className="group relative flex min-w-0 items-center rounded-lg transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]">
                   <button
                     type="button"
-                    aria-label={t("recentLaunchChoose")}
-                    className="flex items-center rounded-r-md px-1.5 transition-opacity duration-[var(--dur-fast)] hover:opacity-90"
-                    style={{ background: "var(--app-accent)", color: "var(--primary-foreground)" }}
+                    className={`${LIST_ROW_CLASS} flex-1 hover:bg-transparent`}
+                    title={record.projectPath}
+                    aria-label={t("recentLaunchAria", { name: record.projectName })}
+                    onClick={() => launch(record)}
                   >
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[200px]">
-                {/* 终端置顶 */}
-                <DropdownMenuItem
-                  className="flex items-center gap-2 text-[length:var(--text-row)]"
-                  onSelect={() => launch(record, "none")}
-                >
-                  <Terminal className="h-3.5 w-3.5" style={{ color: "var(--app-text-tertiary)" }} />
-                  {t("recentLaunchTerminalOnly")}
-                </DropdownMenuItem>
-                {(methods.length > 0 || !historyClis.has("claude") || !historyClis.has("codex")) && (
-                  <DropdownMenuSeparator />
-                )}
-                {/* 该项目历史上用过的打开方式（按原记录完整还原环境） */}
-                {methods.map((method) => (
-                  <DropdownMenuItem
-                    key={`${method.cliTool}|${method.runtimeKind}`}
-                    className="flex items-center gap-2 text-[length:var(--text-row)]"
-                    onSelect={() => launch(method)}
-                  >
-                    <CliIcon
-                      cliTool={method.cliTool}
-                      className="h-3.5 w-3.5"
-                    />
-                    <span className="flex-1">{methodLabel(method)}</span>
-                    <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
-                      {formatRelativeTime(method.launchedAt)}
+                    <span className={`${ICON_TILE_CLASS} size-8`}>
+                      <CliIcon cliTool={record.cliTool} className="size-4" />
                     </span>
-                  </DropdownMenuItem>
-                ))}
-                {/* 历史里没用过的 CLI 兜底 */}
-                {!historyClis.has("claude") && (
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[length:var(--text-row)]"
-                    onSelect={() => launch(record, "claude")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--app-accent)" }} />
-                    {t("recentLaunchWithClaude")}
-                  </DropdownMenuItem>
-                )}
-                {!historyClis.has("codex") && (
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[length:var(--text-row)]"
-                    onSelect={() => launch(record, "codex")}
-                  >
-                    <Bot className="h-3.5 w-3.5" style={{ color: "var(--app-status-success)" }} />
-                    {t("recentLaunchWithCodex")}
-                  </DropdownMenuItem>
-                )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-sm text-[var(--app-text-primary)]">{record.projectName}</span>
+                        <RuntimeBadge runtimeKind={record.runtimeKind} />
+                      </span>
+                      {/* 路径最先被挤爆，窄窗格里不显示 */}
+                      {!compact && (
+                        <span className="block truncate font-mono text-xs text-[var(--app-text-tertiary)]">{record.projectPath}</span>
+                      )}
+                    </span>
+                    {!compact && (
+                      <span className="shrink-0 text-xs tabular-nums text-[var(--app-text-tertiary)]">
+                        {formatRelativeTime(record.launchedAt)}
+                      </span>
+                    )}
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("recentLaunchChoose")}
+                        className="mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-active-bg)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                      >
+                        <ChevronDown className="size-3.5" aria-hidden="true" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                      {/* 终端置顶 */}
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[length:var(--text-row)]"
+                        onSelect={() => launch(record, "none")}
+                      >
+                        <CliIcon cliTool="none" className="size-3.5" />
+                        {t("recentLaunchTerminalOnly")}
+                      </DropdownMenuItem>
+                      {(methods.length > 0 || !historyClis.has("claude") || !historyClis.has("codex")) && (
+                        <DropdownMenuSeparator />
+                      )}
+                      {/* 该项目历史上用过的打开方式（按原记录完整还原环境） */}
+                      {methods.map((method) => (
+                        <DropdownMenuItem
+                          key={`${method.cliTool}|${method.runtimeKind}`}
+                          className="flex items-center gap-2 text-[length:var(--text-row)]"
+                          onSelect={() => launch(method)}
+                        >
+                          <CliIcon cliTool={method.cliTool} className="size-3.5" />
+                          <span className="flex-1">{methodLabel(method)}</span>
+                          <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
+                            {formatRelativeTime(method.launchedAt)}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                      {/* 历史里没用过的 CLI 兜底 */}
+                      {(["claude", "codex"] as const).filter((cli) => !historyClis.has(cli)).map((cli) => (
+                        <DropdownMenuItem
+                          key={cli}
+                          className="flex items-center gap-2 text-[length:var(--text-row)]"
+                          onSelect={() => launch(record, cli)}
+                        >
+                          <CliIcon cliTool={cli} className="size-3.5" />
+                          {cli === "claude" ? t("recentLaunchWithClaude") : t("recentLaunchWithCodex")}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </section>
+      )}
+
+      {customLaunchButton}
     </div>
   );
 }

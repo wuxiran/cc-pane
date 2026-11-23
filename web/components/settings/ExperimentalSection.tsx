@@ -4,6 +4,7 @@ import { Clapperboard, FlaskConical, Library } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import PerformanceDiagnosticsCard from "./PerformanceDiagnosticsCard";
 import type { ExperimentalFeatureId, ExperimentalSettings } from "@/types";
 
 interface ExperimentalSectionProps {
@@ -65,6 +66,7 @@ export default function ExperimentalSection({ value, onChange }: ExperimentalSec
           );
         })}
       </div>
+      <PerformanceDiagnosticsCard />
     </div>
   );
 }
