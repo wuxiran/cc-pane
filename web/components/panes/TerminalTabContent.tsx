@@ -1,6 +1,6 @@
 import { isInteractivePhase, phaseOf } from "@/lib/terminalRuntimePhase";
 import { memo, useCallback, useState, type ReactNode } from "react";
-import { LockKeyhole, MessageSquareText, Terminal } from "lucide-react";
+import { Loader2, LockKeyhole, MessageSquareText, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalPaneNode } from "@/types";
 import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
@@ -253,36 +253,24 @@ export default memo(function TerminalTabContent({
             </div>
           ) : null}
           {!restoreBlocked && !launchError && !leaf.launchFailure && showPlaceholder ? (
+            // 启动中 / 待选项目：居中的一行状态，不再是左上角带边框和阴影的卡片
             <div
-              className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
-              style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
+              role="status"
+              className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-6"
+              style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
             >
-              <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2"
-                style={{
-                  background: "var(--app-hover)",
-                  border: "1px solid var(--app-border)",
-                  boxShadow: "var(--sh-md)",
-                }}
-              >
-                <Terminal
-                  className="h-4 w-4 shrink-0"
-                  style={{ color: "var(--app-text-tertiary)" }}
-                />
-                <div className="flex min-w-0 flex-col">
-                  <span
-                    className="text-xs font-medium tracking-wide"
-                    style={{ color: "var(--app-text-primary)" }}
-                  >
-                    {isLaunching ? t("startingTerminal") : t("ready")}
-                  </span>
-                  <span
-                    className="text-[length:var(--text-caption)] leading-4"
-                    style={{ color: "var(--app-text-secondary)" }}
-                  >
-                    {isLaunching ? t("startingTerminalHint") : t("selectProject")}
-                  </span>
-                </div>
+              <div className="flex max-w-xs flex-col items-center gap-2 text-center">
+                {isLaunching ? (
+                  <Loader2 className="size-5 animate-spin" style={{ color: "var(--app-text-tertiary)" }} aria-hidden="true" />
+                ) : (
+                  <Terminal className="size-5" style={{ color: "var(--app-text-tertiary)" }} aria-hidden="true" />
+                )}
+                <span className="text-[length:var(--text-small)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                  {isLaunching ? t("startingTerminal") : t("ready")}
+                </span>
+                <span className="text-[length:var(--text-caption)] leading-4" style={{ color: "var(--app-text-tertiary)" }}>
+                  {isLaunching ? t("startingTerminalHint") : t("selectProject")}
+                </span>
               </div>
             </div>
           ) : null}

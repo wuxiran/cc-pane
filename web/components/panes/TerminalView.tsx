@@ -1,5 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
-import { TERMINAL_REBUILD_DISPLAY_EVENT } from "./terminalFitEvents";
+import { TERMINAL_REBUILD_DISPLAY_EVENT, TERMINAL_REPAIR_DISPLAY_EVENT } from "./terminalFitEvents";
 import { isSecondaryTerminalView } from "./terminalViewOwnership";
 import type { TerminalResyncTrigger } from "@/components/panes/terminalResync";
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
@@ -768,9 +768,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         if (isSecondaryTerminalView(terminalInstanceRef.current)) return;
         handleMenuResetBuffer();
       };
+      // 状态栏「修复显示」：同右键菜单那一项，每个显示该会话的视图都修自己的画面。
+      const onRepair = (event: Event) => {
+        if ((event as CustomEvent<{ sessionId?: string }>).detail?.sessionId === currentSessionIdRef.current) handleMenuRepairDisplay();
+      };
       window.addEventListener(TERMINAL_REBUILD_DISPLAY_EVENT, onRebuild);
-      return () => window.removeEventListener(TERMINAL_REBUILD_DISPLAY_EVENT, onRebuild);
-    }, [drivesBackendPty, handleMenuResetBuffer]);
+      window.addEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
+      return () => {
+        window.removeEventListener(TERMINAL_REBUILD_DISPLAY_EVENT, onRebuild);
+        window.removeEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
+      };
+    }, [drivesBackendPty, handleMenuResetBuffer, handleMenuRepairDisplay]);
 
     const sessionMenu = useTerminalSessionMenu({
       tabId: props.tabId,

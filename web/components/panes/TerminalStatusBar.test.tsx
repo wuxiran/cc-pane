@@ -1,6 +1,7 @@
+import { TERMINAL_REPAIR_DISPLAY_EVENT } from "./terminalFitEvents";
 import "@/i18n";
 import i18n from "i18next";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFullscreenStore, usePanesStore, useSettingsStore, useTerminalStatusStore } from "@/stores";
@@ -65,6 +66,16 @@ describe("TerminalStatusBar", () => {
     rendered.rerender(<TerminalStatusBar terminalContext={{ ...terminalContext, ssh: true }} projectPath="/remote" />);
     expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
     expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();
+  });
+
+  it("修复显示按钮把请求派发给当前会话", () => {
+    const seen: unknown[] = [];
+    const onRepair = (event: Event) => seen.push((event as CustomEvent).detail);
+    window.addEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
+    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/repo" />);
+    fireEvent.click(screen.getByTestId("terminal-repair-display"));
+    window.removeEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
+    expect(seen).toEqual([{ sessionId: "session-1" }]);
   });
 
   it("never opens host repository review for a WSL session", () => {

@@ -1,4 +1,5 @@
-import { EyeOff, FileDiff, FolderOpen, MessageSquareText, Terminal } from "lucide-react";
+import { EyeOff, FileDiff, FolderOpen, MessageSquareText, RefreshCw, Terminal } from "lucide-react";
+import { requestTerminalRepairDisplay } from "./terminalFitEvents";
 import { useTranslation } from "react-i18next";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 import StatusIndicator from "@/components/StatusIndicator";
@@ -170,6 +171,7 @@ export default function TerminalStatusBar({
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}
           <span className="min-w-0 flex-1" />
+          {terminalContext.sessionId ? <Tooltip><TooltipTrigger asChild><button type="button" aria-label={t("terminalRepairDisplay")} data-testid="terminal-repair-display" className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={() => requestTerminalRepairDisplay(terminalContext.sessionId!)}><RefreshCw className="size-3.5" /></button></TooltipTrigger><TooltipContent>{t("terminalRepairDisplay")}</TooltipContent></Tooltip> : null}
           {!terminalContext.ssh && !wsl && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={openReview}><FileDiff className="size-3.5" /></button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
           {showViewToggle ? (
             <div
