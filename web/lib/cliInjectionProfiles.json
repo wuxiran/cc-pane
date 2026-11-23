@@ -94,7 +94,7 @@
       }
     },
     "skills": {
-      "mount": "configArray",
+      "mount": "projectFile",
       "nativeSources": [
         "codex"
       ],

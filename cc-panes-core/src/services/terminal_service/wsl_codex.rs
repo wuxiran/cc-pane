@@ -1262,6 +1262,8 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
     cc_cli_adapters::skill_mounts::retire_session_staging(data_dir, &sanitized);
     // 项目级 MCP 文件（docs/110 批 2）：同项目最后一个会话结束时按收据清掉我们的条目。
     cc_cli_adapters::project_mcp::release_session(data_dir, &sanitized);
+    // 项目级技能链接（docs/110 §7 #1，本机 Codex）：只删没有其他会话租约要的、仍是我们的链接。
+    cc_cli_adapters::project_skills::release_session(data_dir, &sanitized);
 
     let launch_dir = data_dir.join("wsl-launch");
     if let Ok(entries) = std::fs::read_dir(&launch_dir) {

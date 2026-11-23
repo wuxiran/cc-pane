@@ -3,7 +3,8 @@
 //! `CliAdapterContext::skill_mount_paths` 里的每一项都是一个 **Claude 插件根**
 //! （`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md`）：内置 `skills/builtin`、
 //! 子集 `skills/builtin-sets/<hash>`、工作空间技能 `workspaces/<name>/skills`。
-//! Claude / Codex 直接消费它们（不经本模块）；其余 CLI 按各自的参数形态取用：
+//! Claude 直接消费它们（不经本模块），Codex 经 [`crate::project_skills`] 链接进项目；
+//! 其余 CLI 按各自的参数形态取用：
 //!
 //! - 认 Claude 插件布局的（grok / omp `--plugin-dir`）直接传挂载根；
 //! - 认技能目录的（kimi `--skills-dir`、opencode `skills.paths`）传 `<根>/skills`；
@@ -163,8 +164,15 @@ fn write_file(path: &Path, content: &str) -> io::Result<()> {
     fs::write(path, content)
 }
 
+/// [`link_or_copy_dir`] 实际落下的形态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinkKind {
+    Symlink,
+    Copy,
+}
+
 /// 目录链接；平台不允许（Windows 未开开发者模式）时退回递归复制。
-fn link_or_copy_dir(source: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn link_or_copy_dir(source: &Path, target: &Path) -> io::Result<LinkKind> {
     #[cfg(unix)]
     let linked = std::os::unix::fs::symlink(source, target);
     #[cfg(windows)]
@@ -172,8 +180,8 @@ fn link_or_copy_dir(source: &Path, target: &Path) -> io::Result<()> {
     #[cfg(not(any(unix, windows)))]
     let linked: io::Result<()> = Err(io::Error::from(io::ErrorKind::Unsupported));
     match linked {
-        Ok(()) => Ok(()),
-        Err(_) => copy_dir_recursive(source, target),
+        Ok(()) => Ok(LinkKind::Symlink),
+        Err(_) => copy_dir_recursive(source, target).map(|()| LinkKind::Copy),
     }
 }
 

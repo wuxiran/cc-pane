@@ -2271,7 +2271,7 @@ pub fn run() {
 
                         // ---- 物化内置 Skill 到 CC-Panes 自己的目录 ----
                         // 只写 <data_dir>/skills/builtin，各 CLI 在启动时按会话挂载
-                        // （Claude `--plugin-dir` / Codex `-c skills.config=`），
+                        // （Claude `--plugin-dir` / Codex 项目 `.agents/skills` 链接），
                         // 用户的 ~/.claude 与 ~/.codex 零写入。
                         let t_skill = std::time::Instant::now();
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();

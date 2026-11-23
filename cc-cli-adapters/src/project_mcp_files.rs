@@ -224,7 +224,7 @@ fn json_to_value(value: &Value) -> Option<toml_edit::Value> {
 // git：已跟踪的不写，写了就排除
 // ---------------------------------------------------------------------------
 
-fn git(project: &Path, args: &[&str]) -> Option<std::process::Output> {
+pub(crate) fn git(project: &Path, args: &[&str]) -> Option<std::process::Output> {
     if !project.is_dir() {
         return None;
     }
@@ -245,49 +245,98 @@ fn is_git_tracked(project: &Path, rel: &str) -> bool {
 /// 把 `<rel>` 与 `<rel>.bak` 加进仓库的 `info/exclude`（worktree 也落在共享的 common dir）。
 /// 不是 git 仓库 / 没装 git 时什么都不做。
 fn ensure_git_excluded(project: &Path, rel: &str) {
-    let Some(output) = git(
+    let Some((prefix, exclude)) = git_exclude_location(project) else {
+        return;
+    };
+    let patterns = [format!("/{prefix}{rel}"), format!("/{prefix}{rel}.bak")];
+    add_exclude_patterns(
+        &exclude,
+        &patterns,
+        "# CC-Panes: per-session MCP config (docs/110), never commit",
+    );
+}
+
+/// 项目在仓库里的前缀（`--show-prefix`，根目录为空串）与 `info/exclude` 的绝对路径。
+/// 不是 git 仓库 / 没装 git 时 None。
+pub(crate) fn git_exclude_location(project: &Path) -> Option<(String, PathBuf)> {
+    let output = git(
         project,
         &["rev-parse", "--show-prefix", "--git-path", "info/exclude"],
     )
-    .filter(|output| output.status.success()) else {
-        return;
-    };
+    .filter(|output| output.status.success())?;
     let text = String::from_utf8_lossy(&output.stdout).into_owned();
     let mut lines = text.lines();
-    let (Some(prefix), Some(exclude)) = (lines.next(), lines.next()) else {
-        return;
+    let (prefix, exclude) = (lines.next()?.to_string(), lines.next()?);
+    let path = PathBuf::from(exclude.trim());
+    let exclude = if path.is_absolute() {
+        path
+    } else {
+        project.join(path)
     };
-    let exclude = {
-        let path = PathBuf::from(exclude.trim());
-        if path.is_absolute() {
-            path
-        } else {
-            project.join(path)
-        }
-    };
-    let patterns = [format!("/{prefix}{rel}"), format!("/{prefix}{rel}.bak")];
-    let existing = fs::read_to_string(&exclude).unwrap_or_default();
-    let missing: Vec<&String> = patterns
+    Some((prefix, exclude))
+}
+
+/// 追加 exclude 里还没有的模式（前面加一行注释），返回本次真正追加的模式。
+pub(crate) fn add_exclude_patterns(
+    exclude: &Path,
+    patterns: &[String],
+    comment: &str,
+) -> Vec<String> {
+    let existing = fs::read_to_string(exclude).unwrap_or_default();
+    let missing: Vec<String> = patterns
         .iter()
         .filter(|pattern| !existing.lines().any(|line| line.trim() == pattern.as_str()))
+        .cloned()
         .collect();
     if missing.is_empty() {
-        return;
+        return Vec::new();
     }
     let mut next = existing;
     if !next.is_empty() && !next.ends_with('\n') {
         next.push('\n');
     }
-    next.push_str("# CC-Panes: per-session MCP config (docs/110), never commit\n");
-    for pattern in missing {
+    next.push_str(comment);
+    next.push('\n');
+    for pattern in &missing {
         next.push_str(pattern);
         next.push('\n');
     }
     if let Some(parent) = exclude.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    if let Err(error) = fs::write(&exclude, next) {
-        warn!(file = %exclude.display(), %error, "project MCP: failed to extend .git/info/exclude");
+    match fs::write(exclude, next) {
+        Ok(()) => missing,
+        Err(error) => {
+            warn!(file = %exclude.display(), %error, "failed to extend .git/info/exclude");
+            Vec::new()
+        }
+    }
+}
+
+/// 删掉 exclude 里与 `patterns` 完全相同的行；`comment` 不为 None 时同一注释行也删掉。
+/// 只删我们记过的行（调用方传收据里的列表），用户自己写的同名行不在收据里就不会被删。
+pub(crate) fn remove_exclude_patterns(exclude: &Path, patterns: &[String], comment: Option<&str>) {
+    if patterns.is_empty() && comment.is_none() {
+        return;
+    }
+    let Ok(existing) = fs::read_to_string(exclude) else {
+        return;
+    };
+    let kept: Vec<&str> = existing
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            !patterns.iter().any(|pattern| pattern == line) && Some(line) != comment
+        })
+        .collect();
+    let mut next = kept.join("\n");
+    if !next.is_empty() {
+        next.push('\n');
+    }
+    if next != existing {
+        if let Err(error) = fs::write(exclude, next) {
+            warn!(file = %exclude.display(), %error, "failed to clean .git/info/exclude");
+        }
     }
 }
 
@@ -296,7 +345,7 @@ fn ensure_git_excluded(project: &Path, rel: &str) {
 // ---------------------------------------------------------------------------
 
 /// 崩溃遗留的租约最多挡这么久的清理（与退休配置的保留期一致）。
-const LEASE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+pub(crate) const LEASE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 fn leases_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("cli-adapters").join("project-mcp-leases")

@@ -1,7 +1,7 @@
 //! 内置 skill 物化的 app 侧入口：boot 与设置保存共用一处，门（`SkillGateContext`）从设置算。
 //!
 //! 只写 `<data_dir>/skills/builtin`，各 CLI 按会话挂载（Claude `--plugin-dir` / Codex
-//! `skills.config`）；WSL Codex 在下一次启动时按同一目录同步（含删除分支）。
+//! 项目 `.agents/skills` 链接）；WSL Codex 在下一次启动时按同一目录同步（含删除分支）。
 
 use cc_panes_core::models::settings::AppSettings;
 use cc_panes_core::services::{DefaultSkillService, SkillGateContext};

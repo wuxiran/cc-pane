@@ -84,11 +84,11 @@
 | CLI | 投递方式 |
 |-----|---------|
 | Claude Code | `--plugin-dir <root>`（`skill_mount_paths` 多推一个路径，与 builtin 并列） |
-| Codex | 合并进 `-c skills.config=[…]`（同一个数组，读用户 config.toml 合并去重、不回写） |
+| Codex | 逐个技能**符号链接**进 Codex 启动目录的 `.agents/skills/<name>`（`cc_cli_adapters::project_skills`：收据 + 逐条 `.git/info/exclude` + 会话租约，最后一个会话结束时只删仍指向我们来源的链接；同名用户内容 / 已被 git 跟踪的名字跳过）。原先的 `-c skills.config=[…]` 在 codex 0.169.0 里加载不了外部目录，已删除（docs/110 §7 #1） |
 | OpenCode / Grok（注入描述 `promptFallback=true` 且无挂载通道） | `<ccpanes-workspace-skills>` 块注入 append_system_prompt，含 `Skill directory:` 路径 |
 | Cursor / Gemini / Kimi / Antigravity / Pi / Omp / Jcode | 目前**收不到**（没有挂载通道也没有提示词回退，见 docs/110 §2.2；以 `InjectionProfile.skills` 为准） |
 
-只在本机 runtime 挂载（SSH/WSL 会话不挂，目录在本机数据目录里）；`WorkspaceSkillService::mount_root` 在工作空间没有任何 skill 或缺 manifest 时返回 `None`，不会挂空目录。启动档技能策略新增 `includeWorkspaceSkills`（默认 true），`Disabled` 模式下与其他 skill 一起全关。**对项目目录和用户 CLI 主目录依旧零写入。**
+只在本机 runtime 挂载（SSH/WSL 会话不挂，目录在本机数据目录里）；`WorkspaceSkillService::mount_root` 在工作空间没有任何 skill 或缺 manifest 时返回 `None`，不会挂空目录。启动档技能策略新增 `includeWorkspaceSkills`（默认 true），`Disabled` 模式下与其他 skill 一起全关。**对用户 CLI 主目录依旧零写入。** 项目目录的唯一例外是 Codex：它只从 `~/.codex/skills` 与项目 `.agents/skills` 发现技能，二选一时选了项目——写进去的只有被 exclude 掉的符号链接（Windows 无链接权限时是复制品）与 `.ccpanes/.cache/` 下的收据，会话全部结束即收回。
 
 **入口**
 - 侧栏工作空间右键 →「工作空间技能」：复用 `skill-manager` tab（`projectPath` 空 + `workspaceName`），面板与项目版同一套组件（`SkillScope` 切换），单根不显示目录选择/移动

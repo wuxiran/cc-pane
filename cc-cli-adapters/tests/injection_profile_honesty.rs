@@ -260,7 +260,13 @@ fn expect(failures: &mut Vec<String>, cli: &str, claim: &str, ok: bool) {
     }
 }
 
-fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, corpus: &str) {
+fn check_http_pass(
+    failures: &mut Vec<String>,
+    cli: &str,
+    p: &InjectionProfile,
+    corpus: &str,
+    project: &Path,
+) {
     let mcp = &p.mcp;
     if !matches!(mcp.ccpanes, McpChannel::None | McpChannel::StdioProxy) {
         expect(failures, cli, "ccpanes MCP", corpus.contains(TOKEN));
@@ -297,7 +303,18 @@ fn check_http_pass(failures: &mut Vec<String>, cli: &str, p: &InjectionProfile, 
         let ok = has_full_isolation_evidence(corpus);
         expect(failures, cli, "full MCP isolation", ok);
     }
-    if p.skills.mount != SkillMount::None {
+    if p.skills.mount == SkillMount::ProjectFile {
+        // 项目级技能目录（Codex，docs/110 §7 #1）：argv 里出现路径不算数（codex 0.169.0
+        // 会忽略指向别处的 `skills.config`），必须真的在测试项目的 `.agents/skills/` 里
+        // 落下可读到正文的链接。
+        let skill = project.join(".agents/skills/guard-skill");
+        let linked = fs::symlink_metadata(&skill).is_ok_and(|meta| meta.file_type().is_symlink())
+            && fs::read_to_string(skill.join("SKILL.md"))
+                .is_ok_and(|body| body.contains(SKILL_BODY_MARKER));
+        let header = format!("--- {}", skill.join("SKILL.md").display());
+        let ok = linked && corpus.contains(&header);
+        expect(failures, cli, "project skill links", ok);
+    } else if p.skills.mount != SkillMount::None {
         // 直接传挂载路径，或传每会话 staging（其中链接到挂载里的技能正文）。
         let lines: Vec<&str> = corpus.lines().collect();
         let staging_passed = lines
@@ -386,7 +403,7 @@ fn every_declared_injection_has_evidence() {
     for (cli, profile) in &profiles {
         let sandbox = Sandbox::new();
         let corpus = build_corpus(&registry, cli, &full_context(&sandbox, cli, false));
-        check_http_pass(&mut failures, cli, profile, &corpus);
+        check_http_pass(&mut failures, cli, profile, &corpus, &sandbox.project);
         assert!(sandbox.roots().iter().all(|root| root.exists()));
         let mut identity = has_launch_identity(&corpus);
 

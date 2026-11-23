@@ -1,6 +1,6 @@
 # 110 · 全 CLI 的 MCP / Skills 适配计划
 
-> 状态：批 0–5 已在 feat/mcp-skills-parity 落地（2026-11-21）。遗留见 §7 #1（本机 Codex 技能挂载实际无效）与批 4 的 WSL 降级说明。
+> 状态：批 0–5 已在 feat/mcp-skills-parity 落地（2026-11-21）。§7 #1（本机 Codex 技能挂载实际无效）已改为项目 `.agents/skills` 链接修复（2026-11-22）；遗留见批 4 的 WSL 降级说明。
 > 依据：代码现状盘点（本文 §2，带 file:line）+ 11 个 CLI 官方文档调研（§3，带来源）。
 > 相关：docs/97（技能市场与投递）、docs/103（ccpanes MCP 瘦身）、docs/104（pi/omp/jcode MCP，§5/§7 有 WSL 与隔离 backlog）、docs/101（插件系统草案）。
 
@@ -41,7 +41,7 @@
 | CLI | 投递模式 | 内置 skill | 工作空间技能 | 启动档用户技能 | 备注 |
 |---|---|---|---|---|---|
 | claude | Native + Prompt | ✅ `--plugin-dir` | ✅ `--plugin-dir` | ✅ | |
-| codex | Native + Prompt | ✅ `-c skills.config` | ✅ | ✅ | WSL 下内置技能**拷贝进** guest 的 `~/.codex/skills`（会污染用户目录） |
+| codex | Native + Prompt | ✅ `-c skills.config`（§7 #1：实测无效，已改为项目 `.agents/skills` 链接） | ✅ | ✅ | WSL 下内置技能**拷贝进** guest 的 `~/.codex/skills`（会污染用户目录） |
 | opencode | Prompt | ⚠ 只内联 10 个 portable 技能 | ✅ 提示块 | ✅ | WSL 下提示词丢失 |
 | grok | Prompt | ⚠ 内联到 `--rules` | ✅ | ✅ | |
 | pi / omp | PiSkill | ⚠ 仅托管 Provider 模式，且只有 1 个 | ❌ | ✅ | PiSkill 压掉了提示词回退 |
@@ -65,7 +65,7 @@
 | CLI | MCP 配置（项目级） | 远程 transport | 启动时临时注入 MCP | 启动时临时挂载 skills | 共同 skills 目录 |
 |---|---|---|---|---|---|
 | claude | `.mcp.json` | http/sse/ws | `--mcp-config` + `--strict-mcp-config` | `--plugin-dir`、`--add-dir` | `.claude/skills`（**不读** `.agents`） |
-| codex | `.codex/config.toml` | http | `-c mcp_servers.*` | `-c skills.config`（能否挂外部路径**待实测**，目前实际在用） | `.agents/skills` |
+| codex | `.codex/config.toml` | http | `-c mcp_servers.*` | `-c skills.config`（0.169.0 实测挂不了外部路径，§7 #1；改为把技能链接进项目 `.agents/skills`） | `.agents/skills` |
 | opencode | `opencode.json` | http | `OPENCODE_CONFIG`（2.0 下待实测） | 配置里的 `skills` 数组（可经同一份每会话配置传入） | `.agents`、`.claude`、`.opencode` |
 | cursor | `.cursor/mcp.json` | http/sse | ❌ | `--plugin-dir` | `.agents`、`.cursor`、`.claude`、`.codex` |
 | grok | `.grok/config.toml`，另读 `.mcp.json` | http | ❌（`grok mcp add`） | `--plugin-dir` | `.grok`、`~/.agents`，兼容 Claude 插件 |
@@ -146,6 +146,7 @@
 | kimi | skillsDir | `--skills-dir` 可重复但**替换**自动发现，所以把存在的 `<项目根>/.kimi-code/skills`、`<项目根>/.agents/skills`、`$KIMI_CODE_HOME/skills`（默认 `~/.kimi-code/skills`）、`~/.agents/skills` 连同 `<挂载根>/skills` 一起传；没有挂载时不传（kimi-code/en/reference/kimi-command、customization/skills） | 无 |
 | cursor | pluginDir | 每会话 staging 摆成 Cursor 插件（`.cursor-plugin/plugin.json` + `skills/`）后 `--plugin-dir`（cursor.com/docs/cli/reference/parameters、docs/reference/plugins） | 无 |
 | antigravity | addDir | 每会话 staging 里摆 `.agents/skills/<name>` 后 `--add-dir`（antigravity.google/docs/cli/reference、docs/skills） | 无 |
+| codex | projectFile | 每个技能符号链接进启动目录的 `.agents/skills/<name>`（收据 + 逐条 exclude + 会话租约，§7 #1；原 `-c skills.config` 实测无效已删） | `-c developer_instructions` |
 | opencode | configArray | 每会话 `OPENCODE_CONFIG` 的 `skills.paths`（对象形态；1.17 拒绝数组形态，新版 schema 两种都收） | `instructions` |
 | jcode / gemini | none | 无临时挂载参数，也没有提示词通道——如实标 None，什么都送不到 | 无 |
 
@@ -242,7 +243,7 @@
 
 | # | 事项 | 影响 | 结论 |
 |---|---|---|---|
-| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | **codex 0.169.0 实测：不能。** 临时 `CODEX_HOME` 下用 `codex debug prompt-input` 看模型可见的技能清单：`-c skills.config=[{path=…,enabled=true}]` 指向插件根、`skills/` 目录、单个技能目录、`SKILL.md` 文件四种写法，技能都不出现；同一个技能放进 `$CODEX_HOME/skills`、项目 `.agents/skills`、或以**符号链接**放进 `$CODEX_HOME/skills` 都出现。即本机 Codex 的「按会话挂载内置 / 工作空间技能」实际没有生效（守卫只看到 argv 里有路径），**未修**：可行的通道（`~/.codex/skills` 或 `~/.agents/skills` 下的链接）都要写用户的 CLI 主目录，与 docs/97 的零写入承诺冲突，需要单独决策。WSL 已改为链接（批 4） |
+| 1 | Codex 的 `skills.config` 能否挂载 `~/.codex/skills` 之外的目录（当前实现依赖它） | 批 1 | **codex 0.169.0 实测：不能。** 临时 `CODEX_HOME` 下用 `codex debug prompt-input` 看模型可见的技能清单：`-c skills.config=[{path=…,enabled=true}]` 指向插件根、`skills/` 目录、单个技能目录、`SKILL.md` 文件四种写法，技能都不出现；同一个技能放进 `$CODEX_HOME/skills`、项目 `.agents/skills`、或以**符号链接**放进 `$CODEX_HOME/skills` 都出现。**已修（2026-11-22，用户决策：方案 1）**：`-c skills.config` 整条删除；本机 Codex 启动时把每个技能符号链接进启动目录（fork 的 `-C` 目录 > 工作空间路径 > 项目路径，与终端服务 cwd 兜底一致）的 `.agents/skills/<name>`（`cc_cli_adapters::project_skills`）。复用批 2 的三件套：收据 `<项目>/.ccpanes/.cache/skills-linked-codex.json`（每项记链接来源；Windows 无链接权限退回复制时记内容指纹）、逐条精确 exclude `/.agents/skills/<name>`（不排除整个 `.agents`，收据记下我们加的行，清理时只删这些行）、每会话租约 `<data>/cli-adapters/project-skill-leases/<session>.json`（记技能名，引用计数；超过 7 天的崩溃遗留不算数）。同名用户目录 / 文件、已被 git 跟踪的名字一律跳过并 warn；清理只删收据里有、且仍指向收据来源的链接（复制品要指纹一致），`.agents` / `.agents/skills` 只在由我们新建且已空时删除。InjectionProfile 改为 `SkillMount::ProjectFile`，诚实守卫改查测试项目 `.agents/skills/guard-skill` 是真链接且读得到正文（argv 里有路径不再算数；删掉调用后守卫确实报红）。**复验（同一 codex 0.169.0，临时 `CODEX_HOME`）**：临时 git 项目与非 git 目录各跑一次 `project_skills::sync_for_launch` 链一个假技能，`codex debug prompt-input` 从 0 次变为列出 `zz-ccpanes-probe: … (file: r1/zz-ccpanes-probe/SKILL.md)`；git 项目的子目录里启动同样可见（向上找到仓库根），`git status` 看不到链接。注意非 git 目录 Codex 只看 cwd 本身，自定义 `launch_cwd` 指到项目子目录时链接不可见（ctx 里没有 launch_cwd）。Windows（链接 / 复制回退）未实机。WSL 未改（批 4 已在 guest 里链接） |
 | 2 | OpenCode 2.0 下 `OPENCODE_CONFIG` 和 `mcp.servers` 的键名 | 批 1、2 | **opencode 1.17.11 实测**：MCP——adapter 生成的配置经 `opencode debug config` 解析通过，`opencode mcp list` 列出共享远程、共享桥、工作空间 stdio 三个条目并真的去连（本地起一个记录请求头的 HTTP 服务，收到的 POST 带着配置里的 `X-Probe` 头）；技能——`OPENCODE_CONFIG` 生效；`skills` 只收对象 `{"paths":[...]}`，数组形态报 `Expected object`（官网 V2 文档写的是数组，新版 schema 两种都收，故用对象）。用 adapter 生成的每会话配置挂内置 + 工作空间两个根，`opencode debug skill` 从 1 个变成 33 个（31 个 `ccpanes-*` + 工作空间技能 + 自带 1 个），符号链接的技能目录同样可见。MCP 键名：官网 schema 仍收旧形 `mcp.<name>`（`type`/`url`/`enabled`/`headers`，标 deprecated），新形是 `mcp.servers.<name>` + `disabled` |
 | 3 | JCode 的远程 MCP（文档说只支持 stdio，changelog 说支持 http/sse） | 批 2 | 官方 docs/MCP_REMOTE.md（master）明确：stdio / Streamable HTTP / SSE 都支持，`type` 取 `http`/`streamable-http`/`sse`，URL 与请求头展开 `${VAR}`。已放开；本机未装 jcode，未实机，旧版（v0.84 实测只认 stdio）会跳过远程条目 |
 | 4 | Kimi 项目级 MCP 的 trust 在交互模式下如何处理 | 批 2 | 官方文档：未信任文件夹里的项目级 MCP 在 trust 提示里列出、默认选「信任」；headless 不能弹提示，`KIMI_CODE_TRUST_WORKSPACE=1` 让本进程信任工作区。我们在写了条目时注入它（与 cursor 始终 `--trust` 同口径；代价是该进程也信任仓库里其他项目级配置）。本机未装 kimi，交互模式下该变量是否同样跳过提示未实测 |

@@ -66,9 +66,9 @@ pub enum SkillMount {
     SkillsDir,
     /// `--add-dir <staging>`，CLI 读该目录下的约定技能目录。
     AddDir,
-    /// 配置里的数组键（Codex `-c skills.config=[...]`）。
+    /// 配置里的数组键（OpenCode 每会话配置的 `skills.paths`）。
     ConfigArray,
-    /// 写项目级技能目录。
+    /// 写项目级技能目录（Codex：链接进 `.agents/skills/<name>`，收据 + exclude + 会话租约）。
     ProjectFile,
     /// 不消费挂载路径。
     None,

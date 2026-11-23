@@ -4,7 +4,8 @@
 //! （`<data_dir>/skills/builtin`，见 `AppPaths::builtin_skills_dir`），
 //! 各 CLI 在**启动时按会话挂载**指过去：
 //! - Claude Code：`--plugin-dir <builtin_root>`（该目录本身是一个合法插件）
-//! - Codex：`-c skills.config=[{path=..,enabled=true}]`
+//! - Codex：逐个技能链接进启动目录的 `.agents/skills/<name>`（`cc_cli_adapters::project_skills`，
+//!   docs/110 §7 #1：`-c skills.config` 在 codex 0.169.0 加载不了外部目录）
 //!
 //! 用户的 `~/.claude` / `~/.codex` **零写入**。
 //!
@@ -35,8 +36,8 @@ const LEGACY_HASH_FILE_NAME: &str = "legacy-skill-hashes.json";
 pub const LEGACY_CLEANUP_REPORT_FILE_NAME: &str = "legacy-global-skill-cleanup-v1.json";
 
 /// managed bundle 内存放各 skill 的子目录。
-/// Claude 插件约定为 `<plugin_root>/skills/<name>/SKILL.md`，Codex 的
-/// `skills.config` 直接指向 `<plugin_root>/skills/<name>`，两者共用同一份内容。
+/// Claude 插件约定为 `<plugin_root>/skills/<name>/SKILL.md`，Codex 项目
+/// `.agents/skills/<name>` 的链接直接指向 `<plugin_root>/skills/<name>`，两者共用同一份内容。
 pub const MANAGED_SKILLS_SUBDIR: &str = "skills";
 const CLAUDE_PLUGIN_DIR: &str = ".claude-plugin";
 const CLAUDE_PLUGIN_MANIFEST: &str = "plugin.json";
@@ -363,7 +364,7 @@ impl DefaultSkillService {
 
     /// 把内置 skill 物化到 CC-Panes managed 根目录，并使该目录成为一个
     /// **合法的 Claude 插件**（含 `.claude-plugin/plugin.json`），
-    /// 从而同时满足 Claude 的 `--plugin-dir` 与 Codex 的 `skills.config`。
+    /// 从而同时满足 Claude 的 `--plugin-dir` 与 Codex 的项目 `.agents/skills` 链接。
     ///
     /// 返回写入的 SKILL.md 路径列表。
     pub fn materialize_managed_bundle(

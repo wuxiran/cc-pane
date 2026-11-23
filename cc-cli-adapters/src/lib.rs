@@ -33,6 +33,8 @@ mod pi;
 pub mod project_mcp;
 pub mod project_mcp_dialects;
 pub mod project_mcp_files;
+mod project_skill_leases;
+pub mod project_skills;
 pub mod skill_mounts;
 
 pub use antigravity::{
@@ -1301,7 +1303,7 @@ pub struct CliAdapterContext {
     /// 本次会话要挂载的 CC-Panes 内置 skill 根目录（通常是
     /// `<data_dir>/skills/builtin`）。**按会话挂载，绝不写用户的 CLI Home**：
     /// - Claude：每个路径转成一个 `--plugin-dir`
-    /// - Codex：合并进 `-c skills.config=[...]` 启动期覆盖
+    /// - Codex：逐个技能链接进启动目录的 `.agents/skills/<name>`（[`project_skills`]）
     ///
     /// 为空表示本次不挂载任何内置 skill（`LaunchProfileSkillMode::Disabled`），
     /// 此时各 adapter 必须**完全不碰**用户的 skill 配置。

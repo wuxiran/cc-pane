@@ -180,7 +180,7 @@ fn log_launch_stage(
 /// 本次会话是否挂载 CC-Panes 内置 skill。
 ///
 /// 内置 skill 物化在 `<data_dir>/skills/builtin`，按会话经 CLI 参数挂载
-/// （Claude `--plugin-dir` / Codex `-c skills.config=`），**不写用户的 CLI Home**。
+/// （Claude `--plugin-dir` / Codex 项目 `.agents/skills` 链接），**不写用户的 CLI Home**。
 /// `LaunchProfileSkillMode::Disabled` 时返回空——此时 adapter 完全不碰 skill 配置。
 ///
 /// 内置技能按单个生效：没选全部时挂 `builtin-sets/<hash>/` 子集，一个都没选则不挂

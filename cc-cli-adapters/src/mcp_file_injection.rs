@@ -319,17 +319,22 @@ pub(crate) fn write_receipt(
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    // `.ccpanes/.gitignore` 守卫（与 core 的 ensure_ccpanes_dir 同款，不覆盖已有文件）
-    let ccpanes_gitignore = project_path.join(".ccpanes").join(".gitignore");
-    if !ccpanes_gitignore.exists() {
-        if let Err(error) = fs::write(&ccpanes_gitignore, CCPANES_DIR_GITIGNORE) {
-            warn!(%error, "mcp file injection: failed to write .ccpanes/.gitignore guard");
-        }
-    }
+    ensure_ccpanes_gitignore(project_path);
     let body = json!({ "servers": names.iter().cloned().collect::<Vec<_>>() });
     crate::fs_atomic::write_atomic(path, serde_json::to_string_pretty(&body)?)
         .with_context(|| format!("failed to write receipt {}", path.display()))?;
     Ok(())
+}
+
+/// `.ccpanes/.gitignore` 守卫（与 core 的 ensure_ccpanes_dir 同款，不覆盖已有文件）。
+/// 调用前 `.ccpanes/` 须已存在（收据目录 `.ccpanes/.cache/` 建好之后）。
+pub(crate) fn ensure_ccpanes_gitignore(project_path: &Path) {
+    let ccpanes_gitignore = project_path.join(".ccpanes").join(".gitignore");
+    if !ccpanes_gitignore.exists() {
+        if let Err(error) = fs::write(&ccpanes_gitignore, CCPANES_DIR_GITIGNORE) {
+            warn!(%error, "failed to write .ccpanes/.gitignore guard");
+        }
+    }
 }
 
 /// 工具目录（`.omp/`、`.jcode/`）的 gitignore 守卫：注入文件可能含 token，

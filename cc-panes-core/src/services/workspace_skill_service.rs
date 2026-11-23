@@ -4,9 +4,10 @@
 //! CLIs have no notion of a workspace, so these can never be discovered natively. Instead
 //! the workspace owns a plugin-shaped folder (`<workspace>/skills`, see
 //! `AppPaths::workspace_skills_root`) that is mounted **per session** exactly like the
-//! bundled skills: Claude `--plugin-dir`, Codex `-c skills.config`. CLIs that cannot mount
-//! a folder get the skills inlined into the session prompt. Nothing is written to any
-//! project or to the user's CLI home.
+//! bundled skills: Claude `--plugin-dir`, Codex per-skill links in the launch dir's `.agents/skills`
+//! (receipt + git exclude + session lease, removed after the last session). CLIs that cannot
+//! mount a folder get the skills inlined into the session prompt. Nothing is written to the
+//! user's CLI home.
 //!
 //! On-disk layout (a valid Claude plugin):
 //! ```text
@@ -44,7 +45,7 @@ impl WorkspaceSkillService {
         Self { app_paths }
     }
 
-    /// Plugin root to pass to `--plugin-dir` / `skills.config`. `None` when the workspace has
+    /// Plugin root to mount (`--plugin-dir`, Codex `.agents/skills` links). `None` when the workspace has
     /// no skills yet, so callers never mount an empty (and manifest-less) folder.
     pub fn mount_root(&self, workspace_name: &str) -> Option<PathBuf> {
         let name = workspace_name.trim();

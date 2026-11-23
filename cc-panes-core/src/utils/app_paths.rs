@@ -235,7 +235,7 @@ impl AppPaths {
 
     /// 工作空间技能的插件根（`<workspace>/skills`）。目录本身是一个合法 Claude 插件
     /// （`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md`），启动时经
-    /// `--plugin-dir` / Codex `skills.config` 按会话挂载，与 builtin 同机制。
+    /// `--plugin-dir` / Codex 项目 `.agents/skills` 链接按会话挂载，与 builtin 同机制。
     pub fn workspace_skills_root(&self, name: &str) -> PathBuf {
         self.workspace_dir(name).join("skills")
     }
