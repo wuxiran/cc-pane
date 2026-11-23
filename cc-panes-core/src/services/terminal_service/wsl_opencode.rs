@@ -245,8 +245,9 @@ mod tests {
         let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         let host_root = data.path().to_string_lossy().into_owned();
         let to_wsl = |host: &str| {
+            // 模拟真正的转换：Windows 主机路径的反斜杠在 guest 里是 /
             host.strip_prefix(&host_root)
-                .map(|rest| format!("/mnt/c/data{rest}"))
+                .map(|rest| format!("/mnt/c/data{}", rest.replace('\\', "/")))
         };
         rewrite_opencode_config_for_wsl(&mut config, &to_wsl, Some("172.20.0.1")).unwrap();
 

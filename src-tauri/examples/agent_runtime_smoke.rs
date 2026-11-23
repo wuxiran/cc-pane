@@ -104,6 +104,7 @@ mod smoke {
                 resume_acp_session_id: None,
                 fork_acp_session_id: None,
                 auto_approve_kinds: vec![],
+                remote: None,
             }
         }
 
