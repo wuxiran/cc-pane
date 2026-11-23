@@ -11,15 +11,21 @@ import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import NewTabPage from "./NewTabPage";
 import { filesystemService } from "@/services/filesystemService";
+import { listCliTools } from "@/services/cliToolService";
+import { useDialogStore } from "@/stores/useDialogStore";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@/services/filesystemService", () => ({ filesystemService: { createFile: vi.fn() } }));
+vi.mock("@/services/cliToolService", () => ({ listCliTools: vi.fn() }));
 const tab: Tab = { id: "new-page", title: "New tab", contentType: "browser", browserUrl: "about:blank", projectId: "", projectPath: "", sessionId: null };
 
 beforeEach(async () => {
   await i18n.changeLanguage("en");
   vi.clearAllMocks();
   vi.mocked(filesystemService.createFile).mockResolvedValue(undefined);
+  vi.mocked(listCliTools).mockResolvedValue([
+    { id: "claude", installed: true }, { id: "codex", installed: false }, { id: "gemini", installed: true },
+  ] as Awaited<ReturnType<typeof listCliTools>>);
   const source = createPanel(); source.id = "source"; source.tabs = [tab]; source.activeTabId = tab.id;
   const other = createPanel(); other.id = "other";
   const root = { type: "split" as const, id: "split", direction: "horizontal" as const, children: [source, other], sizes: [50, 50] };
@@ -123,5 +129,67 @@ describe("NewTabPage", () => {
     expect(found.layoutId).toBe("layout");
     expect(found.panel.id).toBe("source");
     expect(usePanesStore.getState().currentLayoutId).toBe(otherLayout);
+  });
+
+  describe("start section", () => {
+    const projectTab: Tab = { ...tab, projectPath: "/tmp/proj" };
+    const mountWithNeighbours = () => {
+      const source = usePanesStore.getState().allPanels().find((pane) => pane.id === "source")!;
+      const left = { ...tab, id: "left", browserUrl: "https://left.example" };
+      const right = { ...tab, id: "right", browserUrl: "https://right.example" };
+      usePanesStore.setState((state) => {
+        const pane = state.allPanels().find((item) => item.id === source.id)!;
+        pane.tabs = [left, projectTab, right];
+        pane.activeTabId = projectTab.id;
+      });
+      return render(<NewTabPage tab={projectTab} paneId="source" />);
+    };
+    const sourceTabs = () => usePanesStore.getState().allPanels().find((pane) => pane.id === "source")!.tabs;
+
+    it("lists only installed CLIs, in launch-menu order", async () => {
+      render(<NewTabPage tab={projectTab} paneId="source" />);
+      expect(await screen.findByRole("button", { name: "Claude Code" })).toBeVisible();
+      expect(screen.getByRole("button", { name: /Gemini/ })).toBeVisible();
+      expect(screen.queryByRole("button", { name: /Codex/ })).toBeNull();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("proj");
+    });
+
+    it("replaces the new tab in place with the chosen CLI", async () => {
+      mountWithNeighbours();
+      fireEvent.click(await screen.findByRole("button", { name: "Claude Code" }));
+      const tabs = sourceTabs();
+      expect(tabs[0].id).toBe("left");
+      expect(tabs.some((item) => item.id === projectTab.id)).toBe(false);
+      expect(tabs).toHaveLength(3);
+      expect(tabs[1]).toMatchObject({ cliTool: "claude", projectPath: "/tmp/proj", contentType: "terminal" });
+      expect(tabs[2].id).toBe("right");
+      expect(usePanesStore.getState().allPanels().find((pane) => pane.id === "source")!.activeTabId).toBe(tabs[1].id);
+    });
+
+    it("replaces the new tab with a plain terminal", () => {
+      mountWithNeighbours();
+      fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+      const tabs = sourceTabs();
+      expect(tabs.map((item) => item.id)).not.toContain(projectTab.id);
+      expect(tabs[1]).toMatchObject({ cliTool: "none", projectPath: "/tmp/proj" });
+    });
+
+    it("opens the global launcher with the project path from More", () => {
+      const openLauncher = vi.spyOn(useDialogStore.getState(), "openLauncher");
+      render(<NewTabPage tab={projectTab} paneId="source" />);
+      fireEvent.click(screen.getByRole("button", { name: "More launch options" }));
+      expect(openLauncher).toHaveBeenCalledWith({ projectPath: "/tmp/proj", targetLayoutId: "layout" });
+      expect(useDialogStore.getState().launcherOpen).toBe(true);
+      openLauncher.mockRestore();
+      useDialogStore.getState().closeLauncher();
+    });
+
+    it("keeps Agent Chat and Project files actions", async () => {
+      render(<NewTabPage tab={projectTab} paneId="source" />);
+      fireEvent.click(screen.getByRole("button", { name: "Agent Chat" }));
+      expect(usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs).some((item) => item.contentType === "agent-chat")).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Project files" }));
+      await waitFor(() => expect(usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs).some((item) => item.contentType === "file-explorer")).toBe(true));
+    });
   });
 });

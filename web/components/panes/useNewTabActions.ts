@@ -64,6 +64,6 @@ export function useNewTabActions(paneId: string, activeTab: Tab | undefined) {
     } catch (cause) { handleError(cause, "open review"); }
   }, [paneId, projectPath, layoutId]);
 
-  return { projectPath, handleAddBrowser, handleAddTerminal, handleAddDsh, handleAddAgentChat,
+  return { projectPath, layoutId, handleAddBrowser, handleAddTerminal, handleAddDsh, handleAddAgentChat,
     handleAddFile, handleAddFileExplorer, handleAddReview, handleCreatePage };
 }

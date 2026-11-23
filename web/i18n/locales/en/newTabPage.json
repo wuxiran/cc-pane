@@ -16,6 +16,11 @@
     "directory": "Project files",
     "directoryHint": "Browse a folder in a tab",
     "page": "New page",
-    "pageHint": "Create an empty Markdown file"
+    "pageHint": "Create an empty Markdown file",
+    "start": "Start",
+    "noProject": "No project selected",
+    "more": "More…",
+    "moreLaunch": "More launch options",
+    "moreLaunchHint": "Choose a launch profile, provider or environment"
   }
 }

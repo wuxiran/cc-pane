@@ -16,6 +16,11 @@
     "directory": "项目文件",
     "directoryHint": "在标签页中浏览目录",
     "page": "新建页面",
-    "pageHint": "创建空白 Markdown 文件"
+    "pageHint": "创建空白 Markdown 文件",
+    "start": "开始",
+    "noProject": "未选择项目",
+    "more": "更多…",
+    "moreLaunch": "更多启动选项",
+    "moreLaunchHint": "选择运行配置、供应商或运行环境"
   }
 }
