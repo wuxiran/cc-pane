@@ -2,7 +2,7 @@
 // 原来这些平铺在菜单里（十几项），收成三个子菜单；从 WorkspaceItem 拆出也为了行数棘轮。
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Files, FolderOpen, PencilLine, SlidersHorizontal } from "lucide-react";
+import { Files, FolderOpen, PenLine, SlidersHorizontal } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import {
   ContextMenuCheckboxItem,
@@ -148,7 +148,7 @@ export default function WorkspaceManageMenu({
 
       <ContextMenuSub>
         <ContextMenuSubTrigger>
-          <PencilLine /> {t("workspaceMenu.edit")}
+          <PenLine /> {t("workspaceMenu.edit")}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="w-56">
           {!isSystem ? (

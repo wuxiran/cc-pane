@@ -1,3 +1,4 @@
+import { useWindowMaterialActive } from "@/hooks/useWindowMaterialActive";
 import { LayoutAutoFitObserver } from "@/components/layoutbar/LayoutAutoFit";
 // 主内容区视图切换：收拢 useActivityBarStore 的全部 appViewMode 分支。
 // keep-alive 语义：每个视图首次访问时挂载，之后固定在同一舞台上，仅切换 opacity。
@@ -46,6 +47,10 @@ const WALLPAPER_PANEL_BG_EFFECTIVE_DARK =
 // 提浓到 80% 让壁纸退成隐约纹理、维持浅色应有的干净表面。
 const WALLPAPER_PANEL_BG_EFFECTIVE_LIGHT =
   "color-mix(in srgb, var(--app-panel-bg) 80%, transparent)";
+// 没有壁纸、但系统窗口材质生效时：主内容区也做成半透明磨砂，透出原生材质（模糊由系统做，
+// 不再叠 CSS backdrop-filter）。比壁纸垫层更淡一点，因为材质本身已是一层均匀的灰。
+const MATERIAL_PANEL_BG_DARK = "color-mix(in srgb, var(--app-panel-bg) 55%, transparent)";
+const MATERIAL_PANEL_BG_LIGHT = "color-mix(in srgb, var(--app-panel-bg) 72%, transparent)";
 
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
@@ -68,6 +73,10 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   // 原子字段 selector（布尔），不在 selector 里做对象解析
   const wallpaperActive = useWallpaperStore((s) => s.resolved !== null && s.assetUrl !== null);
   const wallpaperGlassBlur = useWallpaperStore((s) => s.resolved?.glassBlur ?? 0);
+  const materialGlass = useWindowMaterialActive() && !wallpaperActive;
+  const materialPanelBg = isDark ? MATERIAL_PANEL_BG_DARK : MATERIAL_PANEL_BG_LIGHT;
+  // 各主视图根节点的底色：材质生效时半透明，否则不透明面板色
+  const viewBackground = materialGlass ? materialPanelBg : "var(--app-panel-bg)";
 
   const showOrchestrationOverlay =
     orchestrationOverlayOpen ||
@@ -195,7 +204,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="todo"
           {...layerA11yAttrs("todo")}
-          style={{ background: "var(--app-panel-bg)", ...viewStyle("todo") }}
+          style={{ background: viewBackground, ...viewStyle("todo") }}
         >
           {todoContent}
         </div>
@@ -236,7 +245,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="resources"
           {...layerA11yAttrs("resources")}
-          style={{ background: "var(--app-panel-bg)", ...viewStyle("resources") }}
+          style={{ background: viewBackground, ...viewStyle("resources") }}
         >
           <Suspense fallback={null}>
             <ResourceLibraryPage />
@@ -248,7 +257,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="files"
           {...layerA11yAttrs("files")}
-          style={{ background: "var(--app-panel-bg)", ...viewStyle("files") }}
+          style={{ background: viewBackground, ...viewStyle("files") }}
         >
           <Suspense fallback={<div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">{commonT("loading")}</div>}>
             <FileEditorPanel />
@@ -264,7 +273,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           data-main-view="panes"
           {...layerA11yAttrs("panes")}
           style={{
-            background: "var(--app-panel-bg)",
+            background: materialGlass ? "transparent" : "var(--app-panel-bg)",
+            // 材质磨砂：子树里画底的位置读 effective token，一并换成半透明
+            ...(materialGlass ? ({ "--app-panel-bg-effective": materialPanelBg } as React.CSSProperties) : null),
             ...(wallpaperActive
               ? ({
                   // 半透明垫层而非全透明：见 WALLPAPER_PANEL_BG_EFFECTIVE_* 注释。
