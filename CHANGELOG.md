@@ -4,6 +4,67 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.13.0 - 2026-11-22
+
+This release has four main threads. Providers now hold multiple accounts (work / personal), a provider can carry several endpoint URLs and arbitrary environment variables, and keys move into the system keychain. Every preset agent gets MCP, skills and YOLO, and Antigravity (agy) is new. The UI is reworked: the explorer, search panel, home page, launcher and context menus are redesigned, and Agent chat no longer needs its own layout. Terminal reliability gets replay de-duplication, Windows rendering fixes and a fix for zsh integration recursion. The project license changes to MIT.
+
+### Added
+
+- **Provider accounts**:
+  - A provider can hold several accounts: key accounts (one API key) or login accounts (a CLI's own sign-in). Login accounts support Claude Code, Codex, Gemini CLI, Antigravity and Grok; creating one makes its directory automatically and opens a terminal running the login command. Settings, skills and instruction files are shared with the default directory; credentials and session history are kept per account.
+  - A provider can have several endpoint URLs (Anthropic / Chat / Responses / Gemini); each CLI uses its own.
+  - Providers and accounts can carry arbitrary environment variables, optionally marked sensitive; the editor previews what will actually be injected at launch (sensitive values masked).
+  - Keys are stored in the system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of plaintext in `providers.json`. Existing data migrates on upgrade with a backup, which is removed once the migration is verified; environments without a keychain keep using the file and say so.
+  - The launcher, launch profiles and workspaces can pick an account; tabs using a non-default account show a small colored dot. Resuming a session keeps its original provider and account.
+  - MCP `dispatch_task` / `launch_task` and the REST launch API accept an optional `providerAccountId`.
+- **Antigravity (agy)**: new adapter for Google's Antigravity CLI with MCP, skills, YOLO and login accounts.
+  - Works with Gemini-type providers: key accounts inject `GEMINI_API_KEY` (custom URLs via `GOOGLE_GEMINI_BASE_URL`); login accounts use their own data directory.
+  - Verified against agy 1.5.14: plain launch, YOLO, initial prompt, project-level MCP and key auth; sign-in runs `agy acp --login`.
+  - Not yet supported: resume entry, session index, passing `--model` / `--effort`.
+- **MCP, skills and YOLO for every preset agent**: injection capabilities come from one source (InjectionProfile), so what the UI says will be injected matches what is; Kimi, Gemini and Antigravity gain MCP, Grok and Cursor move to project-level writes; Claude uses strict MCP mode, OpenCode and Gemini are isolated by allow-list; WSL injection goes through the adapters; Codex skills are linked into the project's `.agents/skills`.
+- **New home page**: quick start, agent list, install other agents, continue working. Detects newer versions of installed agents and updates them in-app; install and update terminals are titled, e.g. "Update Claude Code".
+- **Simpler launcher**: three steps, "where / with what / to do what", with advanced options folded away.
+- **New tab page**: the project name on top; a "Start" row launches installed CLIs directly (the tab turns into that CLI's terminal), a terminal or an Agent chat, and "More…" opens the full launcher; Changes, Files, New page and Project files are a compact list.
+- **Search panel** (Ctrl+K, formerly the command palette): quick actions, sessions (terminal sessions and Agent chats together, with real titles), workspaces, commands and settings, with category tabs at the bottom; highlighting a session previews its first prompt and latest progress.
+- **Explorer**:
+  - A single mode with a search button by the title; the Workspaces section collapses, and the default and system workspaces are hidden from the list (the default working directory is configurable in settings).
+  - A "Recent" session list in the lower half: click to resume, hover for details, right-click to rename, pin, copy or remove.
+  - Hovering a workspace shows a project card with an edit entry; sidebar terminals are named after the CLI's own session title and have a context menu.
+  - Contacts move to the activity bar; "SSH machines" and "Devices" merge into one "Devices" entry, and SSH machines detect their OS and CC-Panes automatically.
+- **Agent chat**: no dedicated layout anymore, so terminals and chats sit side by side in any layout; the permission menu has three presets (full access asks first); chats can run on a remote device; transcripts persist so non-loadSession engines can resume.
+- **Bot contacts**: bots with a persona and a long-lived conversation, reachable from your phone via Telegram (approvals are bound to the right chat).
+- **Review changes**: opened at a workspace root, it covers the Git projects inside and groups changes by repository.
+- **Scheduled tasks**: a standalone dialog with a task list, details and templates.
+- **Lazy layouts**: unvisited layouts don't mount views, and long-unvisited layouts unmount theirs.
+- **Status bar**: shows the Codex subscription quota; the terminal status bar has a "Repair display" button.
+- **MCP**: `dispatch_task` can fork an existing session (`forkSessionId`).
+- **Appearance**: the default dark theme is a neutral near-black; icons are solid throughout; with system material on, the main area is translucent frosted glass too.
+- **Settings**: sections collapse, and an expanded section is no longer squashed.
+
+### Improved
+
+- The tab context menu is trimmed; secondary actions live in "Split / Move to / More / Close several" submenus.
+- The workspace context menu is grouped into launch, configure, open location, edit, import and archive/delete, without the entries that did nothing.
+- Toasts come from a single in-house component with pausable timers (on hover, focus, or when the window is hidden).
+- "Starting terminal" is a single centered line in the pane.
+
+### Fixed
+
+- **Terminal replay**: snapshot replay and the live stream are reconciled by `endSeq`, so old output is no longer written twice; secondary views (mirrors, pop-outs) no longer touch the shared sequence ledger; the watchdog no longer forces the gate open mid-restore; a "Rebuild terminal display" shortcut is added.
+- **Windows rendering**: fixes for missing glyphs after restore, software WebGL, font cell width and flicker; WebView crash reloads are capped.
+- **zsh integration**: no more `job table full or recursion limit exceeded` when the host itself was started from a CC-Panes terminal.
+- **Orchestration**: a worker stuck on an approval prompt reports waitingInput; forks start in the source session's environment, validation happens up front, and retries no longer silently downgrade.
+- **Runtime stability**: remaining production thread spawns are fallible; the DSH instance registry survives a poisoned lock; context usage and cost refresh immediately after `/clear` changes identity.
+- Pop-out windows carry the CLI type so session history replays; one-click install / update from the home page switches to the panes view correctly.
+
+### Removed
+
+- The dynamic island. Finished sessions raise system notifications, and status lives in the tray and status bar.
+
+### Other
+
+- The project license changes from GPL-3.0 to MIT.
+
 ## 0.12.22 - 2026-11-07
 
 This release has four main threads. A performance pass keeps many open panes and parallel builds from bogging down the machine. Multi-device support connects to CC-Panes running on a server or another computer. A new resource library manages MCP servers and skills in one place. The interface also gets a broad native-feel polish. Conversation forking, Agent chat, WSL paths and launch reliability get a batch of fixes as well.
