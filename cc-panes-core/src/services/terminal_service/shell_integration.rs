@@ -193,7 +193,9 @@ fn is_ccpanes_zdotdir(dir: &Path) -> bool {
         std::path::Component::Normal(name) => Some(name.to_string_lossy().to_string()),
         _ => None,
     });
-    if parts.next().as_deref() == Some("zsh") && parts.next().as_deref() == Some("shell-integration") {
+    if parts.next().as_deref() == Some("zsh")
+        && parts.next().as_deref() == Some("shell-integration")
+    {
         return true;
     }
     std::fs::read_to_string(dir.join(".zshenv"))
@@ -365,7 +367,10 @@ mod tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(!stderr.contains("recursion"), "{stderr}");
-        assert!(stdout.contains("user-zshrc-loaded"), "stdout={stdout} stderr={stderr}");
+        assert!(
+            stdout.contains("user-zshrc-loaded"),
+            "stdout={stdout} stderr={stderr}"
+        );
     }
 
     #[cfg(unix)]
