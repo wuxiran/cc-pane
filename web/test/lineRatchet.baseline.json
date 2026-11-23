@@ -13,7 +13,7 @@
   "components/providers/ProviderFormPanel.tsx": 575,
   "components/sidebar/SshMachineDialog.tsx": 603,
   "components/sidebar/WorkspaceEnvironmentPanel.tsx": 925,
-  "components/sidebar/WorkspaceItem.tsx": 710,
+  "components/sidebar/WorkspaceItem.tsx": 533,
   "components/todo/TodoEditor.tsx": 614,
   "hooks/useOrchestratorListener.ts": 471,
   "services/terminalService.ts": 909,

@@ -958,5 +958,12 @@
   "recentSessions.copyId": "Session ID",
   "recentSessions.copyCwd": "Working directory",
   "recentSessions.copyResumeCommand": "Resume command",
-  "recentSessions.remove": "Remove from Recent"
+  "recentSessions.remove": "Remove from Recent",
+  "workspaceMenu": {
+    "configure": "Configure",
+    "openLocation": "Open location",
+    "edit": "Edit",
+    "noHooks": "No hooks available",
+    "openTerminalIn": "Open terminal ({{env}})"
+  }
 }

@@ -107,6 +107,14 @@ function createLaunchProfile(overrides: Partial<LaunchProfile> = {}): LaunchProf
   };
 }
 
+/** 菜单收成子菜单后：先悬停子菜单入口再找里面的项。 */
+async function openSubmenu(name: RegExp) {
+  await userEvent.setup().hover(await screen.findByRole("menuitem", { name }));
+}
+const EDIT_MENU = /^编辑$|^Edit$/;
+const CONFIGURE_MENU = /^配置$|^Configure$/;
+const MORE_LAUNCH = /更多启动方式|More launch/i;
+
 describe("WorkspaceItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -191,6 +199,7 @@ describe("WorkspaceItem", () => {
     renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await openSubmenu(EDIT_MENU);
 
     expect(await screen.findByRole("menuitem", { name: /设置分组|Set Group/i })).toBeVisible();
     // 颜色改为菜单内直接点选：一行色点 + 清除，不再是二级菜单入口
@@ -205,8 +214,11 @@ describe("WorkspaceItem", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /默认工作空间|Default Workspace/i }));
 
-    expect(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).toBeVisible();
+    await openSubmenu(EDIT_MENU);
+    expect(await screen.findByRole("menuitem", { name: /设置工作空间路径|Set Workspace Path/i })).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: /设置分组|Set Group/i })).not.toBeInTheDocument();
+    // 系统工作空间没有改名 / 归档 / 删除
+    expect(screen.queryByRole("menuitem", { name: /重命名|Rename/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /设置颜色|Set Color/i })).not.toBeInTheDocument();
   });
 
@@ -228,18 +240,26 @@ describe("WorkspaceItem", () => {
     expect(screen.getAllByRole("menuitem", { name: "Codex CLI" }).length).toBeGreaterThan(0);
   });
 
-  it("shows the workspace environment entry directly in the workspace context menu", async () => {
+  it("keeps the top level short: launch, then configure / open location / edit / import, then danger", async () => {
     renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await screen.findByRole("menuitem", { name: CONFIGURE_MENU });
 
-    expect(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).toBeVisible();
+    // 不再有禁用的「常用」标题行，也不再平铺资源和位置项
+    expect(screen.queryByRole("menuitem", { name: /^常用$|^Favorites$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /工作空间记忆|Workspace Memory/i })).not.toBeInTheDocument();
+    for (const name of [MORE_LAUNCH, EDIT_MENU, /打开位置|Open location/i, /导入项目|Import Project/i, /归档|Archive/i]) {
+      expect(screen.getByRole("menuitem", { name })).toBeVisible();
+    }
   });
 
   it("opens the workspace environment sheet from the workspace context menu", async () => {
     const { onOpenEnvironment, ws } = renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await openSubmenu(CONFIGURE_MENU);
     fireEvent.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
 
     expect(onOpenEnvironment).toHaveBeenCalledWith(ws);
@@ -308,7 +328,8 @@ describe("WorkspaceItem", () => {
 
     renderWorkspaceItem("local");
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await userEvent.setup().hover(await screen.findByRole("menuitem", { name: /显示在常用|Show in favorites/i }));
+    await openSubmenu(MORE_LAUNCH);
+    await openSubmenu(/显示在常用|Show in favorites/i);
 
     expect(await screen.findByRole("menuitemcheckbox", { name: /隐藏非常用菜单|Hide non-favorite/i })).toBeVisible();
   });
@@ -576,11 +597,11 @@ describe("WorkspaceItem", () => {
     }));
   });
 
-  it("shows the hooks submenu inside settings", async () => {
+  it("shows the hooks submenu inside configure", async () => {
     const user = userEvent.setup();
     renderWorkspaceItem("local");
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: /^设置$|^Settings$/ }));
+    await user.hover(await screen.findByRole("menuitem", { name: CONFIGURE_MENU }));
     expect(await screen.findByRole("menuitem", { name: "Hooks" })).toBeVisible();
   });
 

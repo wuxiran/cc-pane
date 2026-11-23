@@ -958,5 +958,12 @@
   "recentSessions.copyId": "会话 ID",
   "recentSessions.copyCwd": "工作目录",
   "recentSessions.copyResumeCommand": "恢复命令",
-  "recentSessions.remove": "从最近中移除"
+  "recentSessions.remove": "从最近中移除",
+  "workspaceMenu": {
+    "configure": "配置",
+    "openLocation": "打开位置",
+    "edit": "编辑",
+    "noHooks": "没有可用的 Hooks",
+    "openTerminalIn": "在{{env}}打开终端"
+  }
 }

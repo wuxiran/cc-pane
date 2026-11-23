@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
 import type { DraggableSyntheticListeners } from "@dnd-kit/core";
 import {
-  Bot, Check, ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
-  House, Settings2, Star, Terminal,
+  Bot, ChevronRight, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
+  House, Rocket, Star, Terminal,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -18,15 +18,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
-  useExplorerSectionsStore, useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore,
+  useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore,
 } from "@/stores";
 import AgentChatMenuItem from "./AgentChatMenuItem";
-import WorkspaceSkillsMenuItem from "./WorkspaceSkillsMenuItem";
 import InjectionBadges from "./InjectionBadges";
 import { summarizeInjection } from "./launchInjectionSummary";
-import { projectCliHooksService } from "@/services";
-import { providerService } from "@/services/providerService";
-import { isTauriRuntime } from "@/services/runtime";
 import {
   detectAppPlatform,
   getWorkspaceDefaultEnvironment,
@@ -40,14 +36,12 @@ import type {
   LaunchProfile,
   LaunchProfileRuntime,
   OpenTerminalOptions,
-  ProjectCliHookGroupStatus,
-  ProjectCliHookStatus,
   Workspace, WorkspaceLaunchEnvironment,
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 import WorkspaceBadges from "./WorkspaceBadges";
 import WorkspaceHoverCard from "./WorkspaceHoverCard";
-import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
+import WorkspaceManageMenu from "./WorkspaceManageMenu";
 import WorkspaceDangerItems from "./WorkspaceDangerItems";
 import { sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
 import WorkspaceColorDot from "./WorkspaceColorDot";
@@ -116,9 +110,6 @@ export default function WorkspaceItem({
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
-  const preferredContextName = useExplorerSectionsStore((s) => s.preferredContextWorkspaceName);
-  const setPreferredContext = useExplorerSectionsStore((s) => s.setPreferredContextWorkspace);
-  const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
 
@@ -324,40 +315,6 @@ export default function WorkspaceItem({
     );
   }, [defaultEnvironment, launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, profileMatchesRuntime, runtimeLabel, t, workspace]);
 
-  const fetchHookStatuses = useCallback(async () => {
-    if (!rootPath) return;
-    try {
-      const statuses = await projectCliHooksService.getStatus(rootPath);
-      setHookGroups(statuses);
-    } catch {
-      setHookGroups([]);
-    }
-  }, [rootPath]);
-
-  const handleToggleHook = useCallback(async (cliTool: string, hook: ProjectCliHookStatus) => {
-    if (!rootPath) return;
-    try {
-      await projectCliHooksService.setHookEnabled(rootPath, cliTool, hook.name, !hook.enabled);
-      await fetchHookStatuses();
-    } catch (error) {
-      toast.error(t("hookOperationFailed", { error }));
-    }
-  }, [fetchHookStatuses, rootPath, t]);
-
-  const handleRevealFolder = useCallback(async () => {
-    if (!rootPath) return;
-    if (!isTauriRuntime()) {
-      await navigator.clipboard.writeText(rootPath).catch(() => {});
-      toast.info(t("filetree.pathCopied", { defaultValue: "Path copied" }));
-      return;
-    }
-    try {
-      await providerService.openPathInExplorer(rootPath);
-    } catch (error) {
-      toast.error(t("openFolderFailed", { error }));
-    }
-  }, [rootPath, t]);
-
   const handleToggleHideNonFavoriteLaunchActions = useCallback(async (checked: boolean) => {
     if (!settings) return;
     try {
@@ -391,14 +348,6 @@ export default function WorkspaceItem({
       toast.error(t("operationFailed", { ns: "settings", error: String(error) }));
     }
   }, [favoriteLaunchIds, saveSettings, settings, t]);
-
-  function getHookLabel(hook: Pick<ProjectCliHookStatus, "name" | "label">): string {
-    const labels: Record<string, string> = {
-      "session-inject": t("hookSessionInject"),
-      "plan-archive": t("hookPlanArchive"),
-    };
-    return labels[hook.name] || hook.label;
-  }
 
   return (
     <div>
@@ -457,132 +406,81 @@ export default function WorkspaceItem({
         </WorkspaceHoverCard>
 
         <ContextMenuContent className="w-56">
-          <ContextMenuItem disabled>
-            <Star /> {t("favoriteLaunches", { defaultValue: "常用" })}
-          </ContextMenuItem>
-          {favoriteLaunchActions.length > 0 ? (
-            favoriteLaunchActions.map((action) => {
-              if (action.kind === "cli" && action.cliTool) {
-                return renderCliLaunchMenuItem({
-                  key: action.id,
-                  cliTool: action.cliTool,
-                  environment: action.environment,
-                  label: action.label,
-                }, "favorite");
-              }
-              return (
-                <ContextMenuItem
-                  key={`favorite-${action.id}`}
-                  onClick={() => openWorkspace(action.cliTool, action.environment)}
-                >
+          {/* 启动：常用项直接列（没设常用时退回「打开终端」），其余都收进「其他启动方式」 */}
+          {favoriteLaunchActions.length > 0 ? favoriteLaunchActions.map((action) =>
+            action.kind === "cli" && action.cliTool
+              ? renderCliLaunchMenuItem({ key: action.id, cliTool: action.cliTool, environment: action.environment, label: action.label }, "favorite")
+              : (
+                <ContextMenuItem key={`favorite-${action.id}`} onClick={() => openWorkspace(action.cliTool, action.environment)}>
                   <Terminal /> {action.label}
                 </ContextMenuItem>
-              );
-            })
-          ) : (
-            <ContextMenuItem disabled>
-              {t("favoriteLaunchEmpty", { defaultValue: "暂无常用项" })}
+              )) : (
+            <ContextMenuItem onClick={() => openWorkspace()}>
+              <Terminal /> {t("openTerminal")}
             </ContextMenuItem>
           )}
-
-          <ContextMenuSeparator />
-
+          <AgentChatMenuItem path={rootPath} />
           <ContextMenuSub>
             <ContextMenuSubTrigger>
-              <Star /> {t("favoriteLaunchManage", { defaultValue: "显示在常用" })}
+              <Rocket /> {t("moreLaunchActions", { defaultValue: "更多启动方式" })}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-60">
-              {allLaunchActions.map((action) => (
-                <ContextMenuCheckboxItem
-                  key={`favorite-toggle-${action.id}`}
-                  checked={favoriteLaunchIds.includes(action.id)}
-                  onCheckedChange={(checked) => void handleToggleFavoriteLaunchAction(action.id, checked === true)}
-                >
-                  {t("favoriteLaunchToggleLabel", {
-                    label: action.label,
-                    defaultValue: `显示 ${action.label}`,
-                  })}
-                </ContextMenuCheckboxItem>
-              ))}
-              <ContextMenuSeparator />
-              <ContextMenuCheckboxItem
-                checked={hideNonFavoriteLaunchActions}
-                onCheckedChange={(checked) => void handleToggleHideNonFavoriteLaunchActions(checked === true)}
-              >
-                {t("hideNonFavoriteLaunchActions", { defaultValue: "隐藏非常用菜单" })}
-              </ContextMenuCheckboxItem>
+              {!shouldHideNonFavoriteLaunchActions ? (
+                <>
+                  {favoriteLaunchActions.length > 0 ? (
+                    <ContextMenuItem onClick={() => openWorkspace()}>
+                      <Terminal /> {t("openTerminal")}
+                    </ContextMenuItem>
+                  ) : null}
+                  {(["local", "wsl", "ssh"] as const).map((environment) => (
+                    <ContextMenuItem key={environment} onClick={() => openWorkspace(undefined, environment)}>
+                      <Terminal /> {t("workspaceMenu.openTerminalIn", { env: t(`workspaceEnv.${environment}`) })}
+                    </ContextMenuItem>
+                  ))}
+                  {nonFavoriteCliLaunchItems.length > 0 ? <ContextMenuSeparator /> : null}
+                  {nonFavoriteCliLaunchItems.map((item) => renderCliLaunchMenuItem(item, "launch"))}
+                  <ContextMenuSeparator />
+                </>
+              ) : null}
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <Star /> {t("favoriteLaunchManage", { defaultValue: "显示在常用" })}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-60">
+                  {allLaunchActions.map((action) => (
+                    <ContextMenuCheckboxItem
+                      key={`favorite-toggle-${action.id}`}
+                      checked={favoriteLaunchIds.includes(action.id)}
+                      onCheckedChange={(checked) => void handleToggleFavoriteLaunchAction(action.id, checked === true)}
+                    >
+                      {action.label}
+                    </ContextMenuCheckboxItem>
+                  ))}
+                  <ContextMenuSeparator />
+                  <ContextMenuCheckboxItem
+                    checked={hideNonFavoriteLaunchActions}
+                    onCheckedChange={(checked) => void handleToggleHideNonFavoriteLaunchActions(checked === true)}
+                  >
+                    {t("hideNonFavoriteLaunchActions", { defaultValue: "隐藏非常用菜单" })}
+                  </ContextMenuCheckboxItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
             </ContextMenuSubContent>
           </ContextMenuSub>
 
           <ContextMenuSeparator />
-          <AgentChatMenuItem path={rootPath} />
-          {!shouldHideNonFavoriteLaunchActions ? (
-            <>
-              <ContextMenuItem onClick={() => openWorkspace()}>
-                <Terminal /> {t("openTerminal")}
-              </ContextMenuItem>
-
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <Terminal /> {t("workspaceEnv.launchThisTime", { defaultValue: "本次选择环境" })}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem onClick={() => openWorkspace(undefined, "local")}>
-                    <Terminal /> {t("workspaceEnv.local", { defaultValue: "本机" })}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => openWorkspace(undefined, "wsl")}>
-                    <Terminal /> {t("workspaceEnv.wsl", { defaultValue: "WSL" })}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => openWorkspace(undefined, "ssh")}>
-                    <Terminal /> {t("workspaceEnv.ssh", { defaultValue: "SSH" })}
-                  </ContextMenuItem>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-
-              {/* issue #36：非常用 CLI 项折叠进"更多启动方式"，顶层不再平铺 20+ 项；
-                  常用项已在上方"常用"区展示，这里只放补集避免重复 */}
-              {nonFavoriteCliLaunchItems.length > 0 && (
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>
-                    <Terminal /> {t("moreLaunchActions", { defaultValue: "更多启动方式" })}
-                  </ContextMenuSubTrigger>
-                  <ContextMenuSubContent className="w-60">
-                    {nonFavoriteCliLaunchItems.map((item) => renderCliLaunchMenuItem(item, "launch"))}
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              )}
-
-              <ContextMenuSeparator />
-            </>
-          ) : null}
-
-          <ContextMenuItem onClick={() => onOpenEnvironment(workspace)}>
-            <Settings2 /> {t("workspaceEnv.edit", { defaultValue: "编辑运行环境" })}
-          </ContextMenuItem>
-          <WorkspaceSkillsMenuItem workspace={workspace} />
-
-          <ContextMenuSeparator />
-
-          <ContextMenuItem disabled={!rootPath} onClick={handleRevealFolder}>
-            <FolderOpen /> {t("openFolder")}
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!rootPath}
-            onClick={() => rootPath && onOpenInFileBrowser?.(rootPath)}
-          >
-            <Files /> {t("openInFileBrowser")}
-          </ContextMenuItem>
-          {!isDefaultWorkspace && !isAgentChatWorkspace && (
-            <ContextMenuCheckboxItem
-              checked={preferredContextName === workspace.name}
-              onCheckedChange={(checked) => setPreferredContext(checked === true ? workspace.name : null)}
-            >
-              <Check /> {t("workspaceSetDefaultContext")}
-            </ContextMenuCheckboxItem>
-          )}
-
-          <ContextMenuSeparator />
-
+          <WorkspaceManageMenu
+            workspace={workspace}
+            rootPath={rootPath}
+            isSystem={isDefaultWorkspace || isAgentChatWorkspace}
+            onOpenEnvironment={onOpenEnvironment}
+            onOpenInFileBrowser={onOpenInFileBrowser}
+            onSetPath={onSetPath}
+            onClearPath={onClearPath}
+            onSetAlias={onSetAlias}
+            onRename={onRename}
+            onNewGroup={() => setGroupDialogOpen(true)}
+          />
           <ContextMenuSub>
             <ContextMenuSubTrigger>
               <Folder /> {t("importProject")}
@@ -604,82 +502,11 @@ export default function WorkspaceItem({
             </ContextMenuSubContent>
           </ContextMenuSub>
 
-          <ContextMenuSeparator />
-
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Settings2 /> {t("settings", { ns: "common" })}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-52">
-              <ContextMenuItem onClick={() => onSetPath(workspace)}>
-                {t("setWorkspacePath")}
-              </ContextMenuItem>
-              {workspace.path ? (
-                <ContextMenuItem onClick={() => onClearPath(workspace)}>
-                  {t("clearWorkspacePath")}
-                </ContextMenuItem>
-              ) : null}
-
-              <ContextMenuSeparator />
-
-              <ContextMenuItem onClick={() => onSetAlias(workspace)}>
-                {t("setAlias")}
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => onRename(workspace)}>
-                {t("renameWorkspace")}
-              </ContextMenuItem>
-
-              <ContextMenuSeparator />
-
-              <ContextMenuSub>
-                <ContextMenuSubTrigger onPointerEnter={() => fetchHookStatuses()}>
-                  {t("hooks")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-52">
-                  {hookGroups.map((group) => (
-                    <ContextMenuSub key={group.cliTool}>
-                      <ContextMenuSubTrigger>{group.label}</ContextMenuSubTrigger>
-                      <ContextMenuSubContent className="w-56">
-                        {group.hooks.map((hook) => (
-                          <ContextMenuCheckboxItem
-                            key={hook.name}
-                            checked={hook.enabled}
-                            disabled={!hook.supported}
-                            onClick={() => hook.supported && handleToggleHook(group.cliTool, hook)}
-                          >
-                            {hook.supported
-                              ? getHookLabel(hook)
-                              : `${getHookLabel(hook)} (${t("hookUnavailable")})`}
-                          </ContextMenuCheckboxItem>
-                        ))}
-                        {group.reason ? (
-                          <ContextMenuItem disabled>
-                            {t("hookUnavailableReason", { reason: group.reason })}
-                          </ContextMenuItem>
-                        ) : null}
-                      </ContextMenuSubContent>
-                    </ContextMenuSub>
-                  ))}
-                  {hookGroups.length === 0 ? (
-                    <ContextMenuItem disabled>Loading...</ContextMenuItem>
-                  ) : null}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-
-          {!isDefaultWorkspace ? (
+          {/* Agent Chat 常驻工作空间不给归档/删除入口（后端同样拒绝，双保险） */}
+          {!isDefaultWorkspace && !isAgentChatWorkspace ? (
             <>
               <ContextMenuSeparator />
-              <WorkspaceAppearanceMenu
-                workspace={workspace}
-                onNewGroup={() => setGroupDialogOpen(true)}
-              />
-              <ContextMenuSeparator />
-              {/* Agent Chat 常驻工作空间不给归档/删除入口（后端同样拒绝，双保险） */}
-              {!isAgentChatWorkspace ? (
-                <WorkspaceDangerItems workspace={workspace} onDelete={onDelete} />
-              ) : null}
+              <WorkspaceDangerItems workspace={workspace} onDelete={onDelete} />
             </>
           ) : null}
         </ContextMenuContent>
