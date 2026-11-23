@@ -18968,7 +18968,8 @@ mod tests {
         assert_eq!(envelope["taskId"], dispatch_task_id);
         assert_eq!(envelope["bindingId"], binding.id);
         assert_eq!(envelope["resolvedCliTool"], "gemini");
-        assert_eq!(envelope["mcp"]["supported"], false);
+        // Gemini 在批 2（MCP 补齐）之后接了 MCP；信封如实记录适配器能力。
+        assert_eq!(envelope["mcp"]["supported"], true);
 
         let parsed = dispatch_envelope_from_binding(&running).expect("parse dispatch envelope");
         assert_eq!(parsed.task_id, dispatch_task_id);
