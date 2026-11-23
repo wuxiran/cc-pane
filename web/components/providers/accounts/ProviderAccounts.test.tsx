@@ -326,7 +326,7 @@ describe("login accounts", () => {
     vi.mocked(loginAccountService.getLoginCommand).mockResolvedValue(loginCommand({
       cliTool: "antigravity",
       command: "agy",
-      args: ["--login"],
+      args: ["acp", "--login"],
       env: { GEMINI_HOME: "/data/login-accounts/antigravity-1", SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 0" },
       envRemove: [],
       interactive: true,

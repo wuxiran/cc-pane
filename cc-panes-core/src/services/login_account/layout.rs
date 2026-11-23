@@ -107,8 +107,9 @@ const GEMINI: LoginCliLayout = LoginCliLayout {
     executable: "gemini",
 };
 
-/// Antigravity（`agy`）：`GEMINI_HOME` 替换 `~/.gemini`。只链接 T3 Code 验证过的
-/// 技能目录和规则文件；它的设置文件位置没有核实过，不猜。
+/// Antigravity（`agy`）：账号目录替换 `~/.gemini`。agy 1.5.14 实测不读 `GEMINI_HOME`，
+/// 真正生效的是启动 / 登录命令里的 `--gemini_dir <账号目录>`（适配器与 `login_command` 加）；
+/// `GEMINI_HOME` 仍随环境带上，只作标记与兼容。只链接 T3 Code 验证过的技能目录和规则文件。
 const ANTIGRAVITY: LoginCliLayout = LoginCliLayout {
     cli_tool: "antigravity",
     dir_env_var: "GEMINI_HOME",

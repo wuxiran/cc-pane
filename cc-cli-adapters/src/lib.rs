@@ -38,8 +38,9 @@ pub mod project_skills;
 pub mod skill_mounts;
 
 pub use antigravity::{
-    AntigravityAdapter, ANTIGRAVITY_EXECUTABLE, ANTIGRAVITY_INITIAL_PROMPT_FLAG,
-    ANTIGRAVITY_RESUME_FLAG, ANTIGRAVITY_YOLO_FLAG,
+    antigravity_provider_args, AntigravityAdapter, ANTIGRAVITY_API_KEY_SETTINGS,
+    ANTIGRAVITY_EXECUTABLE, ANTIGRAVITY_GEMINI_DIR_FLAG, ANTIGRAVITY_INITIAL_PROMPT_FLAG,
+    ANTIGRAVITY_RESUME_FLAG, ANTIGRAVITY_SETTINGS_FLAG, ANTIGRAVITY_YOLO_FLAG,
 };
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;

@@ -1,4 +1,4 @@
-use crate::models::provider::{AccountKind, Provider, ProviderAccount, ProviderType};
+use crate::models::provider::{AccountKind, Provider, ProviderAccount};
 use crate::models::{CliTool, LaunchProviderSelection};
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::LaunchRuntime;
@@ -193,9 +193,15 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "JCODE_PROVIDER",
             "JCODE_MODEL",
         ],
-        // Antigravity（agy）v1 不接 Provider（adapter supports_provider=false，
-        // compatible_provider_types 为空），不存在 managed 启动，无需清理继承 env。
-        CliTool::Antigravity => &[],
+        // Antigravity（agy）只接 Gemini 类型：密钥账号用 `GEMINI_API_KEY`。两个都设时 agy 用
+        // `GOOGLE_API_KEY`（1.5.14 二进制里的提示："Both GOOGLE_API_KEY and GEMINI_API_KEY are
+        // set. Using GOOGLE_API_KEY."），继承下来会盖掉托管密钥，所以清掉。
+        CliTool::Antigravity => &[
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "GEMINI_API_BASE",
+            "GOOGLE_GEMINI_BASE_URL",
+        ],
         CliTool::None => &[],
     }
 }
@@ -366,7 +372,7 @@ pub fn resolve_provider_plan(
             .compatible_provider_types
             .iter()
             .any(|compatible| compatible == &provider_type);
-    if !type_compatible && !login_account_hosts_cli(&provider, account, input.cli_tool) {
+    if !type_compatible {
         return Err(provider_error(
             "PROVIDER_INCOMPATIBLE",
             format!(
@@ -527,21 +533,6 @@ pub fn validate_provider_runtime(
 /// 登录账号属于别的 CLI：目录对不上，这次启动既没有密钥也没有登录。
 fn account_login_mismatch(account: &ProviderAccount, cli_tool: CliTool) -> bool {
     account.kind == AccountKind::Login && account.cli_tool.as_deref() != Some(cli_tool.as_id())
-}
-
-/// 供应商类型不在适配器的兼容列表里，但这个登录账号仍可用于该 CLI 的情况。
-///
-/// 目前只有 Antigravity：它不接密钥型供应商（适配器 `supports_provider = false`），
-/// 但它的登录账号（`GEMINI_HOME` 指向独立目录）挂在 Gemini 类型的供应商下面。
-fn login_account_hosts_cli(
-    provider: &Provider,
-    account: &ProviderAccount,
-    cli_tool: CliTool,
-) -> bool {
-    account.kind == AccountKind::Login
-        && account.cli_tool.as_deref() == Some(cli_tool.as_id())
-        && cli_tool == CliTool::Antigravity
-        && provider.provider_type == ProviderType::Gemini
 }
 
 /// 默认回退用：供应商的默认账号对这个 CLI 是否有可用的托管配置。
@@ -1923,7 +1914,7 @@ mod tests {
                     .iter()
                     .any(|item| Some(item.as_str()) == type_id.as_str());
                 assert!(
-                    compatible || (*cli == "antigravity" && provider_type == ProviderType::Gemini),
+                    compatible,
                     "{cli} cannot launch with provider type {type_id}"
                 );
             }
@@ -1936,7 +1927,6 @@ mod tests {
             (CliTool::Claude, ProviderType::Anthropic),
             (CliTool::Codex, ProviderType::OpenAI),
             (CliTool::Gemini, ProviderType::Gemini),
-            // Antigravity 不接密钥型供应商，但它的登录账号挂在 Gemini 类型下面。
             (CliTool::Antigravity, ProviderType::Gemini),
             (CliTool::Grok, ProviderType::Grok),
         ];
@@ -1989,17 +1979,31 @@ mod tests {
         .unwrap();
         assert_eq!(plan.mode, ProviderMode::Native);
 
-        // Antigravity 仍然不接密钥账号。
+        // Antigravity 也接 Gemini 类型的密钥账号（注入 GEMINI_API_KEY）。
         let mut gemini = provider("g1", ProviderType::Gemini);
         gemini.api_key = None;
         gemini.accounts = vec![key_account("key")];
-        let error = resolve_accounts(
+        let plan = resolve_accounts(
             CliTool::Antigravity,
             (Some("g1"), None),
             (None, None),
             (None, None),
             None,
             &[gemini],
+        )
+        .unwrap();
+        assert_eq!(plan.mode, ProviderMode::Managed);
+        assert_eq!(plan.account_id.as_deref(), Some("key"));
+
+        // 但不接别的类型。
+        let anthropic = provider("a1", ProviderType::Anthropic);
+        let error = resolve_accounts(
+            CliTool::Antigravity,
+            (Some("a1"), None),
+            (None, None),
+            (None, None),
+            None,
+            &[anthropic],
         )
         .unwrap_err();
         assert_eq!(error.code(), Some("PROVIDER_INCOMPATIBLE"));

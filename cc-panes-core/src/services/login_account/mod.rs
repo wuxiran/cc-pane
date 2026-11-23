@@ -517,10 +517,32 @@ impl LoginAccountService {
                     "GOOGLE_GENAI_USE_GCA",
                 ],
             ),
-            "antigravity" => (&["--login"], false, &["GEMINI_API_KEY", "GOOGLE_API_KEY"]),
+            // `--login` 是 `agy acp` 子命令的参数（agy 1.5.14 实测：顶层 `agy --login` 报
+            // `flags provided but not defined`）。它打印登录链接，等用户贴回授权码后退出。
+            // 账号目录经 `--gemini_dir` 传（见下方补参数），`GEMINI_HOME` agy 不读。
+            "antigravity" => (
+                &["acp", "--login"],
+                false,
+                &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            ),
             "grok" => (&["login"], false, &["XAI_API_KEY"]),
             _ => (&[], true, &[]),
         };
+
+        let mut args: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+        if cli_tool == "antigravity" {
+            if let Some(dir) = account.login_dir() {
+                // agy 1.5.14 只认 `--gemini_dir` 换掉 `~/.gemini`（`acp` 与交互界面都认），
+                // 放在 `--login` 前面。
+                args.splice(
+                    1..1,
+                    [
+                        cc_cli_adapters::ANTIGRAVITY_GEMINI_DIR_FLAG.to_string(),
+                        dir.to_string(),
+                    ],
+                );
+            }
+        }
 
         let override_command = executable_override(cli_tool)
             .map(|value| value.trim().to_string())
@@ -535,7 +557,7 @@ impl LoginAccountService {
         Ok(LoginCommand {
             cli_tool: cli_tool.to_string(),
             command,
-            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+            args,
             env,
             env_remove: env_remove.iter().map(|key| (*key).to_string()).collect(),
             interactive,

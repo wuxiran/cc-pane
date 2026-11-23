@@ -38,6 +38,29 @@ describe("selectableAccounts", () => {
     expect(selectableAccounts(p, "opencode").map((a) => a.id)).toEqual(["default"]);
   });
 
+  it("Gemini 供应商下 Antigravity 能选密钥账号和自己的登录账号，看不到 Gemini CLI 的登录", () => {
+    const p = provider({
+      providerType: "gemini",
+      accounts: [
+        { id: "default", name: "默认", kind: "api_key" },
+        { id: "gemini-1", name: "Gemini 号", kind: "login", cliTool: "gemini" },
+        { id: "agy-1", name: "反重力号", kind: "login", cliTool: "antigravity" },
+      ],
+    });
+    expect(selectableAccounts(p, "antigravity").map((a) => a.id)).toEqual([
+      "default",
+      "agy-1",
+      DEFAULT_LOGIN_ACCOUNT_ID,
+    ]);
+    const agyAccounts = selectableAccounts(p, "antigravity");
+    expect(agyAccounts[agyAccounts.length - 1]?.cliTool).toBe("antigravity");
+    expect(selectableAccounts(p, "gemini").map((a) => a.id)).toEqual([
+      "default",
+      "gemini-1",
+      DEFAULT_LOGIN_ACCOUNT_ID,
+    ]);
+  });
+
   it("记住的账号不再可选时判为失效", () => {
     const p = provider({});
     expect(isSelectableAccount(p, "claude", "default")).toBe(true);

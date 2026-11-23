@@ -2475,9 +2475,12 @@ impl TerminalService {
             }
             cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
         } else if cli_tool == CliTool::Antigravity {
-            // 与本地 antigravity.rs build_command 同口径（v1：无 Provider/MCP/effort）。
+            // 与本地 antigravity.rs build_command 同口径（无 MCP/effort）。
             // 初始 prompt 必须走 --prompt-interactive：位置参数语义未文档化，
             // 而 -p 是 headless print 模式，跑完即退。
+            // 密钥账号：`GEMINI_API_KEY` 已随通用 Provider env export，这里打开 Gemini API 直连；
+            // 登录账号在 WSL 下已被 `validate_provider_runtime` 拒绝。
+            cli_args.extend(cc_cli_adapters::antigravity_provider_args(provider));
             if let Some(resume_id) = resume_id {
                 cli_args.push(cc_cli_adapters::ANTIGRAVITY_RESUME_FLAG.to_string());
                 cli_args.push(resume_id.to_string());

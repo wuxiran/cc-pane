@@ -466,7 +466,7 @@ fn login_commands_follow_each_cli() {
         ("claude", &["auth", "login"], false),
         ("codex", &["login"], false),
         ("gemini", &[], true),
-        ("antigravity", &["--login"], false),
+        ("antigravity", &["acp", "--login"], false),
         ("grok", &["login"], false),
     ];
     for (cli, args, interactive) in cases {
@@ -480,7 +480,15 @@ fn login_commands_follow_each_cli() {
         assert_eq!(command.cli_tool, cli);
         assert_eq!(command.command, format!("/fake/bin/{}", layout.executable));
         assert!(command.executable_found);
-        assert_eq!(command.args, args.to_vec(), "{cli}");
+        let mut expected: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+        if cli == "antigravity" {
+            // agy 不读 GEMINI_HOME：账号目录经 `acp --gemini_dir <目录>` 传。
+            expected.splice(
+                1..1,
+                ["--gemini_dir".to_string(), view.config_dir.clone().unwrap()],
+            );
+        }
+        assert_eq!(command.args, expected, "{cli}");
         assert_eq!(command.interactive, interactive, "{cli}");
         assert_eq!(
             command.env.get(layout.dir_env_var),
@@ -530,7 +538,7 @@ fn login_commands_follow_each_cli() {
         )
         .unwrap();
     assert_eq!(command.cli_tool, "antigravity");
-    assert_eq!(command.args, vec!["--login"]);
+    assert_eq!(command.args, vec!["acp", "--login"]);
     assert!(command.env.is_empty());
 
     // 用户在设置里配了启动命令：照用。

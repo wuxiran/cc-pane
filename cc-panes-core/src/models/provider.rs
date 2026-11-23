@@ -336,8 +336,9 @@ pub fn login_dir_env_var(cli_tool: &str) -> Option<&'static str> {
 }
 
 /// Antigravity 把所有登录放进同一个钥匙串条目、不分目录；只有当它认为自己在远程连接里
-/// 才改用目录里的文件存凭据（T3 Code 的做法）。所以它的登录账号在登录和启动时都带这个变量，
-/// 否则换了 `GEMINI_HOME` 也还是同一个号。
+/// 才改用目录里的文件存凭据（T3 Code 的做法；agy 1.5.14 日志实测："Using file-based token
+/// storage because SSH session detected"）。所以它的登录账号在登录和启动时都带这个变量，
+/// 否则换了目录（`--gemini_dir`）也还是同一个号。
 pub const ANTIGRAVITY_FILE_STORAGE_ENV: (&str, &str) =
     ("SSH_CONNECTION", "127.0.0.1 0 127.0.0.1 0");
 
@@ -572,9 +573,8 @@ impl Provider {
 
     /// 这条供应商下可以挂哪些 CLI 的登录账号（按供应商类型）。
     ///
-    /// 与各适配器的兼容类型一致；Antigravity 不接密钥型供应商，它的登录账号挂在
-    /// Gemini 类型下面。「配置目录」类型本身就是一个目录，不再合成默认登录；
-    /// 「本机网关」还没有任何适配器接。
+    /// 与各适配器的兼容类型一致（Gemini 类型下 Gemini CLI 与 Antigravity 都能挂）。
+    /// 「配置目录」类型本身就是一个目录，不再合成默认登录；「本机网关」还没有任何适配器接。
     pub fn login_cli_tools(&self) -> &'static [&'static str] {
         match self.provider_type {
             ProviderType::Anthropic
@@ -677,7 +677,14 @@ impl Provider {
             }
             ProviderType::Gemini => {
                 push_key(&mut vars, "GEMINI_API_KEY");
-                push(&mut vars, "GEMINI_API_BASE", url);
+                // Antigravity 读 `GOOGLE_GEMINI_BASE_URL`（agy CHANGELOG：Gemini API 直连时
+                // "point `GOOGLE_GEMINI_BASE_URL` at a custom endpoint"）。
+                let base_url_var = if cli_tool == "antigravity" {
+                    "GOOGLE_GEMINI_BASE_URL"
+                } else {
+                    "GEMINI_API_BASE"
+                };
+                push(&mut vars, base_url_var, url);
             }
             ProviderType::Kimi => {
                 push_key(&mut vars, "KIMI_API_KEY");

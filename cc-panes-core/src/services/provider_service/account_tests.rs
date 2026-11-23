@@ -1054,6 +1054,31 @@ fn login_accounts_point_each_cli_at_its_directory_without_any_key() {
     }
 }
 
+/// Antigravity 的密钥账号：注入 `GEMINI_API_KEY`（agy 认它），不带登录目录、不伪装远程连接。
+#[test]
+fn antigravity_key_account_injects_gemini_api_key_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = owner(&dir, &memory_store());
+    let mut provider = new_provider("p1", ProviderType::Gemini);
+    provider.accounts = vec![key_account("key", "密钥号", Some("AIza-test"))];
+    service.add_provider(provider).unwrap();
+    let provider = service.get_provider("p1").unwrap();
+
+    let resolved = service
+        .resolve_launch_env(&provider, Some("key"), "antigravity")
+        .unwrap();
+    let env = resolved.env_map();
+
+    assert_eq!(
+        env.get("GEMINI_API_KEY").map(String::as_str),
+        Some("AIza-test")
+    );
+    assert_eq!(resolved.api_key.as_deref(), Some("AIza-test"));
+    assert_eq!(resolved.config_dir, None);
+    assert!(!env.contains_key("GEMINI_HOME"));
+    assert!(!env.contains_key("SSH_CONNECTION"));
+}
+
 #[test]
 fn login_accounts_are_limited_to_the_five_supported_clis() {
     let dir = tempfile::tempdir().unwrap();
@@ -1147,6 +1172,10 @@ fn endpoints_are_picked_per_cli() {
         names("gemini")["GEMINI_API_BASE"],
         "https://gw.example/gemini"
     );
+    // Antigravity 读的是 GOOGLE_GEMINI_BASE_URL。
+    let agy = names("antigravity");
+    assert_eq!(agy["GOOGLE_GEMINI_BASE_URL"], "https://gw.example/gemini");
+    assert!(!agy.contains_key("GEMINI_API_BASE"));
 }
 
 #[test]

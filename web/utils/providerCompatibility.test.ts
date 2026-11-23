@@ -96,6 +96,7 @@ describe("provider compatibility from adapter capabilities", () => {
       "opencode",
       "cursor",
       "grok",
+      "antigravity",
     ] as const;
 
     expect(compatibleCliToolsForProviderType("anthropic", [], candidates)).toEqual([
@@ -115,9 +116,20 @@ describe("provider compatibility from adapter capabilities", () => {
     expect(compatibleCliToolsForProviderType("config_profile", [], candidates)).toEqual([
       "claude",
     ]);
-    expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual(["pi", "gemini"]);
+    expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual([
+      "pi",
+      "gemini",
+      "antigravity",
+    ]);
     expect(compatibleCliToolsForProviderType("kimi", [], candidates)).toEqual(["kimi"]);
     expect(compatibleCliToolsForProviderType("cursor", [], candidates)).toEqual(["cursor"]);
     expect(compatibleCliToolsForProviderType("grok", [], candidates)).toEqual(["pi", "grok"]);
+  });
+
+  it("lets Antigravity pick Gemini providers only (key → GEMINI_API_KEY, login → GEMINI_HOME)", () => {
+    expect(isProviderTypeCompatibleWithCli("gemini", "antigravity", [])).toBe(true);
+    for (const other of ["anthropic", "open_ai", "grok", "proxy", "config_profile"] as const) {
+      expect(isProviderTypeCompatibleWithCli(other, "antigravity", [])).toBe(false);
+    }
   });
 });
