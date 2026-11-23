@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { setAppViewMode } = vi.hoisted(() => ({ setAppViewMode: vi.fn() }));
+const { setAppViewMode, renameTab } = vi.hoisted(() => ({ setAppViewMode: vi.fn(), renameTab: vi.fn() }));
 const state = vi.hoisted(() => ({
   tabs: [{ id: "old", contentType: "terminal", sessionId: "s-old" }] as Array<{ id: string; contentType: string; sessionId: string | null }>,
   outputCalls: 0,
@@ -12,8 +12,9 @@ vi.mock("@/stores", () => ({
     getState: () => ({
       findTabAcrossLayouts: (id: string) => {
         const tab = state.tabs.find((candidate) => candidate.id === id);
-        return tab ? { tab } : null;
+        return tab ? { tab, panel: { id: "pane-1" } } : null;
       },
+      renameTab,
     }),
   },
 }));
@@ -48,5 +49,13 @@ describe("runCommandInNewTerminal", () => {
     expect(submitToSession).toHaveBeenCalledWith("s-new", "npm install -g @openai/codex");
     // 首页上点的：必须切到分屏视图，否则 TerminalView 不挂载、会话永远起不来。
     expect(setAppViewMode).toHaveBeenCalledWith("panes");
+    expect(renameTab).not.toHaveBeenCalled();
+  });
+
+  it("给新标签起名，不再只显示项目名", async () => {
+    const tab = { id: "named", contentType: "terminal", sessionId: "s-named" as string | null };
+    const result = runCommandInNewTerminal(() => state.tabs.push(tab), "claude update", "更新 Claude Code");
+    expect(await result).toBe("sent");
+    expect(renameTab).toHaveBeenCalledWith("pane-1", "named", "更新 Claude Code");
   });
 });

@@ -165,5 +165,10 @@
     "projectImported": "Imported into \"{{name}}\"",
     "importFailed": "Couldn't import it: {{error}}",
     "noWorkspace": "No workspace yet. Create one first."
+  },
+  "terminalTitle": {
+    "update": "Update {{name}}",
+    "updateAll": "Update all agents",
+    "install": "Install agent"
   }
 }

@@ -53,13 +53,21 @@ async function shellHasOutput(sessionId: string): Promise<true | null> {
  * `open` 负责打开终端（同步写 store）。返回 "no-terminal" 表示没认出新开的标签或会话没起来，
  * 调用方应退回「复制命令」提示；提交本身失败会抛出。
  */
-export async function runCommandInNewTerminal(open: () => void, command: string): Promise<InstallRunResult> {
+/** 给认出来的新标签起名（如「更新 Claude Code」），否则它和别的终端一样只显示项目名。 */
+function nameTab(tabId: string, title: string | undefined): void {
+  if (!title) return;
+  const location = usePanesStore.getState().findTabAcrossLayouts(tabId);
+  if (location) usePanesStore.getState().renameTab(location.panel.id, tabId, title);
+}
+
+export async function runCommandInNewTerminal(open: () => void, command: string, title?: string): Promise<InstallRunResult> {
   const before = terminalTabIds();
   open();
   // 从首页点进来时主视图还是首页：TerminalView 不挂载就不会建 PTY 会话，必须切到分屏视图。
   useActivityBarStore.getState().setAppViewMode("panes");
   const tabId = await waitFor(() => [...terminalTabIds()].find((id) => !before.has(id)) ?? null, SESSION_TIMEOUT_MS);
   if (!tabId) return "no-terminal";
+  nameTab(tabId, title);
   const sessionId = await waitFor(() => sessionOfTab(tabId), SESSION_TIMEOUT_MS);
   if (!sessionId) return "no-terminal";
   await waitFor(() => shellHasOutput(sessionId), PROMPT_TIMEOUT_MS);

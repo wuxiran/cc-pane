@@ -103,6 +103,7 @@ export default function HomeAgentInstall({ installedTools, ready, onOpenTerminal
         const result = await runCommandInNewTerminal(
           () => onOpenTerminal({ path: terminalCwd }),
           terminalRunCommand(command, platform),
+          t("terminalTitle.install"),
         );
         if (result === "no-terminal") {
           await navigator.clipboard?.writeText(command).catch(() => undefined);

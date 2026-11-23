@@ -54,21 +54,42 @@ trap '__ccpanes_preexec' DEBUG
 PROMPT_COMMAND="__ccpanes_save_ec${PROMPT_COMMAND:+;$PROMPT_COMMAND};__ccpanes_precmd"
 "#;
 
+// 用户 dotfiles 目录若指回 CC-Panes 自己的集成目录（宿主进程本身就是从 CC-Panes 终端里
+// 启动的，比如在终端里跑 `tauri dev`），转发就会自己 source 自己，zsh 报
+// "job table full or recursion limit exceeded"。Rust 侧已过滤，这里再兜一层：
+// 指回当前集成目录时改用 $HOME；同一 shell 里重入直接跳过。
 const ZSHENV_SCRIPT: &str = r#"# CC-Panes shell integration bootstrap (zsh). Do not edit.
-export __CCPANES_USER_ZDOTDIR="${__CCPANES_USER_ZDOTDIR:-$HOME}"
-[ -f "$__CCPANES_USER_ZDOTDIR/.zshenv" ] && source "$__CCPANES_USER_ZDOTDIR/.zshenv"
+if [ -z "$__CCPANES_IN_ZSHENV" ]; then
+  __CCPANES_IN_ZSHENV=1
+  export __CCPANES_USER_ZDOTDIR="${__CCPANES_USER_ZDOTDIR:-$HOME}"
+  [ "$__CCPANES_USER_ZDOTDIR" = "$ZDOTDIR" ] && export __CCPANES_USER_ZDOTDIR="$HOME"
+  [ -f "$__CCPANES_USER_ZDOTDIR/.zshenv" ] && source "$__CCPANES_USER_ZDOTDIR/.zshenv"
+  unset __CCPANES_IN_ZSHENV
+fi
 "#;
 
 const ZPROFILE_SCRIPT: &str = r#"# CC-Panes shell integration (zsh). Do not edit.
-[ -f "$__CCPANES_USER_ZDOTDIR/.zprofile" ] && source "$__CCPANES_USER_ZDOTDIR/.zprofile"
+if [ -z "$__CCPANES_IN_ZPROFILE" ]; then
+  __CCPANES_IN_ZPROFILE=1
+  [ -f "$__CCPANES_USER_ZDOTDIR/.zprofile" ] && source "$__CCPANES_USER_ZDOTDIR/.zprofile"
+  unset __CCPANES_IN_ZPROFILE
+fi
 "#;
 
 const ZLOGIN_SCRIPT: &str = r#"# CC-Panes shell integration (zsh). Do not edit.
-[ -f "$__CCPANES_USER_ZDOTDIR/.zlogin" ] && source "$__CCPANES_USER_ZDOTDIR/.zlogin"
+if [ -z "$__CCPANES_IN_ZLOGIN" ]; then
+  __CCPANES_IN_ZLOGIN=1
+  [ -f "$__CCPANES_USER_ZDOTDIR/.zlogin" ] && source "$__CCPANES_USER_ZDOTDIR/.zlogin"
+  unset __CCPANES_IN_ZLOGIN
+fi
 "#;
 
 const ZSHRC_SCRIPT: &str = r#"# CC-Panes shell integration (zsh): OSC 133;C/D + OSC 7. Do not edit.
-[ -f "$__CCPANES_USER_ZDOTDIR/.zshrc" ] && source "$__CCPANES_USER_ZDOTDIR/.zshrc"
+if [ -z "$__CCPANES_IN_ZSHRC" ]; then
+  __CCPANES_IN_ZSHRC=1
+  [ -f "$__CCPANES_USER_ZDOTDIR/.zshrc" ] && source "$__CCPANES_USER_ZDOTDIR/.zshrc"
+  unset __CCPANES_IN_ZSHRC
+fi
 
 autoload -Uz add-zsh-hook
 __ccpanes_preexec() { printf '\033]133;C;%s\033\\' "$1" }
@@ -137,10 +158,17 @@ pub(super) fn apply(
             ]);
         }
         ShellKind::Zsh => {
-            // 保留用户原 ZDOTDIR，脚本据此转发 dotfiles
-            if let Ok(user_zdotdir) = std::env::var("ZDOTDIR") {
-                env.insert("__CCPANES_USER_ZDOTDIR".to_string(), user_zdotdir);
-            }
+            // 保留用户原 ZDOTDIR，脚本据此转发 dotfiles。宿主进程若是从 CC-Panes 终端里
+            // 启动的（dev 版跑在正式版的终端里最常见），它继承到的 ZDOTDIR 是集成目录本身，
+            // 不能当成用户的；总是显式写入，盖掉继承来的旧值（空串 = 脚本回落 $HOME）。
+            let user_zdotdir = resolve_user_zdotdir(
+                std::env::var("ZDOTDIR").ok(),
+                std::env::var("__CCPANES_USER_ZDOTDIR").ok(),
+            );
+            env.insert(
+                "__CCPANES_USER_ZDOTDIR".to_string(),
+                user_zdotdir.unwrap_or_default(),
+            );
             env.insert(
                 "ZDOTDIR".to_string(),
                 dir.join("zsh").to_string_lossy().to_string(),
@@ -148,6 +176,29 @@ pub(super) fn apply(
         }
     }
     (command, args)
+}
+
+/// 选出用户真正的 zsh dotfiles 目录：当前 ZDOTDIR 优先；它是 CC-Panes 集成目录时，
+/// 退到上一层集成记下的原值；都不可用返回 None（脚本回落 `$HOME`）。
+fn resolve_user_zdotdir(zdotdir: Option<String>, saved: Option<String>) -> Option<String> {
+    [zdotdir, saved]
+        .into_iter()
+        .flatten()
+        .find(|dir| !dir.trim().is_empty() && !is_ccpanes_zdotdir(Path::new(dir)))
+}
+
+/// 任意数据目录（正式版 / dev 版）下的 `shell-integration/zsh`，或 `.zshenv` 带集成标记的目录。
+fn is_ccpanes_zdotdir(dir: &Path) -> bool {
+    let mut parts = dir.components().rev().filter_map(|c| match c {
+        std::path::Component::Normal(name) => Some(name.to_string_lossy().to_string()),
+        _ => None,
+    });
+    if parts.next().as_deref() == Some("zsh") && parts.next().as_deref() == Some("shell-integration") {
+        return true;
+    }
+    std::fs::read_to_string(dir.join(".zshenv"))
+        .map(|content| content.starts_with("# CC-Panes shell integration"))
+        .unwrap_or(false)
 }
 
 /// git-bash 接受 Windows 路径但正斜杠形式更稳（`D:/...`）。
@@ -247,6 +298,83 @@ mod tests {
         assert!(args.is_empty());
         let zdotdir = env.get("ZDOTDIR").expect("ZDOTDIR set");
         assert!(std::path::Path::new(zdotdir).join(".zshrc").exists());
+    }
+
+    #[test]
+    fn user_zdotdir_skips_ccpanes_integration_dirs() {
+        // 宿主跑在正式版终端里：继承到的 ZDOTDIR 是正式版集成目录，原值是 $HOME
+        assert_eq!(
+            resolve_user_zdotdir(
+                Some("/Users/me/.cc-panes/shell-integration/zsh".into()),
+                Some("/Users/me".into()),
+            ),
+            Some("/Users/me".into())
+        );
+        // 两个都指向集成目录（嵌套多层）：交给脚本回落 $HOME
+        assert_eq!(
+            resolve_user_zdotdir(
+                Some("/Users/me/.cc-panes-dev/shell-integration/zsh".into()),
+                Some("/Users/me/.cc-panes/shell-integration/zsh/".into()),
+            ),
+            None
+        );
+        // 用户自己的 ZDOTDIR 原样保留
+        assert_eq!(
+            resolve_user_zdotdir(Some("/Users/me/.config/zsh".into()), None),
+            Some("/Users/me/.config/zsh".into())
+        );
+        assert_eq!(resolve_user_zdotdir(None, Some(" ".into())), None);
+    }
+
+    #[test]
+    fn user_zdotdir_detects_integration_by_marker() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(".zshenv"), ZSHENV_SCRIPT).unwrap();
+        let marked = tmp.path().to_string_lossy().to_string();
+        assert_eq!(resolve_user_zdotdir(Some(marked), None), None);
+    }
+
+    #[test]
+    fn zsh_scripts_guard_against_self_sourcing() {
+        for script in [ZSHENV_SCRIPT, ZPROFILE_SCRIPT, ZLOGIN_SCRIPT, ZSHRC_SCRIPT] {
+            assert!(script.contains("if [ -z \"$__CCPANES_IN_"), "{script}");
+        }
+        assert!(ZSHENV_SCRIPT.contains("= \"$ZDOTDIR\" ]"));
+    }
+
+    /// 真实 zsh：用户目录指回集成目录时不再无限递归，并且用户的 .zshrc 照常被加载。
+    #[cfg(unix)]
+    #[test]
+    fn zsh_does_not_recurse_when_inherited_zdotdir_is_integration_dir() {
+        let Ok(zsh) = which_zsh() else { return };
+        let data = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join(".zshrc"), "echo user-zshrc-loaded\n").unwrap();
+        let mut env = HashMap::new();
+        apply(data.path(), zsh.clone(), vec![], &mut env);
+        let zdotdir = env["ZDOTDIR"].clone();
+        // 模拟最坏情况：继承来的原值就是集成目录本身
+        let output = std::process::Command::new(&zsh)
+            .args(["-i", "-c", "true"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("ZDOTDIR", &zdotdir)
+            .env("__CCPANES_USER_ZDOTDIR", &zdotdir)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(!stderr.contains("recursion"), "{stderr}");
+        assert!(stdout.contains("user-zshrc-loaded"), "stdout={stdout} stderr={stderr}");
+    }
+
+    #[cfg(unix)]
+    fn which_zsh() -> Result<String, ()> {
+        ["/bin/zsh", "/usr/bin/zsh"]
+            .into_iter()
+            .find(|path| Path::new(path).exists())
+            .map(str::to_string)
+            .ok_or(())
     }
 
     #[test]

@@ -46,7 +46,16 @@ export default function HomeAgentList({ tools, installedTools, loading, onRefres
   const updateById = useMemo(() => new Map(updates.map((update) => [update.id, update])), [updates]);
   const runCommand = useRunAgentCommand(onOpenTerminal ?? NOOP_OPEN);
   const updateAll = () => {
-    for (const command of batchUpdateCommands(updates, currentInstallPlatform())) void runCommand(command);
+    const commands = batchUpdateCommands(updates, currentInstallPlatform());
+    // 合成一条时一个终端跑全部；Windows 每个 Agent 各开一个，标题写明是谁。
+    if (commands.length === 1 && updates.length > 1) {
+      void runCommand(commands[0], t("terminalTitle.updateAll"));
+      return;
+    }
+    updates.forEach((update, index) => {
+      const command = commands[index];
+      if (command) void runCommand(command, t("terminalTitle.update", { name: update.name }));
+    });
   };
   const refreshAll = () => {
     onRefresh();
@@ -128,7 +137,7 @@ export default function HomeAgentList({ tools, installedTools, loading, onRefres
                   update={updateById.get(tool.id)}
                   onUpdate={() => {
                     const update = updateById.get(tool.id);
-                    if (update) void runCommand(update.command);
+                    if (update) void runCommand(update.command, t("terminalTitle.update", { name: update.name }));
                   }}
                 />
               );

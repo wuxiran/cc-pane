@@ -165,5 +165,10 @@
     "projectImported": "已导入到「{{name}}」",
     "importFailed": "导入失败：{{error}}",
     "noWorkspace": "还没有工作空间，先建一个再导入。"
+  },
+  "terminalTitle": {
+    "update": "更新 {{name}}",
+    "updateAll": "更新全部 Agent",
+    "install": "安装 Agent"
   }
 }

@@ -17,13 +17,14 @@ export function useRunAgentCommand(onOpenTerminal: (opts: OpenTerminalOptions) =
   const terminalCwd = resolveDefaultAgentCwd(workspaces, expandedWorkspaceId, expandedProjectId);
 
   return useCallback(
-    async (command: string) => {
+    async (command: string, title?: string) => {
       if (!terminalCwd) return;
       const platform = currentInstallPlatform();
       try {
         const result = await runCommandInNewTerminal(
           () => onOpenTerminal({ path: terminalCwd }),
           terminalRunCommand(command, platform),
+          title,
         );
         if (result === "no-terminal") {
           await navigator.clipboard?.writeText(command).catch(() => undefined);
