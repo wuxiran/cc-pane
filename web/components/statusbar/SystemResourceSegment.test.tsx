@@ -245,9 +245,10 @@ describe("SystemResourceSegment", () => {
     fireEvent.mouseEnter(segment);
 
     expect(screen.getByTestId("usage-stats-hover-preview")).toBeVisible();
-    expect(screen.getByText(/输入|input/i)).toBeVisible();
-    expect(screen.getByText(/输出|output/i)).toBeVisible();
-    expect(screen.getByText(/命中率|cache hit/i)).toBeVisible();
+    // 报表里「输入」「输出」「命中率」会在指标和图例里各出现一次，只确认至少可见一处
+    expect(screen.getAllByText(/^(输入|input)$/i)[0]).toBeVisible();
+    expect(screen.getAllByText(/^(输出|output)$/i)[0]).toBeVisible();
+    expect(screen.getAllByText(/^(命中率|cache hit)/i)[0]).toBeVisible();
 
     fireEvent.mouseLeave(segment);
     expect(screen.getByTestId("usage-stats-hover-preview")).toBeVisible();

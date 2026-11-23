@@ -9,7 +9,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useUsageStatsStore } from "@/stores";
-import type { UsageTotals } from "@/types/usageStats";
+import UsageStatsReport from "./UsageStatsReport";
+import { buildUsageReport } from "./usageReport";
+
+const PREVIEW_RANGES = [
+  { days: 1, labelKey: "usage.rangeToday" },
+  { days: 7, labelKey: "usage.range7d" },
+  { days: 30, labelKey: "usage.range30d" },
+] as const;
 
 interface UsageStatsHoverPreviewProps {
   open: boolean;
@@ -28,26 +35,12 @@ function cliLabel(cli: string): string {
   return labels[cli] ?? cli;
 }
 
-function formatCompact(value: number, language: string): string {
-  return new Intl.NumberFormat(language.startsWith("zh") ? "zh-CN" : "en-US", {
-    notation: "compact",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function formatPercent(value: number | null): string {
-  return value === null || Number.isNaN(value)
-    ? "--"
-    : `${(value * 100).toFixed(1)}%`;
-}
-
 export default function UsageStatsHoverPreview({
   open,
   onSourceMenuOpenChange,
 }: UsageStatsHoverPreviewProps) {
-  const { t, i18n } = useTranslation("home");
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  const { data, loading, load } = useUsageStatsStore();
+  const { t } = useTranslation("home");
+  const { data, loading, load, rangeDays, setRangeDays } = useUsageStatsStore();
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,47 +56,14 @@ export default function UsageStatsHoverPreview({
 
   if (!open) return null;
 
-  const totals = Object.entries(data?.byCli ?? {})
-    .filter(([source]) => sourceFilter === null || source === sourceFilter)
-    .map(([, value]) => value)
-    .reduce<UsageTotals>(
-      (sum, current) => ({
-        charCount: sum.charCount + current.charCount,
-        tokenInput: sum.tokenInput + current.tokenInput,
-        tokenOutput: sum.tokenOutput + current.tokenOutput,
-        tokenCacheRead: sum.tokenCacheRead + current.tokenCacheRead,
-        tokenCacheCreation: sum.tokenCacheCreation + current.tokenCacheCreation,
-      }),
-      { charCount: 0, tokenInput: 0, tokenOutput: 0, tokenCacheRead: 0, tokenCacheCreation: 0 },
-    );
-  const input = totals.tokenInput;
-  const output = totals.tokenOutput;
-  const cacheableInput = totals.tokenInput + totals.tokenCacheCreation + totals.tokenCacheRead;
-  const hitRate = cacheableInput > 0 ? totals.tokenCacheRead / cacheableInput : null;
-  const metrics = [
-    {
-      label: t("usage.previewInput"),
-      value: formatCompact(input, language),
-      color: "var(--chart-2)",
-    },
-    {
-      label: t("usage.previewOutput"),
-      value: formatCompact(output, language),
-      color: "var(--chart-1)",
-    },
-    {
-      label: t("usage.previewHitRate"),
-      value: formatPercent(hitRate),
-      color: "var(--chart-3)",
-    },
-  ];
+  const report = buildUsageReport(data, sourceFilter);
 
   return (
     <section
       id="usage-stats-hover-preview"
       data-testid="usage-stats-hover-preview"
       aria-label={t("usage.title")}
-      className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-[292px] rounded-md border p-2.5 shadow-xl"
+      className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-[400px] max-w-[calc(100vw-16px)] rounded-lg border p-3 shadow-xl"
       style={{
         background: "var(--app-home-surface)",
         borderColor: "var(--app-home-border)",
@@ -111,7 +71,7 @@ export default function UsageStatsHoverPreview({
       }}
     >
       <header
-        className="mb-1.5 flex h-5 items-center justify-between gap-2 border-b pb-1.5"
+        className="mb-3 flex h-6 items-center justify-between gap-2 border-b pb-2"
         style={{ borderColor: "var(--app-home-border)" }}
       >
         <div className="flex min-w-0 items-center gap-1.5">
@@ -134,9 +94,26 @@ export default function UsageStatsHoverPreview({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        <div className="ml-auto flex shrink-0 items-center rounded-md bg-[var(--app-hover)] p-0.5" role="group" aria-label={t("usage.timeRange")}>
+          {PREVIEW_RANGES.map((range) => (
+            <button
+              key={range.days}
+              type="button"
+              aria-pressed={rangeDays === range.days}
+              className={`rounded px-1.5 text-[length:var(--text-nano)] leading-[18px] transition-colors ${
+                rangeDays === range.days
+                  ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                  : "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
+              }`}
+              onClick={() => void setRangeDays(range.days).catch(() => undefined)}
+            >
+              {t(range.labelKey)}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
-          className="inline-flex items-center text-[length:var(--text-micro)] transition-colors hover:text-[var(--app-text-primary)]"
+          className="inline-flex shrink-0 items-center text-[length:var(--text-micro)] transition-colors hover:text-[var(--app-text-primary)]"
           style={{ color: "var(--app-text-secondary)" }}
           onClick={() => navigateToSettings({ paneId: "usage-stats" })}
         >
@@ -146,38 +123,15 @@ export default function UsageStatsHoverPreview({
       </header>
 
       {loading && !data ? (
-        <div
-          className="flex h-[58px] items-center justify-center text-[length:var(--text-caption)]"
-          style={{ color: "var(--app-text-tertiary)" }}
-        >
+        <div className="flex h-[120px] items-center justify-center text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
           {t("usage.loading")}
         </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-0">
-          {metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="min-w-0 px-2 first:pl-0 last:pr-0"
-              style={{
-                borderLeft: `1px solid ${metric === metrics[0] ? "transparent" : "var(--app-home-border)"}`,
-              }}
-            >
-              <div
-                className="truncate text-[length:var(--text-micro)]"
-                style={{ color: "var(--app-text-secondary)" }}
-              >
-                {metric.label}
-              </div>
-              <div
-                className="mt-0.5 truncate text-[length:var(--text-title)] font-semibold tabular-nums"
-                style={{ color: metric.color }}
-                title={metric.value}
-              >
-                {metric.value}
-              </div>
-            </div>
-          ))}
+      ) : report.processed === 0 ? (
+        <div className="flex h-[80px] items-center justify-center text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
+          {t("usage.noData")}
         </div>
+      ) : (
+        <UsageStatsReport report={report} sourceLabel={cliLabel} showSources={sourceFilter === null} />
       )}
     </section>
   );
