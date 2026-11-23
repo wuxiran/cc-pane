@@ -31,7 +31,8 @@ export default function LayoutViewMenu() {
     const root = rootRef.current;
     if (!root) return;
     const rect = root.getBoundingClientRect();
-    setFloatingPosition(clampFloatingPosition({ left: rect.right + 10, top: rect.top }));
+    // 触发器位于顶栏右端：向下展开，横向由 clamp 收回视口内，避免盖住触发器本身。
+    setFloatingPosition(clampFloatingPosition({ left: rect.left, top: rect.bottom + 10 }));
   }
 
   function close(refocus = false) {

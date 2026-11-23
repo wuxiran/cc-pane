@@ -1,8 +1,9 @@
-import { LayoutAutoFitButton } from "./LayoutAutoFit";
 // 布局条（topbar 模式）：终端标签上方的一层，水平列出全部布局。
 // 点击切换、双击重命名、悬停删除、＋新建；与左下角 LayoutBar 共用同一份
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
 // 布局预设 / 星标 / Agent Chat 收在 LayoutPresetPicker 簇里；顶栏卡片只列用户布局。
+// 从左到右：布局卡片（可横向滚动）│ 视图菜单 · 星标/预设簇 · ＋新建（固定在右端，不随卡片滚动）。
+// 自动适配布局的开关只留在 corner 模式的 LayoutSelectorPanel，顶栏不再放。
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
@@ -113,21 +114,6 @@ export default function LayoutTopBar() {
       aria-label={t("layouts")}
       data-density={density}
     >
-      <LayoutViewMenu />
-      {/* 舒适档：上 Agent Chat，下星标 / 预设 / 自动化纯图标。紧凑档同一组并排。 */}
-      <div
-        data-testid="layout-preset-cluster"
-        data-density={density}
-        className={
-          density === "comfortable"
-            ? "ml-1.5 flex h-[44px] flex-shrink-0 items-stretch gap-0.5"
-            : "flex flex-shrink-0 items-center gap-0.5 pl-1.5"
-        }
-      >
-        <LayoutPresetPicker matchedPreset={matchedPreset} stacked={density === "comfortable"} />
-        {currentLayoutStarred ? null : <LayoutAutoFitButton stacked={density === "comfortable"} />}
-      </div>
-
       <LayoutTabStrip
         activeLayoutId={currentLayoutId}
         revealKey={JSON.stringify([density, editingId, stripLayouts.map((layout) => layout.id)])}
@@ -192,24 +178,40 @@ export default function LayoutTopBar() {
         </SortableContext>
       </LayoutTabStrip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={t("newLayout")}
-            className="flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-            style={{ color: "var(--app-text-tertiary)" }}
-            onClick={() => {
-              setAppViewMode("panes");
-              createLayout();
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("newLayout")}</TooltipContent>
-      </Tooltip>
-
+      {/* 工具组固定在右端：竖线与卡片区分隔，卡片溢出滚动时它不跟着动。 */}
+      <div data-testid="layout-tools" className="flex flex-shrink-0 items-center gap-1 self-stretch">
+        <span aria-hidden="true" className="mx-0.5 h-4 w-px flex-shrink-0" style={{ background: "var(--app-border)" }} />
+        <LayoutViewMenu />
+        {/* 舒适档：星标 / 预设纯图标上下叠放；紧凑档同一组并排。 */}
+        <div
+          data-testid="layout-preset-cluster"
+          data-density={density}
+          className={
+            density === "comfortable"
+              ? "flex h-[44px] flex-shrink-0 items-stretch gap-0.5"
+              : "flex flex-shrink-0 items-center gap-0.5"
+          }
+        >
+          <LayoutPresetPicker matchedPreset={matchedPreset} stacked={density === "comfortable"} />
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("newLayout")}
+              className="flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+              style={{ color: "var(--app-text-tertiary)" }}
+              onClick={() => {
+                setAppViewMode("panes");
+                createLayout();
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("newLayout")}</TooltipContent>
+        </Tooltip>
+      </div>
 
       <LayoutDeleteDialog
         summary={deleteSummary}

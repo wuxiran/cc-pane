@@ -140,7 +140,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
     navigateToSettingsMock.mockClear();
   });
 
-  it("舒适档：星标 / 预设 / 自动化纯图标，不再有 Agent Chat 固定入口", () => {
+  it("舒适档：星标 / 预设纯图标，不再有 Agent Chat 固定入口与自动适配按钮", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
 
     const cluster = screen.getByTestId("layout-preset-cluster");
@@ -152,8 +152,25 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(within(cluster).getByRole("button", { name: /布局预设|Layout presets/i })).toBe(presetTrigger());
     expect(within(presetTrigger()).queryByText(/^(单格|Single|布局预设|Layout presets)$/)).not.toBeInTheDocument();
     expect(within(cluster).getByTestId("layout-special-starred")).not.toHaveTextContent(/星标|Starred/);
-    const autofit = within(cluster).getByRole("button", { name: /自动适配布局|Auto-fit layout/i });
-    expect(autofit.className).toMatch(/\bw-7\b/);
+    // 自动适配布局开关只留在 corner 模式选择面板，顶栏不再放
+    expect(screen.queryByRole("button", { name: /自动适配布局|Auto-fit layout/i })).toBeNull();
+  });
+
+  it("布局卡片从最左开始排，工具组（视图 / 星标预设簇 / 新建）固定在右端", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+
+    const bar = screen.getByRole("tablist");
+    const strip = screen.getByTestId("layout-strip");
+    const tools = screen.getByTestId("layout-tools");
+    const add = screen.getByRole("button", { name: /新建布局|New layout/i });
+    expect(bar.firstElementChild).toBe(strip);
+    expect(strip.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(strip).not.toContainElement(tools);
+    const ordered = [viewTrigger(), screen.getByTestId("layout-preset-cluster"), add];
+    ordered.forEach((element) => expect(tools).toContainElement(element));
+    for (let i = 1; i < ordered.length; i += 1) {
+      expect(ordered[i - 1].compareDocumentPosition(ordered[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
   it("常驻入口收敛为单按钮，点开浮层列出 6 个带文字标签的预设", () => {
