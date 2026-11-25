@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <sub><a href="docs/readme/README.zh-CN.md">Chinese</a> | <a href="docs/readme/README.ja.md">Japanese</a> | <a href="docs/readme/README.ko.md">Korean</a> | <a href="docs/readme/README.es.md">Spanish</a> | <a href="docs/readme/README.fr.md">French</a> | <a href="docs/readme/README.pt.md">Portuguese</a></sub>
+  <sub><a href="docs/readme/README.zh-CN.md">Chinese</a> | <a href="docs/readme/README.ja.md">Japanese</a> | <a href="docs/readme/README.ko.md">Korean</a> | <a href="docs/readme/README.es.md">Spanish</a> | <a href="docs/readme/README.fr.md">French</a> | <a href="docs/readme/README.pt.md">Portuguese</a> | <a href="docs/readme/README.vi.md">Vietnamese</a></sub>
 </p>
 
 <p align="center">
