@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +29,10 @@ pub struct LaunchProfile {
     pub mcp_policy: LaunchProfileMcpPolicy,
     #[serde(default)]
     pub skill_policy: LaunchProfileSkillPolicy,
+    /// 原生 CLI 配置覆盖片段：CLI id（`codex` / `claude`）→ 原文（Codex 为 TOML、Claude 为 JSON）。
+    /// 叠在中转站片段之上、CC-Panes 显式字段之下，见 `services::native_config`。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub native_overrides: BTreeMap<String, String>,
     #[serde(default)]
     pub is_default: bool,
     pub created_at: String,
@@ -63,6 +67,9 @@ pub struct LaunchProfileDraft {
     pub mcp_policy: LaunchProfileMcpPolicy,
     #[serde(default)]
     pub skill_policy: LaunchProfileSkillPolicy,
+    /// `None` = 不改动已保存的片段（旧调用方不带这个字段时不会把它清空）；`Some` = 整体替换。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_overrides: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub is_default: bool,
 }

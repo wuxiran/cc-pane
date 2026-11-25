@@ -6,7 +6,9 @@ import { translateError } from "@/utils/errorTranslation";
 
 /** Shared ingestion for dialogs, native drops and captures; the token survives remounts,
  * but closing a chat invalidates any read still in flight. */
-export async function attachChatPaths(chatId: string, token: number, imageSupported: boolean, paths: string[]): Promise<void> {
+export async function attachChatPaths(
+  chatId: string, token: number, imageSupported: boolean, paths: string[], onNotice?: (message: string) => void,
+): Promise<void> {
   for (const path of paths) {
     if (!isChatDraftCurrent(chatId, token)) return;
     const name = baseName(path);
@@ -23,7 +25,9 @@ export async function attachChatPaths(chatId: string, token: number, imageSuppor
       ]);
     } catch (error) {
       if (!isChatDraftCurrent(chatId, token)) return;
-      useAgentChatStore.getState().pushNotice(chatId, translateError(error));
+      const message = translateError(error);
+      if (onNotice) onNotice(message);
+      else useAgentChatStore.getState().pushNotice(chatId, message);
     }
   }
 }

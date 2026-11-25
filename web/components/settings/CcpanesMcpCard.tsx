@@ -4,7 +4,9 @@ import { Check, Copy, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { mcpService } from "@/services";
+import { ORCHESTRATOR_TOKEN_ROTATED_EVENT } from "@/services/accessService";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SettingsBlock, SettingsSection } from "./layout";
 
 function CopyRow({
   label,
@@ -32,13 +34,25 @@ function CopyRow({
   );
 }
 
-export default function CcpanesMcpCard() {
+interface CcpanesMcpCardProps {
+  /**
+   * card：资源中心详情里的独立小卡片（默认）。
+   * section：设置页「设备与访问」里的一段 SettingsSection（卡里不再套卡）。
+   */
+  variant?: "card" | "section";
+}
+
+export default function CcpanesMcpCard({ variant = "card" }: CcpanesMcpCardProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [info, setInfo] = useState<{ port: number | null; token: string } | null>(null);
   const [copied, setCopied] = useState<"core" | "full" | "token" | null>(null);
 
   useEffect(() => {
-    mcpService.getOrchestratorInfo().then(setInfo).catch(() => {});
+    const load = () => { mcpService.getOrchestratorInfo().then(setInfo).catch(() => {}); };
+    load();
+    // 「更换令牌」后重新读取，避免继续展示已作废的令牌
+    window.addEventListener(ORCHESTRATOR_TOKEN_ROTATED_EVENT, load);
+    return () => window.removeEventListener(ORCHESTRATOR_TOKEN_ROTATED_EVENT, load);
   }, []);
 
   if (!info || !info.port) return null;
@@ -53,6 +67,26 @@ export default function CcpanesMcpCard() {
     });
   }
 
+  const rows = (
+    <div className="space-y-1.5">
+      <CopyRow label={t("sharedMcp.coreUrl")} value={coreUrl} copied={copied === "core"} onCopy={() => copy("core", coreUrl)} title={t("sharedMcp.copyUrl")} />
+      <CopyRow label={t("sharedMcp.fullUrl")} value={fullUrl} copied={copied === "full"} onCopy={() => copy("full", fullUrl)} title={t("sharedMcp.copyUrl")} />
+      <CopyRow label="Token" value={info.token} copied={copied === "token"} onCopy={() => copy("token", info.token)} title={t("sharedMcp.copyToken")} />
+    </div>
+  );
+
+  if (variant === "section") {
+    return (
+      <SettingsSection
+        sectionId="web-access-mcp"
+        title={t("deviceAccess.mcpTitle")}
+        description={t("sharedMcp.selfHint")}
+      >
+        <SettingsBlock className="py-3">{rows}</SettingsBlock>
+      </SettingsSection>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -61,11 +95,7 @@ export default function CcpanesMcpCard() {
         <Badge variant="secondary" className="text-[length:var(--text-micro)]">HTTP</Badge>
       </div>
       <p className="text-[length:var(--text-micro)] leading-4 text-muted-foreground">{t("sharedMcp.selfHint")}</p>
-      <div className="space-y-1.5">
-        <CopyRow label={t("sharedMcp.coreUrl")} value={coreUrl} copied={copied === "core"} onCopy={() => copy("core", coreUrl)} title={t("sharedMcp.copyUrl")} />
-        <CopyRow label={t("sharedMcp.fullUrl")} value={fullUrl} copied={copied === "full"} onCopy={() => copy("full", fullUrl)} title={t("sharedMcp.copyUrl")} />
-        <CopyRow label="Token" value={info.token} copied={copied === "token"} onCopy={() => copy("token", info.token)} title={t("sharedMcp.copyToken")} />
-      </div>
+      {rows}
     </div>
   );
 }

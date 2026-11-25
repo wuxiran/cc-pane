@@ -56,7 +56,7 @@ export const TERMINAL_STATUS_PRESENTATION = {
     filled: true,
   },
   compacting: {
-    colorToken: "var(--app-accent)",
+    colorToken: "var(--app-accent-2)",
     pulsing: true,
     labelKey: "statusCompacting",
     severityRank: 2,
@@ -64,7 +64,7 @@ export const TERMINAL_STATUS_PRESENTATION = {
     filled: true,
   },
   toolRunning: {
-    colorToken: "var(--app-accent)",
+    colorToken: "var(--app-accent-2)",
     pulsing: true,
     labelKey: "statusToolRunning",
     severityRank: 3,
@@ -72,7 +72,7 @@ export const TERMINAL_STATUS_PRESENTATION = {
     filled: true,
   },
   thinking: {
-    colorToken: "var(--app-accent)",
+    colorToken: "var(--app-accent-2)",
     pulsing: false,
     labelKey: "statusThinking",
     severityRank: 4,
@@ -88,7 +88,7 @@ export const TERMINAL_STATUS_PRESENTATION = {
     filled: true,
   },
   active: {
-    colorToken: "var(--app-accent)",
+    colorToken: "var(--app-accent-2)",
     pulsing: false,
     labelKey: "statusActive",
     severityRank: 6,

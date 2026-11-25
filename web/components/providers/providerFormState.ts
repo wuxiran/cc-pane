@@ -4,6 +4,7 @@
  */
 import type { Provider, ProviderModel, ProviderPreset, ProviderType } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
+import type { NativeOverrides } from "@/types/native-config";
 import { accountDraftsFrom, envDraftsFrom, type AccountDraft, type EnvDraft } from "./accounts/drafts";
 import { EMPTY_ENDPOINTS, endpointDraftFromProvider, type EndpointDraft } from "./accounts/endpoints";
 
@@ -26,6 +27,8 @@ export interface FormState {
   /** 账号（只在编辑已存的供应商时有）；新增 / 复制走旧字段，后端建默认账号。 */
   accounts: AccountDraft[];
   defaultAccountId: string | null;
+  /** 原生 CLI 配置覆盖片段（CLI id → 原文）。 */
+  nativeOverrides: NativeOverrides;
 }
 
 export const emptyForm: FormState = {
@@ -44,6 +47,7 @@ export const emptyForm: FormState = {
   env: [],
   accounts: [],
   defaultAccountId: null,
+  nativeOverrides: {},
 };
 
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
@@ -106,6 +110,7 @@ export function formFromProvider(seed: Provider, asCopy = false): FormState {
     env: envDraftsFrom(seed.env, !asCopy),
     accounts: asCopy ? [] : accountDraftsFrom(seed),
     defaultAccountId: asCopy ? null : seed.defaultAccountId ?? null,
+    nativeOverrides: { ...(seed.nativeOverrides ?? {}) },
   };
 }
 

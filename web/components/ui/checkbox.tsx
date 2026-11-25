@@ -12,7 +12,7 @@ function Checkbox({
       data-slot="checkbox"
       className={cn(
         "peer size-4 shrink-0 rounded-[4px] border border-[var(--app-border-strong,var(--app-border))] bg-transparent transition-colors",
-        "data-[state=checked]:border-[var(--app-accent)] data-[state=checked]:bg-[var(--app-accent)] data-[state=checked]:text-white",
+        "data-[state=checked]:border-[var(--app-accent)] data-[state=checked]:bg-[var(--app-accent)] data-[state=checked]:text-[var(--primary-foreground)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,

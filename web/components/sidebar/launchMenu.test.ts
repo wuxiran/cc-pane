@@ -27,9 +27,12 @@ const CLI_TOOLS = [
   "grok",
   "jcode",
   "antigravity",
+  "kiro",
+  "fx",
+  "muse",
 ];
-// SSH 启动面未放开的工具（Pi 家族 + jcode），只有 default/local/WSL 三变体
-const LOCAL_WSL_ONLY_TOOLS = ["pi", "omp", "jcode"];
+// SSH 启动面未放开的工具（Pi 家族 + jcode + 终端 CLI kiro/fx/muse），只有 default/local/WSL 三变体
+const LOCAL_WSL_ONLY_TOOLS = ["pi", "omp", "jcode", "kiro", "fx", "muse"];
 
 describe("getDefaultSidebarFavoriteLaunchActionIds", () => {
   it("returns the terminal + claude + codex defaults", () => {

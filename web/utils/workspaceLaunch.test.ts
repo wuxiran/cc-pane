@@ -764,7 +764,7 @@ describe("workspaceLaunch", () => {
       expect(options?.launchProfileId).toBe("codex-only");
     });
 
-    it("项目绑定的 profile 运行环境不匹配时静默丢弃", () => {
+    it("旧数据里 targetRuntime=wsl 的项目绑定 profile 在本机环境仍照常传递（运行位置已弃用）", () => {
       useLaunchProfilesStore.setState({
         profiles: [createLaunchProfile({ id: "wsl-only", targetTools: [], targetRuntime: "wsl" })],
       });
@@ -786,7 +786,32 @@ describe("workspaceLaunch", () => {
       });
 
       expect(issue).toBeNull();
-      expect(options?.launchProfileId).toBeUndefined();
+      expect(options?.launchProfileId).toBe("wsl-only");
+    });
+
+    it("旧数据里 targetRuntime=local 的工作空间绑定 profile 在 SSH 项目里仍照常传递", () => {
+      useLaunchProfilesStore.setState({
+        profiles: [createLaunchProfile({ id: "local-only", targetTools: [], targetRuntime: "local" })],
+      });
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        launchProfileId: "local-only",
+        defaultEnvironment: "local",
+      });
+      const project = createTestWorkspaceProject({
+        path: "/srv/app",
+        ssh: { host: "box", port: 22, user: "me", remotePath: "/srv/app" },
+      });
+
+      const { options } = resolveWorkspaceProjectLaunchOptions({
+        workspace,
+        project,
+        cliTool: "claude",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(options?.launchProfileId).toBe("local-only");
     });
 
     it("显式传入的 launchProfileId 不经过滤（保留后端 mismatch 警告）", () => {

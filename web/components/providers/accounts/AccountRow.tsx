@@ -10,6 +10,7 @@ import AccountColorDot from "./AccountColorDot";
 import AccountColorPicker from "./AccountColorPicker";
 import EnvVarsEditor from "./EnvVarsEditor";
 import { secretDisplay, type AccountDraft } from "./drafts";
+import { maskEmail } from "@/utils/maskEmail";
 
 export function LoginStatusText({ status, checking }: { status?: LoginAccountStatus; checking?: boolean }) {
   const { t } = useTranslation("providers");
@@ -19,8 +20,9 @@ export function LoginStatusText({ status, checking }: { status?: LoginAccountSta
     return (
       <span style={{ color: "var(--app-status-success, var(--app-text-secondary))" }}>
         {status.identity
-          ? t("providerAccounts.login.state.loggedInAs", { identity: status.identity })
+          ? t("providerAccounts.login.state.loggedInAs", { identity: maskEmail(status.identity) })
           : t("providerAccounts.login.state.loggedIn")}
+        {status.plan && <span className="ml-1 opacity-80">· {status.plan}</span>}
       </span>
     );
   }

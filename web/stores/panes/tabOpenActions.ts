@@ -140,6 +140,7 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         modelId: reopened.modelId,
         providerSelection: reopened.providerSelection,
         launchProfileId: reopened.launchProfileId,
+        launchProfileSnapshot: reopened.launchProfileSnapshot,
         workspacePath: reopened.workspacePath,
         workspaceSnapshotId: reopened.workspaceSnapshotId,
         // title/launchClaude 此前被丢弃（docs/68 §2.2）；写法对齐 Panel.handleCloneTab

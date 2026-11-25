@@ -26,6 +26,123 @@ pub struct CcSwitchImportCandidate {
     pub base_url: Option<String>,
     pub default_model_id: Option<String>,
     pub codex_wire_api: Option<String>,
+    /// 拆到中转站一层的原生配置片段（Codex TOML）。
+    pub provider_native_override: Option<String>,
+    /// 导入模型的上下文窗口（Codex `model_context_window`）。
+    pub context_window_tokens: Option<u64>,
+    /// 拆到运行配置一层的部分（片段 / YOLO / 模型 / 丢弃的键）。不含密钥。
+    pub profile: ImportedProfileHints,
+}
+
+/// 导入时建议给运行配置的内容：片段、YOLO、模型；以及没有导入的顶层键。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedProfileHints {
+    /// 片段所属 CLI（`codex` / `claude`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_override: Option<String>,
+    #[serde(default)]
+    pub yolo_mode: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// 来源里有、但没有导入的顶层键（托管键 / 像密钥的键 / 不认识的键）。
+    #[serde(default)]
+    pub dropped_keys: Vec<String>,
+}
+
+/// Codex 完整 config.toml 按层拆分的结果。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CodexConfigSplit {
+    pub provider_fragment: toml::Table,
+    pub profile_fragment: toml::Table,
+    pub context_window_tokens: Option<u64>,
+    pub yolo_mode: bool,
+    pub model: Option<String>,
+    pub dropped_keys: Vec<String>,
+}
+
+/// 进中转站片段的键：和这个中转站绑定的行为。
+const CODEX_PROVIDER_KEYS: [&str; 2] = ["disable_response_storage", "model_catalog_json"];
+/// 进运行配置片段的键：用法偏好。
+const CODEX_PROFILE_KEYS: [&str; 4] = [
+    "model_reasoning_effort",
+    "plan_mode_reasoning_effort",
+    "service_tier",
+    "model_auto_compact_token_limit",
+];
+
+/// 把 cc-switch 保存的完整 Codex config.toml 拆成：中转站片段 / 运行配置片段 / 上下文窗口 /
+/// YOLO / 模型。`model_providers` 由调用方单独读（路由与密钥）；其余不认识的顶层键
+/// （projects / hooks / mcp_servers / model_provider / tui / plugins …）不导入并记进
+/// `dropped_keys`——它们本来就在用户自己的 `~/.codex/config.toml` 里，Codex 会照常读取。
+pub fn split_codex_config(config: &toml::Table) -> CodexConfigSplit {
+    let mut split = CodexConfigSplit::default();
+    let approval = config.get("approval_policy").and_then(toml::Value::as_str);
+    let sandbox = config.get("sandbox_mode").and_then(toml::Value::as_str);
+    split.yolo_mode = approval == Some("never") && sandbox == Some("danger-full-access");
+    for (key, value) in config {
+        match key.as_str() {
+            "model_providers" => {}
+            "model" => {
+                split.model = value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                    .map(str::to_string);
+            }
+            "model_context_window" => match value.as_integer().filter(|tokens| *tokens > 0) {
+                Some(tokens) => split.context_window_tokens = Some(tokens as u64),
+                None => split.dropped_keys.push(key.clone()),
+            },
+            "approval_policy" | "sandbox_mode" if split.yolo_mode => {}
+            "approval_policy" | "sandbox_mode" => {
+                split.profile_fragment.insert(key.clone(), value.clone());
+            }
+            key_name if CODEX_PROVIDER_KEYS.contains(&key_name) => {
+                split.provider_fragment.insert(key.clone(), value.clone());
+            }
+            key_name if CODEX_PROFILE_KEYS.contains(&key_name) => {
+                split.profile_fragment.insert(key.clone(), value.clone());
+            }
+            _ => split.dropped_keys.push(key.clone()),
+        }
+    }
+    split
+}
+
+fn toml_fragment_text(table: &toml::Table) -> Option<String> {
+    if table.is_empty() {
+        return None;
+    }
+    toml::to_string(table).ok()
+}
+
+/// Claude：`settings_config` 里 `env` 以外的键进运行配置片段（经同一套校验，托管键 / 像密钥的键丢弃）。
+pub fn split_claude_settings(settings: &Value) -> ImportedProfileHints {
+    let mut hints = ImportedProfileHints {
+        native_tool: Some("claude".to_string()),
+        ..ImportedProfileHints::default()
+    };
+    let Some(object) = settings.as_object() else {
+        return hints;
+    };
+    let fragment: serde_json::Map<String, Value> = object
+        .iter()
+        .filter(|(key, _)| key.as_str() != "env")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if fragment.is_empty() {
+        return hints;
+    }
+    let text = serde_json::to_string_pretty(&Value::Object(fragment)).unwrap_or_default();
+    let (sanitized, issues) = crate::services::native_config::parse_and_sanitize("claude", &text);
+    hints.dropped_keys = issues.into_iter().filter_map(|issue| issue.key).collect();
+    hints.native_override = sanitized
+        .filter(|map| !map.is_empty())
+        .and_then(|map| serde_json::to_string_pretty(&Value::Object(map)).ok());
+    hints
 }
 
 #[derive(Debug, Default)]
@@ -110,6 +227,9 @@ pub fn map_cc_switch_row(
     let mut default_model_id =
         first_nonempty(settings, &["ANTHROPIC_MODEL", "OPENAI_MODEL", "model"]);
     let mut codex_wire_api = None;
+    let mut provider_native_override = None;
+    let mut context_window_tokens = None;
+    let mut profile = ImportedProfileHints::default();
     if provider_type == ProviderType::OpenAI {
         if let Some(config) = settings.get("config").and_then(Value::as_str) {
             let config = config.parse::<toml::Value>().ok()?;
@@ -118,7 +238,23 @@ pub fn map_cc_switch_row(
             api_key = api_key.or_else(|| toml_string(provider, "experimental_bearer_token"));
             default_model_id = default_model_id.or_else(|| toml_string(&config, "model"));
             codex_wire_api = toml_string(provider, "wire_api");
+            if let Some(table) = config.as_table() {
+                let split = split_codex_config(table);
+                provider_native_override = toml_fragment_text(&split.provider_fragment);
+                context_window_tokens = split.context_window_tokens;
+                profile = ImportedProfileHints {
+                    native_tool: Some("codex".to_string()),
+                    native_override: toml_fragment_text(&split.profile_fragment),
+                    yolo_mode: split.yolo_mode,
+                    model_id: split.model,
+                    dropped_keys: split.dropped_keys,
+                };
+            }
         }
+    }
+    if provider_type == ProviderType::Anthropic {
+        profile = split_claude_settings(settings);
+        profile.model_id = default_model_id.clone();
     }
     if provider_type == ProviderType::OpenCode {
         if let Some(options) = settings.get("options") {
@@ -136,6 +272,9 @@ pub fn map_cc_switch_row(
         base_url,
         default_model_id,
         codex_wire_api,
+        provider_native_override,
+        context_window_tokens,
+        profile,
     })
 }
 
@@ -148,11 +287,16 @@ pub fn candidate_to_provider(candidate: &CcSwitchImportCandidate) -> Provider {
                 id: id.to_string(),
                 label: None,
                 default_effort: None,
-                context_window_tokens: None,
+                context_window_tokens: candidate.context_window_tokens,
                 context_size: None,
+                hidden: false,
             }]
         })
         .unwrap_or_default();
+    let mut native_overrides = std::collections::BTreeMap::new();
+    if let Some(fragment) = candidate.provider_native_override.as_ref() {
+        native_overrides.insert("codex".to_string(), fragment.clone());
+    }
     Provider {
         id: copied_provider_id(candidate),
         name: candidate.name.clone(),
@@ -167,6 +311,7 @@ pub fn candidate_to_provider(candidate: &CcSwitchImportCandidate) -> Provider {
         default_model_id: candidate.default_model_id.clone(),
         codex_wire_api: candidate.codex_wire_api.clone(),
         is_default: false,
+        native_overrides,
         // `api_key` / `base_url` 是兼容输入：入库时落到默认账号和类型对应的接口上。
         ..Provider::default()
     }
@@ -388,6 +533,140 @@ mod tests {
             candidate_to_provider(&row).codex_wire_api.as_deref(),
             Some("responses")
         );
+    }
+
+    const FULL_CODEX_CONFIG: &str = r#"
+model_provider = "relay"
+model = "gpt-5.5"
+model_catalog_json = "/tmp/catalog.json"
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+model_reasoning_effort = "xhigh"
+plan_mode_reasoning_effort = "high"
+disable_response_storage = true
+service_tier = "fast"
+notify = ["say"]
+
+[model_providers.relay]
+name = "relay"
+base_url = "https://relay.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[projects."/tmp/x"]
+trust_level = "trusted"
+
+[mcp_servers.foo]
+command = "foo"
+
+[hooks]
+x = 1
+
+[tui]
+animations = false
+"#;
+
+    #[test]
+    fn splits_full_codex_config_into_layers() {
+        let table = FULL_CODEX_CONFIG.parse::<toml::Table>().unwrap();
+        let split = split_codex_config(&table);
+        assert_eq!(
+            split.provider_fragment.keys().collect::<Vec<_>>(),
+            vec!["disable_response_storage", "model_catalog_json"]
+        );
+        assert_eq!(
+            split.profile_fragment.keys().collect::<Vec<_>>(),
+            vec![
+                "model_auto_compact_token_limit",
+                "model_reasoning_effort",
+                "plan_mode_reasoning_effort",
+                "service_tier"
+            ]
+        );
+        assert_eq!(split.context_window_tokens, Some(1_000_000));
+        assert!(split.yolo_mode);
+        assert_eq!(split.model.as_deref(), Some("gpt-5.5"));
+        let mut dropped = split.dropped_keys.clone();
+        dropped.sort();
+        assert_eq!(
+            dropped,
+            vec![
+                "hooks",
+                "mcp_servers",
+                "model_provider",
+                "notify",
+                "projects",
+                "tui"
+            ]
+        );
+    }
+
+    #[test]
+    fn non_yolo_approval_and_sandbox_go_to_profile_fragment() {
+        let table = "approval_policy = \"never\"\nsandbox_mode = \"workspace-write\"\n"
+            .parse::<toml::Table>()
+            .unwrap();
+        let split = split_codex_config(&table);
+        assert!(!split.yolo_mode);
+        assert_eq!(split.profile_fragment.len(), 2);
+        let table = "approval_policy = \"on-request\"\n"
+            .parse::<toml::Table>()
+            .unwrap();
+        assert_eq!(split_codex_config(&table).profile_fragment.len(), 1);
+    }
+
+    #[test]
+    fn codex_candidate_carries_layers_without_secrets() {
+        let settings = json!({
+            "auth": {"OPENAI_API_KEY": "sk-secret-value"},
+            "config": FULL_CODEX_CONFIG,
+        });
+        let row = map_cc_switch_row("codex", "Relay", &settings).unwrap();
+        assert_eq!(row.context_window_tokens, Some(1_000_000));
+        let provider_fragment = row.provider_native_override.clone().unwrap();
+        assert!(provider_fragment.contains("disable_response_storage = true"));
+        let profile_fragment = row.profile.native_override.clone().unwrap();
+        assert!(profile_fragment.contains("service_tier = \"fast\""));
+        assert!(row.profile.yolo_mode);
+        assert_eq!(row.profile.model_id.as_deref(), Some("gpt-5.5"));
+        assert_eq!(row.profile.native_tool.as_deref(), Some("codex"));
+        for text in [&provider_fragment, &profile_fragment] {
+            assert!(!text.contains("sk-secret-value"));
+            assert!(crate::services::native_config::validate_fragment("codex", text).is_empty());
+        }
+        let provider = candidate_to_provider(&row);
+        assert_eq!(provider.models[0].context_window_tokens, Some(1_000_000));
+        assert_eq!(
+            provider.native_overrides.get("codex"),
+            Some(&provider_fragment)
+        );
+    }
+
+    #[test]
+    fn claude_candidate_moves_non_env_keys_to_profile_fragment() {
+        let row = map_cc_switch_row(
+            "claude",
+            "Relay",
+            &json!({
+                "env": {"ANTHROPIC_AUTH_TOKEN": "sk-x", "ANTHROPIC_BASE_URL": "https://a"},
+                "model": "opus",
+                "effortLevel": "high",
+                "permissions": {"allow": ["Bash"]},
+                "apiToken": "leak",
+            }),
+        )
+        .unwrap();
+        let fragment = row.profile.native_override.clone().unwrap();
+        let parsed: Value = serde_json::from_str(&fragment).unwrap();
+        assert_eq!(parsed["effortLevel"], json!("high"));
+        assert_eq!(parsed["permissions"]["allow"], json!(["Bash"]));
+        assert!(parsed.get("env").is_none());
+        assert!(parsed.get("apiToken").is_none());
+        assert_eq!(row.profile.dropped_keys, vec!["apiToken".to_string()]);
+        assert!(!fragment.contains("sk-x"));
+        assert!(row.provider_native_override.is_none());
     }
 
     #[test]

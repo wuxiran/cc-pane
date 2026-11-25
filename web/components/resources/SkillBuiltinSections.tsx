@@ -1,7 +1,9 @@
 // 资源库之外、也按启动档生效的技能：CC-Panes 内置（逐条开关）、工作空间技能和 CLI 自带技能（整组开关，条目只读）。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronRight } from "lucide-react";
 import { EXTERNAL_SKILL_GROUPS } from "@/components/providers/launchProfileHelpers";
+import { HintIcon } from "@/components/providers/launchProfileParts";
 import { useDescriptionLang } from "@/hooks/useDescriptionLang";
 import { skillService } from "@/services/skillService";
 import type { BundledSkill, DiscoveredExternalSkill, ProjectSkill } from "@/types";
@@ -25,27 +27,39 @@ function GroupCard({
   notice,
   children,
   testId,
+  defaultOpen = true,
 }: {
   title: string;
   hint?: string;
   count: number;
+  /** 默认是否展开；只读或无需逐条操作的长列表默认收起，只露一行组头 */
+  defaultOpen?: boolean;
   chips?: ReactNode;
   notice?: string | null;
   children: ReactNode;
   testId: string;
 }) {
   const { t } = useTranslation("settings");
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-lg border" style={{ borderColor: "var(--app-border)" }} data-testid={testId}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-1.5" style={{ borderColor: "var(--app-border)" }}>
-        <span className="text-xs font-medium" style={{ color: "var(--app-text-primary)" }}>{title}</span>
-        <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.groupCount", { count })}</span>
-        {hint && <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{hint}</span>}
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 ${open ? "border-b" : ""}`} style={{ borderColor: "var(--app-border)" }}>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} style={{ color: "var(--app-text-tertiary)" }} />
+          <span className="text-xs font-medium" style={{ color: "var(--app-text-primary)" }}>{title}</span>
+          <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.groupCount", { count })}</span>
+        </button>
+        {hint && <HintIcon text={hint} />}
         <span className="flex-1" />
         {chips}
         {notice && <span role="status" className="basis-full text-[length:var(--text-micro)]" style={{ color: "var(--app-text-secondary)" }}>{notice}</span>}
       </div>
-      <div className="divide-y" style={{ borderColor: "var(--app-border)" }}>{children}</div>
+      <div className="divide-y" style={{ borderColor: "var(--app-border)" }} hidden={!open}>{children}</div>
     </div>
   );
 }
@@ -95,8 +109,8 @@ export default function SkillBuiltinSections({ workspaceName, selectedKey, onSel
   })).filter((group) => group.skills.length > 0);
 
   return (
-    <section className="mb-6 space-y-3" aria-label={t("skillLibrary.builtinTitle")}>
-      <GroupCard title={t("skillLibrary.builtinTitle")} hint={t("skillLibrary.builtinHint")} count={builtins.length} testId="skill-builtin-group">
+    <section className="mb-5 space-y-2" aria-label={t("skillLibrary.builtinTitle")}>
+      <GroupCard title={t("skillLibrary.builtinTitle")} hint={t("skillLibrary.builtinHint")} count={builtins.length} testId="skill-builtin-group" defaultOpen={false}>
         {builtins.map((skill) => {
           const key = `builtin:${skill.name}`;
           return (
@@ -155,6 +169,7 @@ export default function SkillBuiltinSections({ workspaceName, selectedKey, onSel
             chips={chips(groupKey, title, { kind: "group", key: group.policyKey })}
             notice={notice(groupKey)}
             testId="skill-external-group"
+            defaultOpen={false}
           >
             {group.skills.map((skill) => {
               const key = `ext:${skill.id}`;

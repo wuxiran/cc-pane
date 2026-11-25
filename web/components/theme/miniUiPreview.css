@@ -28,7 +28,7 @@
   --app-panel-bg: #181818;
   --app-border: rgba(255, 255, 255, 0.09);
   --app-active-bg: rgba(255, 255, 255, 0.09);
-  --app-accent: #5E99F6;
+  --app-accent: #22D3EE;
   --app-text-primary: #ECECEC;
   --app-text-secondary: #A6A6A6;
   --app-text-tertiary: #969696;
@@ -36,8 +36,8 @@
   --app-terminal-bg: #181818;
   --app-terminal-fg: #f5f5f7;
   --app-status-success: #3FB950;
-  --primary: #4C8DF5;
-  --primary-foreground: #ffffff;
+  --primary: #22D3EE;
+  --primary-foreground: #062A30;
 }
 
 .mini-ui-scope[data-theme="cyber-purple"] {
@@ -127,8 +127,8 @@
   --app-content: #FFFFFF;
   --app-panel-bg: #FFFFFF;
   --app-border: rgba(17, 24, 39, 0.09);
-  --app-active-bg: rgba(37, 99, 235, 0.10);
-  --app-accent: #2563EB;
+  --app-active-bg: rgba(14, 116, 144, 0.10);
+  --app-accent: #0E7490;
   --app-text-primary: #1A1D21;
   --app-text-secondary: #5A626C;
   --app-text-tertiary: #6A717B;
@@ -136,7 +136,7 @@
   --app-terminal-bg: #ffffff;
   --app-terminal-fg: #000000;
   --app-status-success: #1a7f37;
-  --primary: #2563EB;
+  --primary: #0E7490;
   --primary-foreground: #ffffff;
 }
 

@@ -2,7 +2,8 @@ import { agentChatService, type AcpRemoteLaunch } from "@/services/agentChatServ
 import i18n from "@/i18n";
 import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
-import type { AcpChatSnapshot } from "@/types/agentChat";
+import type { AcpChatSnapshot, AcpContentBlock, AgentChatAttachment } from "@/types/agentChat";
+import { buildPromptBlocks } from "./chatPrompt";
 import type { LocalWorktreeDraft } from "@/types/localLaunch";
 import { prepareLocalSessionCwd } from "@/services/localLaunchService";
 import {
@@ -17,11 +18,17 @@ interface StartConfiguredChatOptions {
   resumeAcpSessionId?: string;
   autoApproveKinds?: string[];
   firstPrompt?: string;
+  /** 首条消息的附件（启动页 chip），与 firstPrompt 同一条 prompt 发出。 */
+  firstAttachments?: AgentChatAttachment[];
   preamble?: string;
   onCwdAdopted?: (cwd: string) => void;
   worktree?: LocalWorktreeDraft;
   /** 远程启动：cwd 是远端目录，不建本地 worktree，也不回写本地 cwd 覆盖。 */
   remote?: AcpRemoteLaunch;
+  /** 新会话就绪且偏好已应用、释放输入锁之前调用（换引擎交接在此插分隔线）。 */
+  onStarted?: (snapshot: AcpChatSnapshot) => void | Promise<void>;
+  /** 运行配置 id（"" = 明确用系统默认；undefined = 新会话系统默认 / 续接沿用会话原配置）。 */
+  launchProfileId?: string;
 }
 
 async function applyPreferredSelection(
@@ -84,11 +91,22 @@ async function applyPreferences(chatId: string, snapshot: AcpChatSnapshot): Prom
   }
 }
 
+/** 启动页附件在会话能力未知时摄取；引擎不收内嵌图片时，有路径的图片退回文件引用
+ * （与会话内输入区 planPathAttachment 同口径），避免整条首消息被拒。 */
+function firstAttachmentsFor(snapshot: AcpChatSnapshot, attachments?: AgentChatAttachment[]): AgentChatAttachment[] {
+  if (!attachments?.length) return [];
+  const caps = snapshot.agentCapabilities as { promptCapabilities?: { image?: boolean } } | undefined;
+  if (caps?.promptCapabilities?.image === true) return attachments;
+  return attachments.map((attachment) => attachment.kind === "image" && attachment.path
+    ? { name: attachment.name, mimeType: "", data: "", kind: "file", path: attachment.path }
+    : attachment);
+}
+
 /** 全局操作锁覆盖 IPC state 提前 ready 和组件卸载；配置失败保持输入禁用，可重试启动。 */
 export async function startConfiguredChat(options: StartConfiguredChatOptions): Promise<AcpChatSnapshot | null> {
-  const { chatId, engineId, cwd, firstPrompt, preamble } = options;
+  const { chatId, engineId, cwd, firstPrompt, firstAttachments, preamble } = options;
   const store = useAgentChatStore.getState();
-  const token = store.beginSetup(chatId, { firstPrompt, preamble });
+  const token = store.beginSetup(chatId, { firstPrompt, firstAttachments, preamble });
   if (token === null) return null;
   const ownsSetup = () => useAgentChatStore.getState().chats[chatId]?.setup?.token === token;
   let spawnAttempted = false;
@@ -108,20 +126,31 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
     }
     spawnAttempted = true;
     const autoApprove = options.autoApproveKinds ?? loadAutoApproveKinds(engineId);
-    const snapshot = options.remote
-      ? await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove, options.remote)
-      : await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove);
+    const snapshot = options.launchProfileId !== undefined
+      ? await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove, options.remote,
+        { launchProfileId: options.launchProfileId })
+      : options.remote
+        ? await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove, options.remote)
+        : await agentChatService.start(chatId, engineId, launchCwd, options.resumeAcpSessionId, autoApprove);
     if (!ownsSetup()) return null;
     store.setSnapshot(chatId, snapshot);
+    // 「Codex」原生 App Server 起不来、后端自动改走 ACP 桥：一行提示，不打断启动。
+    if (snapshot.transportFallback) store.pushNotice(chatId, i18n.t("agentChatCodexAcpFallback", { ns: "panes" }));
     if (!options.remote) options.onCwdAdopted?.(launchCwd);
     await applyPreferences(chatId, snapshot);
     if (!ownsSetup()) return null;
-    const text = firstPrompt?.trim();
-    if (text) {
+    await options.onStarted?.(snapshot);
+    if (!ownsSetup()) return null;
+    const text = firstPrompt?.trim() ?? "";
+    const attachments = firstAttachmentsFor(snapshot, firstAttachments);
+    if (text || attachments.length > 0) {
       const lead = preamble?.trim();
-      const outbound = lead ? `${lead}\n\n---\n\n${text}` : text;
-      const blocks = [{ type: "text", text: outbound }];
-      const submission = store.beginPrompt(chatId, { text, attachments: [], promptBlocks: blocks }, token);
+      const outbound = lead && text ? `${lead}\n\n---\n\n${text}` : lead || text;
+      const blocks: AcpContentBlock[] = [
+        ...buildPromptBlocks("", attachments, launchCwd),
+        ...(outbound ? [{ type: "text", text: outbound }] : []),
+      ];
+      const submission = store.beginPrompt(chatId, { text, attachments, promptBlocks: blocks }, token);
       if (submission === null) throw new Error("Agent chat is busy accepting another prompt");
       await submitReservedPrompt(chatId, submission, blocks);
     }

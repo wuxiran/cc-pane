@@ -109,6 +109,15 @@ describe("parseTerminalPathReference", () => {
     expect(parseTerminalPathReference(`src/${"a".repeat(2048)}`, HOST_OPTIONS)).toBeNull();
   });
 
+  it.each([
+    "../../../../../.rec/claude/accounts/54294/config/projects/-Users-wuxiran-Library-...",
+    "../../../../../../../private/tmp/claude-501/…",
+    "src/…/App.tsx",
+  ])("rejects paths the TUI already truncated: %s", (input) => {
+    // Claude Code 把超宽的工具调用行截断成 `…`/`...`：缓冲区里没有完整路径，半截只会解析失败
+    expect(parseTerminalPathReference(input, HOST_OPTIONS)).toBeNull();
+  });
+
   it("preserves punctuation that is part of a complete candidate", () => {
     expect(parseTerminalPathReference("src/file!.txt", HOST_OPTIONS)).toMatchObject({
       path: "src/file!.txt",
@@ -124,6 +133,25 @@ describe("findTerminalPathLinks", () => {
       "F:/repo/报告.md:4",
       "src/App.tsx:12:8",
     ]);
+  });
+
+  it("keeps the home prefix of ~/ paths instead of cutting out a bogus root path", () => {
+    // 以前 `~` 被丢掉，识别成 `/Desktop/...`，点开只会报「路径已不可用」
+    const line = "装机工具 zip ~/Desktop/jyz-dist/jyz-installer-win-2.3.9-20261123.zip 的 sha256 是";
+    const links = findTerminalPathLinks(line, { allowPosixAbsolute: true });
+    expect(links.map((link) => link.path)).toEqual(["~/Desktop/jyz-dist/jyz-installer-win-2.3.9-20261123.zip"]);
+    // 宿主机解析不了 POSIX 绝对路径时（Windows），`~/` 同样不出链接
+    expect(findTerminalPathLinks(line, { allowPosixAbsolute: false })).toEqual([]);
+  });
+
+  it("recognizes ~/ directories and leaves domains and flags alone", () => {
+    const line = "skills 在 ~/.claude/skills/ 下，hub.nocannobb.com 用 --footer \"\" 关掉";
+    expect(findTerminalPathLinks(line, HOST_OPTIONS).map((link) => link.path)).toEqual(["~/.claude/skills/"]);
+  });
+
+  it("does not link truncated Claude Code tool lines", () => {
+    const line = "  L Read ../../../../../.rec/claude/accounts/54294/config/projects/-Users-wuxiran-Library-…";
+    expect(findTerminalPathLinks(line, HOST_OPTIONS)).toEqual([]);
   });
 
   it("finds Windows extended-length drive paths", () => {
@@ -341,5 +369,50 @@ describe("TerminalPathLinkProvider", () => {
 
     expect(links?.[0].text).not.toBe("F:/repo/docs/report.md:17");
     expect(links?.[0].range.end.y).toBe(1);
+  });
+
+  it("only exposes candidates that the validator confirms exist", async () => {
+    const terminal = createTerminal([
+      { text: "zip ~/Desktop/out.zip and ~/.claude/skills/ here", isWrapped: false },
+    ]);
+    const validate = vi.fn(async (reference: { path: string }) => reference.path === "~/Desktop/out.zip");
+    const provider = new TerminalPathLinkProvider(terminal, vi.fn(), HOST_OPTIONS, () => true, validate);
+
+    const links = await new Promise<Parameters<Parameters<typeof provider.provideLinks>[1]>[0]>((resolve) => {
+      provider.provideLinks(1, resolve);
+    });
+
+    expect(validate).toHaveBeenCalledTimes(2);
+    expect(links?.map((link) => link.text)).toEqual(["~/Desktop/out.zip"]);
+  });
+
+  it("treats validator failures as non-links instead of surfacing errors", async () => {
+    const terminal = createTerminal([{ text: "Open src/missing.ts", isWrapped: false }]);
+    const validate = vi.fn(() => Promise.reject(new Error("TERMINAL_PATH_UNAVAILABLE")));
+    const provider = new TerminalPathLinkProvider(terminal, vi.fn(), HOST_OPTIONS, () => true, validate);
+
+    const links = await new Promise<Parameters<Parameters<typeof provider.provideLinks>[1]>[0]>((resolve) => {
+      provider.provideLinks(1, resolve);
+    });
+
+    expect(links).toBeUndefined();
+  });
+
+  it("validates the joined soft-wrapped path, not a half of it", async () => {
+    const first = "L Read ~/.rec/claude/";
+    const terminal = createTerminal([
+      { text: first, isWrapped: false },
+      { text: "projects/session.jsonl", isWrapped: true },
+    ], first.length);
+    const validate = vi.fn(async () => true);
+    const provider = new TerminalPathLinkProvider(terminal, vi.fn(), HOST_OPTIONS, () => true, validate);
+
+    const links = await new Promise<Parameters<Parameters<typeof provider.provideLinks>[1]>[0]>((resolve) => {
+      provider.provideLinks(2, resolve);
+    });
+
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining({ path: "~/.rec/claude/projects/session.jsonl" }));
+    expect(links?.[0].range.start.y).toBe(1);
+    expect(links?.[0].range.end.y).toBe(2);
   });
 });

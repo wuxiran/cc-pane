@@ -1,6 +1,6 @@
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLI_TOOLS_REQUEST_TIMEOUT_MS, useCliTools } from "./useCliTools";
+import { CLI_TOOLS_REQUEST_TIMEOUT_MS, resetCliToolsCacheForTests, useCliTools } from "./useCliTools";
 import { listCliTools } from "@/services/cliToolService";
 import type { CliToolInfo } from "@/types";
 
@@ -34,6 +34,7 @@ function deferredTools() {
 describe("useCliTools", () => {
   beforeEach(() => {
     vi.mocked(listCliTools).mockReset();
+    resetCliToolsCacheForTests();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -192,5 +193,32 @@ describe("useCliTools", () => {
     expect(result.current).toBe(before);
     expect(listCliTools).toHaveBeenCalledTimes(1);
     expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("再次挂载立即渲染缓存且不亮 loading，后台重验后更新", async () => {
+    vi.mocked(listCliTools).mockResolvedValueOnce([makeTool({ version: "1.0.0" })]);
+    const first = renderHook(() => useCliTools());
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    first.unmount();
+
+    const revalidate = deferredTools();
+    vi.mocked(listCliTools).mockReturnValueOnce(revalidate.promise);
+    const { result } = renderHook(() => useCliTools());
+    expect(result.current.loading).toBe(false);
+    expect(result.current.getToolById("claude")?.version).toBe("1.0.0");
+
+    await act(async () => { revalidate.resolve([makeTool({ version: "2.0.0" })]); });
+    expect(result.current.getToolById("claude")?.version).toBe("2.0.0");
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("同时挂载的多个实例共用一个在途探测", async () => {
+    vi.mocked(listCliTools).mockResolvedValue([makeTool()]);
+    const a = renderHook(() => useCliTools());
+    const b = renderHook(() => useCliTools());
+    await waitFor(() => expect(a.result.current.loading).toBe(false));
+    await waitFor(() => expect(b.result.current.loading).toBe(false));
+    expect(listCliTools).toHaveBeenCalledTimes(1);
+    expect(b.result.current.tools).toEqual(a.result.current.tools);
   });
 });

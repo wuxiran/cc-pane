@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 const MAX_COMPATIBLE_AUDIO_PAYLOAD_BYTES: usize = 10 * 1024 * 1024;
+/// 本地转写不经网络，16kHz WAV 录满 300 秒约 13MB base64
+const MAX_LOCAL_AUDIO_PAYLOAD_BYTES: usize = 40 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +19,20 @@ pub struct VoiceTranscribeRequest {
     pub language: Option<String>,
     #[serde(default)]
     pub enable_itn: Option<bool>,
+    /// 设置页「试一下」用：拿尚未保存的草稿设置转写，不读已保存的配置。
+    #[serde(default)]
+    pub settings_override: Option<VoiceSettings>,
+}
+
+/// 词典 → 一行「A、B、C」，空词典返回 None。
+fn custom_words_hint(settings: &VoiceSettings) -> Option<String> {
+    let words: Vec<&str> = settings
+        .custom_words
+        .iter()
+        .map(|word| word.trim())
+        .filter(|word| !word.is_empty())
+        .collect();
+    (!words.is_empty()).then(|| words.join("、"))
 }
 
 #[derive(Debug, Serialize)]
@@ -32,6 +48,7 @@ enum VoiceProvider {
     Dashscope,
     Mimo,
     Custom,
+    Local,
 }
 
 impl VoiceProvider {
@@ -39,20 +56,41 @@ impl VoiceProvider {
         match provider {
             "mimo" => Self::Mimo,
             "custom" => Self::Custom,
+            "local" => Self::Local,
             _ => Self::Dashscope,
         }
     }
 }
 
+/// `local_root`：本地转写组件目录（voice_local::root_dir），只有 provider = "local" 用到。
 pub async fn transcribe(
     settings: &VoiceSettings,
     request: &VoiceTranscribeRequest,
+    local_root: &std::path::Path,
 ) -> AppResult<VoiceTranscribeResponse> {
     match VoiceProvider::from_settings(&settings.provider) {
         VoiceProvider::Dashscope => transcribe_with_dashscope(settings, request).await,
         VoiceProvider::Mimo => transcribe_with_mimo(settings, request).await,
         VoiceProvider::Custom => transcribe_with_custom(settings, request).await,
+        VoiceProvider::Local => transcribe_locally(settings, request, local_root).await,
     }
+}
+
+async fn transcribe_locally(
+    settings: &VoiceSettings,
+    request: &VoiceTranscribeRequest,
+    local_root: &std::path::Path,
+) -> AppResult<VoiceTranscribeResponse> {
+    let audio = normalize_audio_base64(&request.audio_base64)?;
+    if audio.len() > MAX_LOCAL_AUDIO_PAYLOAD_BYTES {
+        return Err(format!("Audio payload is too large: {} bytes", audio.len()).into());
+    }
+    let wav = STANDARD
+        .decode(audio)
+        .map_err(|err| format!("Invalid audio base64 data: {}", err))?;
+    let language = request.language.as_deref().or(settings.language.as_deref());
+    let enable_itn = request.enable_itn.unwrap_or(settings.enable_itn);
+    super::voice_local::transcribe(local_root, settings, &wav, language, enable_itn).await
 }
 
 async fn transcribe_with_dashscope(
@@ -207,6 +245,10 @@ fn build_custom_form(
     if let Some(language) = language {
         form = form.text("language", language.to_string());
     }
+    // OpenAI / whisper 系的 prompt 字段会偏向其中出现的拼写
+    if let Some(words) = custom_words_hint(settings) {
+        form = form.text("prompt", words);
+    }
     Ok(form)
 }
 
@@ -277,17 +319,24 @@ fn build_dashscope_request(
         asr_options.insert("language".to_string(), Value::String(language.to_string()));
     }
 
+    let mut messages = Vec::new();
+    // Qwen3-ASR 的上下文增强：system 消息里的文本用于偏置专有名词识别
+    if let Some(words) = custom_words_hint(settings) {
+        messages.push(json!({ "role": "system", "content": [{ "text": words }] }));
+    }
+    messages.push(json!({
+        "role": "user",
+        "content": [{
+            "type": "input_audio",
+            "input_audio": {
+                "data": format!("data:{};base64,{}", mime_type, audio_base64)
+            }
+        }]
+    }));
+
     Ok(json!({
         "model": settings.model.trim(),
-        "messages": [{
-            "role": "user",
-            "content": [{
-                "type": "input_audio",
-                "input_audio": {
-                    "data": format!("data:{};base64,{}", mime_type, audio_base64)
-                }
-            }]
-        }],
+        "messages": messages,
         "stream": false,
         "asr_options": Value::Object(asr_options)
     }))
@@ -307,7 +356,14 @@ fn build_mimo_request(
         .or(settings.language.as_ref())
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let prompt = mimo_transcribe_prompt(language);
+    let prompt = match custom_words_hint(settings) {
+        Some(words) => format!(
+            "{}\n可能出现的专有名词（按此拼写）：{}",
+            mimo_transcribe_prompt(language),
+            words
+        ),
+        None => mimo_transcribe_prompt(language).to_string(),
+    };
 
     Ok(json!({
         "model": settings.mimo_model.trim(),
@@ -525,6 +581,7 @@ mod tests {
             mime_type: "audio/webm;codecs=opus".to_string(),
             language: None,
             enable_itn: Some(true),
+            settings_override: None,
         };
 
         let body = build_dashscope_request(&settings, &request).unwrap();
@@ -537,6 +594,38 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("data:audio/webm;codecs=opus;base64,"));
+    }
+
+    #[test]
+    fn custom_words_reach_every_provider() {
+        let settings = VoiceSettings {
+            dashscope_api_key: "sk-test".to_string(),
+            custom_words: vec!["CC-Panes".to_string(), " Tauri ".to_string()],
+            ..VoiceSettings::default()
+        };
+        let request = VoiceTranscribeRequest {
+            audio_base64: STANDARD.encode(b"audio"),
+            mime_type: "audio/wav".to_string(),
+            language: None,
+            enable_itn: None,
+            settings_override: None,
+        };
+
+        let dashscope = build_dashscope_request(&settings, &request).unwrap();
+        assert_eq!(dashscope["messages"][0]["role"], "system");
+        assert_eq!(
+            dashscope["messages"][0]["content"][0]["text"],
+            "CC-Panes、Tauri"
+        );
+        assert_eq!(dashscope["messages"][1]["role"], "user");
+
+        let mimo = build_mimo_request(&settings, &request).unwrap();
+        assert!(mimo["messages"][1]["content"][1]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("CC-Panes、Tauri"));
+
+        assert_eq!(custom_words_hint(&VoiceSettings::default()), None);
     }
 
     #[test]
@@ -554,6 +643,7 @@ mod tests {
             mime_type: "audio/wav".to_string(),
             language: None,
             enable_itn: None,
+            settings_override: None,
         };
 
         let body = build_mimo_request(&settings, &request).unwrap();
@@ -659,6 +749,7 @@ mod tests {
             mime_type: "audio/webm;codecs=opus".to_string(),
             language: None,
             enable_itn: None,
+            settings_override: None,
         };
 
         // 空 apiKey 不报错——multipart Form 不可内省，构造成功即视为通过

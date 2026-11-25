@@ -203,15 +203,29 @@ fn prune(dir: &Path, keep: &Path) {
 
 /// 前端保存当前会话的正文段（整段替换 `items`，保留降级时继承的 `inherited`）。
 pub(super) fn save(chats_dir: &Path, acp_session_id: &str, items: Vec<Value>) -> AppResult<()> {
+    save_with_inherited(chats_dir, acp_session_id, items, None)
+}
+
+/// 同 [`save`]；`inherited` 为 Some 时整段替换继承段（上下文交接：前端把切换前
+/// 的只读前缀连同交接分隔线交给新会话，换引擎后历史恢复仍能看到旧引擎的对话）。
+pub(super) fn save_with_inherited(
+    chats_dir: &Path,
+    acp_session_id: &str,
+    items: Vec<Value>,
+    replace_inherited: Option<Vec<Value>>,
+) -> AppResult<()> {
     let path = transcript_path_in(chats_dir, acp_session_id)
         .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
     let previous = read(&path);
-    let inherited = previous
-        .as_ref()
-        .map(|stored| stored.inherited.clone())
-        .unwrap_or_default();
+    let replaced = replace_inherited.is_some();
+    let inherited = replace_inherited.unwrap_or_else(|| {
+        previous
+            .as_ref()
+            .map(|stored| stored.inherited.clone())
+            .unwrap_or_default()
+    });
     let (inherited, items, truncated) = bound(inherited, items);
-    let truncated = truncated || previous.is_some_and(|stored| stored.truncated);
+    let truncated = truncated || (!replaced && previous.is_some_and(|stored| stored.truncated));
     write(
         chats_dir,
         &path,
@@ -254,6 +268,22 @@ pub(super) fn inherit(chats_dir: &Path, from: &str, to: &str) -> Option<Value> {
         warn!(error = %error, "failed to seed inherited ACP transcript");
     }
     Some(payload)
+}
+
+/// loadSession 续接成功时只推继承段：协议回放只含本会话自己的正文，更早会话
+/// （降级续接链 / 换引擎交接）的记录只在本地转写里。无继承段时 None。
+pub(super) fn inherited_restore(chats_dir: &Path, acp_session_id: &str) -> Option<Value> {
+    let stored = read(&transcript_path_in(chats_dir, acp_session_id)?)?;
+    if stored.inherited.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "fromAcpSessionId": acp_session_id,
+        "acpSessionId": acp_session_id,
+        "inheritedOnly": true,
+        "truncated": stored.truncated,
+        "items": stored.inherited,
+    }))
 }
 
 /// 拉平读取（测试与排障用；运行时由 `inherit` 直接推送）。

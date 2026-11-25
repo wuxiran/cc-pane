@@ -33,7 +33,7 @@ describe("ImInboundFields", () => {
     const onChange = vi.fn();
     confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     render(<ImInboundFields channel={channel} onChange={onChange} />);
-    const box = screen.getByRole("checkbox");
+    const box = screen.getByRole("switch");
     fireEvent.click(box);
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(onChange).not.toHaveBeenCalled();
@@ -48,7 +48,7 @@ describe("ImInboundFields", () => {
     expect(await screen.findByRole("option", { name: "📝 周报" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "b1" } });
     expect(onChange).toHaveBeenCalledWith({ defaultBotId: "b1" });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("switch"));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ inboundEnabled: false }));
     expect(confirm).not.toHaveBeenCalled();
   });

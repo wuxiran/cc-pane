@@ -202,6 +202,10 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "GEMINI_API_BASE",
             "GOOGLE_GEMINI_BASE_URL",
         ],
+        // 终端 CLI（Kiro / fx / Muse）不接托管 Provider（compatible_provider_types 为空），
+        // 凭证完全由 CLI 自身登录态或用户环境变量（KIRO_API_KEY / META_API_KEY）提供，
+        // 这里不清任何继承变量，避免误删用户的原生凭证。
+        CliTool::Kiro | CliTool::Fx | CliTool::Muse => &[],
         CliTool::None => &[],
     }
 }
@@ -469,6 +473,68 @@ fn effective_selection(input: &ProviderResolutionInput<'_>) -> LaunchProviderSel
     }
 }
 
+/// 登录账号的目录在本机（「配置目录」类型指向 ccswitch JSON 文件的旧用法除外）。
+fn is_local_login_dir(account: &ProviderAccount) -> bool {
+    account
+        .login_dir()
+        .is_some_and(|dir| !std::path::Path::new(dir).is_file())
+}
+
+/// 一份运行配置在本机 / WSL / SSH 通用：运行配置或工作空间带来的登录账号若是本机目录，
+/// 在 WSL / SSH 会话里自动换成能带过去的账号（供应商默认账号，否则该 CLI 的「默认登录」，
+/// 即用对端 CLI 自己的登录），而不是报 `PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY`。
+///
+/// 请求里**点名**的账号（启动器手选、会话恢复带回的）不换：那是这一次的明确意图，
+/// 照旧交给 [`validate_provider_runtime`] 报错。返回给用户看的说明（发生替换时）。
+pub fn adapt_plan_for_runtime(
+    plan: &mut ResolvedProviderPlan,
+    runtime: LaunchRuntime,
+    cli_tool: CliTool,
+    account_requested: bool,
+) -> Option<String> {
+    if runtime == LaunchRuntime::Local || account_requested {
+        return None;
+    }
+    if !matches!(
+        plan.source,
+        ProviderSource::LaunchProfile | ProviderSource::LegacyWorkspace
+    ) {
+        return None;
+    }
+    let provider = plan.provider.as_ref()?;
+    let current = provider.resolve_account(plan.account_id.as_deref(), cli_tool.as_id())?;
+    if !is_local_login_dir(&current) {
+        return None;
+    }
+    let portable = |account: &ProviderAccount| {
+        !is_local_login_dir(account)
+            && !account_login_mismatch(account, cli_tool)
+            && super::ProviderService::managed_configuration_is_usable(provider, account)
+    };
+    let replacement = provider
+        .default_account()
+        .filter(|account| portable(account))
+        .map(|account| account.id.clone())
+        .or_else(|| {
+            provider
+                .resolve_account(
+                    Some(crate::models::provider::DEFAULT_LOGIN_ACCOUNT_ID),
+                    cli_tool.as_id(),
+                )
+                .map(|account| account.id.clone())
+        })?;
+    let runtime_label = match runtime {
+        LaunchRuntime::Ssh => "SSH",
+        _ => "WSL",
+    };
+    let note = format!(
+        "Login account '{}' only exists on this machine; this {runtime_label} session uses account '{}' instead",
+        current.id, replacement
+    );
+    plan.account_id = Some(replacement);
+    Some(note)
+}
+
 pub fn validate_provider_runtime(
     plan: &ResolvedProviderPlan,
     runtime: LaunchRuntime,
@@ -519,14 +585,8 @@ pub fn validate_provider_runtime(
             }
         }
     }
-    if runtime == LaunchRuntime::Ssh && plan.mode == ProviderMode::Managed {
-        return Err(provider_error(
-            "PROVIDER_SSH_MANAGED_UNSAFE",
-            "Managed providers over SSH are disabled because the current transport would expose credentials in the local process arguments",
-            cli_tool,
-            plan.provider.as_ref().map(|provider| provider.id.as_str()),
-        ));
-    }
+    // 托管供应商走 SSH 不再一刀切拒绝：应用内 SSH2 通道把凭证经带外文件送过去（不进任何
+    // 进程参数）；只有系统 ssh 回退路径仍拒绝——那是传输层的事，判在 create_session。
     Ok(())
 }
 
@@ -705,6 +765,7 @@ mod tests {
                 default_effort: Some("high".to_string()),
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
             ProviderModel {
                 id: "profile-model".to_string(),
@@ -712,6 +773,7 @@ mod tests {
                 default_effort: Some("low".to_string()),
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
             ProviderModel {
                 id: "request-model".to_string(),
@@ -719,6 +781,7 @@ mod tests {
                 default_effort: Some("xhigh".to_string()),
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
         ];
         configured.default_model_id = Some("provider-default".to_string());
@@ -1504,7 +1567,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_managed_is_blocked_without_argv_safe_transport_but_native_is_allowed() {
+    fn ssh_managed_and_native_both_pass_runtime_validation() {
         let providers = [provider("anthropic", ProviderType::Anthropic)];
         let managed = resolve(
             CliTool::Claude,
@@ -1515,10 +1578,8 @@ mod tests {
             &providers,
         )
         .unwrap();
-        let error =
-            validate_provider_runtime(&managed, LaunchRuntime::Ssh, CliTool::Claude).unwrap_err();
-        assert_eq!(error.code(), Some("PROVIDER_SSH_MANAGED_UNSAFE"));
-        assert!(!error.to_string().contains("test-secret"));
+        // 传输是否安全由 create_session 按「应用内 SSH2 / 系统 ssh」判定，这里不再拦
+        assert!(validate_provider_runtime(&managed, LaunchRuntime::Ssh, CliTool::Claude).is_ok());
         assert!(validate_provider_runtime(&managed, LaunchRuntime::Local, CliTool::Claude).is_ok());
         assert!(validate_provider_runtime(&managed, LaunchRuntime::Wsl, CliTool::Claude).is_ok());
 
@@ -1822,6 +1883,64 @@ mod tests {
         assert!(
             validate_provider_runtime(&plan_for("key"), LaunchRuntime::Wsl, CliTool::Codex).is_ok()
         );
+    }
+
+    /// 一份运行配置多处通用：配置里挑的本机登录账号到了 WSL / SSH 自动换成能带过去的账号；
+    /// 请求里点名的不换（照旧报 LOCAL_ONLY）。
+    #[test]
+    fn profile_login_account_is_swapped_for_remote_runtimes_but_requested_one_is_not() {
+        let account_dir = tempfile::tempdir().unwrap();
+        let mut configured = provider("p1", ProviderType::OpenAI);
+        configured.api_key = None;
+        configured.base_url = None;
+        let mut login = login_account("login", "codex");
+        login.config_dir = Some(account_dir.path().to_string_lossy().into_owned());
+        configured.accounts = vec![key_account("key"), login];
+        let providers = vec![configured];
+
+        let from_profile = || {
+            resolve_accounts(
+                CliTool::Codex,
+                (None, None),
+                (Some("p1"), Some("login")),
+                (None, None),
+                None,
+                &providers,
+            )
+            .unwrap()
+        };
+        for runtime in [LaunchRuntime::Wsl, LaunchRuntime::Ssh] {
+            let mut plan = from_profile();
+            let note = adapt_plan_for_runtime(&mut plan, runtime, CliTool::Codex, false);
+            assert!(note.is_some());
+            assert_eq!(plan.account_id.as_deref(), Some("key"));
+            assert!(validate_provider_runtime(&plan, runtime, CliTool::Codex).is_ok());
+        }
+        // 本机不动
+        let mut local = from_profile();
+        assert!(
+            adapt_plan_for_runtime(&mut local, LaunchRuntime::Local, CliTool::Codex, false)
+                .is_none()
+        );
+        assert_eq!(local.account_id.as_deref(), Some("login"));
+
+        // 启动器点名的账号：不换，照旧报错
+        let mut requested = resolve_accounts(
+            CliTool::Codex,
+            (Some("p1"), Some("login")),
+            (None, None),
+            (None, None),
+            None,
+            &providers,
+        )
+        .unwrap();
+        assert!(
+            adapt_plan_for_runtime(&mut requested, LaunchRuntime::Wsl, CliTool::Codex, true)
+                .is_none()
+        );
+        let error =
+            validate_provider_runtime(&requested, LaunchRuntime::Wsl, CliTool::Codex).unwrap_err();
+        assert_eq!(error.code(), Some("PROVIDER_LOGIN_ACCOUNT_LOCAL_ONLY"));
     }
 
     /// 「配置目录」类型指向 ccswitch JSON 文件的旧用法不设目录变量：WSL 下行为不变。

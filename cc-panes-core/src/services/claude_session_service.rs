@@ -1,8 +1,11 @@
 //! Claude Session Service — 从 ~/.claude/projects/ 读取 Claude Code 历史会话
 //!
 //! 提供按项目或全局列举 Claude 会话的能力，供 Tauri Command 和 MCP 共用。
+//! 除默认目录外，也扫各登录账号目录（`CLAUDE_CONFIG_DIR` 指向的 `<账号目录>/projects`），
+//! 条目带上账号归属；同一会话 id 只保留最新的一条。
 
 use crate::models::UsageEntry;
+use crate::services::login_account::{session_scan_roots, SessionScanRoot};
 use crate::utils::is_claude_project_match;
 use chrono::{DateTime, Local};
 use serde::Serialize;
@@ -21,6 +24,11 @@ pub struct ClaudeSession {
     pub modified_at: u64,
     pub file_path: String,
     pub description: String,
+    /// 会话所在的登录账号（默认目录里的会话为空）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,93 +133,99 @@ fn parse_session_file(file_path: &PathBuf, project_path: &str) -> Option<ClaudeS
         modified_at,
         file_path: file_path.to_string_lossy().to_string(),
         description,
+        account_id: None,
+        account_name: None,
     })
+}
+
+/// 默认目录（进程里的 `CLAUDE_CONFIG_DIR` 或 `~/.claude`）+ 各登录账号目录下的 `projects`。
+pub fn claude_projects_roots() -> Vec<SessionScanRoot> {
+    let default_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")))
+        .map(|dir| dir.join("projects"));
+    session_scan_roots("claude", default_dir)
 }
 
 /// 列出指定项目的 Claude 会话历史
 pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<ClaudeSession>, String> {
-    let mut sessions = Vec::new();
-
-    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
-
-    let claude_projects = home.join(".claude").join("projects");
-    if !claude_projects.exists() {
-        return Ok(sessions);
-    }
-
-    let entries = fs::read_dir(&claude_projects).map_err(|e| e.to_string())?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-
-        let dir_name = match path.file_name() {
-            Some(n) => n.to_string_lossy().to_string(),
-            None => continue,
-        };
-
-        if !is_claude_project_match(&dir_name, project_path) {
-            continue;
-        }
-
-        if let Ok(files) = fs::read_dir(&path) {
-            for file in files.flatten() {
-                let file_path = file.path();
-                if file_path.extension().is_some_and(|e| e == "jsonl") {
-                    if let Some(session) = parse_session_file(&file_path, project_path) {
-                        sessions.push(session);
-                    }
-                }
-            }
-        }
-    }
-
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
-    sessions.truncate(limit);
-    Ok(sessions)
+    list_sessions_in(&claude_projects_roots(), project_path, limit)
 }
 
 /// 列出所有项目的 Claude 会话历史
 pub fn list_all_sessions(limit: usize) -> Result<Vec<ClaudeSession>, String> {
+    list_all_sessions_in(&claude_projects_roots(), limit)
+}
+
+/// 在给定的若干 `projects` 根下列出某个项目的会话。
+pub fn list_sessions_in(
+    roots: &[SessionScanRoot],
+    project_path: &str,
+    limit: usize,
+) -> Result<Vec<ClaudeSession>, String> {
+    let sessions = scan_roots(roots, |dir_name| {
+        is_claude_project_match(dir_name, project_path).then(|| project_path.to_string())
+    });
+    Ok(finish(sessions, limit))
+}
+
+/// 在给定的若干 `projects` 根下列出全部会话（`project_path` 为编码后的目录名）。
+pub fn list_all_sessions_in(
+    roots: &[SessionScanRoot],
+    limit: usize,
+) -> Result<Vec<ClaudeSession>, String> {
+    let sessions = scan_roots(roots, |dir_name| Some(dir_name.to_string()));
+    Ok(finish(sessions, limit))
+}
+
+/// 扫各根下的项目目录；`project_of` 返回 `None` 的目录跳过。读不了的根静默跳过。
+fn scan_roots(
+    roots: &[SessionScanRoot],
+    project_of: impl Fn(&str) -> Option<String>,
+) -> Vec<ClaudeSession> {
     let mut sessions = Vec::new();
-
-    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
-
-    let claude_projects = home.join(".claude").join("projects");
-    if !claude_projects.exists() {
-        return Ok(sessions);
-    }
-
-    let entries = fs::read_dir(&claude_projects).map_err(|e| e.to_string())?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
+    for root in roots {
+        let Ok(entries) = fs::read_dir(&root.dir) else {
             continue;
-        }
-
-        let dir_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        if let Ok(files) = fs::read_dir(&path) {
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(dir_name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+                continue;
+            };
+            let Some(project_path) = project_of(&dir_name) else {
+                continue;
+            };
+            let Ok(files) = fs::read_dir(&path) else {
+                continue;
+            };
             for file in files.flatten() {
                 let file_path = file.path();
-                if file_path.extension().is_some_and(|e| e == "jsonl") {
-                    if let Some(session) = parse_session_file(&file_path, &dir_name) {
-                        sessions.push(session);
-                    }
+                if file_path.extension().is_none_or(|e| e != "jsonl") {
+                    continue;
+                }
+                if let Some(mut session) = parse_session_file(&file_path, &project_path) {
+                    session.account_id = root.account_id.clone();
+                    session.account_name = root.account_name.clone();
+                    sessions.push(session);
                 }
             }
         }
     }
+    sessions
+}
 
+/// 按修改时间倒序、按会话 id 去重（保留最新的一条）、截断。
+fn finish(mut sessions: Vec<ClaudeSession>, limit: usize) -> Vec<ClaudeSession> {
     sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
+    let mut seen = std::collections::HashSet::new();
+    sessions.retain(|session| seen.insert(session.id.clone()));
     sessions.truncate(limit);
-    Ok(sessions)
+    sessions
 }
 
 pub fn read_session_usage(
@@ -784,5 +798,78 @@ mod tests {
         assert_eq!(date.len(), 10);
         assert_eq!(&date[4..5], "-");
         assert_eq!(&date[7..8], "-");
+    }
+
+    mod multi_root {
+        use super::super::{list_all_sessions_in, list_sessions_in};
+        use crate::services::login_account::SessionScanRoot;
+        use crate::utils::claude_path::encode_claude_project_path;
+        use std::fs;
+        use std::path::Path;
+
+        fn root(dir: &Path, account: Option<&str>) -> SessionScanRoot {
+            SessionScanRoot {
+                dir: dir.to_path_buf(),
+                account_id: account.map(|a| format!("id-{a}")),
+                account_name: account.map(str::to_string),
+            }
+        }
+
+        fn write_session(projects: &Path, project_dir: &str, id: &str, text: &str) {
+            let dir = projects.join(project_dir);
+            fs::create_dir_all(&dir).unwrap();
+            let line = format!(r#"{{"type":"user","message":{{"content":"{text}"}}}}"#);
+            fs::write(dir.join(format!("{id}.jsonl")), line).unwrap();
+        }
+
+        #[test]
+        fn lists_sessions_from_default_and_account_roots_with_account_tag() {
+            let default = tempfile::tempdir().unwrap();
+            let account = tempfile::tempdir().unwrap();
+            let project = "/work/demo";
+            let encoded = encode_claude_project_path(project);
+            write_session(default.path(), &encoded, "s-default", "hello from default");
+            write_session(account.path(), &encoded, "s-account", "hello from account");
+            write_session(
+                account.path(),
+                "other-project",
+                "s-other",
+                "unrelated session",
+            );
+            let roots = [
+                root(default.path(), None),
+                root(account.path(), Some("Work")),
+            ];
+
+            let sessions = list_sessions_in(&roots, project, 10).unwrap();
+            let mut ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+            ids.sort();
+            assert_eq!(ids, ["s-account", "s-default"]);
+            let tagged = sessions.iter().find(|s| s.id == "s-account").unwrap();
+            assert_eq!(tagged.account_name.as_deref(), Some("Work"));
+            assert_eq!(tagged.account_id.as_deref(), Some("id-Work"));
+            let untagged = sessions.iter().find(|s| s.id == "s-default").unwrap();
+            assert!(untagged.account_name.is_none());
+
+            let all = list_all_sessions_in(&roots, 10).unwrap();
+            assert_eq!(all.len(), 3);
+        }
+
+        #[test]
+        fn dedupes_by_session_id_and_skips_missing_roots() {
+            let default = tempfile::tempdir().unwrap();
+            let account = tempfile::tempdir().unwrap();
+            write_session(default.path(), "p", "same-id", "first copy here");
+            write_session(account.path(), "p", "same-id", "second copy here");
+            let missing = default.path().join("does-not-exist");
+            let roots = [
+                root(default.path(), None),
+                root(account.path(), Some("Work")),
+                root(&missing, Some("Gone")),
+            ];
+            let all = list_all_sessions_in(&roots, 10).unwrap();
+            assert_eq!(all.len(), 1);
+            assert_eq!(all[0].id, "same-id");
+        }
     }
 }

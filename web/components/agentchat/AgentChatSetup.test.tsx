@@ -63,7 +63,7 @@ describe("configured first turn", () => {
     ]);
     vi.mocked(agentChatService.start).mockResolvedValue({ ...snapshot, engineId: "codex-app-server", codexThreadId: "native-thread" });
     render(<TooltipProvider><AgentChatTabContent tab={{ ...tab, agentEngineId: "codex-app-server" }} /></TooltipProvider>);
-    await screen.findByRole("button", { name: /Codex App Server/ });
+    await screen.findByRole("button", { name: /Codex/ });
     expect(agentChatService.start).not.toHaveBeenCalled();
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     await launch();
@@ -246,14 +246,15 @@ describe("configured first turn", () => {
     useAgentChatStore.getState().setSnapshot(CHAT, snapshot);
     vi.mocked(agentChatService.setModel).mockRejectedValue(new Error("model switch rejected"));
     renderChat();
-    await user.click(screen.getByRole("button", { name: "fast" }));
-    await user.click(await screen.findByRole("menuitem", { name: "careful" }));
+    // 合并选择器：chip 显示「模型 · 推理档位」，展开后在中栏选模型。
+    await user.click(screen.getByRole("button", { name: /fast · low/ }));
+    await user.click(await screen.findByRole("option", { name: /careful/ }));
     await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].items).toContainEqual(
       expect.objectContaining({ type: "notice", text: "model switch rejected" }),
     ));
     expect(agentChatService.setModel).toHaveBeenCalledWith(CHAT, "careful");
     expect(loadEnginePrefs("claude")?.preferredModelId).toBe("careful");
-    expect(screen.getByRole("button", { name: "fast" })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-model-picker")).toHaveTextContent("fast");
     expect(agentChatService.start).not.toHaveBeenCalled();
     expect(agentChatService.prompt).not.toHaveBeenCalled();
   });

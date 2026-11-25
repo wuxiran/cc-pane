@@ -127,9 +127,10 @@ describe("DeviceAccessPanel", () => {
     render(<DeviceAccessPanel allowDevices onAllowDevicesChange={() => {}} />);
 
     expect(await screen.findByText("laptop")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /生成配对码|Generate pairing code/ }));
+    await user.click(screen.getByRole("button", { name: /创建配对|Create pairing/ }));
     expect(await screen.findByTestId("device-pairing-code-display")).toHaveTextContent("654321");
     expect(screen.getByText("http://100.64.0.3:18080")).toBeInTheDocument();
+    expect(screen.getByTestId("device-pairing-qr")).toHaveAttribute("data-payload", "http://100.64.0.3:18080");
 
     await user.click(screen.getByRole("button", { name: /^移除$|^Remove$/ }));
     await waitFor(() => expect(deviceService.revokeDeviceAccess).toHaveBeenCalledWith("t1"));

@@ -30,6 +30,7 @@ vi.mock("@/utils/errorHandler", async (importOriginal) => ({
 
 type DropPayload =
   | { type: "enter"; paths: string[]; position: { x: number; y: number } }
+  | { type: "over"; position: { x: number; y: number } }
   | { type: "drop"; paths: string[]; position: { x: number; y: number } }
   | { type: "leave" };
 let dropHandler: ((event: { payload: DropPayload }) => void) | null = null;
@@ -51,16 +52,24 @@ function mockInvoke(clipboardPaths: string[]) {
   }) as typeof invoke);
 }
 
-function renderComposer() {
+function renderComposer({ inDropZone = false } = {}) {
+  const composer = (
+    <ChatComposer
+      chatId={CHAT}
+      cwd="C:\\proj"
+      phase="ready"
+      generating={false}
+      availableCommands={[]}
+    />
+  );
   return render(
     <TooltipProvider>
-      <ChatComposer
-        chatId={CHAT}
-        cwd="C:\\proj"
-        phase="ready"
-        generating={false}
-        availableCommands={[]}
-      />
+      {inDropZone ? (
+        <section data-testid="drop-zone" data-agent-chat-drop-zone="">
+          <div data-testid="message-list">messages</div>
+          {composer}
+        </section>
+      ) : composer}
     </TooltipProvider>,
   );
 }
@@ -135,6 +144,30 @@ describe("ChatComposer 附件与粘贴", () => {
       });
     });
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+  });
+
+  it("Tauri 原生拖放：整个对话区都是落点，悬停时对话区显示提示层", async () => {
+    mockInvoke([]);
+    renderComposer({ inDropZone: true });
+    const zone = screen.getByTestId("drop-zone");
+    let target: Element = screen.getByTestId("message-list");
+    document.elementFromPoint = (() => target) as unknown as typeof document.elementFromPoint;
+    await vi.waitFor(() => expect(dropHandler).not.toBeNull());
+
+    act(() => dropHandler?.({ payload: { type: "over", position: { x: 4, y: 8 } } }));
+    expect(zone).toHaveAttribute("data-chat-drop-active", "true");
+    expect(zone.dataset.chatDropLabel).toMatch(/松开添加到对话|Drop to add/);
+
+    target = document.body;
+    act(() => dropHandler?.({ payload: { type: "over", position: { x: 4, y: 8 } } }));
+    expect(zone).not.toHaveAttribute("data-chat-drop-active");
+
+    target = screen.getByTestId("message-list");
+    act(() => dropHandler?.({
+      payload: { type: "drop", paths: ["C:\\dir\\notes.md"], position: { x: 4, y: 8 } },
+    }));
+    expect(zone).not.toHaveAttribute("data-chat-drop-active");
+    expect(await screen.findByText("notes.md")).toBeInTheDocument();
   });
 
   it("HTML5 image drop persists the dropped bytes instead of reading unrelated clipboard contents", async () => {

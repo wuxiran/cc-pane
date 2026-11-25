@@ -131,10 +131,15 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
                   <Settings aria-hidden="true" />
                   {t("settings")}
                 </Button>
-                <Button size="sm" onClick={handleEnterWorkspace}>
+                {/* 首页唯一主 CTA：logo 橙的玻璃磨砂按钮（btn-glass-brand），与满屏青色的次级元素拉开层级 */}
+                <button
+                  type="button"
+                  className="btn-glass-brand shape-control inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[length:var(--text-body)] font-semibold whitespace-nowrap"
+                  onClick={handleEnterWorkspace}
+                >
                   {t("enterWorkspace")}
-                  <ArrowRight aria-hidden="true" />
-                </Button>
+                  <ArrowRight aria-hidden="true" className="size-4" />
+                </button>
               </>
             }
           />

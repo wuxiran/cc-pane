@@ -1,7 +1,12 @@
 import { Check, ClipboardCopy, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import WallpaperSliderRow from "@/components/settings/WallpaperSliderRow";
+import {
+  SettingsBlock,
+  SettingsRangeControl,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings/layout";
 import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -83,24 +88,15 @@ export function ThemeEditor() {
   }
 
   return (
-    <section
-      className="space-y-4 border-t border-[var(--app-border)] pt-6"
-      aria-labelledby="theme-custom-heading"
-      data-settings-section="theme-custom"
-    >
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
-        <div className="min-w-0">
-          <h2 id="theme-custom-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
-            {t("theme.custom.title")}
-          </h2>
-          <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
-            {t("theme.custom.description")}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
+    <SettingsSection
+      title={t("theme.custom.title")}
+      description={t("theme.custom.description")}
+      sectionId="theme-custom"
+      actions={(
+        <>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             disabled={!dirty}
             onClick={restoreDefaults}
@@ -110,85 +106,92 @@ export function ThemeEditor() {
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => void exportTheme()}
           >
             <ClipboardCopy aria-hidden="true" />
             {t("theme.custom.export")}
           </Button>
+        </>
+      )}
+    >
+      <SettingsBlock className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        {/* 实时预览：与主题卡同一 mini UI，套当前 data-theme + data-shape，
+            overrides 经 MiniUiPreview 内部订阅同步反映。 */}
+        <div className="w-full max-w-[220px] shrink-0">
+          <MiniUiPreview theme={themeId} shape={shape} />
         </div>
-      </div>
-
-      {/* 实时预览：与主题卡同一 mini UI，套当前 data-theme + data-shape，
-          overrides 经 MiniUiPreview 内部订阅同步反映。 */}
-      <div className="max-w-xs">
-        <MiniUiPreview theme={themeId} shape={shape} />
-      </div>
-
-      <div className="space-y-2" role="group" aria-label={t("theme.custom.accentLabel")}>
-        <span className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">
-          {t("theme.custom.accentLabel")}
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            aria-pressed={overrides?.accent === undefined}
-            onClick={() => selectAccent(undefined)}
-            className={cn(
-              "shape-control flex h-6 items-center rounded-full border px-2 text-[length:var(--text-caption)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
-              overrides?.accent === undefined
-                ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]"
-                : "border-dashed border-[var(--app-border)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]",
-            )}
-          >
-            {t("theme.custom.accentFollowTheme")}
-          </button>
-          {ACCENT_PRESETS.map((preset) => {
-            const variant = preset[group];
-            const selected = overrides?.accent === preset.id;
-            return (
-              <Tooltip><TooltipTrigger asChild><button
-                key={preset.id}
-                type="button"
-                aria-pressed={selected}
-                aria-label={t(preset.labelKey as never)}
-                onClick={() => selectAccent(preset.id)}
-                className={cn(
-                  "shape-control flex size-6 items-center justify-center rounded-full border border-black/10 outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
-                  selected && "ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--app-panel-bg)]",
-                )}
-                style={{ background: variant.color, color: variant.foreground }}
-              >
-                {selected && <Check aria-hidden="true" className="size-3.5" strokeWidth={3} />}
-              </button></TooltipTrigger><TooltipContent>{t(preset.labelKey as never)}</TooltipContent></Tooltip>
-            );
-          })}
+        <div className="min-w-0 space-y-2" role="group" aria-label={t("theme.custom.accentLabel")}>
+          <span className="text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">
+            {t("theme.custom.accentLabel")}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={overrides?.accent === undefined}
+              onClick={() => selectAccent(undefined)}
+              className={cn(
+                "shape-control flex h-6 items-center rounded-full border px-2 text-[length:var(--text-caption)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+                overrides?.accent === undefined
+                  ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+                  : "border-dashed border-[var(--app-border)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]",
+              )}
+            >
+              {t("theme.custom.accentFollowTheme")}
+            </button>
+            {ACCENT_PRESETS.map((preset) => {
+              const variant = preset[group];
+              const selected = overrides?.accent === preset.id;
+              return (
+                <Tooltip key={preset.id}><TooltipTrigger asChild><button
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={t(preset.labelKey as never)}
+                  onClick={() => selectAccent(preset.id)}
+                  className={cn(
+                    "shape-control flex size-6 items-center justify-center rounded-full border border-black/10 outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+                    selected && "ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--app-panel-bg)]",
+                  )}
+                  style={{ background: variant.color, color: variant.foreground }}
+                >
+                  {selected && <Check aria-hidden="true" className="size-3.5" strokeWidth={3} />}
+                </button></TooltipTrigger><TooltipContent>{t(preset.labelKey as never)}</TooltipContent></Tooltip>
+              );
+            })}
+          </div>
         </div>
-      </div>
-
-      <div className="max-w-md space-y-3">
-        <WallpaperSliderRow
-          label={t("theme.custom.radiusLabel")}
-          value={overrides?.radius ?? SHAPE_BASE_RADIUS[shape]}
-          min={RADIUS_OVERRIDE_MIN}
-          max={RADIUS_OVERRIDE_MAX}
-          step={0.05}
-          format={formatRadius}
-          onChange={changeRadius}
-          className="w-full"
-        />
-        <WallpaperSliderRow
-          label={t("theme.custom.panelLightnessLabel")}
-          value={overrides?.panelLightnessDelta ?? 0}
-          min={PANEL_LIGHTNESS_MIN}
-          max={PANEL_LIGHTNESS_MAX}
-          step={1}
-          format={formatPanelDelta}
-          onChange={changePanelLightness}
-          className="w-full"
-        />
-      </div>
-    </section>
+      </SettingsBlock>
+      <SettingsRow
+        title={t("theme.custom.radiusLabel")}
+        htmlFor="theme-custom-radius"
+        control={(
+          <SettingsRangeControl
+            id="theme-custom-radius"
+            value={overrides?.radius ?? SHAPE_BASE_RADIUS[shape]}
+            min={RADIUS_OVERRIDE_MIN}
+            max={RADIUS_OVERRIDE_MAX}
+            step={0.05}
+            format={formatRadius}
+            onChange={changeRadius}
+          />
+        )}
+      />
+      <SettingsRow
+        title={t("theme.custom.panelLightnessLabel")}
+        htmlFor="theme-custom-panel-lightness"
+        control={(
+          <SettingsRangeControl
+            id="theme-custom-panel-lightness"
+            value={overrides?.panelLightnessDelta ?? 0}
+            min={PANEL_LIGHTNESS_MIN}
+            max={PANEL_LIGHTNESS_MAX}
+            step={1}
+            format={formatPanelDelta}
+            onChange={changePanelLightness}
+          />
+        )}
+      />
+    </SettingsSection>
   );
 }

@@ -28,6 +28,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   screenshot: ["screenshot"],
   wallpaper: ["wallpaper"],
   experimental: ["experimental"],
+  "agent-chat": ["agentChat"],
 };
 
 export function createSettingsDraft(value: AppSettings): SettingsDraft {
@@ -60,6 +61,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     performance: {
       ...DEFAULT_PERFORMANCE_SETTINGS,
       ...maybeWithCCChan.performance,
+    },
+    agentChat: {
+      codexForceAcp: false,
+      ...maybeWithCCChan.agentChat,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,

@@ -2,7 +2,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowUp, ChevronDown, ClipboardPaste, Compass, FolderOpen, Import, Plus, Search, Server } from "lucide-react";
-import { resolveWorkspaceLaunchProfile } from "@/components/providers/launchProfileHelpers";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +23,7 @@ import { mcpTargetKey, type McpLayerTarget } from "@/types";
 import { translateError } from "@/utils";
 import AgentMcpServersSection from "./AgentMcpServersSection";
 import LayerMcpEditorDialog, { type LayerEditorRequest } from "./LayerMcpEditorDialog";
-import { profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope, useScopeOptions } from "./libraryChrome";
+import { LibraryTitle, profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope, useScopeOptions } from "./libraryChrome";
 import McpDetailPanel from "./McpDetailPanel";
 import { buildMcpLibraryEntries, entryDetail, filterMcpLibraryEntries, type McpLibraryEntry } from "./mcpLibraryModel";
 import PasteMcpDialog from "./PasteMcpDialog";
@@ -125,7 +124,6 @@ export default function McpLibraryPage() {
     () => Object.keys(projectLayer.legacyServers).filter((name) => !(name in projectLayer.servers)),
     [projectLayer.legacyServers, projectLayer.servers],
   );
-  const workspaceProfile = useMemo(() => resolveWorkspaceLaunchProfile(workspace, profiles), [workspace, profiles]);
 
   const chipsFor = (entry: McpLibraryEntry): ProfileChipItem[] => {
     const resource = resourceOf(entry);
@@ -188,7 +186,7 @@ export default function McpLibraryPage() {
     <div className="flex h-full" data-testid="mcp-library-page" style={{ background: "var(--app-panel-bg)" }}>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-6 pb-3 pt-5">
-          <h1 className="mr-auto text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.mcp")}</h1>
+          <LibraryTitle title={t("resourceLibrary.mcp")} intro={t("resourceLibrary.mcpIntro")} noProfiles={profiles.length === 0} />
           {inMarket ? (
             <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToTop}><ArrowUp size={13} className="mr-1" />{t("resourceLibrary.backToServers")}</Button>
           ) : (
@@ -225,9 +223,7 @@ export default function McpLibraryPage() {
         </header>
 
         <div ref={scrollRef} onScroll={syncInMarket} className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-          <RemoteRuntimeNotice workspace={workspace} profile={workspaceProfile} subject="mcp" className="mb-3" />
-          <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.mcpIntro")}</p>
-          {profiles.length === 0 && <p className="mb-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceCenter.noProfiles")}</p>}
+          <RemoteRuntimeNotice workspace={workspace} subject="mcp" className="mb-3" />
           {entries.length > SEARCH_THRESHOLD && (
             <div className="relative mb-2">
               <Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />
@@ -241,7 +237,8 @@ export default function McpLibraryPage() {
             </div>
           )}
           {visible.length === 0 ? (
-            <EmptyState icon={Server} title={t("resourceLibrary.noMatch")} />
+            // 整个库为空时下面那行空态已经说明了，这里只在搜索无结果时出现
+            query ? <EmptyState icon={Server} title={t("resourceLibrary.noMatch")} /> : null
           ) : (
             <div className="divide-y rounded-lg border" style={{ borderColor: "var(--app-border)" }}>
               {visible.map((entry) => {
@@ -274,14 +271,10 @@ export default function McpLibraryPage() {
             </div>
           )}
           {sharedServers.length === 0 && !query && (
-            <div
-              className="mt-3 flex flex-col items-center gap-1 rounded-lg border border-dashed px-4 py-8 text-center"
-              style={{ borderColor: "var(--app-border)" }}
-              data-testid="mcp-empty-card"
-            >
-              <p className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.emptyTitle")}</p>
-              <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.emptyHint")}</p>
-              <Button size="sm" variant="outline" className="mt-2 h-8" onClick={() => setSharedEditor({ name: null })}>
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: "var(--app-text-tertiary)" }} data-testid="mcp-empty-card">
+              <span>{t("resourceLibrary.emptyTitle")}</span>
+              <span>{t("resourceLibrary.emptyHint")}</span>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setSharedEditor({ name: null })}>
                 <Plus size={13} className="mr-1" />{t("resourceLibrary.addServer")}
               </Button>
             </div>

@@ -48,7 +48,7 @@ export function SystemThemePreview({ selected = false, className }: SystemThemeP
       <span className="absolute inset-y-0 right-0 w-1/2" style={{ background: "var(--app-content)" }} />
       <MonitorCog className="relative size-4 text-[var(--app-text-secondary)]" />
       {selected && (
-        <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-white">
+        <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--primary-foreground)]">
           <Check size={11} strokeWidth={3} />
         </span>
       )}

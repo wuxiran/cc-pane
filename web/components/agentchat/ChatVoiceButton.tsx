@@ -8,7 +8,9 @@ import { toastErr } from "@/lib/feedback";
 import { voiceService } from "@/services";
 import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { blobToAudioPayload, getRecorderMimeType } from "@/lib/voiceAudio";
-import { missingApiKey, shouldPreferWav } from "@/lib/voiceProviders";
+import { missingApiKey, shouldPreferWav, wavSampleRate } from "@/lib/voiceProviders";
+import { openPreferredMicrophone } from "@/lib/voiceMicrophones";
+import { finalizeTranscript } from "@/lib/voiceTranscript";
 import { isTauriRuntime } from "@/services/runtime";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -101,7 +103,7 @@ export default function ChatVoiceButton({
         const blob = new Blob(attempt.chunks, { type: mimeType || "audio/webm" });
         attempt.chunks = [];
         if (blob.size === 0) throw new Error(t("voiceEmptyAudio"));
-        const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false);
+        const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false, wavSampleRate(voice));
         if (!isCurrent(attempt)) return;
         const result = await voiceService.transcribe({
           audioBase64: audio.audioBase64,
@@ -110,7 +112,7 @@ export default function ChatVoiceButton({
           enableItn: voice?.enableItn ?? false,
         });
         if (!isCurrent(attempt)) return;
-        const text = result.text.trim();
+        const text = finalizeTranscript(result.text, voice);
         if (!text) throw new Error(t("voiceEmptyTranscript"));
         onTextRef.current(text);
       } catch (error) {
@@ -145,7 +147,7 @@ export default function ChatVoiceButton({
     setActiveTarget(targetId);
     setStatus("recording");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await openPreferredMicrophone(voice);
       if (!isCurrent(attempt)) { stream.getTracks().forEach((track) => track.stop()); return; }
       attempt.stream = stream;
       const mimeType = getRecorderMimeType();

@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTaskQueueStore } from "@/stores/useTaskQueueStore";
+import { useTaskQueuePopoverStore } from "@/stores/useTaskQueuePopoverStore";
 import type { StagedTaskQueueImage, TaskQueueItem, TaskQueueSnapshot } from "@/types/taskQueue";
 import { clipboardHasImage } from "./terminalClipboard";
 
@@ -99,6 +100,15 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
     void load(sessionId).catch(() => undefined);
   }, [load, sessionId]);
 
+  // 入口在终端右键菜单：登记本会话可开，并响应打开请求
+  const requested = useTaskQueuePopoverStore((s) => s.requested === sessionId);
+  useEffect(() => useTaskQueuePopoverStore.getState().register(sessionId), [sessionId]);
+  useEffect(() => {
+    if (!requested) return;
+    setOpen(true);
+    useTaskQueuePopoverStore.getState().consume();
+  }, [requested]);
+
   const run = async (operation: () => Promise<unknown>) => {
     try {
       await operation();
@@ -148,6 +158,8 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
   const visibleReason = snapshot?.reason
     ?? (snapshot && !snapshot.unattendedSupported ? "unattendedUnsupported" : null);
   const triggerLabel = t("taskQueue.triggerLabel", { count: itemCount, state: stateLabel });
+  // 状态栏图标只在队列真有东西（有任务 / 开了无人值守）时露出，平时只留隐形锚点
+  const showTrigger = open || itemCount > 0 || Boolean(snapshot?.unattended);
   const hasHazardousItems = snapshot?.items.some(
     (item) => item.state === "failed" || item.state === "deliveryUnknown",
   ) ?? false;
@@ -155,24 +167,30 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <button type="button" aria-label={triggerLabel}
-                  className="relative inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]">
-                  <StatusIcon state={state} />
-                  {itemCount > 0 && (
-                    <Badge className="h-4 min-w-4 px-1 text-[length:var(--text-nano)] leading-none" variant="secondary">
-                      {countLabel(itemCount)}
-                    </Badge>
-                  )}
-                </button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="top">{triggerLabel}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {showTrigger ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <button type="button" aria-label={triggerLabel}
+                    className="relative inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]">
+                    <StatusIcon state={state} />
+                    {itemCount > 0 && (
+                      <Badge className="h-4 min-w-4 px-1 text-[length:var(--text-nano)] leading-none" variant="secondary">
+                        {countLabel(itemCount)}
+                      </Badge>
+                    )}
+                  </button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">{triggerLabel}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <PopoverAnchor asChild>
+            <span aria-hidden="true" className="inline-block h-6 w-0 shrink-0" />
+          </PopoverAnchor>
+        )}
         <PopoverContent side="top" align="end" sideOffset={6}
           className="flex max-h-[70vh] w-[min(420px,calc(100vw-16px))] flex-col overflow-hidden p-0"
           onOpenAutoFocus={(event) => {

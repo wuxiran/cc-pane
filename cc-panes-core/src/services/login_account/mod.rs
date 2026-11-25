@@ -8,12 +8,17 @@
 
 mod layout;
 mod links;
+mod registry;
 mod status;
 #[cfg(test)]
 mod tests;
 
 pub use layout::{layout_for, LoginCliLayout};
 pub use links::{SharedEntryOutcome, SharedEntryState};
+pub use registry::{
+    register_account_root_source, registered_account_roots, session_scan_roots,
+    session_scan_roots_from, SessionScanRoot,
+};
 pub use status::{
     claude_keychain_service, codex_keychain_account, KeychainProbe, LoginAccountStatus, LoginState,
     SystemKeychainProbe, CODEX_KEYCHAIN_SERVICE,
@@ -21,7 +26,7 @@ pub use status::{
 
 use crate::models::provider::{
     login_isolation_env, AccountKind, Provider, ProviderAccount, DEFAULT_LOGIN_ACCOUNT_ID,
-    DEFAULT_LOGIN_ACCOUNT_NAME,
+    DEFAULT_LOGIN_ACCOUNT_NAME, SYSTEM_PROVIDER_ID,
 };
 use crate::services::ProviderService;
 use crate::utils::error::{AppError, AppResult};
@@ -460,6 +465,18 @@ impl LoginAccountService {
         account_id: &str,
         cli_tool: Option<&str>,
     ) -> AppResult<LoginAccountStatus> {
+        // 「CLI 自带登录」不挂在任何供应商下：用 `SYSTEM_PROVIDER_ID` 直接查该 CLI 的默认目录。
+        if provider_id == SYSTEM_PROVIDER_ID && account_id == DEFAULT_LOGIN_ACCOUNT_ID {
+            let cli_tool = cli_tool.ok_or_else(|| {
+                coded(
+                    "LOGIN_ACCOUNT_CLI_UNSUPPORTED",
+                    "cliTool is required for the CLI's own login".to_string(),
+                    &[("cliTool", "")],
+                )
+            })?;
+            Self::layout(cli_tool)?;
+            return Ok(self.status_for(cli_tool, None));
+        }
         let provider = self.provider(provider_id)?;
         let account = Self::login_account(&provider, account_id, cli_tool)?;
         Ok(self.status_for(

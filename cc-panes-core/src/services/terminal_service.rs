@@ -11,11 +11,11 @@ use crate::models::{
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
 use crate::services::{
-    managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
-    CreateSessionOutcome, DefaultSkillService, LaunchProfileService, PiRpcLaunchSpec,
-    ProjectCliHooksService, ProviderLaunchEnv, ProviderMode, ProviderResolutionInput,
-    ProviderService, ResolvedProviderPlan, SettingsService, SpecService, SshConnectionService,
-    SshCredentialService, TerminalLinkContext, WorkspaceService,
+    adapt_plan_for_runtime, managed_provider_conflict_env_keys, resolve_provider_plan,
+    validate_provider_runtime, CreateSessionOutcome, DefaultSkillService, LaunchProfileService,
+    PiRpcLaunchSpec, ProjectCliHooksService, ProviderLaunchEnv, ProviderMode,
+    ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService, SpecService,
+    SshConnectionService, SshCredentialService, TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -34,6 +34,8 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+mod agent_chat_launch;
+pub use agent_chat_launch::{codex_config_overrides_to_json, AgentChatLaunchOverlay};
 mod csi_mode_detect;
 mod cursor_chat_capture;
 mod launch_threads;
@@ -2337,6 +2339,10 @@ impl TerminalService {
             adapter_options.remove("__ccpanesModelId");
         }
         validate_provider_runtime(&provider_plan, LaunchRuntime::Local, cli_tool)?;
+        crate::services::relay_gateway_probe::ensure_relay_gateway_reachable(
+            &provider_plan,
+            LaunchRuntime::Local,
+        )?;
 
         let adapter = self.cli_registry.get(cli_tool.as_id()).ok_or_else(|| {
             AppError::coded(
@@ -2893,7 +2899,7 @@ impl TerminalService {
             .provider_service
             .get_default_provider_id(cli_tool.as_id());
         let providers = self.provider_service.list_providers();
-        let provider_plan = resolve_provider_plan(
+        let mut provider_plan = resolve_provider_plan(
             ProviderResolutionInput {
                 cli_tool,
                 selection: provider_selection,
@@ -2925,7 +2931,25 @@ impl TerminalService {
         } else {
             adapter_options.remove("__ccpanesModelId");
         }
+        if let Some(note) = adapt_plan_for_runtime(
+            &mut provider_plan,
+            runtime,
+            cli_tool,
+            provider_account_id.is_some_and(|id| !id.trim().is_empty()),
+        ) {
+            info!(
+                cli_tool = cli_tool.as_id(),
+                runtime = runtime_kind,
+                "{note}"
+            );
+        }
         validate_provider_runtime(&provider_plan, runtime, cli_tool).map_err(anyhow::Error::new)?;
+        // 从 Magpie 路由组 / cc-switch 代理导入的供应商：本机会话先探网关端口，没在跑就明确报错。
+        crate::services::relay_gateway_probe::ensure_relay_gateway_reachable(
+            &provider_plan,
+            runtime,
+        )
+        .map_err(anyhow::Error::new)?;
         info!(
             cli_tool = cli_tool.as_id(),
             runtime = runtime_kind,
@@ -3098,6 +3122,16 @@ impl TerminalService {
                 .map(|profile| profile.yolo_mode)
                 .unwrap_or(false)
         });
+        // 分层原生配置：中转站片段 ← 运行配置片段 ← CC-Panes 显式字段（services::native_config）。
+        // 结果放进 adapter options，本机 / WSL / SSH 各自取用；Claude 的 [1m] 后缀也在这里补齐。
+        crate::services::native_config::apply_to_adapter_options(
+            &mut adapter_options,
+            cli_tool.as_id(),
+            provider_plan.provider.as_ref(),
+            resolved_profile.as_ref(),
+            provider_plan.model_id.as_deref(),
+            effective_yolo_mode,
+        );
         // 方案 A：显式选中的启动配置因 CLI/运行环境不匹配被静默丢弃时，不再无声回落——
         // 记录 warn 并向前端广播提示，避免 YOLO 等 profile 级设置无声失效。
         if let Some(diagnostic) = profile_diagnostic.as_ref() {
@@ -3433,17 +3467,27 @@ impl TerminalService {
                 );
                 remote_launch.remote_path = cwd.to_string();
             }
-            let remote_command = Self::build_ssh_remote_command(
+            let embedded = self
+                .ssh_connection_service
+                .can_use_embedded_terminal(ssh_info);
+            // 系统 ssh 回退只能把凭证拼进命令行（本机 ssh 进程参数 + 远端 shell argv 都可见），
+            // 托管供应商在这条路上一律拒绝；应用内 SSH2 通道走带外文件，安全放行。
+            if !embedded && provider_plan.mode == ProviderMode::Managed {
+                return Err(anyhow::Error::new(AppError::coded(
+                    "PROVIDER_SSH_MANAGED_UNSAFE",
+                    "Managed providers over SSH need the built-in SSH connection; this machine falls back to the system ssh, which would expose credentials in process arguments. Re-save the SSH machine with its authentication method to enable the built-in connection.",
+                )));
+            }
+            let (remote_command, ssh_secret_env) = Self::build_ssh_remote_command_with_native(
                 &remote_launch,
                 cli_tool,
                 &provider_vars,
                 provider.as_ref(),
                 effective_yolo_mode,
                 &env_vars,
+                embedded,
+                &cc_cli_adapters::native_codex_config_args(&adapter_options),
             );
-            let embedded = self
-                .ssh_connection_service
-                .can_use_embedded_terminal(ssh_info);
             let (cmd, cmd_args) = if embedded {
                 (
                     format!("ssh2://{}:{}", ssh_info.host, ssh_info.port),
@@ -3465,7 +3509,7 @@ impl TerminalService {
                 cmd,
                 cmd_args,
                 vec![],
-                embedded.then_some(remote_command),
+                embedded.then_some((remote_command, ssh_secret_env)),
             )
         } else if let Some(wsl_info) = wsl {
             let cwd = match workspace_path {
@@ -3697,6 +3741,9 @@ impl TerminalService {
                 | CliTool::Omp
                 | CliTool::Jcode
                 | CliTool::Antigravity
+                | CliTool::Kiro
+                | CliTool::Fx
+                | CliTool::Muse
                 | CliTool::Kimi => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
@@ -4045,12 +4092,13 @@ impl TerminalService {
         // channel 会阻塞共享传输拖垮其他终端；且 keepalive 只在 read() 的 WouldBlock
         // 分支里发（15s），park 超时即掉线。改由有界通道整段丢弃 + desync 兜底。
         let is_ssh_session = ssh.is_some() && ssh_remote_command.is_some();
-        let spawn_attempt = match (ssh, ssh_remote_command.as_deref()) {
-            (Some(connection), Some(remote_command)) => spawn_ssh_terminal(
+        let spawn_attempt = match (ssh, ssh_remote_command.as_ref()) {
+            (Some(connection), Some((remote_command, secret_env))) => spawn_ssh_terminal(
                 &self.ssh_connection_service,
                 SshTerminalConfig {
                     connection,
                     remote_command,
+                    secret_env,
                     cols,
                     rows,
                 },
@@ -6389,9 +6437,18 @@ impl TerminalService {
             // agy 官方 README 明确支持 SSH 远端会话（打印授权 URL 完成登录）。
             CliTool::Antigravity if yolo_mode => "agy --dangerously-skip-permissions",
             CliTool::Antigravity => "agy",
+            // 终端 CLI 未在启动菜单放开 SSH（supportsSsh: false），裸启动兜底。
+            CliTool::Kiro => "kiro-cli",
+            CliTool::Fx => "fx",
+            CliTool::Muse => "muse",
         }
     }
 
+    /// 拼远端启动命令。`secrets_out_of_band` 为真时（应用内 SSH2 通道），供应商环境变量
+    /// **不进命令行**，作为第二个返回值交给 [`spawn_ssh_terminal`] 经独立通道写进远端 0600
+    /// 临时文件——否则密钥会以明文出现在远端 shell 的 argv 里，同机其他用户 `ps` 可见。
+    /// 系统 ssh 回退路径没有第二条通道，只能内联（托管供应商在该路径被拒，见 create_session）。
+    #[cfg(test)]
     fn build_ssh_remote_command(
         ssh: &SshConnectionInfo,
         cli_tool: CliTool,
@@ -6399,7 +6456,32 @@ impl TerminalService {
         provider: Option<&CliProvider>,
         yolo_mode: bool,
         session_env: &HashMap<String, String>,
-    ) -> String {
+        secrets_out_of_band: bool,
+    ) -> (String, Vec<(String, String)>) {
+        Self::build_ssh_remote_command_with_native(
+            ssh,
+            cli_tool,
+            provider_env,
+            provider,
+            yolo_mode,
+            session_env,
+            secrets_out_of_band,
+            &[],
+        )
+    }
+
+    /// 同 [`Self::build_ssh_remote_command`]，额外带上分层原生配置的 Codex `-c` 参数。
+    #[allow(clippy::too_many_arguments)]
+    fn build_ssh_remote_command_with_native(
+        ssh: &SshConnectionInfo,
+        cli_tool: CliTool,
+        provider_env: &HashMap<String, String>,
+        provider: Option<&CliProvider>,
+        yolo_mode: bool,
+        session_env: &HashMap<String, String>,
+        secrets_out_of_band: bool,
+        native_codex_args: &[String],
+    ) -> (String, Vec<(String, String)>) {
         let mut remote_parts: Vec<String> = Vec::new();
         // 并行度：只导出五个非路径键，且用 `${K:-v}` 形式——远端 profile 已设的值优先。
         remote_parts.extend(crate::utils::perf_env::remote_export_statements(
@@ -6414,15 +6496,22 @@ impl TerminalService {
                 &mut provider_env,
                 provider,
             );
+            codex_provider_args.extend(native_codex_args.iter().cloned());
         }
 
         // Provider 环境变量注入（白名单 key 格式 + value 转义）
+        let mut secret_env = Vec::new();
         if cli_tool != CliTool::None {
-            for (k, v) in &provider_env {
-                if Self::is_valid_env_key(k) {
-                    remote_parts.push(format!("export {}={}", k, Self::shell_escape(v)));
-                } else {
+            let mut keys: Vec<&String> = provider_env.keys().collect();
+            keys.sort();
+            for k in keys {
+                let v = &provider_env[k];
+                if !Self::is_valid_env_key(k) {
                     warn!("Skipping env var with invalid key: {}", k);
+                } else if secrets_out_of_band {
+                    secret_env.push((k.clone(), v.clone()));
+                } else {
+                    remote_parts.push(format!("export {}={}", k, Self::shell_escape(v)));
                 }
             }
         }
@@ -6432,13 +6521,19 @@ impl TerminalService {
             let escaped_path = Self::shell_escape(&ssh.remote_path);
             remote_parts.push(format!("cd {}", escaped_path));
         }
-        let mut remote_cli = Self::ssh_remote_cli_command(cli_tool, yolo_mode).to_string();
+        let base_cli = Self::ssh_remote_cli_command(cli_tool, yolo_mode);
+        // exec：让 CLI 进程替换掉这层 shell，命令行只在启动瞬间存在，会话期间不留在进程表里
+        let mut remote_cli = if base_cli.starts_with("exec ") {
+            base_cli.to_string()
+        } else {
+            format!("exec {base_cli}")
+        };
         for arg in codex_provider_args {
             remote_cli.push(' ');
             remote_cli.push_str(&Self::shell_escape(&arg));
         }
         remote_parts.push(remote_cli);
-        remote_parts.join(" && ")
+        (remote_parts.join(" && "), secret_env)
     }
 
     /// 兼容旧 SSH 配置的系统 OpenSSH 回退命令。
@@ -7519,6 +7614,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: Some(200_000),
                 context_size: None,
+                hidden: false,
             }],
             default_model_id: Some("provider-default".to_string()),
             codex_wire_api: None,
@@ -7613,6 +7709,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             }],
             default_model_id: Some("gpt-5-test".to_string()),
             accounts: vec![
@@ -7890,6 +7987,7 @@ mod tests {
                     default_effort: None,
                     context_window_tokens: None,
                     context_size: None,
+                    hidden: false,
                 }],
                 default_model_id: Some("gpt-5-test".to_string()),
                 codex_wire_api: None,
@@ -7991,6 +8089,7 @@ mod tests {
                     default_effort: None,
                     context_window_tokens: None,
                     context_size: None,
+                    hidden: false,
                 }],
                 default_model_id: Some("gpt-5-test".to_string()),
                 codex_wire_api: None,
@@ -8555,6 +8654,7 @@ mod tests {
                     ..Default::default()
                 },
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .expect("create launch profile");
@@ -10706,6 +10806,46 @@ mod tests {
         );
     }
 
+    /// 分层原生配置的 Codex `-c` 叶子也随 SSH 远端命令带过去（逐个转义），其他 CLI 不带。
+    #[test]
+    fn ssh_remote_command_appends_native_codex_config_args() {
+        let ssh = SshConnectionInfo {
+            host: "example.com".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            remote_path: "~".to_string(),
+            identity_file: None,
+            machine_id: None,
+            auth_method: None,
+        };
+        let native = vec!["-c".to_string(), "service_tier=\"fast\"".to_string()];
+        let (command, _) = TerminalService::build_ssh_remote_command_with_native(
+            &ssh,
+            CliTool::Codex,
+            &HashMap::new(),
+            None,
+            false,
+            &HashMap::new(),
+            true,
+            &native,
+        );
+        assert!(
+            command.ends_with("'-c' 'service_tier=\"fast\"'"),
+            "{command}"
+        );
+        let (claude, _) = TerminalService::build_ssh_remote_command_with_native(
+            &ssh,
+            CliTool::Claude,
+            &HashMap::new(),
+            None,
+            false,
+            &HashMap::new(),
+            true,
+            &native,
+        );
+        assert!(!claude.contains("service_tier"), "{claude}");
+    }
+
     /// SSH 远端只导出五个非路径并行度键，`${K:-v}` 形式让远端 profile 已设的值优先；
     /// `RIPGREP_CONFIG_PATH` 是宿主路径，绝不能出现在远端命令里。
     #[test]
@@ -10727,13 +10867,14 @@ mod tests {
         let mut session_env = HashMap::new();
         crate::utils::perf_env::apply_perf_env_with(&mut session_env, &plan, |_| false);
 
-        let command = TerminalService::build_ssh_remote_command(
+        let (command, _) = TerminalService::build_ssh_remote_command(
             &ssh,
             CliTool::Claude,
             &HashMap::new(),
             None,
             false,
             &session_env,
+            true,
         );
 
         assert!(
@@ -10746,17 +10887,95 @@ mod tests {
         );
         assert!(!command.contains("RIPGREP_CONFIG_PATH"), "{command}");
         assert!(command.contains("cd '/srv/app'"), "{command}");
-        assert!(command.ends_with("claude"), "{command}");
+        assert!(command.ends_with("exec claude"), "{command}");
 
-        let plain = TerminalService::build_ssh_remote_command(
+        let (plain, _) = TerminalService::build_ssh_remote_command(
             &ssh,
             CliTool::Claude,
             &HashMap::new(),
             None,
             false,
             &HashMap::new(),
+            true,
         );
         assert!(!plain.contains("CARGO_BUILD_JOBS"), "{plain}");
+    }
+
+    /// 应用内 SSH2 通道：供应商凭证一个字都不进远端命令行，全部交给带外环境文件；
+    /// CLI 用 exec 替换 shell，会话期间进程表里不留这条命令。
+    #[test]
+    fn ssh_remote_command_keeps_provider_secrets_out_of_argv() {
+        let ssh = SshConnectionInfo {
+            host: "example.com".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            remote_path: "/srv/app".to_string(),
+            identity_file: None,
+            machine_id: None,
+            auth_method: None,
+        };
+        let provider_env = HashMap::from([
+            (
+                "ANTHROPIC_AUTH_TOKEN".to_string(),
+                "sk-test-secret".to_string(),
+            ),
+            (
+                "ANTHROPIC_BASE_URL".to_string(),
+                "https://relay.example".to_string(),
+            ),
+        ]);
+
+        let (command, secrets) = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &provider_env,
+            None,
+            false,
+            &HashMap::new(),
+            true,
+        );
+        assert!(!command.contains("sk-test-secret"), "{command}");
+        assert!(!command.contains("ANTHROPIC_AUTH_TOKEN"), "{command}");
+        assert!(command.ends_with("exec claude"), "{command}");
+        assert_eq!(
+            secrets,
+            vec![
+                (
+                    "ANTHROPIC_AUTH_TOKEN".to_string(),
+                    "sk-test-secret".to_string()
+                ),
+                (
+                    "ANTHROPIC_BASE_URL".to_string(),
+                    "https://relay.example".to_string()
+                ),
+            ]
+        );
+
+        // 系统 ssh 回退没有第二条通道：只能内联（托管供应商在该路径已被 create_session 拒绝）
+        let (inline, none) = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &provider_env,
+            None,
+            false,
+            &HashMap::new(),
+            false,
+        );
+        assert!(none.is_empty());
+        assert!(inline.contains("export ANTHROPIC_BASE_URL="), "{inline}");
+
+        // 纯 shell 会话本身就是 exec，不能叠成 `exec exec`
+        let (shell, _) = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::None,
+            &HashMap::new(),
+            None,
+            false,
+            &HashMap::new(),
+            true,
+        );
+        assert!(shell.ends_with("exec $SHELL -l"), "{shell}");
+        assert!(!shell.contains("exec exec"), "{shell}");
     }
 
     #[test]

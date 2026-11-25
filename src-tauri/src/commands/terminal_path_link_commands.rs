@@ -5,7 +5,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
 // 显式用 `_for_desktop` 变体：它比 web 路由用的 resolve_terminal_path_link 多放行
-// 「显式绝对路径 + 目录」的项目外目标（core 侧 ExplicitAbsoluteDirectory scope）。
+// 「显式绝对路径（含本机 ~）」的项目外目标（core 侧 ExplicitAbsolute scope）。
 // 不做别名——放宽了安全边界的选择必须在调用点可见。
 use crate::services::{
     resolve_terminal_path_link_for_desktop, ResolvedTerminalPathLink, TerminalBackend,
@@ -178,6 +178,54 @@ mod tests {
         assert_eq!(resolved.kind, TerminalPathKind::Directory);
         // 越界必须显式带信号——前端确认框据此出差异化警示
         assert!(resolved.outside_project_root);
+    }
+
+    #[test]
+    fn terminal_path_link_commands_resolve_explicit_external_files() {
+        // agent 回报里常给出项目外的产物路径（如 ~/Desktop/dist/xx.zip）：显式绝对路径的文件同样放行确认
+        let parent = tempfile::tempdir().expect("parent");
+        let root = parent.path().join("project");
+        let outside_file = parent.path().join("dist").join("installer.zip");
+        std::fs::create_dir_all(&root).expect("project root");
+        std::fs::create_dir_all(outside_file.parent().unwrap()).expect("dist");
+        std::fs::write(&outside_file, "zip").expect("outside file");
+
+        let resolved =
+            resolve_authorized_context(Some(context(&root)), &outside_file.to_string_lossy())
+                .expect("explicit absolute file outside the project resolves for confirmation");
+        assert_eq!(resolved.kind, TerminalPathKind::File);
+        assert!(resolved.outside_project_root);
+
+        // 相对路径仍不许借 `..` 越出项目根
+        let escaped = resolve_authorized_context(Some(context(&root)), "../dist/installer.zip")
+            .expect_err("relative escape stays rejected");
+        assert_eq!(escaped.code(), Some("TERMINAL_PATH_OUTSIDE_ROOT"));
+    }
+
+    #[test]
+    fn terminal_path_link_commands_expand_home_for_local_sessions_only() {
+        let Some(home) = dirs::home_dir() else { return };
+        let marker = tempfile::Builder::new()
+            .prefix(".ccpanes-path-link-")
+            .tempfile_in(&home)
+            .expect("marker file in home");
+        let name = marker
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let root = tempfile::tempdir().expect("project root");
+
+        let resolved = resolve_authorized_context(Some(context(root.path())), &format!("~/{name}"))
+            .expect("~/ resolves against the home directory");
+        assert_eq!(resolved.kind, TerminalPathKind::File);
+        assert!(resolved.outside_project_root);
+
+        // WSL 的 `~` 是发行版里的家目录，宿主机不展开
+        let mut wsl = context(root.path());
+        wsl.runtime_kind = "wsl".to_string();
+        assert!(resolve_authorized_context(Some(wsl), &format!("~/{name}")).is_err());
     }
 
     #[test]

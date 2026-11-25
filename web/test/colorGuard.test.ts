@@ -18,6 +18,8 @@ const ALLOWLIST: Record<string, string[]> = {
   // 导出的批注 PNG 使用固定的红色编号及白底深字，不属于应用 chrome，
   // 不能随切换主题改变已导出证据的配色和可读性。
   "browser/annotations/annotationCanvas.ts": ["#e5484d", "#ffffff", "#202124"],
+  // 配对二维码必须固定深色模块 + 浅色静区，暗色主题下反色会让多数相机扫不出来。
+  "devices/DevicePairingQr.tsx": ["#ffffff", "#000000"],
   // 编辑器语法高亮属于内容类别编码，不随应用 chrome 主题色变化。
   "editor/JsonEditor.tsx": ["#22863a", "#005cc5", "#d73a49", "#6f42c1", "#e36209", "#586069"],
   // 壁纸 dim 层必须使用中性黑混合，避免随主题产生彩色遮罩。

@@ -30,6 +30,11 @@ const FALLBACK_CLI_TO_PROVIDER_TYPES: Record<Exclude<KnownCliTool, "none">, Prov
   // Antigravity（agy）只接 Gemini 类型：密钥账号注入 GEMINI_API_KEY，登录账号注入
   // GEMINI_HOME；与 cc-cli-adapters/src/antigravity.rs 的 compatible_provider_types 对齐
   antigravity: ["gemini"],
+  // 终端 CLI 只走自身登录态 / 环境变量，不接托管 Provider；
+  // 与 cc-cli-adapters/src/{kiro,fx,muse}.rs 的空 compatible_provider_types 对齐
+  kiro: [],
+  fx: [],
+  muse: [],
 };
 
 function fallbackCompatibleProviderTypes(cliTool: string): ProviderType[] | null {

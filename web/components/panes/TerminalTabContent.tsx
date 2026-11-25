@@ -12,6 +12,7 @@ import {
   useOrchestratorStore,
 } from "@/stores";
 import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
+import { launchProfileIdForLaunch } from "@/lib/launchProfileSnapshot";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import { classifyTerminalLaunchPath } from "@/utils";
 import AgentChatView, { type TerminalViewMode } from "./AgentChatView";
@@ -40,9 +41,11 @@ function terminalContextForLeaf(tab: Tab, leaf: Extract<TerminalPaneNode, { type
     cliTool: (leaf.cliTool ?? tab.cliTool)?.toLowerCase() ?? null,
     ssh: Boolean(leaf.ssh ?? tab.ssh),
     providerId: (leaf.providerId ?? tab.providerId)?.trim() || null,
+    providerAccountId: (leaf.providerAccountId ?? tab.providerAccountId)?.trim() || null,
     modelId: (leaf.modelId ?? tab.modelId)?.trim() || null,
     providerSelection: leaf.providerSelection ?? tab.providerSelection ?? null,
     launchProfileId: (leaf.launchProfileId ?? tab.launchProfileId)?.trim() || null,
+    launchProfileSnapshot: leaf.launchProfileSnapshot ?? null,
   };
 }
 
@@ -160,7 +163,7 @@ export default memo(function TerminalTabContent({
                   providerAccountId={leaf.providerAccountId}
                   modelId={leaf.modelId}
                   providerSelection={leaf.providerSelection}
-                  launchProfileId={leaf.launchProfileId}
+                  launchProfileId={launchProfileIdForLaunch(leaf)}
                   workspacePath={leaf.workspacePath}
                   launchCwd={leaf.launchExtras?.launchCwd}
                   workspaceSnapshotId={leaf.workspaceSnapshotId}

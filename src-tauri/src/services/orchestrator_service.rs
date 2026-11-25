@@ -1065,7 +1065,8 @@ impl StartLocks {
 #[derive(Clone)]
 pub struct AppState {
     retry_gate: Arc<dispatch_retry::RetryGate>,
-    pub token: String,
+    /// 共享句柄：「更换令牌」后旧令牌在下一个请求即失效。
+    pub token: crate::services::OrchestratorToken,
     pub started_at: u64,
     pub local_terminal_service: Arc<TerminalService>,
     pub terminal_backend: Arc<TerminalBackendState>,
@@ -1880,7 +1881,9 @@ impl Drop for BindingLoopGuard {
 pub struct OrchestratorService {
     retry_gate: Arc<dispatch_retry::RetryGate>,
     status: Arc<Mutex<OrchestratorStatus>>,
-    token: String,
+    token: crate::services::OrchestratorToken,
+    /// 串行化「更换令牌」（写 manifest + 换内存值）。
+    rotate_lock: Mutex<()>,
     started_at: u64,
     /// 本次要监听的端口：固定端口，或逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指定的确定值。
     /// **不再来自 manifest**——manifest 里可能残留旧版本 `:0` 分配的 ephemeral 端口。
@@ -1920,7 +1923,8 @@ impl OrchestratorService {
         Self {
             retry_gate: Arc::new(dispatch_retry::RetryGate::default()),
             status: Arc::new(Mutex::new(OrchestratorStatus::default())),
-            token,
+            token: crate::services::OrchestratorToken::new(token),
+            rotate_lock: Mutex::new(()),
             started_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -1975,9 +1979,36 @@ impl OrchestratorService {
         }
     }
 
-    /// 获取认证 token
-    pub fn token(&self) -> &str {
-        &self.token
+    /// 获取认证 token（当前值；可能已被 [`Self::rotate_token`] 更换过）
+    pub fn token(&self) -> String {
+        self.token.current()
+    }
+
+    /// 共享令牌句柄（重负载门禁等独立路由与本服务共用，换令牌时一起失效）。
+    pub fn shared_token(&self) -> crate::services::OrchestratorToken {
+        self.token.clone()
+    }
+
+    /// 更换令牌：先把新令牌写进 `mcp-orchestrator.json`（重启后沿用新值、新会话按 manifest
+    /// 拿到新值），再换内存值——之后带旧令牌的请求一律 401。返回新令牌。
+    ///
+    /// 已在运行的 CLI 会话启动时把旧令牌写进了环境变量 / 会话 MCP 配置，无法热更新：
+    /// 它们的 MCP 调用与 hook 上报会失败，直到关闭后重新打开。
+    pub fn rotate_token(&self, data_dir: &std::path::Path) -> crate::utils::AppResult<String> {
+        let _guard = self
+            .rotate_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let next = generate_token();
+        cc_panes_core::utils::orchestrator_manifest_lifecycle::rotate_token(data_dir, &next)
+            .map_err(|error| {
+                crate::utils::AppError::from(format!(
+                    "failed to persist orchestrator token: {error:#}"
+                ))
+            })?;
+        self.token.replace(next.clone());
+        info!("[orchestrator] bearer token rotated");
+        Ok(next)
     }
 
     /// 获取 SessionStateMachine 共享引用（terminal_service::set_state_machine 用）
@@ -2369,7 +2400,7 @@ impl OrchestratorService {
         }
 
         let listen_port = self.listen_port;
-        let token = self.token.clone();
+        let token = self.token.current();
         let started_at = self.started_at;
         let status = self.status.clone();
         let status_for_spawn_error = status.clone();
@@ -2699,13 +2730,13 @@ async fn mcp_auth_middleware(
 ) -> axum::response::Response {
     // 仅对 /mcp 路由校验 token（REST handlers 各自校验；OPTIONS 预检由 CORS 层处理）
     if request.uri().path().starts_with("/mcp") && request.method() != Method::OPTIONS {
-        let header_ok = verify_token(request.headers(), &state.token);
+        let header_ok = verify_token(request.headers(), &state.token.current());
         // 后备：从 URL query ?token=xxx 读取（Claude Code 某些版本忽略 headers — Issue #7290）
         let query_ok = request
             .uri()
             .query()
             .and_then(|q| q.split('&').find(|p| p.starts_with("token=")))
-            .map(|p| p[6..] == *state.token)
+            .map(|p| state.token.matches(&p[6..]))
             .unwrap_or(false);
 
         if !header_ok && !query_ok {
@@ -4703,10 +4734,11 @@ fn resolve_orchestrator_launch_profile(
     let resolved =
         service.resolve_launch_profile(profile_id, None, None, Some(cli_tool), Some(runtime_kind));
     if let Some(id) = profile_id {
+        // 运行配置不区分运行位置（runtime 不参与挑选），落空只可能是 CLI 不匹配。
         if resolved.as_ref().map(|profile| profile.id.as_str()) != Some(id) {
             return Err(format!(
-                "Launch profile '{}' does not support CLI '{}' and runtime '{}'",
-                id, cli_tool, runtime_kind
+                "Launch profile '{}' does not support CLI '{}'",
+                id, cli_tool
             ));
         }
     }
@@ -5146,6 +5178,7 @@ impl McpToolHandler {
             yolo_mode,
             mcp_policy,
             skill_policy,
+            native_overrides: Default::default(),
             is_default: params.set_default.unwrap_or(false),
         };
 
@@ -11182,7 +11215,7 @@ async fn handle_launch_task(
     let prompt_len = req.prompt.as_ref().map(|p| p.len()).unwrap_or(0);
     info!(project = %req.project_path, prompt_len, is_resume, "REST::launch_task");
 
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         warn!("REST::launch_task unauthorized");
         return (
             StatusCode::UNAUTHORIZED,
@@ -11540,7 +11573,7 @@ async fn handle_list_projects(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     debug!("REST::list_projects");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11604,7 +11637,7 @@ async fn handle_task_status(
     AxumPath(task_id): AxumPath<String>,
 ) -> impl IntoResponse {
     debug!(task_id = %task_id, "REST::task_status");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11753,7 +11786,7 @@ async fn handle_list_sessions(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     debug!("REST::list_sessions");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11797,7 +11830,7 @@ async fn handle_session_status(
     AxumPath(session_id): AxumPath<String>,
 ) -> impl IntoResponse {
     debug!(session_id = %session_id, "REST::session_status");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11839,7 +11872,7 @@ async fn handle_write_to_session(
     Json(req): Json<WriteToSessionRequest>,
 ) -> impl IntoResponse {
     info!(session_id = %req.session_id, text_len = req.text.len(), "REST::write_to_session");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11884,7 +11917,7 @@ async fn handle_submit_to_session(
     Json(req): Json<SubmitToSessionRequest>,
 ) -> impl IntoResponse {
     info!(session_id = %req.session_id, text_len = req.text.len(), "REST::submit_to_session");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11937,7 +11970,7 @@ async fn handle_kill_session(
     Json(req): Json<KillSessionRequest>,
 ) -> impl IntoResponse {
     info!(session_id = %req.session_id, "REST::kill_session");
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -11983,7 +12016,7 @@ async fn handle_trigger_notification(
     State(state): State<AppState>,
     Json(req): Json<TriggerNotificationRequest>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12024,7 +12057,7 @@ async fn handle_ccchan_say(
     State(state): State<AppState>,
     Json(req): Json<CcChanSayRequest>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12133,8 +12166,8 @@ async fn handle_task_queue_permission_request(
     State(state): State<AppState>,
     Json(req): Json<TaskQueuePermissionRequest>,
 ) -> Response {
-    if !verify_token(&headers, &state.token) {
-        return task_queue_permission_http_response(&headers, &state.token, || {
+    if !verify_token(&headers, &state.token.current()) {
+        return task_queue_permission_http_response(&headers, &state.token.current(), || {
             Ok(cc_panes_core::services::UnattendedPermissionDecision::NoDecision)
         });
     }
@@ -12175,7 +12208,8 @@ async fn handle_task_queue_permission_request(
     .map_err(|error| error.to_string())
     .and_then(|result| result);
 
-    let response = task_queue_permission_http_response(&headers, &state.token, || decision);
+    let response =
+        task_queue_permission_http_response(&headers, &state.token.current(), || decision);
     debug!(
         session_id = %session_id,
         status = response.status().as_u16(),
@@ -12189,7 +12223,7 @@ async fn handle_hook_event(
     State(state): State<AppState>,
     Json(req): Json<HookEventRequest>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12272,7 +12306,7 @@ async fn handle_memory_recall(
     State(state): State<AppState>,
     Json(req): Json<MemoryRecallBody>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12342,7 +12376,7 @@ async fn handle_session_started(
     State(state): State<AppState>,
     Json(req): Json<SessionStartedRequest>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12415,7 +12449,7 @@ async fn handle_session_identity_cleared(
     State(state): State<AppState>,
     Json(req): Json<SessionIdentityClearedRequest>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12524,7 +12558,7 @@ async fn handle_plan_tag(
     State(state): State<AppState>,
     Json(req): Json<PlanTagBody>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12716,7 +12750,7 @@ async fn handle_plan_recent(
     State(state): State<AppState>,
     Query(q): Query<PlanRecentQuery>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12745,7 +12779,7 @@ async fn handle_plan_search(
     State(state): State<AppState>,
     Json(req): Json<PlanSearchBody>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -12784,7 +12818,7 @@ async fn handle_plan_set_archived(
     State(state): State<AppState>,
     Json(req): Json<PlanSetArchivedBody>,
 ) -> impl IntoResponse {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!(ApiError {
@@ -16653,6 +16687,7 @@ mod tests {
                 yolo_mode: true,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .expect("create derived YOLO profile");
@@ -16692,15 +16727,29 @@ mod tests {
             true
         )
         .is_err());
+        // 运行配置不再区分运行位置：同一份 YOLO 配置在 WSL 下同样可解析，
+        // 是否放行只取决于 allowMcpYoloProfiles 闸门。
+        assert_eq!(
+            resolve_orchestrator_launch_profile(
+                &service,
+                Some(&profile.id),
+                "claude",
+                "wsl",
+                None,
+                true
+            ),
+            Ok(Some(profile.id.clone()))
+        );
         assert!(resolve_orchestrator_launch_profile(
             &service,
             Some(&profile.id),
             "claude",
             "wsl",
             None,
-            true
+            false
         )
-        .is_err());
+        .expect_err("derived YOLO profile is gated regardless of runtime")
+        .contains("allowMcpYoloProfiles"));
         assert!(resolve_orchestrator_launch_profile(
             &service,
             Some("missing"),
@@ -19203,6 +19252,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .expect("create profile");
@@ -19248,6 +19298,7 @@ mod tests {
                 yolo_mode: true,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .expect("create profile");
@@ -19256,7 +19307,8 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, profile.id);
         assert_eq!(listed[0].cli_tool.as_deref(), Some("claude"));
-        assert_eq!(listed[0].runtime.as_deref(), Some("local"));
+        // 运行配置不区分运行位置：传入的 targetRuntime 被忽略，一份配置多处通用
+        assert_eq!(listed[0].runtime, None);
         assert!(listed[0].yolo);
         assert!(listed[0].is_default);
 

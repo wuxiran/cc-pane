@@ -47,12 +47,13 @@ export function mcpChipState(policy: McpPolicy, resource: ProfileMcpResource): P
 /**
  * 这个启动档连不上这条远程 MCP：它面向的每个 CLI 都到不了（规则读 CLI 注入描述，与后端
  * `remote_mcp_supported` 同源）。没指定 CLI 的启动档可能用到任一家，不算不支持。
+ * 启动档本机 / WSL / SSH 通用，这里按本机判定（远端运行时的额外限制由启动档页的运行时提示说明）。
  */
-export function remoteUnsupportedByProfile(profile: Pick<LaunchProfile, "targetTools" | "targetRuntime">, remote: SharedMcpRemote): boolean {
+export function remoteUnsupportedByProfile(profile: Pick<LaunchProfile, "targetTools">, remote: SharedMcpRemote): boolean {
   if (profile.targetTools.length === 0) return false;
   const headers = Object.keys(remote.headers).length > 0;
   return profile.targetTools.every(
-    (tool) => !remoteMcpSupported(injectionProfileFor(tool), remote.transport, headers, profile.targetRuntime),
+    (tool) => !remoteMcpSupported(injectionProfileFor(tool), remote.transport, headers, null),
   );
 }
 

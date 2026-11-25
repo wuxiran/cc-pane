@@ -78,6 +78,16 @@ describe("useLaunchProfilesStore", () => {
       expect(useLaunchProfilesStore.getState().loading).toBe(false);
     });
 
+    it("服务返回非数组（测试替身返回 undefined）时兜成空表", async () => {
+      useLaunchProfilesStore.setState({ profiles: [createProfile()] });
+      mockedService.list.mockResolvedValue(undefined as unknown as LaunchProfile[]);
+
+      await useLaunchProfilesStore.getState().load();
+
+      expect(useLaunchProfilesStore.getState().profiles).toEqual([]);
+      expect(useLaunchProfilesStore.getState().loaded).toBe(true);
+    });
+
     it("加载期间应设置 loading 为 true", async () => {
       mockedService.list.mockImplementation(
         () => new Promise((resolve) => setTimeout(() => resolve([]), 10)),

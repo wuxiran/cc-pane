@@ -29,8 +29,8 @@ export function NotificationSoundControl({ sessionId }: { sessionId?: string }) 
   };
   const save = (sound: LayoutSound) => { if (layoutId) return setSound(layoutId, sound); return Promise.resolve(); };
   if (!layoutId) return null;
-  return <Popover><Tooltip><TooltipTrigger asChild><PopoverTrigger asChild><button type="button" className="rounded p-1 hover:bg-[var(--app-hover)]" aria-label={t("preferences.layoutSound", { name })}>
-    {selected?.mode === "silent" ? <BellOff size={14} /> : <Bell size={14} />}</button></PopoverTrigger></TooltipTrigger><TooltipContent>{t("preferences.layoutSound", { name })}</TooltipContent></Tooltip>
+  return <Popover><Tooltip><TooltipTrigger asChild><PopoverTrigger asChild><button type="button" className="flex size-6 items-center justify-center rounded-md hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]" aria-label={t("preferences.layoutSound", { name })}>
+    {selected?.mode === "silent" ? <BellOff size={13} /> : <Bell size={13} />}</button></PopoverTrigger></TooltipTrigger><TooltipContent>{t("preferences.layoutSound", { name })}</TooltipContent></Tooltip>
     <PopoverContent side="left" className="w-64 p-3"><fieldset disabled={busy} className="space-y-2 text-xs">
       <p className="font-semibold">{t("preferences.layoutSound", { name })}</p>
       <p className="truncate" title={selected?.mode === "custom" ? selected.name : undefined}>{selected?.mode === "custom" ? selected.name : t(`preferences.${selected?.mode === "silent" ? "silent" : "default"}`)}</p>
@@ -57,8 +57,9 @@ export function NotificationSnoozeControl({ sessionId }: { sessionId?: string })
       setOpen(false);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   };
-  return <div className="mt-2 flex justify-end"><Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger asChild><Button size="sm" variant="ghost" className="h-6 gap-1 text-xs"><BellOff size={12} />{t("preferences.snooze")}</Button></PopoverTrigger>
+  // 只渲染触发按钮本身：摆放位置由卡片的动作行决定（左对齐、次要色）。
+  return <Popover open={open} onOpenChange={setOpen}>
+    <PopoverTrigger asChild><Button size="sm" variant="ghost" className="-ml-2 h-6 gap-1 px-2 text-[length:var(--text-small)] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)]"><BellOff size={12} />{t("preferences.snooze")}</Button></PopoverTrigger>
     <PopoverContent side="top" className="w-64 space-y-2 text-xs"><p>{t("preferences.snoozeDescription")}</p>
       <select aria-label={t("preferences.duration")} value={kind} onChange={e => setKind(e.target.value)} className="w-full rounded bg-[var(--app-content)] p-2">
         <option value="quarter">{t("preferences.quarter")}</option><option value="hour">{t("preferences.hour")}</option><option value="today">{t("preferences.today")}</option><option value="custom">{t("preferences.custom")}</option>
@@ -66,7 +67,7 @@ export function NotificationSnoozeControl({ sessionId }: { sessionId?: string })
       {kind === "custom" && <input type="number" min={1} max={10080} value={minutes} aria-label={t("preferences.minutes")} onChange={e => setMinutes(Number(e.target.value))} className="w-full rounded bg-[var(--app-content)] p-2" />}
       <Button size="sm" disabled={busy} onClick={() => void apply()}>{t("preferences.apply")}</Button>
       {error && <p role="alert" className="text-destructive">{error}</p>}
-    </PopoverContent></Popover></div>;
+    </PopoverContent></Popover>;
 }
 
 export function SnoozedNotifications() {

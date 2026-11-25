@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { updateQuickTerminalShortcut } from "@/services/quickTerminalService";
 import { getErrorMessage } from "@/utils";
 import type { QuickTerminalSettings } from "@/types";
+import { SettingsRangeControl, SettingsRow, SettingsSection, SettingsSwitchRow } from "./layout";
 
 interface QuickTerminalSectionProps {
   value: QuickTerminalSettings;
@@ -67,29 +66,20 @@ export default function QuickTerminalSection({ value, onChange }: QuickTerminalS
   const heightPercent = Math.round(value.heightFraction * 100);
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("quickTerminalTitle")}
-      </h3>
-      <p className="text-xs mb-3" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("quickTerminalDesc")}
-      </p>
+    <SettingsSection title={t("quickTerminalTitle")} description={t("quickTerminalDesc")}>
+      <SettingsSwitchRow
+        id="quick-terminal-enabled"
+        title={t("quickTerminalEnabled")}
+        checked={value.enabled}
+        onCheckedChange={(enabled) => update("enabled", enabled)}
+      />
 
-      <div className="flex items-center justify-between">
-        <Label htmlFor="quick-terminal-enabled">{t("quickTerminalEnabled")}</Label>
-        <Switch
-          id="quick-terminal-enabled"
-          checked={value.enabled}
-          onCheckedChange={(enabled) => update("enabled", enabled)}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Label>{t("quickTerminalShortcut")}</Label>
-        {editingShortcut ? (
+      <SettingsRow
+        title={t("quickTerminalShortcut")}
+        control={editingShortcut ? (
           <Input
             aria-label={t("quickTerminalShortcut")}
-            className="w-[180px] h-8 text-center text-xs"
+            className="h-8 w-44 text-center font-mono text-xs"
             value={pendingShortcut || t("pressNewKey")}
             readOnly
             autoFocus
@@ -104,59 +94,39 @@ export default function QuickTerminalSection({ value, onChange }: QuickTerminalS
           />
         ) : (
           <button
-            className="px-3 py-1 rounded text-xs font-mono cursor-default border"
-            style={{
-              background: "var(--app-surface-2)",
-              color: "var(--app-text-primary)",
-              borderColor: "var(--app-border)",
-            }}
+            type="button"
+            className="shape-control min-w-[80px] cursor-default rounded-md border border-[var(--app-border)] bg-[var(--app-hover)] px-2.5 py-1 text-center font-mono text-xs text-[var(--app-text-primary)] transition-colors duration-[var(--dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
             onClick={() => setEditingShortcut(true)}
           >
             {value.shortcut}
           </button>
         )}
-      </div>
+      />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <Label htmlFor="quick-terminal-autohide">{t("quickTerminalAutoHide")}</Label>
-          <p className="text-xs mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("quickTerminalAutoHideHint")}
-          </p>
-        </div>
-        <Switch
-          id="quick-terminal-autohide"
-          checked={value.autoHideOnBlur}
-          onCheckedChange={(autoHideOnBlur) => update("autoHideOnBlur", autoHideOnBlur)}
-        />
-      </div>
+      <SettingsSwitchRow
+        id="quick-terminal-autohide"
+        title={t("quickTerminalAutoHide")}
+        description={t("quickTerminalAutoHideHint")}
+        checked={value.autoHideOnBlur}
+        onCheckedChange={(autoHideOnBlur) => update("autoHideOnBlur", autoHideOnBlur)}
+      />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <Label htmlFor="quick-terminal-height">{t("quickTerminalHeight")}</Label>
-          <p className="text-xs mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("quickTerminalHeightHint")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
+      <SettingsRow
+        title={t("quickTerminalHeight")}
+        description={t("quickTerminalHeightHint")}
+        htmlFor="quick-terminal-height"
+        control={(
+          <SettingsRangeControl
             id="quick-terminal-height"
-            type="range"
+            value={heightPercent}
             min={15}
             max={85}
             step={5}
-            className="w-[140px]"
-            value={heightPercent}
-            onChange={(e) => {
-              const pct = parseInt(e.target.value, 10) || 0;
-              update("heightFraction", pct / 100);
-            }}
+            format={(pct) => `${pct}%`}
+            onChange={(pct) => update("heightFraction", (pct || 0) / 100)}
           />
-          <span className="text-xs font-mono w-[44px] text-right" style={{ color: "var(--app-text-primary)" }}>
-            {heightPercent}%
-          </span>
-        </div>
-      </div>
-    </div>
+        )}
+      />
+    </SettingsSection>
   );
 }

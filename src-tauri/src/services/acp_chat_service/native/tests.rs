@@ -121,6 +121,10 @@ impl Fixture {
             fork_acp_session_id: None,
             auto_approve_kinds: vec![],
             remote: None,
+            env: Vec::new(),
+            env_remove: Vec::new(),
+            launch_profile_id: None,
+            transport_fallback: None,
         };
         let service = Arc::new(AcpChatService::new(temp.path().join("data/agent-chats")));
         Self {
@@ -395,6 +399,7 @@ async fn native_live_read_only_facade_smoke() {
         executable: "codex".into(),
         args: vec!["app-server".into(), "--listen".into(), "stdio://".into()],
         requirement: "Logged-in Codex CLI".into(),
+        env: Vec::new(),
     };
     let spec = crate::commands::resolve_engine_launch(&engine, cwd.to_str().unwrap()).unwrap();
     let events = Arc::new(SyncMutex::new(Vec::new()));

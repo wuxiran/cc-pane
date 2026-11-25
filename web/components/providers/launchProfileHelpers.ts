@@ -4,7 +4,6 @@ import type {
   InstalledUserSkill,
   LaunchProfile,
   LaunchProfileDraft,
-  LaunchProfileRuntime,
   SkillMarketEntry,
 } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
@@ -65,6 +64,9 @@ export const TOOL_LABELS: Record<KnownCliTool, string> = {
   grok: "Grok",
   jcode: "Jcode",
   antigravity: "Antigravity",
+  kiro: "Kiro",
+  fx: "fx",
+  muse: "Muse Code",
 };
 
 export const inputClass = "h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-70";
@@ -94,24 +96,18 @@ export function launchEnvironmentLabel(targetTools: string[], fallbackTool: Know
   return toolLabel(targetTools[0] ?? fallbackTool, t);
 }
 
-export function runtimeLabel(runtime: LaunchProfileRuntime, t: ProfilesT): string {
-  return runtime ? t(`runtime.${runtime}`) : t("runtimeAll");
-}
-
 /**
  * 这个工作空间的会话可能落在哪些远端运行时（WSL / SSH）。
- * 来源：启动档的 targetRuntime、工作空间默认环境、按 CLI 的环境默认。
+ * 来源：工作空间默认环境、按 CLI 的环境默认（运行配置本身不区分运行位置）。
  * 工作空间层 MCP / skills 目前只注入本机会话，页面用它来提示"配了也进不去"。
  */
 export function workspaceRemoteRuntimes(
   workspace: Workspace | undefined,
-  profile: LaunchProfile | null,
 ): Array<Exclude<WorkspaceLaunchEnvironment, "local">> {
   const found = new Set<Exclude<WorkspaceLaunchEnvironment, "local">>();
   const add = (env: WorkspaceLaunchEnvironment | null | undefined) => {
     if (env === "wsl" || env === "ssh") found.add(env);
   };
-  add(profile?.targetRuntime ?? null);
   add(workspace?.defaultEnvironment);
   add(workspace?.cliEnvironmentDefaults?.claude);
   add(workspace?.cliEnvironmentDefaults?.codex);
@@ -229,7 +225,6 @@ export function workspaceProfileIds(workspace: Workspace | null): Set<string> {
 
 export function systemDefaultLaunchProfileDraft(
   tool: KnownCliTool,
-  runtime: LaunchProfileRuntime = null,
   t: ProfilesT,
 ): LaunchProfileDraft {
   return {
@@ -241,7 +236,7 @@ export function systemDefaultLaunchProfileDraft(
     modelId: null,
     adapterOptions: {},
     targetTools: [tool],
-    targetRuntime: runtime,
+    targetRuntime: null,
     yoloMode: false,
     mcpPolicy: {
       mode: "default",
@@ -276,10 +271,19 @@ export function toDraft(profile: LaunchProfile): LaunchProfileDraft {
     modelId: profile.modelId ?? null,
     adapterOptions: { ...(profile.adapterOptions ?? {}) },
     targetTools: profile.targetTools,
-    targetRuntime: profile.targetRuntime ?? null,
+    // 已弃用：旧数据可能带值，草稿一律归 null（保存时后端也会忽略）
+    targetRuntime: null,
     yoloMode: profile.yoloMode ?? false,
     mcpPolicy: profile.mcpPolicy,
     skillPolicy: profile.skillPolicy,
+    nativeOverrides: { ...(profile.nativeOverrides ?? {}) },
     isDefault: profile.isDefault,
   };
 }
+
+/** 运行配置页区块锚点：吸顶导航按 id 跳转 */
+export const SECTION_IDS = {
+  basics: "launch-profile-section-basics",
+  mcp: "launch-profile-section-mcp",
+  skill: "launch-profile-section-skill",
+} as const;

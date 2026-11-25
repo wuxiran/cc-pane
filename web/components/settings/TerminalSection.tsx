@@ -1,10 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { terminalService } from "@/services/terminalService";
 import {
   TERMINAL_SCROLLBACK_MAX,
@@ -14,7 +11,7 @@ import {
 import type { ShellInfo, TerminalSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
 import TerminalVisibilitySettings from "./TerminalVisibilitySettings";
-import AdvancedSettings from "./AdvancedSettings";
+import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./layout";
 
 interface TerminalSectionProps {
   value: TerminalSettings;
@@ -22,6 +19,19 @@ interface TerminalSectionProps {
 }
 
 const AUTO_SHELL_VALUE = "__auto__";
+const selectTriggerClass = "w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]";
+
+/**
+ * 卡片内的搜索锚点：SearchableSetting 会把锚点属性/高亮样式克隆到唯一子元素上，
+ * 而 SettingsRow 不透传 data-*，所以包一层 div 承接（多行时自带发丝线分隔）。
+ */
+function RowAnchor({ sectionId, children }: { sectionId: string; children: ReactNode }) {
+  return (
+    <SearchableSetting sectionId={sectionId}>
+      <div className="flex flex-col divide-y divide-[var(--app-border)]">{children}</div>
+    </SearchableSetting>
+  );
+}
 
 export default function TerminalSection({ value, onChange }: TerminalSectionProps) {
   const { t } = useTranslation("settings");
@@ -48,359 +58,273 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
 
   // 当前值不在探测列表里（历史遗留的自定义路径等）也要保留为可选项，避免打开设置就把它冲掉
   const shellIsCustom = !!value.shell && !shells.some((s) => s.id === value.shell);
+  const daemonEnabled = value.daemonEnabled ?? true;
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("terminalTitle")}
-      </h3>
-
-      <SearchableSetting sectionId="terminal-font">
-        <div className="space-y-2">
-          <div className="flex gap-2 items-end">
-            <FormField label={t("fontSize")} className="flex flex-col gap-1 w-28">
-              {({ id }) => (
-                <Input
-                  id={id}
-                  type="number"
-                  min={10}
-                  max={32}
-                  step={1}
-                  value={value.fontSize}
-                  onChange={(e) => update("fontSize", Number(e.target.value))}
-                  onBlur={(e) => {
-                    const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
-                    if (next !== value.fontSize) update("fontSize", next);
-                  }}
-                />
-              )}
-            </FormField>
-            <FormField label={t("fontFamily")} className="flex flex-col gap-1 flex-1">
-              {({ id }) => (
-                <Input id={id} value={value.fontFamily} onChange={(e) => update("fontFamily", e.target.value)} />
-              )}
-            </FormField>
-          </div>
-          <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>
-            {t("fontFamilyCjkHint")}
-          </p>
-        </div>
-      </SearchableSetting>
-
-      <div className="flex items-center justify-between gap-6">
-        <Label htmlFor="terminal-theme-mode">{t("terminalTheme")}</Label>
-        <Select value={value.themeMode ?? "followApp"} onValueChange={(next) => update("themeMode", next as TerminalSettings["themeMode"])}>
-          <SelectTrigger id="terminal-theme-mode" aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="followApp">{t("terminalThemeFollowApp")}</SelectItem>
-            <SelectItem value="dark">{t("terminalThemeDark")}</SelectItem>
-            <SelectItem value="light">{t("terminalThemeLight")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex items-center justify-between gap-6">
-        <Label htmlFor="terminal-cursor-style">{t("cursorStyle")}</Label>
-        <div className="flex items-center gap-4">
-          <Select value={value.cursorStyle} onValueChange={(next) => update("cursorStyle", next)}>
-            <SelectTrigger id="terminal-cursor-style" aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="block">{t("cursorBlock")}</SelectItem>
-              <SelectItem value="underline">{t("cursorUnderline")}</SelectItem>
-              <SelectItem value="bar">{t("cursorBar")}</SelectItem>
-            </SelectContent>
-          </Select>
-          <label className="flex items-center gap-2 text-[length:var(--text-row)] text-[var(--app-text-secondary)]">
-            {t("cursorBlink")}
-            <input
-              type="checkbox"
-              checked={value.cursorBlink}
-              onChange={(e) => update("cursorBlink", e.target.checked)}
-              className="w-4 h-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-            />
-          </label>
-        </div>
-      </div>
-
-      <TerminalVisibilitySettings value={value} onChange={onChange} />
-
-      <div className="flex items-center justify-between gap-6">
-        <Label htmlFor="terminal-scrollback">{t("scrollback")}</Label>
-        <div className="w-44 shrink-0">
-          <Input
-            id="terminal-scrollback"
-            type="number"
-            min={TERMINAL_SCROLLBACK_MIN}
-            max={TERMINAL_SCROLLBACK_MAX}
-            value={value.scrollback}
-            onChange={(e) => update("scrollback", Number(e.target.value))}
-            onBlur={(e) =>
-              update("scrollback", normalizeTerminalScrollback(Number(e.target.value)))
-            }
+    <>
+      <SettingsSection title={t("terminalGroups.display")}>
+        <RowAnchor sectionId="terminal-font">
+          <SettingsRow
+            title={t("fontSize")}
+            htmlFor="terminal-font-size"
+            control={(
+              <Input
+                id="terminal-font-size"
+                type="number"
+                min={10}
+                max={32}
+                step={1}
+                className="w-24"
+                value={value.fontSize}
+                onChange={(e) => update("fontSize", Number(e.target.value))}
+                onBlur={(e) => {
+                  const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
+                  if (next !== value.fontSize) update("fontSize", next);
+                }}
+              />
+            )}
           />
-        </div>
-      </div>
-
-      <SearchableSetting sectionId="terminal-shell">
-      <div className="flex items-center justify-between gap-6">
-        <Label htmlFor="terminal-shell">Shell</Label>
-        <div className="w-44 shrink-0">
-          {shells.length > 0 ? (
-            <Select value={value.shell ?? AUTO_SHELL_VALUE} onValueChange={(next) => update("shell", next === AUTO_SHELL_VALUE ? null : next)}>
-              <SelectTrigger id="terminal-shell" aria-label="Shell" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
+          <SettingsRow
+            title={t("fontFamily")}
+            description={t("fontFamilyCjkHint")}
+            htmlFor="terminal-font-family"
+            control={(
+              <Input
+                id="terminal-font-family"
+                className="w-56"
+                value={value.fontFamily}
+                onChange={(e) => update("fontFamily", e.target.value)}
+              />
+            )}
+          />
+        </RowAnchor>
+        <SettingsRow
+          title={t("terminalTheme")}
+          htmlFor="terminal-theme-mode"
+          control={(
+            <Select value={value.themeMode ?? "followApp"} onValueChange={(next) => update("themeMode", next as TerminalSettings["themeMode"])}>
+              <SelectTrigger id="terminal-theme-mode" aria-label={t("terminalTheme")} className={selectTriggerClass}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={AUTO_SHELL_VALUE}>{t("shellAutoDetect")}</SelectItem>
-              {shells.map((shell) => (
-                <SelectItem key={shell.id} value={shell.id}>{shell.name}</SelectItem>
-              ))}
-                {shellIsCustom && <SelectItem value={value.shell!}>{value.shell}</SelectItem>}
+                <SelectItem value="followApp">{t("terminalThemeFollowApp")}</SelectItem>
+                <SelectItem value="dark">{t("terminalThemeDark")}</SelectItem>
+                <SelectItem value="light">{t("terminalThemeLight")}</SelectItem>
               </SelectContent>
             </Select>
-          ) : (
-            <Input
-              id="terminal-shell"
-              value={value.shell ?? ""}
-              onChange={(e) => update("shell", e.target.value || null)}
-              placeholder={t("shellAutoDetect")}
-            />
           )}
-        </div>
-      </div>
-      </SearchableSetting>
+        />
+        <SettingsRow
+          title={t("cursorStyle")}
+          htmlFor="terminal-cursor-style"
+          control={(
+            <Select value={value.cursorStyle} onValueChange={(next) => update("cursorStyle", next)}>
+              <SelectTrigger id="terminal-cursor-style" aria-label={t("cursorStyle")} className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="block">{t("cursorBlock")}</SelectItem>
+                <SelectItem value="underline">{t("cursorUnderline")}</SelectItem>
+                <SelectItem value="bar">{t("cursorBar")}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <SettingsSwitchRow
+          id="terminal-cursor-blink"
+          title={t("cursorBlink")}
+          checked={value.cursorBlink}
+          onCheckedChange={(checked) => update("cursorBlink", checked)}
+        />
+        <SettingsRow
+          title={t("rendererMode")}
+          description={t("rendererHint")}
+          htmlFor="terminal-renderer-mode"
+          control={(
+            <Select value={value.rendererMode ?? "auto"} onValueChange={(next) => update("rendererMode", next as TerminalSettings["rendererMode"])}>
+              <SelectTrigger id="terminal-renderer-mode" aria-label={t("rendererMode")} className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("rendererAuto")}</SelectItem>
+                <SelectItem value="webgl">{t("rendererWebgl")}</SelectItem>
+                <SelectItem value="dom">{t("rendererDom")}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        />
+      </SettingsSection>
 
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-6">
-          <Label htmlFor="terminal-renderer-mode">{t("rendererMode")}</Label>
-          <Select value={value.rendererMode ?? "auto"} onValueChange={(next) => update("rendererMode", next as TerminalSettings["rendererMode"])}>
-            <SelectTrigger id="terminal-renderer-mode" aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{t("rendererAuto")}</SelectItem>
-              <SelectItem value="webgl">{t("rendererWebgl")}</SelectItem>
-              <SelectItem value="dom">{t("rendererDom")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("rendererHint")}
-        </p>
-      </div>
+      <TerminalVisibilitySettings value={value} onChange={onChange} />
 
-      <SearchableSetting sectionId="terminal-path-links">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <Label htmlFor="terminal-path-links-enabled">{t("pathLinksEnabled")}</Label>
-            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("pathLinksEnabledHint")}
-            </p>
-          </div>
-          <Switch
+      <SettingsSection title={t("terminalGroups.features")}>
+        <RowAnchor sectionId="terminal-path-links">
+          <SettingsSwitchRow
             id="terminal-path-links-enabled"
-            aria-label={t("pathLinksEnabled")}
+            title={t("pathLinksEnabled")}
+            description={t("pathLinksEnabledHint")}
             checked={value.pathLinksEnabled ?? true}
             onCheckedChange={(checked) => update("pathLinksEnabled", checked)}
           />
-        </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="terminal-inline-images">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <Label htmlFor="terminal-inline-images-enabled">{t("inlineImagesEnabled")}</Label>
-            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("inlineImagesEnabledHint")}
-            </p>
-          </div>
-          <Switch
+        </RowAnchor>
+        <RowAnchor sectionId="terminal-inline-images">
+          <SettingsSwitchRow
             id="terminal-inline-images-enabled"
-            aria-label={t("inlineImagesEnabled")}
+            title={t("inlineImagesEnabled")}
+            description={t("inlineImagesEnabledHint")}
             checked={value.inlineImagesEnabled ?? false}
             onCheckedChange={(checked) => update("inlineImagesEnabled", checked)}
           />
-        </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="terminal-context-usage">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <input
-              id="terminal-show-context-usage"
-              type="checkbox"
-              aria-label={t("showContextUsage")}
-              checked={value.showContextUsage ?? true}
-              onChange={(e) => update("showContextUsage", e.target.checked)}
-              className="h-4 w-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-            />
-            <Label htmlFor="terminal-show-context-usage">{t("showContextUsage")}</Label>
-          </div>
-          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("showContextUsageHint")}
-          </p>
-        </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="terminal-status-bar">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <input
-              id="terminal-show-status-bar"
-              type="checkbox"
-              aria-label={t("showStatusBar")}
-              checked={value.showStatusBar ?? true}
-              onChange={(e) => update("showStatusBar", e.target.checked)}
-              className="h-4 w-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-            />
-            <Label htmlFor="terminal-show-status-bar">{t("showStatusBar")}</Label>
-          </div>
-          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("showStatusBarHint")}
-          </p>
-        </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="terminal-task-queue">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <Label htmlFor="terminal-task-queue-enabled">{t("taskQueueEnabled")}</Label>
-            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("taskQueueEnabledHint")}
-            </p>
-          </div>
-          <Switch
+        </RowAnchor>
+        <RowAnchor sectionId="terminal-context-usage">
+          <SettingsSwitchRow
+            id="terminal-show-context-usage"
+            title={t("showContextUsage")}
+            description={t("showContextUsageHint")}
+            checked={value.showContextUsage ?? true}
+            onCheckedChange={(checked) => update("showContextUsage", checked)}
+          />
+        </RowAnchor>
+        <RowAnchor sectionId="terminal-status-bar">
+          <SettingsSwitchRow
+            id="terminal-show-status-bar"
+            title={t("showStatusBar")}
+            description={t("showStatusBarHint")}
+            checked={value.showStatusBar ?? true}
+            onCheckedChange={(checked) => update("showStatusBar", checked)}
+          />
+        </RowAnchor>
+        <RowAnchor sectionId="terminal-task-queue">
+          <SettingsSwitchRow
             id="terminal-task-queue-enabled"
-            aria-label={t("taskQueueEnabled")}
+            title={t("taskQueueEnabled")}
+            description={t("taskQueueEnabledHint")}
             checked={value.taskQueueEnabled ?? true}
             onCheckedChange={(checked) => update("taskQueueEnabled", checked)}
           />
-        </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="terminal-split-passthrough">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <Label htmlFor="terminal-split-passthrough-enabled">{t("splitShortcutPassthrough")}</Label>
-            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("splitShortcutPassthroughHint")}
-            </p>
-          </div>
-          <Switch
+        </RowAnchor>
+        <RowAnchor sectionId="terminal-split-passthrough">
+          <SettingsSwitchRow
             id="terminal-split-passthrough-enabled"
-            aria-label={t("splitShortcutPassthrough")}
+            title={t("splitShortcutPassthrough")}
+            description={t("splitShortcutPassthroughHint")}
             checked={value.splitShortcutPassthrough ?? false}
             onCheckedChange={(checked) => update("splitShortcutPassthrough", checked)}
           />
-        </div>
-      </SearchableSetting>
+        </RowAnchor>
+      </SettingsSection>
 
-      <SearchableSetting sectionId="terminal-auto-trust">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <input
-              id="terminal-auto-trust"
-              type="checkbox"
-              aria-label={t("autoTrustRegisteredProjects")}
-              checked={value.autoTrustRegisteredProjects ?? false}
-              onChange={(e) => update("autoTrustRegisteredProjects", e.target.checked)}
-              className="h-4 w-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-            />
-            <Label htmlFor="terminal-auto-trust">{t("autoTrustRegisteredProjects")}</Label>
-          </div>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("autoTrustRegisteredProjectsHint")}
-          </p>
-        </div>
-      </SearchableSetting>
-
-      {/* lowerSessionPriority / sessionCpuWeight 的 UI 已搬到 PerformanceSection「会话资源策略」，存储位置不变 */}
-
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <input
-            id="terminal-daemon-enabled"
-            type="checkbox"
-            checked={value.daemonEnabled ?? true}
-            onChange={(e) => update("daemonEnabled", e.target.checked)}
-            className="w-4 h-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-          <Label htmlFor="terminal-daemon-enabled">{t("terminalDaemon")}</Label>
-        </div>
-        <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("terminalDaemonHint")}
-        </p>
-      </div>
-
-      <AdvancedSettings>
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <input
-              id="terminal-resume-id-backfill"
-              type="checkbox"
-              checked={value.resumeIdBackfillEnabled ?? false}
-              onChange={(e) => update("resumeIdBackfillEnabled", e.target.checked)}
-              className="w-4 h-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-            />
-            <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
-          </div>
-          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("resumeIdBackfillHint")}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <input
-              id="terminal-daemon-orphan-reaper-disabled"
-              type="checkbox"
-              checked={value.daemonOrphanReaperDisabled ?? false}
-              onChange={(e) => update("daemonOrphanReaperDisabled", e.target.checked)}
-              className="w-4 h-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
-              disabled={!(value.daemonEnabled ?? true)}
-            />
-            <Label htmlFor="terminal-daemon-orphan-reaper-disabled">{t("daemonOrphanReaperDisabled")}</Label>
-          </div>
-          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("daemonOrphanReaperDisabledHint")}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <FormField label={t("daemonOrphanTtl")} className="flex flex-col gap-1 w-40">
-            {({ id }) => (
+      <SettingsSection title={t("terminalGroups.session")}>
+        <RowAnchor sectionId="terminal-shell">
+          <SettingsRow
+            title="Shell"
+            htmlFor="terminal-shell"
+            control={shells.length > 0 ? (
+              <Select value={value.shell ?? AUTO_SHELL_VALUE} onValueChange={(next) => update("shell", next === AUTO_SHELL_VALUE ? null : next)}>
+                <SelectTrigger id="terminal-shell" aria-label="Shell" className={selectTriggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUTO_SHELL_VALUE}>{t("shellAutoDetect")}</SelectItem>
+                  {shells.map((shell) => (
+                    <SelectItem key={shell.id} value={shell.id}>{shell.name}</SelectItem>
+                  ))}
+                  {shellIsCustom && <SelectItem value={value.shell!}>{value.shell}</SelectItem>}
+                </SelectContent>
+              </Select>
+            ) : (
               <Input
-                id={id}
-                type="number"
-                min={1}
-                max={10080}
-                step={1}
-                value={value.daemonOrphanTtlMinutes ?? 1440}
-                onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
-                onBlur={(e) => {
-                  const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
-                  if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
-                }}
-                disabled={!(value.daemonEnabled ?? true) || (value.daemonOrphanReaperDisabled ?? false)}
+                id="terminal-shell"
+                className="w-44"
+                value={value.shell ?? ""}
+                onChange={(e) => update("shell", e.target.value || null)}
+                placeholder={t("shellAutoDetect")}
               />
             )}
-          </FormField>
-          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("daemonOrphanTtlHint")}
-          </p>
-        </div>
-      </AdvancedSettings>
-    </div>
+          />
+        </RowAnchor>
+        <SettingsRow
+          title={t("scrollback")}
+          htmlFor="terminal-scrollback"
+          control={(
+            <Input
+              id="terminal-scrollback"
+              type="number"
+              className="w-32"
+              min={TERMINAL_SCROLLBACK_MIN}
+              max={TERMINAL_SCROLLBACK_MAX}
+              value={value.scrollback}
+              onChange={(e) => update("scrollback", Number(e.target.value))}
+              onBlur={(e) => update("scrollback", normalizeTerminalScrollback(Number(e.target.value)))}
+            />
+          )}
+        />
+        <RowAnchor sectionId="terminal-auto-trust">
+          <SettingsSwitchRow
+            id="terminal-auto-trust"
+            title={t("autoTrustRegisteredProjects")}
+            description={t("autoTrustRegisteredProjectsHint")}
+            checked={value.autoTrustRegisteredProjects ?? false}
+            onCheckedChange={(checked) => update("autoTrustRegisteredProjects", checked)}
+          />
+        </RowAnchor>
+        <SettingsSwitchRow
+          id="terminal-auto-close-completed"
+          title={t("autoCloseCompletedTasks")}
+          description={t("autoCloseCompletedTasksHint")}
+          checked={value.autoCloseCompletedTasks ?? false}
+          onCheckedChange={(checked) => update("autoCloseCompletedTasks", checked)}
+        />
+        {/* lowerSessionPriority / sessionCpuWeight 的 UI 已搬到 PerformanceSection「会话资源策略」，存储位置不变 */}
+        <SettingsSwitchRow
+          id="terminal-daemon-enabled"
+          title={t("terminalDaemon")}
+          description={t("terminalDaemonHint")}
+          checked={daemonEnabled}
+          onCheckedChange={(checked) => update("daemonEnabled", checked)}
+        />
+      </SettingsSection>
+
+      {/* 专家项：排障与 daemon 孤儿回收，平铺在页尾独立分区（不再折叠） */}
+      <SettingsSection title={t("advancedSettings")}>
+        <SettingsSwitchRow
+          id="terminal-resume-id-backfill"
+          title={t("resumeIdBackfill")}
+          description={t("resumeIdBackfillHint")}
+          checked={value.resumeIdBackfillEnabled ?? false}
+          onCheckedChange={(checked) => update("resumeIdBackfillEnabled", checked)}
+        />
+        <SettingsSwitchRow
+          id="terminal-daemon-orphan-reaper-disabled"
+          title={t("daemonOrphanReaperDisabled")}
+          description={t("daemonOrphanReaperDisabledHint")}
+          checked={value.daemonOrphanReaperDisabled ?? false}
+          disabled={!daemonEnabled}
+          onCheckedChange={(checked) => update("daemonOrphanReaperDisabled", checked)}
+        />
+        <SettingsRow
+          title={t("daemonOrphanTtl")}
+          description={t("daemonOrphanTtlHint")}
+          htmlFor="terminal-daemon-orphan-ttl"
+          control={(
+            <Input
+              id="terminal-daemon-orphan-ttl"
+              type="number"
+              className="w-32"
+              min={1}
+              max={10080}
+              step={1}
+              value={value.daemonOrphanTtlMinutes ?? 1440}
+              onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
+              onBlur={(e) => {
+                const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
+                if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
+              }}
+              disabled={!daemonEnabled || (value.daemonOrphanReaperDisabled ?? false)}
+            />
+          )}
+        />
+      </SettingsSection>
+    </>
   );
 }

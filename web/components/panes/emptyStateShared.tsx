@@ -13,6 +13,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Terminal } from "lucide-react";
 import CliBrandIcon from "@/components/CliBrandIcon";
+import { CLI_TOOL_TABS } from "@/types/provider";
 import { useWallpaperStore } from "@/stores";
 
 /** 窄于此值只留图标按钮 */
@@ -120,4 +121,12 @@ export function RuntimeBadge({ runtimeKind }: { runtimeKind?: string }) {
       {runtimeKind.toUpperCase()}
     </span>
   );
+}
+
+/** 启动清单 / 会话卡片里的 CLI 显示名 */
+export function cliDisplayName(cliTool: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (cliTool === "claude") return "Claude Code";
+  if (cliTool === "codex") return "Codex";
+  const tab = CLI_TOOL_TABS.find((item) => item.id === cliTool);
+  return tab ? t(tab.labelKey, { ns: "settings" }) : cliTool;
 }

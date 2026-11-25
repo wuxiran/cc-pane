@@ -21,6 +21,12 @@ const SettingsSearchContext = createContext<SettingsSearchContextValue>({
 
 export const SettingsSearchProvider = SettingsSearchContext.Provider;
 
+/** 该锚点是否是搜索/跳转的当前高亮目标（不参与过滤，只决定高亮）。 */
+export function useSettingsSectionHighlighted(sectionId: string | undefined): boolean {
+  const { highlightedSectionId } = useContext(SettingsSearchContext);
+  return sectionId !== undefined && highlightedSectionId === sectionId;
+}
+
 interface SearchableSettingProps {
   sectionId: string;
   children: ReactElement<{ className?: string }>;

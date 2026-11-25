@@ -5,6 +5,7 @@ import { CLI_TOOL_TABS } from "@/types/provider";
 import {
   buildAdapterOptions,
   buildPendingLaunch,
+  cliToolDraftPatch,
   coerceDefaultCliTool,
   createDefaultDraft,
   defaultWorktreeBranch,
@@ -193,6 +194,32 @@ describe("buildPendingLaunch", () => {
     expect(result.launch).toBeNull();
     expect(result.issue).toEqual({ code: "pi_ssh_unsupported" });
   });
+
+  it.each(["kiro", "fx", "muse"] as const)(
+    "终端 CLI %s 不接受 SSH 来源且丢弃 YOLO",
+    (cliTool) => {
+      const draft = createDefaultDraft({
+        source: {
+          kind: "recent",
+          label: `remote ${cliTool}`,
+          options: {
+            path: "ssh://dev@example.test/workspace",
+            cliTool,
+            ssh: { host: "example.test", port: 22, user: "dev", remotePath: "/workspace" },
+          },
+        },
+        cliTool,
+        yolo: true,
+      });
+
+      const result = buildPendingLaunch(draft, { workspaces: [], machines: [] });
+
+      expect(result.launch).toBeNull();
+      expect(result.issue).toEqual({ code: `${cliTool}_ssh_unsupported` });
+      expect(cliToolDraftPatch(cliTool)).toEqual({ cliTool, yolo: undefined, skipMcp: false });
+      expect(getLauncherEnvironmentOptions(cliTool)).toEqual(["local", "wsl"]);
+    },
+  );
 });
 
 describe("Pi launcher environments", () => {

@@ -1,9 +1,10 @@
 import i18n from "@/i18n";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "@/components/ui/toast";
 import { settingsService } from "@/services";
+import { getLocalDeviceInfo } from "@/services/deviceService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
 import { useSettingsStore } from "@/stores";
@@ -22,10 +23,20 @@ vi.mock("@/services/runtime", () => ({
 }));
 
 vi.mock("@/services/deviceService", () => ({
+  getLocalDeviceInfo: vi.fn(async () => ({ hostname: "测试的MacBook Pro", os: "macOS 15.5", version: "9.9.9" })),
   listDeviceAccess: vi.fn(async () => []),
   startDevicePairing: vi.fn(),
   cancelDevicePairing: vi.fn(async () => undefined),
   revokeDeviceAccess: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/services/updaterService", () => ({
+  checkUpdateSilent: vi.fn(async () => undefined),
+  checkForAppUpdates: vi.fn(async () => undefined),
+}));
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(async () => "9.9.9"),
 }));
 
 vi.mock("@/hooks/useOrchestratorStatus", () => ({
@@ -104,6 +115,45 @@ describe("WebAccessSection", () => {
     expect(settingsService.getWebAccessStatus).toHaveBeenCalled();
   });
 
+  it("leads with the local device card: version, running Web URL and update status", async () => {
+    vi.mocked(settingsService.getWebAccessStatus).mockResolvedValue({ ...idleStatus, running: true });
+    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
+    await act(async () => {});
+
+    const device = await screen.findByTestId("device-info-section");
+    expect(device).toHaveTextContent("本机");
+    expect(device).toHaveTextContent("v9.9.9");
+    expect(device).toHaveTextContent("http://127.0.0.1:18080");
+    await waitFor(() =>
+      expect(screen.getByTestId("device-info-update-status")).toHaveTextContent("已是最新版本"),
+    );
+  });
+
+  it("titles the local device card with the hostname from the desktop command", async () => {
+    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
+    await act(async () => {});
+
+    const device = await screen.findByTestId("device-info-section");
+    await waitFor(() =>
+      expect(within(device).getByRole("heading", { name: "测试的MacBook Pro" })).toBeInTheDocument(),
+    );
+    expect(device).toHaveTextContent("本机");
+    expect(screen.getByTestId("device-info-os")).toHaveTextContent("macOS 15.5");
+  });
+
+  it("falls back to the 本机 title and UA OS label when the command fails", async () => {
+    vi.mocked(getLocalDeviceInfo).mockRejectedValueOnce(new Error("unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
+    await act(async () => {});
+
+    const device = await screen.findByTestId("device-info-section");
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(within(device).getByRole("heading", { name: "本机" })).toBeInTheDocument();
+    expect(screen.getByTestId("device-info-os")).not.toHaveTextContent("macOS 15.5");
+    warn.mockRestore();
+  });
+
   it("uses the secondary style for service actions", async () => {
     await i18n.changeLanguage("en");
     render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
@@ -128,21 +178,21 @@ describe("WebAccessSection", () => {
     expect(screen.queryByText("启动时启用 Web 端")).not.toBeInTheDocument();
   });
 
-  it("emits enabled/autoOpen/authEnabled checkbox changes", async () => {
+  it("emits enabled/autoOpen/authEnabled switch changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<WebAccessSection value={createValue()} onChange={onChange} />);
     await act(async () => {});
 
-    const checkboxes = screen.getAllByRole("checkbox");
+    const switches = screen.getAllByRole("switch");
     // 顺序：enabled → autoOpen → authEnabled → allowLan
-    await user.click(checkboxes[0]);
+    await user.click(switches[0]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true }));
 
-    await user.click(checkboxes[1]);
+    await user.click(switches[1]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoOpen: true }));
 
-    await user.click(checkboxes[2]);
+    await user.click(switches[2]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ authEnabled: true }));
   });
 
@@ -162,8 +212,8 @@ describe("WebAccessSection", () => {
     const { rerender } = render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
     await act(async () => {});
 
-    let checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes[3]).toBeDisabled();
+    let switches = screen.getAllByRole("switch");
+    expect(switches[3]).toBeDisabled();
 
     rerender(
       <WebAccessSection
@@ -171,8 +221,8 @@ describe("WebAccessSection", () => {
         onChange={vi.fn()}
       />,
     );
-    checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes[3]).not.toBeDisabled();
+    switches = screen.getAllByRole("switch");
+    expect(switches[3]).not.toBeDisabled();
   });
 
   it("falls back to the stored password hash to unlock LAN access", async () => {
@@ -184,7 +234,7 @@ describe("WebAccessSection", () => {
     );
     await act(async () => {});
 
-    expect(screen.getAllByRole("checkbox")[3]).not.toBeDisabled();
+    expect(screen.getAllByRole("switch")[3]).not.toBeDisabled();
   });
 
   it("splits the IP whitelist on newlines and commas, dropping blanks", async () => {
@@ -302,9 +352,9 @@ describe("WebAccessSection", () => {
     );
     await act(async () => {});
 
-    const checkbox = screen.getByRole("checkbox", { name: "允许 agent 管理 YOLO 启动配置" });
+    const yoloSwitch = screen.getByRole("switch", { name: "允许 agent 管理 YOLO 启动配置" });
     expect(screen.getByText(/--dangerously-skip-permissions/)).toBeInTheDocument();
-    await user.click(checkbox);
+    await user.click(yoloSwitch);
     expect(onOrchestratorChange).toHaveBeenCalledWith({
       bindMode: "auto",
       allowMcpYoloProfiles: true,
@@ -324,5 +374,25 @@ describe("WebAccessSection", () => {
     );
     expect(screen.getByText("Allow agents to manage YOLO launch profiles")).toBeInTheDocument();
     expect(screen.getByText(/--dangerously-skip-permissions/)).toBeInTheDocument();
+  });
+  it("toggles follow-agent-launch through its switch", async () => {
+    const user = userEvent.setup();
+    const onOrchestratorChange = vi.fn();
+    render(
+      <WebAccessSection
+        value={createValue()}
+        onChange={vi.fn()}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false, followAgentLaunch: false }}
+        onOrchestratorChange={onOrchestratorChange}
+      />,
+    );
+    await act(async () => {});
+
+    await user.click(screen.getByRole("switch", { name: i18n.t("settings:followAgentLaunch") }));
+    expect(onOrchestratorChange).toHaveBeenCalledWith({
+      bindMode: "auto",
+      allowMcpYoloProfiles: false,
+      followAgentLaunch: true,
+    });
   });
 });

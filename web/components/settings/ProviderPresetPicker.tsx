@@ -63,7 +63,7 @@ export default function ProviderPresetPicker({ onSelect, showCustom, onCustom }:
           className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[length:var(--text-small)] font-medium transition-all duration-[var(--dur-fast)] hover:shadow-sm w-fit"
           style={{
             background: "var(--app-accent)",
-            color: "white",
+            color: "var(--primary-foreground)",
             border: "1px solid var(--app-accent)",
           }}
           onClick={onCustom}

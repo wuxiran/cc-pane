@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { findPane } from "@/lib/paneTree";
 import { findTerminalPane } from "@/lib/paneSessions";
 import type { LaunchProviderSelection, PaneNode, TerminalPaneLeaf } from "@/types";
+import type { LaunchProfileSnapshot } from "@/types/launch-profile-snapshot";
 
 interface ActiveTerminalState {
   rootPane: PaneNode;
@@ -14,9 +15,13 @@ export interface ActiveTerminalContext {
   cliTool: string | null;
   ssh: boolean;
   providerId: string | null;
+  /** 供应商下的账号（只读展示运行配置的凭证用）；缺省 = 供应商默认账号。 */
+  providerAccountId?: string | null;
   modelId: string | null;
   providerSelection: LaunchProviderSelection | null;
   launchProfileId: string | null;
+  /** 启动时实际用的运行配置快照；旧数据没有。 */
+  launchProfileSnapshot?: LaunchProfileSnapshot | null;
 }
 
 export function selectActiveTerminalLeaf(state: ActiveTerminalState): TerminalPaneLeaf | null {
@@ -49,6 +54,7 @@ export function selectActiveTerminalLeaf(state: ActiveTerminalState): TerminalPa
         modelId: tab.modelId,
         providerSelection: tab.providerSelection,
         launchProfileId: tab.launchProfileId,
+        launchProfileSnapshot: tab.launchProfileSnapshot,
         wsl: tab.wsl,
         ssh: tab.ssh,
       }
@@ -70,6 +76,7 @@ export function selectActiveTerminalContext(state: ActiveTerminalState): ActiveT
     modelId: leaf.modelId?.trim() || null,
     providerSelection: leaf.providerSelection ?? null,
     launchProfileId: leaf.launchProfileId?.trim() || null,
+    launchProfileSnapshot: leaf.launchProfileSnapshot ?? null,
   };
 }
 

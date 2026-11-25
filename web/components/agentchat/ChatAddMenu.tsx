@@ -26,9 +26,11 @@ interface ChatAddMenuProps {
   onFolders: () => Promise<void>;
   onProject: () => void;
   onCapture?: () => void;
+  /** 附件失败提示改投这里（启动页：push notice 会把启动页顶成会话视图）。 */
+  onNotice?: (message: string) => void;
 }
 
-export default function ChatAddMenu({ chatId, cwd, phase, generating, blocked, onFiles, onFolders, onProject, onCapture }: ChatAddMenuProps) {
+export default function ChatAddMenu({ chatId, cwd, phase, generating, blocked, onFiles, onFolders, onProject, onCapture, onNotice }: ChatAddMenuProps) {
   const { t } = useTranslation("panes");
   const snapshot = useAgentChatStore((state) => state.chats[chatId]?.snapshot);
   const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
@@ -69,7 +71,9 @@ export default function ChatAddMenu({ chatId, cwd, phase, generating, blocked, o
 
   const attach = (action: () => Promise<void>) => {
     void action().catch((failure) => {
-      if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, translateError(failure));
+      if (!isChatDraftCurrent(chatId, draftToken)) return;
+      if (onNotice) onNotice(translateError(failure));
+      else useAgentChatStore.getState().pushNotice(chatId, translateError(failure));
     });
   };
 

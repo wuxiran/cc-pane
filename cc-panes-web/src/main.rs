@@ -330,6 +330,8 @@ fn run_cli_command(command: CliCommand, data_dir: Option<&str>) -> anyhow::Resul
 }
 
 fn main() -> anyhow::Result<()> {
+    // 必须在 runtime（多线程）起来之前：读取并从环境里删掉桌面端下发的控制令牌。
+    web_auth::install_control_token_from_env();
     let args = Args::parse();
     if let Some(command) = args.command {
         return run_cli_command(command, args.data_dir.as_deref());
@@ -477,6 +479,8 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         settings_service.clone(),
     ));
     session_index_service.set_provider_service(provider_service.clone());
+    // 会话列表（Claude / Codex 历史）也扫各登录账号目录。
+    cc_panes_core::services::login_account::register_account_root_source(&provider_service);
     session_index_service.start_background_tasks();
 
     let device_tokens = Arc::new(DeviceTokenService::in_data_dir(app_paths.data_dir()));

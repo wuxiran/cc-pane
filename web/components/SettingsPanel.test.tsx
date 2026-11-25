@@ -1,6 +1,6 @@
 import "@/i18n";
 import i18n from "i18next";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODULE_REGISTRY } from "@/modules/registry";
@@ -34,13 +34,6 @@ vi.mock("./settings/GeneralSection", () => ({
 vi.mock("./settings/NotificationSection", () => ({
   default: () => <div data-testid="notification-section" />,
 }));
-vi.mock("./settings/ProviderSection", () => ({
-  default: ({ view, onDirtyChange }: { view: string; onDirtyChange?: (dirty: boolean) => void }) => (
-    <div data-testid="provider-section" data-view={view}>
-      <button type="button" onClick={() => onDirtyChange?.(true)}>mark-provider-settings-dirty</button>
-    </div>
-  ),
-}));
 vi.mock("./settings/ProxySection", () => ({
   default: () => <div data-testid="proxy-section" />,
 }));
@@ -57,7 +50,12 @@ vi.mock("./settings/AboutSection", () => ({
   default: () => <div data-testid="about-section" />,
 }));
 vi.mock("./settings/ScreenshotSection", () => ({
-  default: () => <div data-testid="screenshot-section" />,
+  // 真实分区以 SettingsSection title={t("screenshot")} 渲染小节标题；mock 保持同一可访问标题。
+  default: () => (
+    <section data-testid="screenshot-section">
+      <h3>{i18n.t("screenshot", { ns: "settings" })}</h3>
+    </section>
+  ),
 }));
 vi.mock("./settings/VoiceSection", () => ({
   default: () => <div data-testid="voice-section" />,
@@ -144,13 +142,14 @@ describe("SettingsPanel", () => {
       maxWidth: "calc(100vw - 2rem)",
       maxHeight: "calc(100vh - 2rem)",
       containerType: "inline-size",
-      "--settings-sidebar-width": "clamp(10rem, 18cqw, 18rem)",
-      "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
+      "--settings-sidebar-width": "clamp(11rem, 20cqw, 15rem)",
+      "--settings-content-gutter": "clamp(1rem, 3cqw, 2.5rem)",
     });
     expect(dialog).toHaveClass("resize");
-    expect(screen.getByTestId("settings-dialog-header")).toHaveStyle({
-      gridTemplateColumns: "calc(var(--settings-sidebar-width) + var(--settings-content-gutter) - var(--settings-chrome-gutter)) minmax(0, 1fr) auto",
-    });
+    // 细标题行：面包屑「设置 / 常规」+ 右侧关闭
+    const header = screen.getByTestId("settings-dialog-header");
+    expect(header).toHaveTextContent(`${tSettings("title")}/${tSettings("pages.general.title")}`);
+    expect(within(header).getByRole("button", { name: i18n.t("close") })).toBeInTheDocument();
     expect(screen.getByTestId("settings-content-container")).toHaveStyle({
       paddingInline: "var(--settings-content-gutter)",
     });
@@ -160,13 +159,14 @@ describe("SettingsPanel", () => {
     for (const group of ["application", "services"] as const) {
       expect(screen.getByText(tSettings(`groups.${group}`))).toBeInTheDocument();
     }
-    for (const page of ["general", "terminal", "aiTools", "system", "usageStats", "about"] as const) {
+    for (const page of ["general", "terminal", "aiTools", "system", "devices", "usageStats", "about"] as const) {
       expect(screen.getByRole("button", { name: tSettings(`pages.${page}.title`) })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: tSettings("setupGuide.title") })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: tSettings("experimental.title") })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: tSettings("pages.general.title") })).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: tSettings("paneNavigation") })).toBeInTheDocument();
+    // 页标题只出现一次（页面内的 h1），不再有折叠分段组
+    expect(screen.getAllByRole("heading", { name: tSettings("pages.general.title") })).toHaveLength(1);
+    expect(screen.queryByRole("group", { name: tSettings("paneNavigation") })).not.toBeInTheDocument();
     expect(screen.getByText("CC-Panes")).toBeInTheDocument();
   });
 
@@ -199,108 +199,36 @@ describe("SettingsPanel", () => {
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    expect(await screen.findByTestId("provider-section")).toBeInTheDocument();
+    expect(await screen.findByTestId("cli-launchers-section")).toBeInTheDocument();
     // 技能已移到资源库，AI 工具页不再有 Skills 标签
     expect(screen.queryByRole("button", { name: /^Skills/ })).not.toBeInTheDocument();
   });
 
-  it("lets full-height settings panes constrain their internal scroll areas", async () => {
+  it("no longer hosts provider panes: AI tools opens on CLI launchers", async () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-
-    const providerSection = await screen.findByTestId("provider-section");
-    const paneRoot = providerSection.closest('[data-settings-section="provider-root"]');
-    expect(paneRoot).toHaveClass("h-full", "min-h-0");
+    expect(await screen.findByTestId("cli-launchers-section")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: new RegExp(tSettings("providerCredentialsTab")) })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: new RegExp(tSettings("launchProfilesTab")) })).not.toBeInTheDocument();
   });
 
-  it("keeps launch profiles and provider credentials as separate AI tools panes", async () => {
-    const user = userEvent.setup();
+  it("stacks every section of a page flat, without accordion headers", async () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "profiles");
-
-    await user.click(screen.getByRole("button", { name: new RegExp(tSettings("providerCredentialsTab")) }));
-    expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "providers");
-  });
-
-  it("asks before leaving a settings pane with unsaved provider changes", async () => {
-    const user = userEvent.setup();
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
-
-    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
-    await user.click(screen.getByRole("button", { name: tSettings("pages.general.title") }));
-
-    expect(screen.getByTestId("provider-section")).toBeInTheDocument();
-    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: i18n.t("discardChanges", { ns: "common" }) }));
     expect(await screen.findByTestId("general-section")).toBeInTheDocument();
+    // 「模块」不再是可折叠分段，而是同页里的一个普通分区
+    expect(await screen.findByTestId("module-setting-ssh", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-pane-accordion")).not.toBeInTheDocument();
+    // 下拉菜单触发器自带 aria-expanded，排除后不应再有任何折叠头
+    expect(document.querySelector("[aria-expanded]:not([aria-haspopup])")).toBeNull();
   });
 
-  it("keeps settings open until unsaved provider changes are discarded", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-    render(<SettingsPanel open onOpenChange={onOpenChange} />);
-
-    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
-    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
-
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: i18n.t("discardChanges", { ns: "common" }) }));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("dismisses an unsaved provider prompt when settings closes externally", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-    const view = render(<SettingsPanel open onOpenChange={onOpenChange} />);
-
-    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
-    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
-    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
-
-    view.rerender(<SettingsPanel open={false} onOpenChange={onOpenChange} />);
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).not.toBeInTheDocument();
-    });
-  });
-
-  it("expands panes in place as an accordion and collapses the open pane on click", async () => {
-    const user = userEvent.setup();
+  it("renders the registry-backed module settings on the general page", async () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    const accordion = screen.getByTestId("settings-pane-accordion");
-    const header = (paneId: string) =>
-      accordion.querySelector(`[data-pane-id="${paneId}"] > button`) as HTMLButtonElement;
-
-    expect(header("general")).toHaveAttribute("aria-expanded", "true");
-    expect(header("modules")).toHaveAttribute("aria-expanded", "false");
-    expect(await screen.findByTestId("general-section")).toBeInTheDocument();
-
-    await user.click(header("general"));
-    expect(header("general")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("settings-pane-body")).not.toBeInTheDocument();
-
-    await user.click(header("modules"));
-    expect(header("modules")).toHaveAttribute("aria-expanded", "true");
-    expect(header("general")).toHaveAttribute("aria-expanded", "false");
-  });
-
-  it("opens the registry-backed module settings pane", async () => {
-    const user = userEvent.setup();
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
-
-    await user.click(screen.getByRole("button", { name: new RegExp(tSettings("modules.title")) }));
-
+    expect(screen.getByRole("heading", { name: tSettings("modules.title") })).toBeInTheDocument();
     expect(await screen.findByTestId("module-setting-ssh", {}, { timeout: 5000 })).toBeInTheDocument();
     const configurableModuleCount = MODULE_REGISTRY.filter((module) => module.configurable !== false).length;
     expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(configurableModuleCount);
@@ -331,7 +259,21 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.system.title") }));
-    expect(screen.getByRole("button", { name: new RegExp(tSettings("screenshot")) })).toBeInTheDocument();
+    expect(await screen.findByTestId("screenshot-section")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tSettings("screenshot") })).toBeInTheDocument();
+  });
+
+  it("hosts web access on the devices page instead of the system page", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.system.title") }));
+    expect(await screen.findByTestId("proxy-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("web-access-section")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.devices.title") }));
+    expect(await screen.findByTestId("web-access-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("proxy-section")).not.toBeInTheDocument();
   });
 
   it("searches the registry and lazily opens the highest-ranked pane", async () => {

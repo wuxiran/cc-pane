@@ -378,11 +378,13 @@ fn append_pi_preview(preview: &mut String, text: &str) -> bool {
 }
 
 /// Claude Code 自己往转录里写的标题：`ai-title`（首条消息后自动生成，即 `/resume` 列表里的标题）
-/// 与 `agent-name`（用户手动命名）。都可能多次出现，取最后一次；手动命名优先。
+/// 与 `agent-name`（会话命名）、`custom-title`（`/rename` 手动改名）。都可能多次出现，
+/// 取最后一次；优先级 custom-title > agent-name > ai-title。
 #[derive(Default)]
 struct ClaudeTitles {
     ai_title: String,
     agent_name: String,
+    custom_title: String,
 }
 
 impl ClaudeTitles {
@@ -390,6 +392,7 @@ impl ClaudeTitles {
         let (slot, key) = match json.get("type").and_then(Value::as_str) {
             Some("ai-title") => (&mut self.ai_title, "aiTitle"),
             Some("agent-name") => (&mut self.agent_name, "agentName"),
+            Some("custom-title") => (&mut self.custom_title, "customTitle"),
             _ => return,
         };
         if let Some(value) = json
@@ -403,11 +406,10 @@ impl ClaudeTitles {
     }
 
     fn resolve(self) -> String {
-        if self.agent_name.is_empty() {
-            self.ai_title
-        } else {
-            self.agent_name
-        }
+        [self.custom_title, self.agent_name, self.ai_title]
+            .into_iter()
+            .find(|title| !title.is_empty())
+            .unwrap_or_default()
     }
 }
 
@@ -631,6 +633,17 @@ mod tests {
                 .unwrap()
                 .title,
             "我的命名"
+        );
+
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("{\"type\":\"custom-title\",\"customTitle\":\"手动改名\"}\n");
+        text.push_str("{\"type\":\"agent-name\",\"agentName\":\"之后的命名\"}\n");
+        std::fs::write(&path, text).unwrap();
+        assert_eq!(
+            super::parse_session_transcript("claude", &path)
+                .unwrap()
+                .title,
+            "手动改名"
         );
     }
 

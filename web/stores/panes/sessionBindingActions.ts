@@ -3,6 +3,7 @@
 // 在 usePanesStore 里 spread 挂载。
 import { collectPanels, findPane, generateId, notifyTerminalLayoutChanged, syncTabTerminalState } from "@/lib/paneTree";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import { launchProfileIdForLaunch } from "@/lib/launchProfileSnapshot";
 import { terminalService, ensureListeners } from "@/services/terminalService";
 import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
@@ -177,7 +178,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
           providerAccountId: leaf?.providerAccountId ?? tab.providerAccountId,
           modelId: leaf?.modelId ?? tab.modelId,
           providerSelection: leaf?.providerSelection ?? tab.providerSelection,
-          launchProfileId: leaf?.launchProfileId ?? tab.launchProfileId,
+          launchProfileId: launchProfileIdForLaunch(leaf ?? {}) ?? launchProfileIdForLaunch(tab),
           workspacePath: leaf?.workspacePath ?? tab.workspacePath,
           workspaceSnapshotId: leaf?.workspaceSnapshotId ?? tab.workspaceSnapshotId,
           cliTool: leaf?.cliTool ?? tab.cliTool,

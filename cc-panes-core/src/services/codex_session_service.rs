@@ -3,6 +3,7 @@
 //! 提供按项目或全局列举 Codex 会话的能力，并支持从会话文件中提取基本元数据。
 
 use crate::models::UsageEntry;
+use crate::services::login_account::{session_scan_roots, SessionScanRoot};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,6 +23,11 @@ pub struct CodexSession {
     pub modified_at: u64,
     pub file_path: String,
     pub description: String,
+    /// 会话所在的登录账号（默认目录里的会话为空）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +173,8 @@ fn parse_session_file(file_path: &Path) -> Option<CodexSession> {
         modified_at,
         file_path: file_path.to_string_lossy().to_string(),
         description: extract_session_description(file_path),
+        account_id: None,
+        account_name: None,
     })
 }
 
@@ -211,14 +219,31 @@ pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<CodexSessio
 }
 
 pub fn list_all_sessions(limit: usize) -> Result<Vec<CodexSession>, String> {
-    let sessions_root = codex_sessions_root()?;
-    if !sessions_root.exists() {
-        return Ok(Vec::new());
-    }
+    let default_root = codex_sessions_root().ok();
+    list_all_sessions_in(&session_scan_roots("codex", default_root), limit)
+}
 
+/// 在给定的若干 `sessions` 根下列出全部会话：各账号的条目带归属，同一会话 id 只留最新一条。
+/// 不存在的根跳过。
+pub fn list_all_sessions_in(
+    roots: &[SessionScanRoot],
+    limit: usize,
+) -> Result<Vec<CodexSession>, String> {
     let mut sessions = Vec::new();
-    collect_session_files(&sessions_root, &mut sessions)?;
+    for root in roots {
+        if !root.dir.is_dir() {
+            continue;
+        }
+        let start = sessions.len();
+        collect_session_files(&root.dir, &mut sessions)?;
+        for session in &mut sessions[start..] {
+            session.account_id = root.account_id.clone();
+            session.account_name = root.account_name.clone();
+        }
+    }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
+    let mut seen = std::collections::HashSet::new();
+    sessions.retain(|session| seen.insert(session.id.clone()));
     sessions.truncate(limit);
     Ok(sessions)
 }
@@ -848,6 +873,8 @@ mod tests {
             modified_at,
             file_path: format!("/fake/{id}.jsonl"),
             description: String::new(),
+            account_id: None,
+            account_name: None,
         }
     }
 
@@ -1023,6 +1050,55 @@ mod tests {
                 Some("wslhit".to_string()),
                 "candidate {cand} should match POSIX rollout cwd"
             );
+        }
+    }
+
+    mod multi_root {
+        use super::super::list_all_sessions_in;
+        use crate::services::login_account::SessionScanRoot;
+        use std::fs;
+        use std::path::Path;
+
+        fn write_rollout(root: &Path, id: &str) {
+            let dir = root.join("2026").join("01").join("02");
+            fs::create_dir_all(&dir).unwrap();
+            let meta = format!(
+                r#"{{"type":"session_meta","payload":{{"id":"{id}","cwd":"/work/demo"}}}}"#
+            );
+            fs::write(dir.join(format!("rollout-{id}.jsonl")), format!("{meta}\n")).unwrap();
+        }
+
+        #[test]
+        fn lists_default_and_account_sessions_deduped_with_account_tag() {
+            let default = tempfile::tempdir().unwrap();
+            let account = tempfile::tempdir().unwrap();
+            write_rollout(default.path(), "d-1");
+            write_rollout(account.path(), "a-1");
+            write_rollout(account.path(), "d-1");
+            let roots = [
+                SessionScanRoot {
+                    dir: default.path().to_path_buf(),
+                    account_id: None,
+                    account_name: None,
+                },
+                SessionScanRoot {
+                    dir: account.path().to_path_buf(),
+                    account_id: Some("acc".to_string()),
+                    account_name: Some("Work".to_string()),
+                },
+                SessionScanRoot {
+                    dir: default.path().join("missing"),
+                    account_id: Some("gone".to_string()),
+                    account_name: None,
+                },
+            ];
+            let sessions = list_all_sessions_in(&roots, 10).unwrap();
+            let mut ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+            ids.sort();
+            assert_eq!(ids, ["a-1", "d-1"]);
+            let tagged = sessions.iter().find(|s| s.id == "a-1").unwrap();
+            assert_eq!(tagged.account_name.as_deref(), Some("Work"));
+            assert_eq!(tagged.account_id.as_deref(), Some("acc"));
         }
     }
 }

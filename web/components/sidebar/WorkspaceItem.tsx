@@ -34,7 +34,6 @@ import {
 } from "@/utils";
 import type {
   LaunchProfile,
-  LaunchProfileRuntime,
   OpenTerminalOptions,
   Workspace, WorkspaceLaunchEnvironment,
 } from "@/types";
@@ -202,17 +201,6 @@ export default function WorkspaceItem({
     return profile.targetTools.length === 0 || profile.targetTools.includes(cliTool);
   }, []);
 
-  const profileMatchesRuntime = useCallback((profile: LaunchProfile, environment: WorkspaceLaunchEnvironment) => {
-    return !profile.targetRuntime || profile.targetRuntime === environment;
-  }, []);
-
-  const runtimeLabel = useCallback((runtime?: LaunchProfileRuntime) => {
-    if (runtime === "wsl") return "WSL";
-    if (runtime === "ssh") return "SSH";
-    if (runtime === "local") return t("launchProfileRuntimeLocal", { defaultValue: "本机" });
-    return t("launchProfileRuntimeAll", { defaultValue: "全部位置" });
-  }, [t]);
-
   const renderCliLaunchMenuItem = useCallback((item: SidebarCliLaunchItem, keyPrefix: string) => {
     const effectiveEnvironment =
       item.environment
@@ -225,29 +213,20 @@ export default function WorkspaceItem({
       ? profileDisplayName(boundProfile ?? { name: workspace.launchProfileId, alias: null })
       : t("launchProfileUnbound", { defaultValue: "未绑定" });
     const boundProfileMatchesTarget = boundProfile
-      ? profileMatchesCli(boundProfile, item.cliTool) && profileMatchesRuntime(boundProfile, effectiveEnvironment)
+      ? profileMatchesCli(boundProfile, item.cliTool)
       : false;
     const boundProfileStatusLabel = boundProfileMatchesTarget
       ? boundProfileName
       : `${boundProfileName} (${t("launchProfileBindingMismatch", { defaultValue: "不适用于当前入口" })})`;
+    // 运行配置本机 / WSL / SSH 通用：只按 CLI 过滤，不再按运行位置隐藏
     const selectableProfiles = launchProfiles
-      .filter((profile) => profileMatchesCli(profile, item.cliTool))
-      .filter((profile) => profileMatchesRuntime(profile, effectiveEnvironment));
-    const incompatibleRuntimeProfileCount = launchProfiles
-      .filter((profile) => profileMatchesCli(profile, item.cliTool))
-      .filter((profile) => !profileMatchesRuntime(profile, effectiveEnvironment)).length;
+      .filter((profile) => profileMatchesCli(profile, item.cliTool));
     const defaultActionLabel = workspace.launchProfileId && boundProfileMatchesTarget
       ? t("launchProfileUseWorkspaceBinding", {
         profile: boundProfileName,
         defaultValue: `使用工作空间绑定：${boundProfileName}`,
       })
-      : workspace.launchProfileId
-        ? t("launchProfileUseDefaultBindingMismatch", {
-          profile: boundProfileName,
-          runtime: runtimeLabel(effectiveEnvironment),
-          defaultValue: `使用默认运行配置（${boundProfileName} 不适用于 ${runtimeLabel(effectiveEnvironment)}）`,
-        })
-        : t("launchProfileUseDefault", { defaultValue: "使用默认运行配置" });
+      : t("launchProfileUseDefault", { defaultValue: "使用默认运行配置" });
 
     return (
       <ContextMenuSub key={`${keyPrefix}-${item.key}`}>
@@ -289,11 +268,11 @@ export default function WorkspaceItem({
                   <span className="truncate">{profileDisplayName(profile)}</span>
                   <InjectionBadges summary={summarizeInjection(profile, effectiveEnvironment, item.cliTool)} />
                 </span>
-                <span className="ml-auto shrink-0 self-start text-[length:var(--text-caption)] opacity-70">
-                  {profile.id === workspace.launchProfileId
-                    ? t("launchProfileBoundBadge", { defaultValue: "已绑定" })
-                    : runtimeLabel(profile.targetRuntime ?? null)}
-                </span>
+                {profile.id === workspace.launchProfileId ? (
+                  <span className="ml-auto shrink-0 self-start text-[length:var(--text-caption)] opacity-70">
+                    {t("launchProfileBoundBadge", { defaultValue: "已绑定" })}
+                  </span>
+                ) : null}
               </ContextMenuItem>
             ))
           ) : (
@@ -301,19 +280,10 @@ export default function WorkspaceItem({
               {t("launchProfileEmptyForCli", { defaultValue: "当前 CLI 暂无其他运行配置" })}
             </ContextMenuItem>
           )}
-          {incompatibleRuntimeProfileCount > 0 ? (
-            <ContextMenuItem disabled>
-              {t("launchProfileHiddenByRuntime", {
-                count: incompatibleRuntimeProfileCount,
-                runtime: runtimeLabel(effectiveEnvironment),
-                defaultValue: `${incompatibleRuntimeProfileCount} 个配置不适用于 ${runtimeLabel(effectiveEnvironment)}`,
-              })}
-            </ContextMenuItem>
-          ) : null}
         </ContextMenuSubContent>
       </ContextMenuSub>
     );
-  }, [defaultEnvironment, launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, profileMatchesRuntime, runtimeLabel, t, workspace]);
+  }, [defaultEnvironment, launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, t, workspace]);
 
   const handleToggleHideNonFavoriteLaunchActions = useCallback(async (checked: boolean) => {
     if (!settings) return;

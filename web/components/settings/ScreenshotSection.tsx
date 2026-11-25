@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { screenshotService } from "@/services";
 import { getErrorMessage } from "@/utils";
 import type { ScreenshotSettings } from "@/types";
+import { SettingsRow, SettingsSection } from "./layout";
 
 interface ScreenshotSectionProps {
   value: ScreenshotSettings;
@@ -61,70 +62,54 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("screenshotTitle")}
-      </h3>
-      <p className="text-xs mb-3" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("screenshotDesc")}
-      </p>
-
-      {/* 快捷键 */}
-      <div className="flex items-center justify-between">
-        {/* 这里不做 htmlFor 关联：按钮态的可访问名就是它显示的快捷键本身，
-            关联 Label 反而会覆盖；编辑态输入框用 aria-label 命名。 */}
-        <Label>{t("screenshotShortcut")}</Label>
-        {editingShortcut ? (
-          <div className="flex items-center gap-2">
-            <Input
-              aria-label={t("screenshotShortcut")}
-              className="w-[180px] h-8 text-center text-xs"
-              value={pendingShortcut || t("pressNewKey")}
-              readOnly
-              autoFocus
-              onKeyDown={handleShortcutKeyDown}
-              onBlur={() => {
-                if (pendingShortcut) {
-                  confirmShortcut();
-                } else {
-                  setEditingShortcut(false);
-                }
-              }}
-            />
-          </div>
-        ) : (
-          <button
-            className="px-3 py-1 rounded text-xs font-mono cursor-default border"
-            style={{
-              background: "var(--app-surface-2)",
-              color: "var(--app-text-primary)",
-              borderColor: "var(--app-border)",
+    <SettingsSection title={t("screenshot")} description={t("screenshotDesc")}>
+      {/* 快捷键：不做 htmlFor 关联——按钮态的可访问名就是它显示的快捷键本身，
+          关联 label 反而会覆盖；编辑态输入框用 aria-label 命名。 */}
+      <SettingsRow
+        title={t("screenshotShortcut")}
+        control={editingShortcut ? (
+          <Input
+            aria-label={t("screenshotShortcut")}
+            className="h-8 w-44 text-center font-mono text-[length:var(--text-small)]"
+            value={pendingShortcut || t("pressNewKey")}
+            readOnly
+            autoFocus
+            onKeyDown={handleShortcutKeyDown}
+            onBlur={() => {
+              if (pendingShortcut) {
+                confirmShortcut();
+              } else {
+                setEditingShortcut(false);
+              }
             }}
+          />
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-w-24 font-mono"
             onClick={() => setEditingShortcut(true)}
           >
             {value.shortcut}
-          </button>
+          </Button>
         )}
-      </div>
-
-      {/* 保留天数 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <Label htmlFor="screenshot-retention-days">{t("screenshotRetention")}</Label>
-          <p className="text-xs mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("screenshotRetentionHint")}
-          </p>
-        </div>
-        <Input
-          id="screenshot-retention-days"
-          type="number"
-          min={0}
-          max={365}
-          className="w-[80px] h-8 text-center text-xs"
-          value={value.retentionDays}
-          onChange={(e) => update("retentionDays", parseInt(e.target.value, 10) || 0)}
-        />
-      </div>
-    </div>
+      />
+      <SettingsRow
+        title={t("screenshotRetention")}
+        description={t("screenshotRetentionHint")}
+        htmlFor="screenshot-retention-days"
+        control={(
+          <Input
+            id="screenshot-retention-days"
+            type="number"
+            min={0}
+            max={365}
+            className="h-8 w-24 text-right"
+            value={value.retentionDays}
+            onChange={(e) => update("retentionDays", parseInt(e.target.value, 10) || 0)}
+          />
+        )}
+      />
+    </SettingsSection>
   );
 }

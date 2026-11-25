@@ -15,7 +15,6 @@ import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
 import ResponsiveRightDock from "@/components/layout/ResponsiveRightDock";
 import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
-import RestoreRegressionBanner from "@/components/RestoreRegressionBanner";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
 import FeatureTips from "@/components/tips/FeatureTips";
 import { useMiniModeStore, useWorkspacesStore } from "@/stores";
@@ -47,7 +46,6 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <AppToaster offset={TOASTER_OFFSET_MAIN.bottom} />
         {/* MCP 编排器故障走右下通知中心，此组件只负责发通知、不占通栏。 */}
         <OrchestratorAlertBanner />
-        <RestoreRegressionBanner />
 
         {/* 统一通知中心固定在右下角（update 卡 + 通知栈 + 历史面板），与 bottom-center 的全局 toast 不重叠。 */}
         <NotificationCenter />

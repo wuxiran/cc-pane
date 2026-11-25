@@ -523,7 +523,9 @@ impl UsageStatsService {
             });
         let Some(path) = path else {
             self.invalidate_context_usage(pty_session_id);
-            return ContextUsageSnapshot::error("SESSION_NOT_FOUND", observed_at);
+            // resume id 由创建方预分配，CLI 在首轮对话前不会写 transcript：
+            // 文件还没出现是「新会话尚未开始」，不是错误。
+            return ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
         };
         let snapshot = self.read_context_snapshot(&request, &path, observed_at);
         // The identity can change while a slow UNC/transcript read is in progress.
@@ -607,9 +609,10 @@ impl UsageStatsService {
                     &request.record,
                     &request.resume_id,
                 ) else {
+                    // 同上：transcript 尚未落盘 = 新会话还没开始。
                     return empty_session_cost(
-                        ContextUsageStatus::Error,
-                        "SESSION_NOT_FOUND",
+                        ContextUsageStatus::Waiting,
+                        "WAITING_FIRST_RESPONSE",
                         observed_at,
                     );
                 };
@@ -2349,10 +2352,10 @@ mod tests {
             // 缓存的账属于旧 resume id：丢弃，并且这个 UUID 在任何根目录下都找不到。
             let snapshot = service.session_cost_for_pty(PTY);
             assert_eq!(snapshot.cost_usd, None);
-            assert_eq!(snapshot.status, ContextUsageStatus::Error);
+            assert_eq!(snapshot.status, ContextUsageStatus::Waiting);
             assert_eq!(
                 snapshot.diagnostic_code.as_deref(),
-                Some("SESSION_NOT_FOUND")
+                Some("WAITING_FIRST_RESPONSE")
             );
         }
 
@@ -2571,6 +2574,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: Some(1_000_000),
                 context_size: None,
+                hidden: false,
             }],
             default_model_id: default_model_id.map(str::to_string),
             codex_wire_api: None,
@@ -2595,6 +2599,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: Some(1_000_000),
                 context_size: None,
+                hidden: false,
             }],
             default_model_id: Some("MiniMax-M3-highspeed".to_string()),
             codex_wire_api: None,
@@ -2791,6 +2796,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: Some(100_000),
                 context_size: None,
+                hidden: false,
             }],
             default_model_id: Some("other-model".to_string()),
             codex_wire_api: None,

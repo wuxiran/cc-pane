@@ -51,6 +51,27 @@ export default function SettingsWindowRoute() {
     if (themeShape) useThemeStore.getState().setThemeShape(themeShape);
   }, [themeShape]);
 
+  // 原生标题栏明暗 = NSApp 的全局外观（tao 的 set_theme 写的是 NSApp.appearance，不是本窗口），
+  // 任何窗口（主窗口跟随系统时会写 null）都能把它改掉，设置窗口的标题栏随之变白。
+  // 窗口就绪后和每次回到前台时按本窗口的应用主题重新声明一次。
+  const preference = useThemeStore((state) => state.preference);
+  const isDark = useThemeStore((state) => state.isDark);
+  useEffect(() => {
+    const win = getCurrentWindowIfTauri();
+    if (!ready || !win) return;
+    const apply = () => {
+      Promise.resolve(win.setTheme(preference === "system" ? null : isDark ? "dark" : "light"))
+        .catch((error) => handleErrorSilent(error, "settings window theme"));
+    };
+    apply();
+    const unlisten = win.onFocusChanged(({ payload }) => {
+      if (payload) apply();
+    });
+    return () => {
+      void Promise.resolve(unlisten).then((fn) => fn()).catch(() => undefined);
+    };
+  }, [ready, preference, isDark]);
+
   useEffect(() => {
     if (!ready) return;
     void getCurrentWindowIfTauri()?.setTitle(i18n.t("settings:title"));

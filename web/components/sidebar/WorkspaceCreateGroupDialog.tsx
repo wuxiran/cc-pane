@@ -87,7 +87,7 @@ export default function WorkspaceCreateGroupDialog({
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-[var(--app-hover)]"
                 >
                   <span
-                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${checked ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white" : "border-[var(--app-border)]"}`}
+                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${checked ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--primary-foreground)]" : "border-[var(--app-border)]"}`}
                   >
                     {checked ? <Check className="size-2.5" /> : null}
                   </span>

@@ -1,15 +1,26 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { Boxes, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { CheckboxRow } from "@/components/ui/CheckboxRow";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
-import type { LaunchProfileDraft } from "@/types";
+import { useSkillLibraryStore } from "@/stores/useSkillLibraryStore";
+import type { LaunchProfileDraft, ResolvedSkill } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
-import { Section } from "./launchProfileParts";
+import { EffectiveList, InlineCheck, Section } from "./launchProfileParts";
 import LaunchProfileSkillEditor, { type ProfileSkillForm } from "./LaunchProfileSkillEditor";
-import { externalSkillGroupsFor, isExternalSourceIncluded, type ExternalSkillSourceKind } from "./launchProfileHelpers";
+import {
+  BUILTIN_SKILLS,
+  SECTION_IDS,
+  externalSkillGroupsFor,
+  isBuiltinSkillSelected,
+  isExternalSourceIncluded,
+  isUserSkillSelected,
+  type ExternalSkillSourceKind,
+} from "./launchProfileHelpers";
+import { PendingAdditions } from "./LaunchProfileAddPicker";
+import { pendingAdditions } from "./launchProfileAddModel";
+import LaunchProfileSkillAdd from "./LaunchProfileSkillAdd";
 
 interface LaunchProfileSkillCardProps {
   draft: LaunchProfileDraft;
@@ -27,6 +38,9 @@ interface LaunchProfileSkillCardProps {
   saveProfileSkill: () => void;
   toggleProfileSkill: (id: string) => void;
   deleteProfileSkill: (id: string) => void;
+  /** 后端启动预览里实际启用的 Skill；null = 预览未就绪 */
+  effective?: readonly ResolvedSkill[] | null;
+  effectiveStale?: boolean;
 }
 
 /**
@@ -49,73 +63,83 @@ export default function LaunchProfileSkillCard({
   saveProfileSkill,
   toggleProfileSkill,
   deleteProfileSkill,
+  effective,
+  effectiveStale,
 }: LaunchProfileSkillCardProps) {
   const { t } = useTranslation(["providers", "common", "settings"]);
   const disabled = draft.skillPolicy.mode === "disabled";
   const externalGroups = externalSkillGroupsFor(activeTool);
   const setPolicyFlag = (key: "includeProjectSkills" | "includeWorkspaceSkills", value: boolean) =>
     setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, [key]: value } }));
+  // 刚从「新增」勾选、还没保存的技能：预览按已保存配置算，先在卡里标出来
+  const librarySkills = useSkillLibraryStore((state) => state.skills);
+  const pending = effectiveStale
+    ? pendingAdditions(
+      [
+        ...librarySkills.filter((skill) => isUserSkillSelected(draft.skillPolicy, skill.id)).map((skill) => skill.name),
+        ...BUILTIN_SKILLS.filter((name) => isBuiltinSkillSelected(draft.skillPolicy, name)),
+      ],
+      effective,
+    )
+    : [];
 
   return (
     <Section
+      id={SECTION_IDS.skill}
       title={t("launchSkillTitle")}
-      description={t("sectionSkillDesc")}
-      icon={<Sparkles size={16} />}
+      hint={disabled ? t("skillDisabledHint") : draft.skillPolicy.mode === "custom" ? t("skillCustomHint") : t("skillDefaultHint")}
+      icon={<Sparkles size={14} />}
+      headerControl={
+        <SegmentedTabs
+          size="sm"
+          value={draft.skillPolicy.mode}
+          onValueChange={(mode) => setSkillMode(mode)}
+          items={(["core", "custom", "disabled"] as const).map((mode) => ({
+            value: mode,
+            label: t(`skillMode.${mode}`),
+          }))}
+        />
+      }
       headerActions={
-        <Button size="sm" variant="outline" onClick={() => openResourceLibrary("skills")} data-testid="open-skills-library">
+        <>
+        <LaunchProfileSkillAdd draft={draft} setDraft={setDraft} onHandwrite={beginNewProfileSkill} />
+        <IconTooltipButton
+          label={t("settings:resourceLibrary.openSkillsInLibrary")}
+          onClick={() => openResourceLibrary("skills")}
+          data-testid="open-skills-library"
+          className="h-7 w-7"
+        >
           <Boxes size={14} />
-          {t("settings:resourceLibrary.openSkillsInLibrary")}
-        </Button>
+        </IconTooltipButton>
+        </>
       }
     >
-      <SegmentedTabs
-        size="sm"
-        value={draft.skillPolicy.mode}
-        onValueChange={(mode) => setSkillMode(mode)}
-        items={(["core", "custom", "disabled"] as const).map((mode) => ({
-          value: mode,
-          label: t(`skillMode.${mode}`),
-        }))}
-      />
-
-      <div className="mt-2.5 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-        {disabled
-          ? t("skillDisabledHint")
-          : draft.skillPolicy.mode === "custom"
-            ? t("skillCustomHint")
-            : t("skillDefaultHint")}
-      </div>
-
       {!disabled && (
-        <div className="mt-3 space-y-1.5">
-          <CheckboxRow
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <InlineCheck
             checked={draft.skillPolicy.includeWorkspaceSkills !== false}
             onCheckedChange={(next) => setPolicyFlag("includeWorkspaceSkills", next)}
             label={t("enableWorkspaceSkill")}
           />
-          <CheckboxRow
+          <InlineCheck
             checked={draft.skillPolicy.includeProjectSkills}
             onCheckedChange={(next) => setPolicyFlag("includeProjectSkills", next)}
             label={t("enableProjectSkill")}
-            description={t("projectSkillWorkspaceHint")}
+            hint={t("projectSkillWorkspaceHint")}
           />
-          {externalGroups.length > 0 && (
-            <div className="pt-1">
-              <div className="pb-1 text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("launchExternalSkills")}
-              </div>
-              {externalGroups.map((group) => (
-                <CheckboxRow
-                  key={group.kind}
-                  checked={isExternalSourceIncluded(draft.skillPolicy, group.kind)}
-                  onCheckedChange={(next) => toggleExternalSource(group.kind, next)}
-                  label={group.label}
-                />
-              ))}
-            </div>
-          )}
+          {externalGroups.map((group) => (
+            <InlineCheck
+              key={group.kind}
+              checked={isExternalSourceIncluded(draft.skillPolicy, group.kind)}
+              onCheckedChange={(next) => toggleExternalSource(group.kind, next)}
+              label={`${t("launchExternalSkills")} · ${group.label}`}
+            />
+          ))}
         </div>
       )}
+
+      {!disabled && <EffectiveList items={effective} stale={effectiveStale} testId="skill-effective" />}
+      {!disabled && <PendingAdditions names={pending} testId="skill-pending" />}
 
       <LaunchProfileSkillEditor
         draft={draft}
@@ -123,7 +147,6 @@ export default function LaunchProfileSkillCard({
         editingProfileSkillId={editingProfileSkillId}
         profileSkillForm={profileSkillForm}
         setProfileSkillForm={setProfileSkillForm}
-        onBeginNew={beginNewProfileSkill}
         onBeginEdit={beginEditProfileSkill}
         onCancel={cancelProfileSkillEdit}
         onSave={saveProfileSkill}

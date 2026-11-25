@@ -1,10 +1,10 @@
-import { Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { Pencil, Save, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { LaunchProfileDraft } from "@/types";
-import { Field } from "./launchProfileParts";
+import { Field, HintIcon } from "./launchProfileParts";
 import { inputClass, isProfileSkillSelected, selectedProfileSkillCount } from "./launchProfileHelpers";
 
 export interface ProfileSkillForm {
@@ -19,7 +19,6 @@ interface LaunchProfileSkillEditorProps {
   editingProfileSkillId: string | null;
   profileSkillForm: ProfileSkillForm;
   setProfileSkillForm: (form: ProfileSkillForm) => void;
-  onBeginNew: () => void;
   onBeginEdit: (id: string) => void;
   onCancel: () => void;
   onSave: () => void;
@@ -27,14 +26,13 @@ interface LaunchProfileSkillEditorProps {
   onDelete: (id: string) => void;
 }
 
-/** Skill 卡内的「配置内联 Skill」子块（新建/编辑表单 + 列表） */
+/** Skill 卡内的「手写 Skill」子块（新建/编辑表单 + 列表）；新建入口在卡片头「新增 → 手写一个 Skill」 */
 export default function LaunchProfileSkillEditor({
   draft,
   profileSkillEditorOpen,
   editingProfileSkillId,
   profileSkillForm,
   setProfileSkillForm,
-  onBeginNew,
   onBeginEdit,
   onCancel,
   onSave,
@@ -43,26 +41,21 @@ export default function LaunchProfileSkillEditor({
 }: LaunchProfileSkillEditorProps) {
   const { t } = useTranslation(["providers", "common"]);
   const profileSkillSelectedCount = selectedProfileSkillCount(draft.skillPolicy);
+  // 新增入口在卡片头的「新增」里（手写是其中的次要动作）；没有手写技能也没在写时整块不占位
+  if (!profileSkillEditorOpen && draft.skillPolicy.profileSkills.length === 0) return null;
 
   return (
-              <div className="mt-3 border-t border-[var(--app-border)]/60 pt-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 py-1">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
-                        {t("profileSkill")}
-                      </div>
-                      <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-                        {t("groupCount", { total: draft.skillPolicy.profileSkills.length, enabled: profileSkillSelectedCount })}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-                      {t("profileSkillHint")}
-                    </div>
-                  </div>
-                  <Button size="xs" variant="outline" onClick={onBeginNew}>
-                    <Plus size={12} /> {t("add")}
-                  </Button>
+              <div className="mt-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                    {t("profileSkill")}
+                  </span>
+                  <HintIcon text={t("profileSkillHint")} />
+                  {draft.skillPolicy.profileSkills.length > 0 && (
+                    <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
+                      {t("groupCount", { total: draft.skillPolicy.profileSkills.length, enabled: profileSkillSelectedCount })}
+                    </span>
+                  )}
                 </div>
 
                 {profileSkillEditorOpen && (
@@ -114,12 +107,9 @@ export default function LaunchProfileSkillEditor({
                   </div>
                 )}
 
+                {draft.skillPolicy.profileSkills.length > 0 && (
                 <div className="mt-2 space-y-1.5">
-                  {draft.skillPolicy.profileSkills.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      {t("profileSkillEmpty")}
-                    </div>
-                  ) : draft.skillPolicy.profileSkills.map((skill) => {
+                  {draft.skillPolicy.profileSkills.map((skill) => {
                     const checked = isProfileSkillSelected(draft.skillPolicy, skill.id);
                     return (
                       <div
@@ -165,6 +155,7 @@ export default function LaunchProfileSkillEditor({
                     );
                   })}
                 </div>
+                )}
               </div>
   );
 }

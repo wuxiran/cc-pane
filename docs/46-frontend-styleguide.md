@@ -91,8 +91,9 @@
 
 ## 6. 表单解剖与软卡片
 
+- **设置页只有三层：page → section → row，永不嵌套**。一律用 `web/components/settings/layout` 的原语：`SettingsPage`（页标题 + 居中定宽列，由外壳渲染）→ `SettingsSection`（可选小标题 + 一张扁平卡片，行间发丝线）→ `SettingsRow` / `SettingsSwitchRow`（左标题、下方 muted 说明、右侧控件）；整块内容（网格、预览、列表）用 `SettingsBlock`，打开子页面/弹窗用 `SettingsNavRow`（右侧箭头）。页内不做折叠分段、Section 标题不带图标砖、卡片里不放卡片；布尔值用 Switch 不用 Checkbox。一个页面的所有分区平铺显示，「恢复本页默认」是页尾的安静文字按钮。参考实现：`GeneralSection`、`ModulesSection`、`ThemeSection`、`WallpaperSection`。
 - 一个设置 pane 只保留一套页面标题：大标题在上，已有说明作为 12px muted 文案紧随其下；Section 内不得重复标题。
-- 设置块按逻辑分组进入 8px 圆角的软卡片带，使用 `--app-panel-bg` / `--app-border` / `shadow-sm`；已有独立卡片体系的 pane 不再套外层卡片，禁止卡片嵌套。
+- 设置块按逻辑分组进入 8px 圆角的软卡片带，使用 `--app-panel-bg` / `--app-border`；已有独立卡片体系的 pane 不再套外层卡片，禁止卡片嵌套。
 - 标准字段是“label 组 → 控件 → 尾部元数据”：label 与说明组成一组；当前值、默认值、路径、状态等 11px–12px 元数据必须放在控件下方，不得挤在 label 旁边。
 - 整段表单使用 `space-y-3`，紧凑字段内部使用 `space-y-2`；同一 pane 不得混用无规律的 1px/2px/3px 间距。
 - 按钮优先级必须反映动作语义：主动作 default，普通次级动作 secondary/outline，退出路径 ghost/outline；Cancel/Dismiss 绝不使用 destructive。

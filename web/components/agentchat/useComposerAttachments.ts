@@ -36,21 +36,32 @@ export interface ComposerAttachmentsApi {
   pushFileAttachment: (file: File, fallbackName: string) => void;
   /** 后端剪贴板文件清单 → 附件；返回附上的数量（0 = 剪贴板里没有文件）。 */
   attachClipboardFiles: () => Promise<number>;
+  /** 路径 → 附件（拖放/对话框共用的摄取入口）。 */
+  attachPaths: (paths: string[]) => Promise<void>;
+}
+
+export interface ComposerAttachmentsOptions {
+  /** false = 不挂内置的原生拖放监听（启动页用 useStartPageFileDrop 自己接线）。 */
+  nativeDrop?: boolean;
+  /** 提示改投这里（启动页：往对话里 push notice 会让启动页被会话视图顶掉）。 */
+  onNotice?: (message: string) => void;
 }
 
 export function useComposerAttachments(
   chatId: string,
   imageSupported: boolean,
+  options: ComposerAttachmentsOptions = {},
 ): ComposerAttachmentsApi {
   const { t } = useTranslation("panes");
+  const { nativeDrop = true, onNotice } = options;
   const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
   const attachments = useAgentChatDraftStore((state) => state.drafts[chatId]?.attachments ?? EMPTY_CHAT_ATTACHMENTS);
   const [dropHint, setDropHint] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   const attachPaths = useCallback(
-    (paths: string[]) => attachChatPaths(chatId, draftToken, imageSupported, paths),
-    [chatId, draftToken, imageSupported],
+    (paths: string[]) => attachChatPaths(chatId, draftToken, imageSupported, paths, onNotice),
+    [chatId, draftToken, imageSupported, onNotice],
   );
 
   /** Read the supplied bitmap itself, including drops. Never substitute the system
@@ -58,7 +69,9 @@ export function useComposerAttachments(
   const pushFileAttachment = useCallback(
     (file: File, fallbackName: string) => {
       const notice = (message: string) => {
-        if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, message);
+        if (!isChatDraftCurrent(chatId, draftToken)) return;
+        if (onNotice) onNotice(message);
+        else useAgentChatStore.getState().pushNotice(chatId, message);
       };
       if (file.size > 10 * 1024 * 1024) { notice(t("agentChatImageTooLarge")); return; }
       const reader = new FileReader();
@@ -84,7 +97,7 @@ export function useComposerAttachments(
       };
       reader.readAsDataURL(file);
     },
-    [chatId, draftToken, imageSupported, t, attachPaths],
+    [chatId, draftToken, imageSupported, t, attachPaths, onNotice],
   );
 
   /** 附件对话框：选中的文件走统一 attachPaths。 */
@@ -118,26 +131,38 @@ export function useComposerAttachments(
   }, [attachPaths]);
 
   // Tauri 原生拖放：只有 onDragDropEvent 能拿到真实文件路径（同终端的做法）。
+  // 落点是整个对话区（消息列表 + 输入框，标了 data-agent-chat-drop-zone），
+  // 不只输入框；悬停时在对话区上盖一层「松开添加到对话」提示。
   useEffect(() => {
-    if (!isTauriRuntime()) return;
+    if (!nativeDrop || !isTauriRuntime()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
+    const zoneOf = (host: HTMLElement) =>
+      host.closest<HTMLElement>("[data-agent-chat-drop-zone]") ?? host;
+    const setZoneActive = (zone: HTMLElement, active: boolean) => {
+      if (active) {
+        zone.dataset.chatDropActive = "true";
+        zone.dataset.chatDropLabel = t("agentChatDropToAttach");
+      } else {
+        delete zone.dataset.chatDropActive;
+      }
+    };
     getCurrentWebview()
       .onDragDropEvent((event) => {
         const payload = event.payload;
         const host = hostRef.current;
         if (!host) return;
-        if (payload.type === "enter") {
-          if (isDropInsideTerminalHost(host, payload.position)) setDropHint(true);
+        const zone = zoneOf(host);
+        if (payload.type === "enter" || payload.type === "over") {
+          const inside = isDropInsideTerminalHost(zone, payload.position);
+          setDropHint(inside);
+          setZoneActive(zone, inside);
           return;
         }
-        if (payload.type === "leave") {
-          setDropHint(false);
-          return;
-        }
-        if (payload.type !== "drop") return;
         setDropHint(false);
-        if (!isDropInsideTerminalHost(host, payload.position)) return;
+        setZoneActive(zone, false);
+        if (payload.type !== "drop") return;
+        if (!isDropInsideTerminalHost(zone, payload.position)) return;
         void attachPaths(payload.paths);
       })
       .then((unlistenFn) => {
@@ -148,8 +173,10 @@ export function useComposerAttachments(
     return () => {
       disposed = true;
       unlisten?.();
+      const host = hostRef.current;
+      if (host) setZoneActive(zoneOf(host), false);
     };
-  }, [attachPaths]);
+  }, [attachPaths, nativeDrop, t]);
 
   const clearAttachments = useCallback(() => useAgentChatDraftStore.getState().clearAttachments(chatId, draftToken), [chatId, draftToken]);
 
@@ -170,5 +197,6 @@ export function useComposerAttachments(
     attachDirectory,
     pushFileAttachment,
     attachClipboardFiles,
+    attachPaths,
   };
 }

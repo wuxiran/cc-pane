@@ -15,7 +15,9 @@ pub(crate) mod edits;
 mod elicitation;
 mod event_tap;
 mod fork;
+mod handoff;
 pub(crate) mod journal;
+mod launch_meta;
 mod native;
 pub(crate) mod remote;
 mod runtime;
@@ -120,6 +122,13 @@ pub struct AcpChatSnapshot {
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 本会话启动时应用的运行配置 id（None = 系统默认）。重启 / 续接据此沿用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile_id: Option<String>,
+    /// 「Codex」原生 App Server 起不来、自动改走 ACP 兼容模式时的原因码
+    /// （`unsupported` / `startFailed` / `remote`）；界面据此显示一行提示。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_fallback: Option<String>,
 }
 
 /// 通配：自动放行所有权限请求（Automations 无人值守 / 用户显式 YOLO）。
@@ -229,6 +238,14 @@ pub struct AcpLaunchSpec {
     pub auto_approve_kinds: Vec<String>,
     /// 在 SSH 机器上跑（`command`/`args` 已改写成 ssh 调用，`cwd` 是远端绝对路径）。
     pub remote: Option<remote::AcpRemoteTarget>,
+    /// 引擎声明的额外环境变量（内置表或 engines.json / ACP 注册表条目）。
+    pub env: Vec<(String, String)>,
+    /// 先从继承环境里删掉的变量（运行配置的托管供应商清冲突凭证）。在 `env` 之前应用。
+    pub env_remove: Vec<String>,
+    /// 应用的运行配置 id（写进快照与历史 meta，重启 / 续接沿用）。
+    pub launch_profile_id: Option<String>,
+    /// 自动降级原因（见 [`AcpChatSnapshot::transport_fallback`]）。
+    pub transport_fallback: Option<String>,
 }
 
 type PendingResult = Result<Value, Value>;
@@ -696,6 +713,10 @@ impl AcpChatService {
         // block or reshape nested CLI startup.
         command.env_remove("CLAUDECODE");
         command.env_remove("CLAUDE_CODE_ENTRYPOINT");
+        for key in &spec.env_remove {
+            command.env_remove(key);
+        }
+        command.envs(spec.env.iter().map(|(key, value)| (key, value)));
         // 与 PTY 终端同一条控制通道：ctl 可解析就注入 CC_PANES_CTL，agent 即使
         // 不会 MCP 也能经 CLI 触达 cc-panes；与下面的 stdio MCP 降级共用逃生阀
         // CCPANES_SESSION_CTL_ENV（关掉则两者同时消失）。解析失败静默跳过——
@@ -748,6 +769,8 @@ impl AcpChatService {
                 auto_approve_kinds: spec.auto_approve_kinds.clone(),
                 exit_code: None,
                 error: None,
+                launch_profile_id: spec.launch_profile_id.clone(),
+                transport_fallback: spec.transport_fallback.clone(),
             }),
             stdin: Mutex::new(stdin),
             process: AcpProcess::new(child, guard),
@@ -869,6 +892,8 @@ impl AcpChatService {
         let mut session_response: Option<Value> = None;
         // 降级成新会话时记下原会话 id：本地转写据此以只读前缀恢复（§8）。
         let mut fallback_from: Option<String> = None;
+        // loadSession 成功：协议回放只有本会话正文，继承段（更早会话/换引擎交接）另推。
+        let mut loaded = false;
         if let Some(source) = spec.fork_acp_session_id.as_deref() {
             let (child, response) =
                 fork::fork_session(session, source, capabilities.as_ref(), cwd, &mcp_servers)
@@ -919,6 +944,7 @@ impl AcpChatService {
                     Ok(response) => {
                         resumed_session_id = Some(resume_id.to_string());
                         session_response = Some(response);
+                        loaded = true;
                     }
                     Err(error)
                         if error.code() == Some("ACP_HANDSHAKE_TIMEOUT")
@@ -998,6 +1024,10 @@ impl AcpChatService {
             if let Some(payload) = transcript::inherit(&self.chats_dir, from, &acp_session_id) {
                 session.emit_live("transcript_restore", payload);
             }
+        } else if loaded {
+            if let Some(payload) = transcript::inherited_restore(&self.chats_dir, &acp_session_id) {
+                session.emit_live("transcript_restore", payload);
+            }
         }
         session.emit_state().await;
         Ok(session.snapshot().await)
@@ -1011,7 +1041,10 @@ impl AcpChatService {
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
-                blocks.iter().find_map(|block| block["text"].as_str()),
+                blocks
+                    .iter()
+                    .filter_map(|block| block["text"].as_str())
+                    .find(|text| !handoff::is_handoff_context(text)),
             ) {
                 self.note_chat_title(&id, text);
             }
@@ -1441,6 +1474,7 @@ impl AcpChatService {
             .unwrap_or_default();
         meta["acpSessionId"] = json!(acp_session_id);
         meta["engineId"] = json!(engine_id);
+        handoff::note_engine(&mut meta, engine_id);
         meta["cwd"] = json!(cwd);
         meta["title"] = json!(kept_title);
         meta["createdAt"] = json!(created_at);
@@ -1515,14 +1549,7 @@ impl AcpChatService {
     /// 保存会话的渲染层转写（前端回合结束/退出时整段替换）。只给有 meta 的
     /// 会话落盘：没有历史条目就无从续接，也无从随删除一起回收。
     pub fn save_chat_transcript(&self, acp_session_id: &str, items: Vec<Value>) -> AppResult<()> {
-        let path = self
-            .meta_path(acp_session_id)
-            .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
-        if !path.exists() {
-            debug!(acp_session_id, "skip transcript save: no chat meta");
-            return Ok(());
-        }
-        transcript::save(&self.chats_dir, acp_session_id, items)
+        self.save_chat_transcript_with(acp_session_id, items, None, None)
     }
 
     /// 历史会话元数据（updatedAt 倒序，最多 100 条）。

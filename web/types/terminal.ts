@@ -24,6 +24,9 @@ export const KNOWN_CLI_TOOLS = [
   "omp",
   "jcode",
   "antigravity",
+  "kiro",
+  "fx",
+  "muse",
 ] as const;
 
 /** CLI 工具类型（已知值自动补全 + 允许任意字符串） */
@@ -203,6 +206,7 @@ export interface TerminalPaneLeaf {
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
+  launchProfileSnapshot?: import("./launch-profile-snapshot").LaunchProfileSnapshot;
   workspacePath?: string;
   workspaceSnapshotId?: string;
   launchClaude?: boolean;
@@ -260,6 +264,7 @@ export interface Tab {
   modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
+  launchProfileSnapshot?: import("./launch-profile-snapshot").LaunchProfileSnapshot;
   workspacePath?: string;
   workspaceSnapshotId?: string;
   launchClaude?: boolean;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { deriveWorkspaceTerminals, severityRank } from "./workspaceTerminals";
+import {
+  collectLayoutAgentChatTabs,
+  collectLayoutResumeIds,
+  deriveWorkspaceTerminals,
+  severityRank,
+} from "./workspaceTerminals";
+import type { AgentChatRowSummary } from "./agentChatRows";
 import type { PanesLayoutSlice } from "./workspaceTerminals";
 import type { LayoutEntry, PaneNode, Tab, Workspace } from "@/types";
 import type { TerminalStatusInfo } from "@/types";
@@ -183,6 +189,81 @@ describe("deriveWorkspaceTerminals", () => {
     ]);
     const grouped = deriveWorkspaceTerminals(slice(layouts, "l1"), [wsAlpha], statusMap);
     expect(grouped.get("ws-1")?.map((row) => row.tabId)).toEqual([idle.id, busy.id]);
+  });
+});
+
+describe("deriveWorkspaceTerminals · session card fields", () => {
+  it("derives project name (alias > dir name), engines ordered by last output and last activity", () => {
+    const ws = {
+      ...wsAlpha,
+      projects: [{ id: "p1", path: "D:\\repo\\alpha", alias: "Alpha 项目" }],
+    } as unknown as Workspace;
+    const tab = makeTab({
+      sessionId: undefined,
+      cliTool: "claude",
+      terminalRootPane: {
+        type: "split",
+        id: "s",
+        direction: "vertical",
+        children: [
+          { type: "leaf", id: "l-a", sessionId: "sa", cliTool: "codex" },
+          { type: "leaf", id: "l-b", sessionId: "sb", cliTool: "claude" },
+        ],
+      },
+    } as Partial<Tab>);
+    const statusMap = new Map([
+      ["sa", { ...status("idle"), lastOutputAt: 2_000 }],
+      ["sb", { ...status("idle"), lastOutputAt: 1_000 }],
+    ]);
+    const row = deriveWorkspaceTerminals(slice([layout("l1", panel([tab]))], "l1"), [ws], statusMap).get("ws-1")![0];
+    expect(row.kind).toBe("terminal");
+    expect(row.projectName).toBe("Alpha 项目");
+    // codex 最近有输出 → 排在右边
+    expect(row.engines).toEqual(["claude", "codex"]);
+    expect(row.lastActivityAt).toBe(2_000);
+  });
+
+  it("falls back to the index CLI and transcript mtime when the tab has no CLI or output", () => {
+    const tab = makeTab({ resumeId: "r-1", projectPath: "D:\\repo\\beta-x" });
+    const labels = new Map([["r-1", { title: "", firstPrompt: "hi", cliTool: "codex", mtimeMs: 9_000 }]]);
+    const row = deriveWorkspaceTerminals(slice([layout("l1", panel([tab]))], "l1"), [wsAlpha], new Map(), labels)
+      .get("ws-1")![0];
+    expect(row.engines).toEqual(["codex"]);
+    expect(row.lastActivityAt).toBe(9_000);
+    expect(row.projectName).toBe("beta-x");
+  });
+
+  it("lists agent-chat tabs from the chat summary index, skipping ones without a summary", () => {
+    const chatTab = makeTab({ contentType: "agent-chat", sessionId: null, agentEngineId: "claude", title: "Agent" });
+    const unknownChat = makeTab({ contentType: "agent-chat", sessionId: null });
+    const summary: AgentChatRowSummary = {
+      engines: ["claude"],
+      title: null,
+      firstPrompt: "帮我看下日志",
+      status: "thinking",
+      lastActivityAt: 5_000,
+    };
+    const layouts = [layout("l1", panel([chatTab, unknownChat]))];
+    const rows = deriveWorkspaceTerminals(
+      slice(layouts, "l1"), [wsAlpha], new Map(), undefined, new Map([[chatTab.id, summary]]),
+    ).get("ws-1")!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "agent-chat",
+      firstPrompt: "帮我看下日志",
+      sessionTitle: null,
+      status: "thinking",
+      engines: ["claude"],
+      lastActivityAt: 5_000,
+    });
+  });
+
+  it("collects resume ids and agent-chat tabs across layouts", () => {
+    const terminal = makeTab({ resumeId: "r-9" });
+    const chat = makeTab({ contentType: "agent-chat", sessionId: null, agentEngineId: "codex" });
+    const layouts = [layout("l1", panel([terminal])), layout("l2", panel([chat]))];
+    expect(collectLayoutResumeIds(slice(layouts, "l1"))).toEqual(["r-9"]);
+    expect(collectLayoutAgentChatTabs(slice(layouts, "l1"))).toEqual([{ id: chat.id, agentEngineId: "codex" }]);
   });
 });
 

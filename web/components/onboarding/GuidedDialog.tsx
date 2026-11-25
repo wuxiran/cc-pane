@@ -14,7 +14,8 @@ interface GuidedDialogProps {
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   description: ReactNode;
-  visual: ReactNode;
+  /** 不传 = 单栏窄弹窗 */
+  visual?: ReactNode;
   footer: ReactNode;
   children: ReactNode;
   className?: string;
@@ -38,12 +39,21 @@ export default function GuidedDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "h-[min(680px,calc(100vh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[880px]",
+          visual
+            ? "h-[min(680px,calc(100vh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[880px]"
+            : "max-h-[min(640px,calc(100vh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[560px]",
           className,
         )}
         showCloseButton={false}
       >
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(180px,0.55fr)] md:grid-cols-[minmax(320px,0.9fr)_minmax(360px,1.1fr)] md:grid-rows-1">
+        <div
+          className={cn(
+            "grid min-h-0 flex-1",
+            visual
+              ? "grid-rows-[minmax(0,1fr)_minmax(180px,0.55fr)] md:grid-cols-[minmax(320px,0.9fr)_minmax(360px,1.1fr)] md:grid-rows-1"
+              : "grid-rows-1",
+          )}
+        >
           <section
             className="flex min-h-0 flex-col bg-[var(--app-content)]"
             data-testid="guided-dialog-copy"
@@ -64,6 +74,7 @@ export default function GuidedDialog({
             </DialogFooter>
           </section>
 
+          {visual != null && (
           <aside
             aria-hidden="true"
             className="relative min-h-0 overflow-hidden border-t border-[var(--app-border)] bg-[var(--app-panel-bg)] md:border-l md:border-t-0"
@@ -71,6 +82,7 @@ export default function GuidedDialog({
           >
             {visual}
           </aside>
+          )}
         </div>
       </DialogContent>
     </Dialog>

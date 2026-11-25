@@ -2,9 +2,9 @@ use crate::models::provider::{Provider, SystemProviderInfo};
 use crate::services::{CcSwitchImportReport, ProviderService};
 use crate::utils::AppResult;
 use cc_panes_core::services::{
-    CreateLoginAccountRequest, DeleteAccountOutcome, LoginAccountService, LoginAccountStatus,
-    LoginAccountView, LoginCommand, ProviderApiCredentials, ProviderEnvPreviewEntry,
-    SettingsService,
+    CreateLoginAccountRequest, DeleteAccountOutcome, ExternalProviderPreview,
+    ExternalProviderSource, LoginAccountService, LoginAccountStatus, LoginAccountView,
+    LoginCommand, ProviderApiCredentials, ProviderEnvPreviewEntry, SettingsService,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -224,6 +224,37 @@ pub async fn import_cc_switch_providers(
             crate::utils::AppError::from(format!("Provider import task failed: {error}"))
         })?
         .map_err(Into::into)
+}
+
+/// 预览外部来源（cc-switch / Magpie）里可导入的供应商（不含密钥明文，不写任何东西）。
+#[tauri::command]
+pub async fn preview_external_providers(
+    service: State<'_, Arc<ProviderService>>,
+    source: ExternalProviderSource,
+) -> AppResult<ExternalProviderPreview> {
+    let service = Arc::clone(service.inner());
+    tauri::async_runtime::spawn_blocking(move || service.preview_external_providers(source, None))
+        .await
+        .map_err(|error| {
+            crate::utils::AppError::from(format!("Provider import preview failed: {error}"))
+        })?
+        .map_err(Into::into)
+}
+
+/// 导入预览里勾选的供应商（`keys` 缺省 = 全部；去重，不改默认）。
+#[tauri::command]
+pub async fn import_external_providers(
+    service: State<'_, Arc<ProviderService>>,
+    source: ExternalProviderSource,
+    keys: Option<Vec<String>>,
+) -> AppResult<CcSwitchImportReport> {
+    let service = Arc::clone(service.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        service.import_external_providers(source, keys.as_deref(), None)
+    })
+    .await
+    .map_err(|error| crate::utils::AppError::from(format!("Provider import task failed: {error}")))?
+    .map_err(Into::into)
 }
 
 /// 配置目录信息

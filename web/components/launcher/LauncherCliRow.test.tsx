@@ -2,12 +2,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { listCliTools } from "@/services/cliToolService";
-import { CLI_TOOLS_REQUEST_TIMEOUT_MS } from "@/hooks/useCliTools";
+import { CLI_TOOLS_REQUEST_TIMEOUT_MS, resetCliToolsCacheForTests } from "@/hooks/useCliTools";
 import type { CliToolInfo } from "@/types";
 import LauncherCliRow from "./LauncherCliRow";
 
 vi.mock("@/services/cliToolService", () => ({ listCliTools: vi.fn() }));
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); resetCliToolsCacheForTests(); });
 
 it("pending and timed-out detection leave launch choices enabled; late confirmed absence disables only that tool", async () => {
   vi.useFakeTimers();

@@ -61,16 +61,19 @@ const project: WorkspaceProject = {
   path: "/workspace/demo",
 };
 
+// plugin-dialog 在 jsdom 下不可用：选择文件夹按钮由 isTauriRuntime 门控，测试走手输路径
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+
 /** 第 1 步（环境与模式）主按钮 = 继续 */
 async function leaveEnvironmentStep(user: ReturnType<typeof userEvent.setup>) {
-  const next = await screen.findByRole("button", { name: "继续" });
+  const next = await screen.findByRole("button", { name: /继续/ });
   await waitFor(() => expect(next).toBeEnabled());
   await user.click(next);
 }
 
 async function goToParallelStep(user: ReturnType<typeof userEvent.setup>) {
   await leaveEnvironmentStep(user);
-  await user.click(screen.getByRole("button", { name: "跳过此步" }));
+  await user.click(screen.getByRole("button", { name: /继续/ }));
 }
 
 describe("OnboardingGuide", () => {
@@ -89,77 +92,118 @@ describe("OnboardingGuide", () => {
     });
   });
 
-  it("renders the merged environment+mode step with step navigation", async () => {
+  it("renders the environment+mode step in a single column with a three-step nav", async () => {
     vi.mocked(terminalService.checkEnvironment).mockResolvedValue(makeEnv(false, true));
+    const user = userEvent.setup();
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    expect(await screen.findByText("先确认环境，选好工作台模式")).toBeVisible();
+    expect(await screen.findByText("检查环境")).toBeVisible();
+    expect(screen.queryByTestId("guided-dialog-visual")).toBeNull();
     const copyRegion = within(screen.getByTestId("guided-dialog-copy"));
     expect(copyRegion.getByText("Git")).toBeVisible();
-    expect(copyRegion.getByText("WSL")).toBeVisible();
+    // WSL 在不适用的平台上不出现
+    expect(copyRegion.queryByText("WSL")).toBeNull();
+    // 已装的 CLI 以标签列出；未装的折叠，展开后才有复制命令
+    expect(copyRegion.getByText("已检测到 1 个 CLI")).toBeVisible();
+    expect(copyRegion.getByText("Codex CLI")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "复制 Claude Code 修复命令" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "安装其他 CLI（1）" }));
     expect(screen.getByRole("button", { name: "复制 Claude Code 修复命令" })).toBeVisible();
-    // 模式双选并入本步
-    expect(screen.getByRole("radio", { name: /全功能模式/ })).toBeVisible();
-    // 四步导航列出全程
+
+    expect(screen.getByRole("radio", { name: "全功能模式" })).toBeVisible();
     const nav = screen.getByRole("navigation", { name: "引导步骤" });
-    expect(within(nav).getByText("环境与模式")).toBeVisible();
-    expect(within(nav).getByText("建工作空间")).toBeVisible();
-    expect(within(nav).getByText("并排启动")).toBeVisible();
-    expect(within(nav).getByText("就绪")).toBeVisible();
+    expect(within(nav).getAllByRole("button")).toHaveLength(3);
+    expect(within(nav).getByText("环境")).toBeVisible();
+    expect(within(nav).getByText("项目")).toBeVisible();
+    expect(within(nav).getByText("开始")).toBeVisible();
     expect(screen.getByText("也可以直接对 agent 说")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "跳过此步" })).toBeNull();
+  });
+
+  it("promotes Claude Code and Codex install commands when no CLI is installed", async () => {
+    vi.mocked(terminalService.checkEnvironment).mockResolvedValue(makeEnv(false, false));
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    expect(await screen.findByText("还没有可用的 CLI，先装一个：")).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制 Claude Code 修复命令" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制 Codex CLI 修复命令" })).toBeVisible();
   });
 
   it("applies the selected preset when leaving step one and allows nav back", async () => {
     const user = userEvent.setup();
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    await screen.findByText("先确认环境，选好工作台模式");
-    await user.click(screen.getByRole("radio", { name: /极简模式/ }));
+    await screen.findByText("检查环境");
+    await user.click(screen.getByRole("radio", { name: "极简模式" }));
+    expect(screen.getByText(/保留终端、项目、编辑器与启动器/)).toBeVisible();
     await leaveEnvironmentStep(user);
 
     expect(useModulePrefsStore.getState().preferences).toEqual(
       createModulePreferencesForPreset("minimal"),
     );
-    expect(screen.getByText("创建第一个工作空间")).toBeVisible();
+    expect(screen.getByText("导入项目")).toBeVisible();
 
-    // 步骤导航可回退到已到过的步
     const nav = screen.getByRole("navigation", { name: "引导步骤" });
-    await user.click(within(nav).getByRole("button", { name: /环境与模式/ }));
-    expect(screen.getByText("先确认环境，选好工作台模式")).toBeVisible();
-    // 未到过的步不可点
-    expect(within(nav).getByRole("button", { name: /就绪/ })).toBeDisabled();
+    await user.click(within(nav).getByRole("button", { name: /环境/ }));
+    expect(screen.getByText("检查环境")).toBeVisible();
+    expect(within(nav).getByRole("button", { name: /开始/ })).toBeDisabled();
   });
 
-  it("drives the workspace step through scan then create-and-import on the primary button", async () => {
+  it("imports a folder in one click, naming the workspace after the folder", async () => {
     const user = userEvent.setup();
     vi.spyOn(workspaceService, "scanDirectory").mockResolvedValue([{
       mainPath: project.path,
       mainBranch: "main",
       worktrees: [],
     }]);
-    vi.spyOn(workspaceService, "createWorkspace").mockResolvedValue(workspace);
+    const createSpy = vi.spyOn(workspaceService, "createWorkspace").mockResolvedValue(workspace);
     vi.spyOn(workspaceService, "addWorkspaceProject").mockResolvedValue(project);
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
     await leaveEnvironmentStep(user);
-    await user.type(screen.getByRole("textbox", { name: "工作空间名称" }), "demo");
-    await user.type(screen.getByRole("textbox", { name: "项目目录" }), project.path);
-    // 无导入项目时主按钮 = 扫描目录（footer 内，与输入区的扫描按钮同功能）
     const footer = within(screen.getByTestId("guided-dialog-footer"));
-    await user.click(footer.getByRole("button", { name: "扫描目录" }));
+    expect(footer.getByRole("button", { name: /导入/ })).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "项目目录" }), "/workspace/demo/");
+    expect(screen.getByRole("textbox", { name: "工作空间名称" })).toHaveAttribute("placeholder", "demo");
+    await user.click(footer.getByRole("button", { name: /导入/ }));
 
-    expect(await screen.findByText("发现 1 个项目")).toBeVisible();
-    // 有扫描结果后主按钮变为创建并导入
-    await user.click(footer.getByRole("button", { name: "创建并导入" }));
-
-    await waitFor(() => {
-      expect(workspaceService.createWorkspace).toHaveBeenCalledWith("demo", project.path);
-      expect(workspaceService.addWorkspaceProject).toHaveBeenCalledWith("demo", project.path);
-    });
-    expect(await screen.findByText("并排启动两个会话")).toBeVisible();
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy.mock.calls[0][0]).toBe("demo");
+    expect(await screen.findByText("并排启动两个 agent")).toBeVisible();
   });
 
-  it("launches Claude and Codex beside each other for the selected project", async () => {
+  it("reports an empty folder without leaving the project step", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(workspaceService, "scanDirectory").mockResolvedValue([]);
+    const createSpy = vi.spyOn(workspaceService, "createWorkspace");
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    await leaveEnvironmentStep(user);
+    await user.type(screen.getByRole("textbox", { name: "项目目录" }), "/empty");
+    await user.click(within(screen.getByTestId("guided-dialog-footer")).getByRole("button", { name: /导入/ }));
+
+    expect(await screen.findByText("该目录下没有发现可导入的 Git 项目。")).toBeVisible();
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("导入项目")).toBeVisible();
+  });
+
+  it("confirms an existing project and can switch to importing another folder", async () => {
+    const user = userEvent.setup();
+    useWorkspacesStore.setState({
+      workspaces: [{ ...workspace, projects: [project] }],
+      expandedWorkspaceId: workspace.id,
+      expandedProjectId: project.id,
+    });
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    await leaveEnvironmentStep(user);
+    expect(screen.getByText("/workspace/demo", { exact: false })).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "项目目录" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "导入其他目录…" }));
+    expect(screen.getByRole("textbox", { name: "项目目录" })).toBeVisible();
+  });
+
+  it("launches Claude and Codex beside each other, then finishes the guide", async () => {
     const user = userEvent.setup();
     const onOpenTerminal = vi.fn<(options: OpenTerminalOptions) => void>();
     const splitRight = vi.spyOn(usePanesStore.getState(), "splitRight");
@@ -171,7 +215,8 @@ describe("OnboardingGuide", () => {
     render(<OnboardingGuide onOpenTerminal={onOpenTerminal} />);
 
     await goToParallelStep(user);
-    await user.click(screen.getByRole("button", { name: "一键并排启动" }));
+    expect(screen.getByText(/设置 → 上手清单/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "并排启动" }));
 
     expect(onOpenTerminal).toHaveBeenCalledTimes(2);
     expect(onOpenTerminal.mock.calls.map(([options]) => options.cliTool)).toEqual([
@@ -180,13 +225,11 @@ describe("OnboardingGuide", () => {
     ]);
     expect(splitRight).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem("cc-panes-onboarding-multi-launch")).toBe("true");
-    // jsdom 的 matchMedia mock 报 reduced-motion=false 时走 2.6s 退让；
-    // 无论哪条路径，最终都要进就绪步
+    // 退让动画（或 reduced-motion 直达）后引导完成并关闭
     await waitFor(
-      () => expect(screen.getByText("你的工作台已就绪")).toBeVisible(),
+      () => expect(useDialogStore.getState().onboardingOpen).toBe(false),
       { timeout: 4000 },
     );
-    expect(screen.getByText(/设置 → 上手清单/)).toBeVisible();
   });
 
   it("opens the concierge from the agent hint with its system prompt injected", async () => {
@@ -207,11 +250,11 @@ describe("OnboardingGuide", () => {
     }));
   });
 
-  it("skip all persists completion and closes the dialog", async () => {
+  it("skip guide persists completion and closes the dialog", async () => {
     const user = userEvent.setup();
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: "跳过全部" }));
+    await user.click(await screen.findByRole("button", { name: "跳过引导" }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(
       "update_settings",

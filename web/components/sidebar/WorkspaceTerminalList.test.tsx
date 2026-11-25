@@ -27,6 +27,7 @@ vi.mock("@/stores", async (importOriginal) => {
 function row(overrides: Partial<WorkspaceTerminalRow> = {}): WorkspaceTerminalRow {
   return {
     tabId: "tab-1",
+    kind: "terminal",
     layoutId: "l1",
     title: "cc-book (Claude)",
     firstPrompt: null,
@@ -37,6 +38,9 @@ function row(overrides: Partial<WorkspaceTerminalRow> = {}): WorkspaceTerminalRo
     toolName: null,
     oscProgress: null,
     sessionCount: 1,
+    projectName: "cc-book",
+    engines: ["claude"],
+    lastActivityAt: null,
     ...overrides,
   };
 }
@@ -52,14 +56,66 @@ describe("WorkspaceTerminalList", () => {
     expect(openLauncher).toHaveBeenCalledWith({ workspaceName: "ws-alpha" });
   });
 
-  it("renders title, keeps routine status out of the row text and focuses the tab on click", async () => {
+  it("renders a two-line card with project, status word and engine, and focuses the tab on click", async () => {
     const user = userEvent.setup();
-    render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
+    render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row({ firstPrompt: "修个 bug" })]} />);
     const thinking = i18n.t("dialogs:statusThinking");
-    const item = screen.getByRole("button", { name: new RegExp(`cc-book.*${thinking}`) });
-    expect(item).not.toHaveTextContent(thinking);
+    const item = screen.getByRole("button", { name: new RegExp(`修个 bug.*cc-book.*${thinking}`) });
+    // 状态不只靠颜色：有状态词 + 形状标记
+    expect(item).toHaveTextContent(thinking);
+    expect(item.querySelector("[data-shape]")).not.toBeNull();
+    expect(item.querySelector("[data-project-avatar]")).toHaveTextContent("CB");
+    expect(item.querySelector("[data-cli-brand='claude']")).not.toBeNull();
     await user.click(item);
     expect(focusTab).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("renders engines in order (most recent on the right) and a relative time with absolute tooltip", () => {
+    const at = Date.now() - 5 * 60_000;
+    render(
+      <WorkspaceTerminalList
+        workspaceName="ws-alpha"
+        rows={[row({ engines: ["codex", "claude"], lastActivityAt: at })]}
+      />,
+    );
+    const item = screen.getByRole("button", { name: /cc-book/ });
+    const brands = [...item.querySelectorAll("[data-cli-brand]")].map((node) => node.getAttribute("data-cli-brand"));
+    expect(brands).toEqual(["codex", "claude"]);
+    const time = item.querySelector("time");
+    expect(time).toHaveTextContent("5m");
+    expect(time?.getAttribute("title")).toContain(new Date(at).toLocaleString());
+  });
+
+  it("moves focus between cards with the arrow keys", () => {
+    render(
+      <WorkspaceTerminalList
+        workspaceName="ws-alpha"
+        rows={[row({ tabId: "a", title: "第一个" }), row({ tabId: "b", title: "第二个" })]}
+      />,
+    );
+    const [first, second] = screen.getAllByRole("button");
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(second).toHaveFocus();
+    fireEvent.keyDown(second, { key: "ArrowUp" });
+    expect(first).toHaveFocus();
+  });
+
+  it("marks the active tab with a raised background instead of a side bar", () => {
+    const original = usePanesStore.getState();
+    usePanesStore.setState({
+      rootPane: { type: "panel", id: "p1", tabs: [], activeTabId: "tab-1" } as never,
+      activePaneId: "p1",
+    });
+    try {
+      render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
+      const item = screen.getByRole("button", { name: /cc-book/ });
+      expect(item).toHaveAttribute("aria-current", "true");
+      expect(item.className).toContain("bg-[var(--app-active-bg)]");
+      expect(item.className).not.toMatch(/border-l|before:/);
+    } finally {
+      usePanesStore.setState({ rootPane: original.rootPane, activePaneId: original.activePaneId });
+    }
   });
 
   it("shows the status word for states that need attention", () => {
@@ -69,7 +125,7 @@ describe("WorkspaceTerminalList", () => {
     );
   });
 
-  it("prefers the first prompt as row name with title moved to the tooltip", () => {
+  it("prefers the first prompt as card title with the tab title moved to the tooltip", () => {
     render(
       <WorkspaceTerminalList
         workspaceName="ws-alpha"

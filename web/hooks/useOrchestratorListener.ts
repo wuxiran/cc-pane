@@ -225,6 +225,9 @@ export function useOrchestratorListener() {
             const basePaneId = parentPaneId ?? fallbackPaneId;
             if (basePaneId) latestPanesStore.addTab(basePaneId, tabOpts, writeLayoutId);
           }
+          // PTY 由后端派发时建好，不走 TerminalView 的建会话链路：落位后在这里拍运行配置快照。
+          const landed = sessionId ? usePanesStore.getState().findTabBySessionAcrossLayouts(sessionId) : null;
+          if (landed) void usePanesStore.getState().captureTerminalLaunchProfileSnapshot(landed.tab.id, tabOpts.terminalPaneId);
 
           if (writeLayoutId && !silent && targetLayoutEntry) {
             toastInfo(

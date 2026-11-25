@@ -1,15 +1,20 @@
-import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { settingsService } from "@/services";
 import type { ImChannelConfig, ImChannelType, ImEventKind, ImSettings } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import ImInboundFields from "./ImInboundFields";
+import { SettingsHint, SettingsRow, SettingsSection, SettingsSwitchRow } from "./layout";
 
 interface ImSectionProps {
   value: ImSettings;
@@ -41,8 +46,6 @@ function newChannel(): ImChannelConfig {
 
 export default function ImSection({ value, onChange }: ImSectionProps) {
   const { t } = useTranslation("settings");
-  const enabledId = useId();
-  const pushWhenFocusedId = useId();
 
   function update<K extends keyof ImSettings>(key: K, v: ImSettings[K]) {
     onChange({ ...value, [key]: v });
@@ -92,210 +95,209 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("imBridgeTitle")}
-      </h3>
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor={enabledId}>{t("enableImBridge")}</Label>
-        <input
-          id={enabledId}
-          type="checkbox"
+    <>
+      <SettingsSection title={t("imBridge")} description={t("imBridgeDescription")}>
+        <SettingsSwitchRow
+          id="im-bridge-enabled"
+          title={t("enableImBridge")}
           checked={value.enabled}
-          onChange={(e) => update("enabled", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("enabled", checked)}
         />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-0.5">
-          <Label htmlFor={pushWhenFocusedId}>{t("imPushWhenFocused")}</Label>
-          <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("imPushWhenFocusedDesc")}
-          </span>
-        </div>
-        <input
-          id={pushWhenFocusedId}
-          type="checkbox"
+        <SettingsSwitchRow
+          id="im-push-when-focused"
+          title={t("imPushWhenFocused")}
+          description={t("imPushWhenFocusedDesc")}
           checked={value.pushWhenFocused}
-          onChange={(e) => update("pushWhenFocused", e.target.checked)}
-          className="w-4 h-4 cursor-default shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("pushWhenFocused", checked)}
         />
-      </div>
+        <SettingsRow
+          title={t("imChannels")}
+          description={t("imPlainStorageHint")}
+          control={(
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => update("channels", [...value.channels, newChannel()])}
+            >
+              {t("imAddChannel")}
+            </Button>
+          )}
+        >
+          {value.channels.length === 0 ? <SettingsHint>{t("imNoChannels")}</SettingsHint> : null}
+        </SettingsRow>
+      </SettingsSection>
 
-      <div className="flex flex-col gap-2" data-settings-section="im-channels">
-        <div className="flex items-center justify-between">
-          <Label>{t("imChannels")}</Label>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => update("channels", [...value.channels, newChannel()])}
-          >
-            {t("imAddChannel")}
+      {value.channels.map((channel) => (
+        <ChannelCard
+          key={channel.id}
+          channel={channel}
+          typeLabel={typeLabel}
+          eventLabel={eventLabel}
+          onChange={(patch) => updateChannel(channel.id, patch)}
+          onToggleEvent={(kind) => toggleEvent(channel, kind)}
+          onRemove={() => removeChannel(channel.id)}
+          onTest={() => void testChannel(channel)}
+        />
+      ))}
+    </>
+  );
+}
+
+interface ChannelCardProps {
+  channel: ImChannelConfig;
+  typeLabel: Record<ImChannelType, string>;
+  eventLabel: Record<ImEventKind, string>;
+  onChange: (patch: Partial<ImChannelConfig>) => void;
+  onToggleEvent: (kind: ImEventKind) => void;
+  onRemove: () => void;
+  onTest: () => void;
+}
+
+/** 一个渠道 = 一张扁平卡片：标题是渠道名，右上角是测试/删除，卡内一行一个字段。 */
+function ChannelCard({ channel, typeLabel, eventLabel, onChange, onToggleEvent, onRemove, onTest }: ChannelCardProps) {
+  const { t } = useTranslation("settings");
+  const fieldId = (field: string) => `im-channel-${channel.id}-${field}`;
+  const eventsLabelId = fieldId("events-label");
+  const inputClass = "h-8 text-[length:var(--text-row)]";
+
+  return (
+    <SettingsSection
+      title={channel.name.trim() || typeLabel[channel.channelType]}
+      actions={(
+        <>
+          <Button size="sm" variant="outline" onClick={onTest}>
+            {t("imTestChannel")}
           </Button>
-        </div>
-
-        {value.channels.length === 0 && (
-          <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("imNoChannels")}
-          </p>
-        )}
-
-        {value.channels.map((channel) => (
-          <div
-            key={channel.id}
-            className="flex flex-col gap-2 rounded-md p-3"
-            style={{ border: "1px solid var(--app-border)", background: "var(--app-content)" }}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="ghost" aria-label={t("imRemoveChannel")} onClick={onRemove}>
+                <Trash2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("imRemoveChannel")}</TooltipContent>
+          </Tooltip>
+        </>
+      )}
+    >
+      <SettingsSwitchRow
+        id={fieldId("enabled")}
+        title={t("imChannelEnabled")}
+        checked={channel.enabled}
+        onCheckedChange={(checked) => onChange({ enabled: checked })}
+      />
+      <SettingsRow
+        title={t("imChannelType")}
+        htmlFor={fieldId("type")}
+        control={(
+          <Select
+            value={channel.channelType}
+            onValueChange={(next) => onChange({ channelType: next as ImChannelType })}
           >
-            <div className="flex items-center gap-2">
+            <SelectTrigger
+              id={fieldId("type")}
+              aria-label={t("imChannelType")}
+              className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CHANNEL_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {typeLabel[type]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      />
+      <SettingsRow
+        title={t("imChannelName")}
+        htmlFor={fieldId("name")}
+        control={(
+          <Input
+            id={fieldId("name")}
+            value={channel.name}
+            placeholder={typeLabel[channel.channelType]}
+            className={`${inputClass} w-44`}
+            onChange={(e) => onChange({ name: e.target.value })}
+          />
+        )}
+      />
+      <SettingsRow title={t("imChannelUrl")} htmlFor={fieldId("url")}>
+        <Input
+          id={fieldId("url")}
+          value={channel.url}
+          placeholder="https://…"
+          className={`${inputClass} font-mono`}
+          onChange={(e) => onChange({ url: e.target.value })}
+        />
+      </SettingsRow>
+
+      {SHOWS_SECRET.has(channel.channelType) && (
+        <SettingsRow
+          title={t("imChannelSecret")}
+          description={<span id={fieldId("secret-hint")}>{t("imChannelSecretHint")}</span>}
+          htmlFor={fieldId("secret")}
+        >
+          <Input
+            id={fieldId("secret")}
+            aria-describedby={fieldId("secret-hint")}
+            type="password"
+            value={channel.secret ?? ""}
+            className={inputClass}
+            onChange={(e) => onChange({ secret: e.target.value || null })}
+          />
+        </SettingsRow>
+      )}
+
+      {SHOWS_TOKEN.has(channel.channelType) && (
+        <SettingsRow title={t("imChannelToken")} htmlFor={fieldId("token")}>
+          <Input
+            id={fieldId("token")}
+            type="password"
+            value={channel.token ?? ""}
+            className={inputClass}
+            onChange={(e) => onChange({ token: e.target.value || null })}
+          />
+        </SettingsRow>
+      )}
+
+      {SHOWS_CHAT_ID.has(channel.channelType) && (
+        <SettingsRow title={t("imChannelChatId")} htmlFor={fieldId("chat-id")}>
+          <Input
+            id={fieldId("chat-id")}
+            value={channel.chatId ?? ""}
+            className={`${inputClass} font-mono`}
+            onChange={(e) => onChange({ chatId: e.target.value || null })}
+          />
+        </SettingsRow>
+      )}
+
+      {channel.channelType === "telegram" && <ImInboundFields channel={channel} onChange={onChange} />}
+
+      {/* 推送事件是多选集合（不是单个布尔设置），保留复选框组 */}
+      <SettingsRow
+        title={<span id={eventsLabelId}>{t("imChannelEvents")}</span>}
+        description={t("imChannelEventsHint")}
+      >
+        <div role="group" aria-labelledby={eventsLabelId} className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {EVENT_KINDS.map((kind) => (
+            <label
+              key={kind}
+              className="flex items-center gap-1.5 text-[length:var(--text-small)] text-[var(--app-text-secondary)]"
+            >
               <input
                 type="checkbox"
-                checked={channel.enabled}
-                title={t("imChannelEnabled")}
-                onChange={(e) => updateChannel(channel.id, { enabled: e.target.checked })}
-                className="w-4 h-4 cursor-default shrink-0"
+                checked={channel.events.includes(kind)}
+                onChange={() => onToggleEvent(kind)}
+                className="size-3.5 cursor-default"
                 style={{ accentColor: "var(--app-accent)" }}
               />
-              <select
-                value={channel.channelType}
-                onChange={(e) =>
-                  updateChannel(channel.id, { channelType: e.target.value as ImChannelType })
-                }
-                className="h-8 px-2 rounded-md text-[length:var(--text-row)] outline-none"
-                style={{
-                  border: "1px solid var(--app-border)",
-                  background: "var(--app-content)",
-                  color: "var(--app-text-primary)",
-                }}
-              >
-                {CHANNEL_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {typeLabel[type]}
-                  </option>
-                ))}
-              </select>
-              <Input
-                value={channel.name}
-                placeholder={t("imChannelName")}
-                className="h-8 flex-1"
-                onChange={(e) => updateChannel(channel.id, { name: e.target.value })}
-              />
-              <Tooltip><TooltipTrigger asChild><Button
-                size="sm"
-                variant="ghost" aria-label={t("imRemoveChannel")}
-                onClick={() => removeChannel(channel.id)}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button></TooltipTrigger><TooltipContent>{t("imRemoveChannel")}</TooltipContent></Tooltip>
-            </div>
-
-            <FormField label={t("imChannelUrl")} className="flex flex-col gap-1">
-              {({ id }) => (
-                <Input
-                  id={id}
-                  value={channel.url}
-                  placeholder="https://…"
-                  className="h-8"
-                  onChange={(e) => updateChannel(channel.id, { url: e.target.value })}
-                />
-              )}
-            </FormField>
-
-            {SHOWS_SECRET.has(channel.channelType) && (
-              <FormField
-                label={t("imChannelSecret")}
-                hint={t("imChannelSecretHint")}
-                className="flex flex-col gap-1"
-                hintClassName="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]"
-              >
-                {({ id, hintId }) => (
-                  <Input
-                    id={id}
-                    aria-describedby={hintId}
-                    type="password"
-                    value={channel.secret ?? ""}
-                    className="h-8"
-                    onChange={(e) => updateChannel(channel.id, { secret: e.target.value || null })}
-                  />
-                )}
-              </FormField>
-            )}
-
-            {SHOWS_TOKEN.has(channel.channelType) && (
-              <FormField label={t("imChannelToken")} className="flex flex-col gap-1">
-                {({ id }) => (
-                  <Input
-                    id={id}
-                    type="password"
-                    value={channel.token ?? ""}
-                    className="h-8"
-                    onChange={(e) => updateChannel(channel.id, { token: e.target.value || null })}
-                  />
-                )}
-              </FormField>
-            )}
-
-            {SHOWS_CHAT_ID.has(channel.channelType) && (
-              <FormField label={t("imChannelChatId")} className="flex flex-col gap-1">
-                {({ id }) => (
-                  <Input
-                    id={id}
-                    value={channel.chatId ?? ""}
-                    className="h-8"
-                    onChange={(e) => updateChannel(channel.id, { chatId: e.target.value || null })}
-                  />
-                )}
-              </FormField>
-            )}
-
-            {channel.channelType === "telegram" && (
-              <ImInboundFields channel={channel} onChange={(patch) => updateChannel(channel.id, patch)} />
-            )}
-
-            <div className="flex flex-col gap-1">
-              <Label id={`im-channel-events-label-${channel.id}`}>{t("imChannelEvents")}</Label>
-              <div
-                role="group"
-                aria-labelledby={`im-channel-events-label-${channel.id}`}
-                className="flex flex-wrap gap-x-4 gap-y-1"
-              >
-                {EVENT_KINDS.map((kind) => (
-                  <label
-                    key={kind}
-                    className="flex items-center gap-1.5 text-[length:var(--text-small)] cursor-default"
-                    style={{ color: "var(--app-text-secondary)" }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={channel.events.includes(kind)}
-                      onChange={() => toggleEvent(channel, kind)}
-                      className="w-3.5 h-3.5 cursor-default"
-                      style={{ accentColor: "var(--app-accent)" }}
-                    />
-                    {eventLabel[kind]}
-                  </label>
-                ))}
-              </div>
-              <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("imChannelEventsHint")}
-              </span>
-            </div>
-
-            <div>
-              <Button size="sm" variant="secondary" onClick={() => testChannel(channel)}>
-                {t("imTestChannel")}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("imPlainStorageHint")}
-      </p>
-    </div>
+              {eventLabel[kind]}
+            </label>
+          ))}
+        </div>
+      </SettingsRow>
+    </SettingsSection>
   );
 }

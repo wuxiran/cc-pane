@@ -236,14 +236,14 @@ export function resolveWorkspaceLaunchOptions(
 
 /**
  * 工作空间/项目「绑定」的启动配置只是兜底，不代表用户本次显式选择：
- * 与目标 CLI / 运行环境不匹配时不传给后端（后端会静默回落默认配置），
+ * 与目标 CLI 不匹配时不传给后端（后端会静默回落默认配置），
+ * 运行配置不区分运行位置（本机 / WSL / SSH 通用），旧数据里的 targetRuntime 一律忽略；
  * 避免触发仅面向显式选择的 profileMismatch 启动警告。
  * 显式传入的 `params.launchProfileId` 不经过此过滤，不匹配时应当告警。
  */
 function resolveBoundLaunchProfileId(
   boundId: string | undefined,
   cliTool: CliTool | undefined,
-  environment: WorkspaceLaunchEnvironment,
   profiles?: LaunchProfile[],
 ): string | undefined {
   if (!boundId) return undefined;
@@ -252,8 +252,7 @@ function resolveBoundLaunchProfileId(
   // 本地列表未加载/找不到时保持原行为，由后端解析
   if (!profile) return boundId;
   const cliOk = !cliTool || profile.targetTools.length === 0 || profile.targetTools.includes(cliTool);
-  const runtimeOk = !profile.targetRuntime || profile.targetRuntime === environment;
-  return cliOk && runtimeOk ? boundId : undefined;
+  return cliOk ? boundId : undefined;
 }
 
 export function resolveWorkspaceProjectLaunchOptions(
@@ -267,7 +266,7 @@ export function resolveWorkspaceProjectLaunchOptions(
 
   if (project.ssh) {
     const launchProfileId = params.launchProfileId
-      ?? resolveBoundLaunchProfileId(boundProfileId, cliTool, "ssh");
+      ?? resolveBoundLaunchProfileId(boundProfileId, cliTool);
     const machine = machines.find(
       (item) =>
         item.host === project.ssh!.host &&
@@ -299,7 +298,7 @@ export function resolveWorkspaceProjectLaunchOptions(
     ?? resolveCliEnvironmentDefault(workspace, cliTool)
     ?? getWorkspaceDefaultEnvironment(workspace);
   const launchProfileId = params.launchProfileId
-    ?? resolveBoundLaunchProfileId(boundProfileId, cliTool, environment);
+    ?? resolveBoundLaunchProfileId(boundProfileId, cliTool);
 
   switch (environment) {
     case "local": {
@@ -428,7 +427,7 @@ function resolveWorkspaceLaunchOptionsInternal(
   const { workspace, machines, cliTool, providerId, providerSelection } = params;
   const effectiveProviderId = providerId;
   const launchProfileId = params.launchProfileId
-    ?? resolveBoundLaunchProfileId(workspace.launchProfileId, cliTool, environment);
+    ?? resolveBoundLaunchProfileId(workspace.launchProfileId, cliTool);
 
   switch (environment) {
     case "local": {

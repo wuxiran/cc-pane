@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, Footprints, MapPin, Music, Power, RefreshCw, Ruler, Sparkles } from "lucide-react";
-import { Label } from "@/components/ui/label";
+import { FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -14,6 +13,13 @@ import {
 } from "@/stores/useCCChanStore";
 import { invokeIfTauri } from "@/services/runtime";
 import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
+import {
+  SettingsRangeControl,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+  SettingsValue,
+} from "./layout";
 
 interface CCChanSettingsProps {
   value: CCChanSettingsValue;
@@ -53,213 +59,163 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
     onChange({ ...value, [key]: next });
   }
 
+  const selectedPetDescription = selectedPetDescriptionKey
+    ? t(selectedPetDescriptionKey)
+    : selectedPet?.description ?? t("ccchanCurrentPet");
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label id="ccchan-engine-label" className="flex items-center gap-2">
-          <Sparkles size={14} />
-          <span>{t("ccchanEngine")}</span>
-        </Label>
-        <div className="flex flex-wrap gap-2" role="group" aria-labelledby="ccchan-engine-label">
-          {ENGINE_OPTIONS.map((option) => {
-            const active = value.aiEngine === option.value;
-            return (
-              <button
-                key={option.value}
+    <>
+      <SettingsSection sectionId="ccchan-companion">
+        <SettingsRow
+          title={<span id="ccchan-engine-label">{t("ccchanEngine")}</span>}
+          control={(
+            <div
+              className="inline-flex h-8 overflow-hidden rounded-md border border-[var(--app-border)]"
+              role="group"
+              aria-labelledby="ccchan-engine-label"
+            >
+              {ENGINE_OPTIONS.map((option) => {
+                const active = value.aiEngine === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    className={cn(
+                      "min-w-16 px-3 text-[length:var(--text-row)] font-medium transition-colors duration-[var(--dur-fast)]",
+                      active
+                        ? "bg-[var(--app-accent)] text-[var(--primary-foreground)]"
+                        : "bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
+                    )}
+                    onClick={() => update("aiEngine", option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        />
+        <SettingsRow
+          title={t("ccchanDefaultPet")}
+          description={selectedPetDescription}
+          htmlFor="ccchan-default-pet"
+          control={(
+            <Select value={value.defaultPetId} onValueChange={(next) => update("defaultPetId", next)}>
+              <SelectTrigger id="ccchan-default-pet" aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {petOptions.map((pet) => (
+                  <SelectItem key={pet.id} value={pet.id}>{pet.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+      </SettingsSection>
+
+      <SettingsSection sectionId="ccchan-behavior">
+        <SettingsSwitchRow
+          id="ccchan-auto-start"
+          title={t("ccchanAutoStart")}
+          checked={value.autoStart}
+          onCheckedChange={(checked) => update("autoStart", checked)}
+        />
+        <SettingsSwitchRow
+          id="ccchan-sound-enabled"
+          title={t("ccchanSoundEnabled")}
+          checked={value.soundEnabled}
+          onCheckedChange={(checked) => update("soundEnabled", checked)}
+        />
+        <SettingsSwitchRow
+          id="ccchan-window-visible"
+          title={t("ccchanWindowVisible")}
+          checked={value.windowVisible}
+          onCheckedChange={(checked) => update("windowVisible", checked)}
+        />
+        <SettingsSwitchRow
+          id="ccchan-wander-enabled"
+          title={t("ccchanWanderEnabled")}
+          description={t("ccchanWanderHint")}
+          checked={value.wanderEnabled}
+          onCheckedChange={(checked) => update("wanderEnabled", checked)}
+        />
+      </SettingsSection>
+
+      <SettingsSection sectionId="ccchan-appearance">
+        <SettingsRow
+          title={t("ccchanPetSize")}
+          htmlFor="ccchan-pet-size"
+          control={(
+            <>
+              <SettingsRangeControl
+                id="ccchan-pet-size"
+                value={value.petSize}
+                min={CCCHAN_PET_SIZE_MIN}
+                max={CCCHAN_PET_SIZE_MAX}
+                step={10}
+                format={(size) => `${size}px`}
+                onChange={(size) => update("petSize", size)}
+              />
+              <Button
                 type="button"
-                className={cn(
-                  "h-9 rounded-md border px-3 text-[length:var(--text-row)] font-medium transition-colors",
-                  active
-                    ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
-                    : "border-[var(--app-border)] bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
-                )}
-                onClick={() => update("aiEngine", option.value)}
+                size="sm"
+                variant="outline"
+                disabled={value.petSize === CCCHAN_PET_SIZE_DEFAULT}
+                onClick={() => update("petSize", CCCHAN_PET_SIZE_DEFAULT)}
               >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0">
-          <Label htmlFor="ccchan-default-pet">{t("ccchanDefaultPet")}</Label>
-          <p className="m-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-            {selectedPetDescriptionKey
-              ? t(selectedPetDescriptionKey)
-              : selectedPet?.description ?? t("ccchanCurrentPet")}
-          </p>
-        </div>
-        <Select value={value.defaultPetId} onValueChange={(next) => update("defaultPetId", next)}>
-          <SelectTrigger id="ccchan-default-pet" aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {petOptions.map((pet) => (
-              <SelectItem key={pet.id} value={pet.id}>{pet.displayName}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <span className="flex items-center gap-2">
-            <Power size={14} />
-            {t("ccchanAutoStart")}
-          </span>
-          <input
-            type="checkbox"
-            checked={value.autoStart}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => update("autoStart", event.target.checked)}
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <span className="flex items-center gap-2">
-            <Music size={14} />
-            {t("ccchanSoundEnabled")}
-          </span>
-          <input
-            type="checkbox"
-            checked={value.soundEnabled}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => update("soundEnabled", event.target.checked)}
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <span>{t("ccchanWindowVisible")}</span>
-          <input
-            type="checkbox"
-            checked={value.windowVisible}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => update("windowVisible", event.target.checked)}
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <span className="flex items-center gap-2">
-            <Footprints size={14} />
-            {t("ccchanWanderEnabled")}
-          </span>
-          <input
-            type="checkbox"
-            checked={value.wanderEnabled}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => update("wanderEnabled", event.target.checked)}
-          />
-        </label>
-        <p className="m-0 -mt-2 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("ccchanWanderHint")}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <Label htmlFor="ccchan-pet-size" className="flex items-center gap-2">
-          <Ruler size={14} />
-          <span>{t("ccchanPetSize")}</span>
-        </Label>
-        <div className="flex items-center gap-3">
-          <input
-            id="ccchan-pet-size"
-            type="range"
-            min={CCCHAN_PET_SIZE_MIN}
-            max={CCCHAN_PET_SIZE_MAX}
-            step={10}
-            value={value.petSize}
-            className="w-48 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => update("petSize", Number(event.target.value))}
-          />
-          <span className="w-14 font-mono text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>
-            {value.petSize}px
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={value.petSize === CCCHAN_PET_SIZE_DEFAULT}
-            onClick={() => update("petSize", CCCHAN_PET_SIZE_DEFAULT)}
-          >
-            {t("ccchanPetSizeReset")}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <Label className="flex items-center gap-2">
-          <FolderOpen size={14} />
-          <span>{t("ccchanSkinDir")}</span>
-        </Label>
-        {petsDir && (
-          <span
-            className="break-all rounded-md px-2.5 py-1.5 font-mono text-[length:var(--text-caption)]"
-            style={{
-              background: "var(--app-hover)",
-              color: "var(--app-text-secondary)",
-              border: "1px solid var(--app-border)",
-            }}
-          >
-            {petsDir}
-          </span>
-        )}
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => void invokeIfTauri("open_ccchan_pets_dir").catch(() => {})}
-          >
-            {t("ccchanOpenSkinDir")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => void load()}
-          >
-            <RefreshCw size={13} className="mr-1" />
-            {t("ccchanRefreshPets")}
-          </Button>
-        </div>
-        <p className="m-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("ccchanSkinDirHint")}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <Label className="flex items-center gap-2">
-          <MapPin size={14} />
-          <span>{t("ccchanPosition")}</span>
-        </Label>
-        <div className="flex items-center gap-2">
-          <span
-            className="rounded-md px-2.5 py-1.5 font-mono text-[length:var(--text-small)]"
-            style={{
-              background: "var(--app-hover)",
-              color: "var(--app-text-secondary)",
-              border: "1px solid var(--app-border)",
-            }}
-          >
+                {t("ccchanPetSizeReset")}
+              </Button>
+            </>
+          )}
+        />
+        <SettingsRow
+          title={t("ccchanSkinDir")}
+          description={t("ccchanSkinDirHint")}
+          control={(
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void invokeIfTauri("open_ccchan_pets_dir").catch(() => {})}
+              >
+                <FolderOpen size={13} className="mr-1" />
+                {t("ccchanOpenSkinDir")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void load()}
+              >
+                <RefreshCw size={13} className="mr-1" />
+                {t("ccchanRefreshPets")}
+              </Button>
+            </>
+          )}
+        >
+          {petsDir ? <SettingsValue title={petsDir}>{petsDir}</SettingsValue> : null}
+        </SettingsRow>
+        <SettingsRow
+          title={t("ccchanPosition")}
+          control={(
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onChange({ ...value, windowX: null, windowY: null })}
+            >
+              {t("ccchanResetPosition")}
+            </Button>
+          )}
+        >
+          <SettingsValue>
             x: {value.windowX ?? "-"} · y: {value.windowY ?? "-"} · {value.petSize}x{value.petSize}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => onChange({ ...value, windowX: null, windowY: null })}
-          >
-            {t("ccchanResetPosition")}
-          </Button>
-        </div>
-      </div>
-    </div>
+          </SettingsValue>
+        </SettingsRow>
+      </SettingsSection>
+    </>
   );
 }

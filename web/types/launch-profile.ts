@@ -1,3 +1,4 @@
+import type { NativeOverrides } from "./native-config";
 import i18n from "@/i18n";
 import type { Provider } from "./provider";
 import type { SkillDeliveryMode } from "./skill";
@@ -56,10 +57,16 @@ export interface LaunchProfile {
   modelId?: string | null;
   adapterOptions?: LaunchProfileAdapterOptions;
   targetTools: string[];
+  /**
+   * @deprecated 运行配置本机 / WSL / SSH 通用：后端忽略该字段并恒存 null。
+   * 仅为线上兼容保留（旧数据可能带值），前端不得据此过滤或展示。
+   */
   targetRuntime?: LaunchProfileRuntime;
   yoloMode?: boolean;
   mcpPolicy: LaunchProfileMcpPolicy;
   skillPolicy: LaunchProfileSkillPolicy;
+  /** 原生 CLI 配置覆盖片段：叠在中转站片段之上、CC-Panes 显式字段之下。 */
+  nativeOverrides?: NativeOverrides;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;

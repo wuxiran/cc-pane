@@ -1,5 +1,5 @@
 import { Search, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SettingsSearchResult } from "./settingsSearch";
 
@@ -19,11 +19,26 @@ export default function SettingsSearchBox({
   const { t } = useTranslation("settings");
   const [focused, setFocused] = useState(false);
   const showResults = focused && query.trim().length > 0;
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 「/」聚焦搜索：正在输入（input/textarea/可编辑区）时不抢键。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <div className="relative w-full">
-      <Search aria-hidden="true" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-tertiary)]" />
+      <Search aria-hidden="true" size={14} strokeWidth={1.6} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--app-text-tertiary)]" />
       <input
+        ref={inputRef}
         type="search"
         value={query}
         aria-label={t("searchLabel")}
@@ -31,8 +46,17 @@ export default function SettingsSearchBox({
         onChange={(event) => onQueryChange(event.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => window.setTimeout(() => setFocused(false), 100)}
-        className="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-content)] pl-9 pr-9 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-active-bg)]"
+        className="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-content)] pl-8 pr-8 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-active-bg)] [&::-webkit-search-cancel-button]:hidden"
       />
+      {!query && !focused && (
+        <kbd
+          aria-hidden="true"
+          title={t("searchShortcutHint")}
+          className="pointer-events-none absolute right-2 top-1/2 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded border border-[var(--app-border)] px-1 font-mono text-[length:var(--text-caption)] leading-none text-[var(--app-text-tertiary)]"
+        >
+          /
+        </kbd>
+      )}
       {query && (
         <button
           type="button"

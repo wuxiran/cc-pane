@@ -19,7 +19,13 @@ describe("mcpReach（docs/110 批 5）", () => {
     expect(reach.ssh).toEqual([]);
     expect(reach.wsl).toEqual(expect.arrayContaining(["claude", "codex", "opencode"]));
     expect(reach.wsl).not.toContain("cursor");
-    expect(reach.local).toEqual(Object.keys(FALLBACK_INJECTION_PROFILES).sort());
+    // 本机：声明了共享 MCP 的 CLI 全能收到；kiro / fx / muse 等裸启动终端 CLI 不注入 MCP
+    const sharedClis = Object.entries(FALLBACK_INJECTION_PROFILES)
+      .filter(([, item]) => item.mcp.shared)
+      .map(([id]) => id)
+      .sort();
+    expect(sharedClis).not.toContain("kiro");
+    expect(reach.local).toEqual(sharedClis);
   });
 
   it("工作空间层的 stdio 条目进不了 WSL", () => {

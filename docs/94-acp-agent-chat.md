@@ -5,7 +5,17 @@
 
 ## 1. 是什么
 
-Codex 另有原生 App Server 接入，和原有 `codex` ACP 并存；入口、CLI 用法和协议边界见 [Codex App Server 接入](./codex-app-server.md)。
+Codex 在引擎列表里只有一个「Codex」（id `codex-app-server`）：优先走原生 App Server，起不来（老版本没有
+`app-server` 子命令 / spawn 失败 / initialize 失败）时自动改走 `codex`（codex-acp 桥）并提示「已改用 ACP 兼容模式」；
+设置 → 工具 → Agent Chat 可开「Codex 始终使用 ACP 兼容模式」。旧 id `codex` 的会话照旧经 ACP 续接（id 兼容决策见
+`src-tauri/src/commands/acp_chat_commands/launch.rs` 文件头）。入口、CLI 用法和协议边界见 [Codex App Server 接入](./codex-app-server.md)。
+
+**运行配置（launch profile）**：启动页的引擎 chip 旁可选运行配置（默认「系统默认」= CLI 自己的登录与配置）。
+只支持本机的 Codex（App Server：`-c` 覆盖 + 环境变量 / `CODEX_HOME`；ACP 兜底：`CODEX_CONFIG` JSON + 同一份环境变量）
+与 Claude（claude-agent-acp：`ANTHROPIC_*` / `CLAUDE_CONFIG_DIR` / 模型环境变量；原生 Claude 片段只有 `env` 段生效，
+用户 `~/.claude/settings.json` 的 `env` 仍可能覆盖进程环境）。其余引擎与远程（SSH）会话不支持（后端拒绝，界面说明）。
+解析规则与终端启动同源（`TerminalService::build_agent_chat_launch_overlay`），但不继承工作空间供应商。
+配置只在会话启动时生效；会话 meta / 快照记 `launchProfileId`，重启、续接、分叉沿用。
 
 `agent-chat` 是第 9 种 pane 标签类型：Cursor 式的结构化 agent 对话（流式
 Markdown 气泡、工具调用卡、审批/提问卡、plan 面板、diff 内联），背后引擎

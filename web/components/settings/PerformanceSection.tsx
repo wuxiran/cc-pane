@@ -8,20 +8,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { toastOk, toastWarn } from "@/lib/feedback";
 import { invokeIfTauri } from "@/services/runtime";
 import type { PerformanceSettings, TerminalSettings } from "@/types";
 import { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "@/types";
-import {
-  GroupTitle,
-  Hint,
-  NullableNumberRow,
-  NumberRow,
-  ToggleRow,
-} from "./PerformanceSectionFields";
+import { NullableNumberRow, NumberRow, ToggleRow } from "./PerformanceSectionFields";
 import { SearchableSetting } from "./SettingsSearchContext";
+import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./layout";
 
 interface PerformanceSectionProps {
   value: PerformanceSettings;
@@ -65,15 +59,13 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
   const cpuWeight = terminal.sessionCpuWeight ?? CPU_WEIGHT_NEUTRAL;
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("performance.title")}
-      </h3>
-      <Hint>{t("performance.description")}</Hint>
-
+    <>
       <SearchableSetting sectionId="performance-build">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.buildGroup")}</GroupTitle>
+        {/* 性能与其他分区同处「系统」页，页标题覆盖不到它：首段标题带上分区名「性能」。 */}
+        <SettingsSection
+          title={`${t("performance.title")} · ${t("performance.buildGroup")}`}
+          description={t("performance.description")}
+        >
           <ToggleRow
             id="performance-build-parallelism-enabled"
             label={t("performance.buildParallelismEnabled")}
@@ -99,12 +91,11 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             disabled={!value.buildParallelismEnabled}
             onChange={(next) => update("rgThreads", next)}
           />
-        </div>
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-codex">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.codexGroup")}</GroupTitle>
+        <SettingsSection title={t("performance.codexGroup")}>
           <ToggleRow
             id="performance-codex-lightweight-enabled"
             label={t("performance.codexLightweightEnabled")}
@@ -119,12 +110,11 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             checked={value.codexLowSpecMode}
             onCheckedChange={(checked) => update("codexLowSpecMode", checked)}
           />
-        </div>
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-heavy-gate">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.heavyGateGroup")}</GroupTitle>
+        <SettingsSection title={t("performance.heavyGateGroup")}>
           <ToggleRow
             id="performance-heavy-gate-enabled"
             label={t("performance.heavyGateEnabled")}
@@ -152,12 +142,11 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             disabled={!value.heavyGateEnabled}
             onChange={(next) => update("heavyGateTimeoutSecs", next)}
           />
-        </div>
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-heavy-ledger">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.heavyLedgerGroup")}</GroupTitle>
+        <SettingsSection title={t("performance.heavyLedgerGroup")}>
           <ToggleRow
             id="performance-heavy-ledger-enabled"
             label={t("performance.heavyLedgerEnabled")}
@@ -165,61 +154,57 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             checked={value.heavyLedgerEnabled}
             onCheckedChange={(checked) => update("heavyLedgerEnabled", checked)}
           />
-          <div className="flex items-center justify-between gap-6">
-            <Hint>{t("performance.heavyLedgerClearHint")}</Hint>
-            <Button variant="outline" size="sm" disabled={clearingLedger} onClick={() => void clearLedger()}>
-              {t("performance.heavyLedgerClear")}
-            </Button>
-          </div>
-        </div>
+          <SettingsRow
+            title={t("performance.heavyLedgerClear")}
+            description={t("performance.heavyLedgerClearHint")}
+            control={(
+              <Button variant="outline" size="sm" disabled={clearingLedger} onClick={() => void clearLedger()}>
+                {t("performance.heavyLedgerClear")}
+              </Button>
+            )}
+          />
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-session-policy">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.sessionPolicyGroup")}</GroupTitle>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <input
-                id="terminal-lower-session-priority"
-                type="checkbox"
-                aria-label={t("lowerSessionPriority")}
-                checked={terminal.lowerSessionPriority ?? true}
-                onChange={(e) => updateTerminal("lowerSessionPriority", e.target.checked)}
-                className="w-4 h-4 cursor-default"
-                style={{ accentColor: "var(--app-accent)" }}
-              />
-              <Label htmlFor="terminal-lower-session-priority">{t("lowerSessionPriority")}</Label>
-            </div>
-            <Hint>{t("lowerSessionPriorityHint")}</Hint>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-6">
-              <Label htmlFor="terminal-session-cpu-weight">{t("performance.sessionCpuWeight")}</Label>
-              <span className="text-[length:var(--text-small)] tabular-nums" style={{ color: "var(--app-text-secondary)" }}>
-                {cpuWeight === CPU_WEIGHT_NEUTRAL
-                  ? t("performance.sessionCpuWeightNeutral", { value: cpuWeight })
-                  : cpuWeight}
+        <SettingsSection title={t("performance.sessionPolicyGroup")}>
+          <SettingsSwitchRow
+            id="terminal-lower-session-priority"
+            title={t("lowerSessionPriority")}
+            description={t("lowerSessionPriorityHint")}
+            checked={terminal.lowerSessionPriority ?? true}
+            onCheckedChange={(checked) => updateTerminal("lowerSessionPriority", checked)}
+          />
+          <SettingsRow
+            title={t("performance.sessionCpuWeight")}
+            description={t("performance.sessionCpuWeightHint")}
+            control={(
+              <span className="flex items-center gap-3">
+                <Slider
+                  id="terminal-session-cpu-weight"
+                  aria-label={t("performance.sessionCpuWeight")}
+                  className="w-44"
+                  min={CPU_WEIGHT_MIN}
+                  max={CPU_WEIGHT_MAX}
+                  step={1}
+                  value={[cpuWeight]}
+                  onValueChange={([next]) =>
+                    updateTerminal("sessionCpuWeight", next === CPU_WEIGHT_NEUTRAL ? null : next)
+                  }
+                />
+                <span className="whitespace-nowrap text-right text-[length:var(--text-small)] tabular-nums text-[var(--app-text-secondary)]">
+                  {cpuWeight === CPU_WEIGHT_NEUTRAL
+                    ? t("performance.sessionCpuWeightNeutral", { value: cpuWeight })
+                    : cpuWeight}
+                </span>
               </span>
-            </div>
-            <Slider
-              id="terminal-session-cpu-weight"
-              aria-label={t("performance.sessionCpuWeight")}
-              min={CPU_WEIGHT_MIN}
-              max={CPU_WEIGHT_MAX}
-              step={1}
-              value={[cpuWeight]}
-              onValueChange={([next]) =>
-                updateTerminal("sessionCpuWeight", next === CPU_WEIGHT_NEUTRAL ? null : next)
-              }
-            />
-            <Hint>{t("performance.sessionCpuWeightHint")}</Hint>
-          </div>
-        </div>
+            )}
+          />
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-wsl-quota">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.wslQuotaGroup")}</GroupTitle>
+        <SettingsSection title={t("performance.wslQuotaGroup")}>
           <ToggleRow
             id="performance-wsl-quota-enabled"
             label={t("performance.wslQuotaEnabled")}
@@ -248,12 +233,11 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             disabled={!value.wslQuotaEnabled}
             onChange={(next) => update("wslMemoryHighPercent", next)}
           />
-        </div>
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="performance-parking">
-        <div className="flex flex-col gap-3">
-          <GroupTitle>{t("performance.parkingGroup")}</GroupTitle>
+        <SettingsSection title={t("performance.parkingGroup")}>
           <NumberRow
             id="performance-parked-terminal-limit"
             label={t("performance.parkedTerminalLimit")}
@@ -273,8 +257,8 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             suffix={t("performance.unitSeconds")}
             onChange={(next) => update("parkDelaySecs", next)}
           />
-        </div>
+        </SettingsSection>
       </SearchableSetting>
-    </div>
+    </>
   );
 }

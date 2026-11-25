@@ -18,8 +18,65 @@ const LIBSSH2_ERROR_EAGAIN: i32 = -37;
 pub(super) struct SshTerminalConfig<'a> {
     pub connection: &'a SshConnectionInfo,
     pub remote_command: &'a str,
+    /// 供应商凭证等敏感环境变量：不进命令行，经独立通道写进远端 0600 临时文件，
+    /// 由 `remote_command` 前置的 `. 文件 && rm -f 文件` 读入后立即删除。
+    pub secret_env: &'a [(String, String)],
     pub cols: u16,
     pub rows: u16,
+}
+
+/// 远端写环境文件的脚本：经用户登录 shell 交给 `sh -c`（不依赖登录 shell 的语法），
+/// 内容从 stdin 读入，`umask 077` 保证文件只有本人可读，打印文件路径作为唯一输出。
+/// 脚本里只能用双引号——外层用单引号包给 `sh -c`。
+const WRITE_ENV_FILE_SCRIPT: &str = "sh -c 'umask 077 && f=$(mktemp \"${TMPDIR:-/tmp}/.ccpanes-env.XXXXXX\") && cat > \"$f\" && printf %s \"$f\"'";
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// 环境文件内容：每行一条 `export K='v'`（POSIX 单引号转义）。
+pub(super) fn env_file_content(secret_env: &[(String, String)]) -> String {
+    secret_env
+        .iter()
+        .map(|(key, value)| format!("export {key}={}\n", shell_quote(value)))
+        .collect()
+}
+
+/// 在独立 channel 上把敏感环境变量写进远端临时文件，返回文件路径。
+fn upload_secret_env(session: &Session, secret_env: &[(String, String)]) -> Result<String> {
+    let mut channel = session
+        .channel_session()
+        .context("Failed to open SSH channel for launch environment")?;
+    channel
+        .exec(WRITE_ENV_FILE_SCRIPT)
+        .context("Failed to start remote launch environment writer")?;
+    channel
+        .write_all(env_file_content(secret_env).as_bytes())
+        .context("Failed to send launch environment")?;
+    channel
+        .send_eof()
+        .context("Failed to finish launch environment")?;
+    let mut path = String::new();
+    channel
+        .read_to_string(&mut path)
+        .context("Failed to read remote launch environment path")?;
+    channel.wait_close().ok();
+    let status = channel.exit_status().unwrap_or(-1);
+    let path = path.trim().to_string();
+    if status != 0 || !path.starts_with('/') || path.contains('\'') || path.contains('\n') {
+        return Err(anyhow!(
+            "Remote host could not create a private launch environment file (exit {status})"
+        ));
+    }
+    Ok(path)
+}
+
+/// 启动失败时尽力删掉还没被读走的环境文件。
+fn remove_remote_file(session: &Session, path: &str) {
+    if let Ok(mut channel) = session.channel_session() {
+        let _ = channel.exec(&format!("rm -f {}", shell_quote(path)));
+        let _ = channel.wait_close();
+    }
 }
 
 pub(super) fn spawn_ssh_terminal(
@@ -27,22 +84,28 @@ pub(super) fn spawn_ssh_terminal(
     config: SshTerminalConfig<'_>,
 ) -> Result<PtySpawnResult> {
     let session = connection_service.connect_info(config.connection)?;
-    let mut channel = session
-        .channel_session()
-        .context("Failed to open SSH terminal channel")?;
-    channel
-        .handle_extended_data(ExtendedData::Merge)
-        .context("Failed to merge SSH terminal stderr")?;
-    channel
-        .request_pty(
-            "xterm-256color",
-            None,
-            Some((u32::from(config.cols), u32::from(config.rows), 0, 0)),
-        )
-        .context("Failed to request remote SSH PTY")?;
-    channel
-        .exec(config.remote_command)
-        .context("Failed to start remote SSH shell")?;
+    let env_file = if config.secret_env.is_empty() {
+        None
+    } else {
+        Some(upload_secret_env(&session, config.secret_env)?)
+    };
+    let remote_command = match env_file.as_deref() {
+        Some(path) => {
+            let quoted = shell_quote(path);
+            format!(". {quoted} && rm -f {quoted} && {}", config.remote_command)
+        }
+        None => config.remote_command.to_string(),
+    };
+    let started = start_terminal_channel(&session, &remote_command, config.cols, config.rows);
+    let channel = match started {
+        Ok(channel) => channel,
+        Err(error) => {
+            if let Some(path) = env_file.as_deref() {
+                remove_remote_file(&session, path);
+            }
+            return Err(error);
+        }
+    };
     session.set_blocking(false);
 
     let stopped = Arc::new(AtomicBool::new(false));
@@ -69,6 +132,31 @@ pub(super) fn spawn_ssh_terminal(
         // 远端进程不受本机 Job / nice 管辖；"不涉及"而非"不支持"。
         policy_outcome: None,
     })
+}
+
+fn start_terminal_channel(
+    session: &Session,
+    remote_command: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<Channel> {
+    let mut channel = session
+        .channel_session()
+        .context("Failed to open SSH terminal channel")?;
+    channel
+        .handle_extended_data(ExtendedData::Merge)
+        .context("Failed to merge SSH terminal stderr")?;
+    channel
+        .request_pty(
+            "xterm-256color",
+            None,
+            Some((u32::from(cols), u32::from(rows), 0, 0)),
+        )
+        .context("Failed to request remote SSH PTY")?;
+    channel
+        .exec(remote_command)
+        .context("Failed to start remote SSH shell")?;
+    Ok(channel)
 }
 
 struct SshChannelProcess {
@@ -239,6 +327,18 @@ fn exit_status(code: i32) -> ExitStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn env_file_quotes_values_for_posix_sourcing() {
+        let content = super::env_file_content(&[
+            ("PLAIN".to_string(), "value".to_string()),
+            ("TRICKY".to_string(), "a'b $HOME `x`".to_string()),
+        ]);
+        assert_eq!(
+            content,
+            "export PLAIN='value'\nexport TRICKY='a'\\''b $HOME `x`'\n"
+        );
+    }
 
     #[test]
     fn detects_libssh2_would_block() {

@@ -66,6 +66,19 @@ pub struct AppSettings {
     /// 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊。
     #[serde(default)]
     pub performance: PerformanceSettings,
+    /// Agent Chat（ACP / Codex App Server）偏好。
+    #[serde(default)]
+    pub agent_chat: AgentChatSettings,
+}
+
+/// Agent Chat 偏好。老配置无此节时全部取默认（serde default）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentChatSettings {
+    /// 「Codex」引擎始终走 ACP 兼容模式（codex-acp 桥），不尝试原生 App Server。
+    /// 只影响新会话：续接已有会话时沿用该会话落盘的引擎（见 acp_chat_commands::launch）。
+    #[serde(default)]
+    pub codex_force_acp: bool,
 }
 
 /// 实验功能开关。Release 默认全关，用户在「设置 → 实验功能」显式勾选后入口才
@@ -847,6 +860,9 @@ pub struct VoiceSettings {
     /// 录音先在前端转成 WAV 再发送（目标服务不支持 WebM 时开启）
     #[serde(default)]
     pub custom_prefer_wav: bool,
+    /// 本地转写（provider = "local"）用的模型 id，见 src-tauri voice_local/catalog.rs
+    #[serde(default = "default_voice_local_model")]
+    pub local_model: String,
     /// 可选语种；为空时交给模型自动识别
     #[serde(default)]
     pub language: Option<String>,
@@ -857,11 +873,37 @@ pub struct VoiceSettings {
     /// 是否在终端右下角显示语音悬浮按钮（关闭后仍可用快捷键触发录音）
     #[serde(default = "default_true")]
     pub show_floating_button: bool,
+    /// 麦克风优先级：录音用列表里第一个已连接的设备；deviceId "default" 代表系统默认。
+    /// 空列表 = 系统默认。
+    #[serde(default)]
+    pub microphones: Vec<VoiceMicrophone>,
+    /// 词典：人名、术语等，转写时作为上下文提示给服务（最多 100 条）。
+    #[serde(default)]
+    pub custom_words: Vec<String>,
+    /// 去掉转写结果里的「嗯」「呃」「um」「uh」等语气词
+    #[serde(default = "default_true")]
+    pub remove_filler_words: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceMicrophone {
+    pub device_id: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+pub const VOICE_CUSTOM_WORDS_LIMIT: usize = 100;
+/// 与 src-tauri voice_local/catalog.rs 的 LOCAL_MODELS 保持一致
+pub const VOICE_LOCAL_MODELS: [&str; 2] = ["sense-voice", "qwen3-asr"];
+pub const VOICE_CUSTOM_WORD_MAX_CHARS: usize = 50;
 
 impl VoiceSettings {
     pub fn merge_missing_defaults(&mut self) {
-        if !matches!(self.provider.as_str(), "dashscope" | "mimo" | "custom") {
+        if !matches!(
+            self.provider.as_str(),
+            "dashscope" | "mimo" | "custom" | "local"
+        ) {
             self.provider = default_voice_provider();
         }
         if !matches!(self.region.as_str(), "cn" | "intl") {
@@ -890,6 +932,9 @@ impl VoiceSettings {
         if self.custom_model.trim().is_empty() {
             self.custom_model = default_voice_custom_model();
         }
+        if !VOICE_LOCAL_MODELS.contains(&self.local_model.as_str()) {
+            self.local_model = default_voice_local_model();
+        }
         if let Some(language) = self.language.as_ref() {
             if language.trim().is_empty() {
                 self.language = None;
@@ -898,6 +943,21 @@ impl VoiceSettings {
         if !(1..=300).contains(&self.max_record_seconds) {
             self.max_record_seconds = default_voice_max_record_seconds();
         }
+        let mut seen_words = std::collections::HashSet::new();
+        self.custom_words = std::mem::take(&mut self.custom_words)
+            .into_iter()
+            .map(|word| word.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|word| {
+                !word.is_empty()
+                    && word.chars().count() <= VOICE_CUSTOM_WORD_MAX_CHARS
+                    && seen_words.insert(word.to_lowercase())
+            })
+            .take(VOICE_CUSTOM_WORDS_LIMIT)
+            .collect();
+        let mut seen_mics = std::collections::HashSet::new();
+        self.microphones.retain(|mic| {
+            !mic.device_id.trim().is_empty() && seen_mics.insert(mic.device_id.clone())
+        });
     }
 }
 
@@ -1192,6 +1252,10 @@ fn default_voice_custom_model() -> String {
     "whisper-1".to_string()
 }
 
+fn default_voice_local_model() -> String {
+    VOICE_LOCAL_MODELS[0].to_string()
+}
+
 fn default_voice_max_record_seconds() -> u32 {
     60
 }
@@ -1413,10 +1477,14 @@ impl Default for VoiceSettings {
             custom_base_url: default_voice_custom_base_url(),
             custom_model: default_voice_custom_model(),
             custom_prefer_wav: false,
+            local_model: default_voice_local_model(),
             language: None,
             enable_itn: false,
             max_record_seconds: default_voice_max_record_seconds(),
             show_floating_button: true,
+            microphones: Vec::new(),
+            custom_words: Vec::new(),
+            remove_filler_words: true,
         }
     }
 }
@@ -2057,6 +2125,15 @@ mod tests {
     }
 
     #[test]
+    fn voice_settings_deserializes_legacy_config_without_new_fields() {
+        let settings: VoiceSettings =
+            serde_json::from_str(r#"{"provider":"mimo","enabled":true}"#).expect("legacy voice");
+        assert!(settings.microphones.is_empty());
+        assert!(settings.custom_words.is_empty());
+        assert!(settings.remove_filler_words);
+    }
+
+    #[test]
     fn voice_merge_missing_defaults_normalizes_invalid_values() {
         let mut settings = VoiceSettings {
             provider: "unknown".to_string(),
@@ -2071,15 +2148,45 @@ mod tests {
             custom_base_url: " http://127.0.0.1:9000/v1/ ".to_string(),
             custom_model: String::new(),
             custom_prefer_wav: false,
+            local_model: "whisper".to_string(),
             language: Some(" ".to_string()),
             enable_itn: true,
             max_record_seconds: 999,
             show_floating_button: true,
+            microphones: vec![
+                VoiceMicrophone {
+                    device_id: "mic-a".to_string(),
+                    label: "A".to_string(),
+                },
+                VoiceMicrophone {
+                    device_id: " ".to_string(),
+                    label: String::new(),
+                },
+                VoiceMicrophone {
+                    device_id: "mic-a".to_string(),
+                    label: "dup".to_string(),
+                },
+            ],
+            custom_words: vec![
+                "  CC   Panes ".to_string(),
+                "cc panes".to_string(),
+                String::new(),
+                "x".repeat(VOICE_CUSTOM_WORD_MAX_CHARS + 1),
+                "Tauri".to_string(),
+            ],
+            remove_filler_words: true,
         };
 
         settings.merge_missing_defaults();
+        assert_eq!(
+            settings.custom_words,
+            vec!["CC Panes".to_string(), "Tauri".to_string()]
+        );
+        assert_eq!(settings.microphones.len(), 1);
+        assert_eq!(settings.microphones[0].label, "A");
 
         assert_eq!(settings.provider, "dashscope");
+        assert_eq!(settings.local_model, "sense-voice");
         assert_eq!(settings.region, "cn");
         assert_eq!(settings.model, "qwen3-asr-flash");
         assert_eq!(settings.mimo_base_url, "https://api.xiaomimimo.com/v1");

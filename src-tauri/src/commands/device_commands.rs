@@ -341,6 +341,57 @@ fn local_hostname() -> String {
     sysinfo::System::host_name().unwrap_or_else(|| "cc-panes-desktop".to_string())
 }
 
+/// 设置 → 设备与访问 → 本机卡片：主机名 / 操作系统 / 应用版本。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDeviceInfo {
+    /// 给人看的机器名（macOS 取「电脑名称」，如「某某的MacBook Pro」；其余平台取主机名）。
+    pub hostname: Option<String>,
+    /// 操作系统（含版本，如 `macOS 15.5`；取不到时为 `std::env::consts::OS`）。
+    pub os: String,
+    /// 应用版本。
+    pub version: String,
+}
+
+/// macOS 的「电脑名称」（系统设置 → 通用 → 关于本机 → 名称）；其余平台 / 取不到时 `None`。
+#[cfg(target_os = "macos")]
+fn friendly_computer_name() -> Option<String> {
+    let output = std::process::Command::new("/usr/sbin/scutil")
+        .args(["--get", "ComputerName"])
+        .current_dir("/")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn friendly_computer_name() -> Option<String> {
+    None
+}
+
+#[tauri::command]
+pub async fn get_local_device_info() -> AppResult<LocalDeviceInfo> {
+    blocking(|| {
+        let hostname = friendly_computer_name()
+            .or_else(sysinfo::System::host_name)
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty());
+        let os = sysinfo::System::long_os_version()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| std::env::consts::OS.to_string());
+        Ok(LocalDeviceInfo {
+            hostname,
+            os,
+            version: APP_VERSION.to_string(),
+        })
+    })
+    .await
+}
+
 /// 选服务端二进制：环境变量 > 与本机同平台时用随包的 cc-panes-web > 下载同版本发布包。
 async fn resolve_server_binary(
     app: &AppHandle,
@@ -601,10 +652,12 @@ fn local_addresses(port: u16) -> Vec<String> {
 }
 
 /// 生成一次性配对码。需要先在设置里打开「允许其他设备连接」，Web 服务才会监听局域网。
+/// `token_ttl_days`：兑换出的令牌有效期；不传 = 默认 90 天，`0` = 永不过期。
 #[tauri::command]
 pub async fn device_access_pairing_start(
     tokens: State<'_, Arc<DeviceTokenService>>,
     settings: State<'_, Arc<cc_panes_core::services::SettingsService>>,
+    token_ttl_days: Option<u32>,
 ) -> AppResult<PairingInfo> {
     let web_access = settings.get_settings().web_access;
     if !web_access.allow_devices {
@@ -619,7 +672,12 @@ pub async fn device_access_pairing_start(
     }
     let tokens = tokens.inner().clone();
     blocking(move || {
-        let (code, expires_at) = tokens.create_pairing_code()?;
+        let ttl = match token_ttl_days {
+            None => Some(cc_panes_core::services::DEFAULT_DEVICE_TOKEN_TTL_DAYS),
+            Some(0) => None,
+            Some(days) => Some(days.min(3650)),
+        };
+        let (code, expires_at) = tokens.create_pairing_code_with_ttl(ttl)?;
         Ok(PairingInfo {
             code,
             expires_at: expires_at.to_rfc3339(),
@@ -637,13 +695,13 @@ pub async fn device_access_pairing_cancel(
     blocking(move || tokens.cancel_pairing()).await
 }
 
-/// 哪些设备可以访问本机（不含令牌明文）。
+/// 哪些设备可以访问本机（不含令牌明文与摘要），附最后在线时间 / IP / 过期状态。
 #[tauri::command]
 pub async fn device_access_list(
     tokens: State<'_, Arc<DeviceTokenService>>,
-) -> AppResult<Vec<cc_panes_core::services::DeviceTokenRecord>> {
+) -> AppResult<Vec<cc_panes_core::services::DeviceAccessEntry>> {
     let tokens = tokens.inner().clone();
-    blocking(move || Ok(tokens.list())).await
+    blocking(move || Ok(tokens.list_entries())).await
 }
 
 #[tauri::command]

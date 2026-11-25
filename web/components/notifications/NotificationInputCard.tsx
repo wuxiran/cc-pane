@@ -3,7 +3,7 @@
 // 会话失效降级（输入框不渲染）、提交失败（卡内错误行，可重试）。
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, LoaderCircle } from "lucide-react";
+import { Check, CornerDownLeft, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   isNotificationSessionAlive,
@@ -44,23 +44,24 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
   };
 
   const footer = responded ? (
-    <p className="ml-[22px] mt-2 flex items-center gap-1.5 text-[length:var(--text-small)] font-medium text-[var(--app-status-success)]">
+    <p className="ml-7 mt-2 flex items-center gap-1.5 text-[length:var(--text-small)] font-medium text-[var(--app-status-success)]">
       <Check aria-hidden="true" size={13} />
       {t("center.responded")}
     </p>
   ) : !sessionAlive ? (
-    <p className="ml-[22px] mt-2 rounded-md border border-dashed border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
+    <p className="ml-7 mt-2 rounded-md border border-dashed border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
       {t("center.sessionGone")}
     </p>
   ) : (
-    <div className="ml-[22px] mt-2">
-      <div className="flex gap-1.5">
+    <div className="ml-7 mt-2.5">
+      {/* 输入框与发送键合成一个整体：发送是框内的图标键，不再单独占一块彩色按钮。 */}
+      <div className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] py-0.5 pl-2.5 pr-0.5 focus-within:border-[var(--app-accent)] focus-within:ring-1 focus-within:ring-[var(--app-accent)]">
         <input
           type="text"
           value={text}
           disabled={sending}
           placeholder={record.inputPlaceholder || t("center.inputPlaceholder")}
-          className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[length:var(--text-row)] text-[var(--app-text-primary)] placeholder:text-[var(--app-text-tertiary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+          className="h-7 min-w-0 flex-1 bg-transparent text-[length:var(--text-row)] text-[var(--app-text-primary)] placeholder:text-[var(--app-text-tertiary)] focus-visible:outline-none"
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -70,46 +71,52 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
           }}
         />
         <Button
-          size="sm"
-          className="h-[26px] shrink-0 px-2.5 text-[length:var(--text-small)]"
+          size="icon"
+          aria-label={sending ? t("center.sending") : t("center.send")}
+          title={sending ? t("center.sending") : t("center.send")}
+          className="size-7 shrink-0 rounded-[5px]"
           disabled={sending || !text.trim()}
           onClick={() => void submit()}
         >
           {sending ? (
-            <LoaderCircle aria-hidden="true" size={13} className="motion-safe:animate-spin" />
-          ) : null}
-          {sending ? t("center.sending") : t("center.send")}
+            <LoaderCircle aria-hidden="true" size={14} className="motion-safe:animate-spin" />
+          ) : (
+            <CornerDownLeft aria-hidden="true" size={14} />
+          )}
         </Button>
       </div>
       {error && (
         <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-status-danger)]">{error}</p>
       )}
-      <div className="mt-1.5 flex justify-end gap-1.5">
-        {record.sessionId && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-2 text-[length:var(--text-small)]"
-            onClick={() => {
-              // 聚焦现在异步（F7.3 弹出窗口），但 dismiss 与聚焦结果无关，照旧立即执行。
-              void focusNotificationSession(record.sessionId as string);
-              onDismiss(record.id);
-            }}
-          >
-            {t("center.focusSession")}
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 px-2 text-[length:var(--text-small)]"
-          onClick={() => onDismiss(record.id)}
-        >
-          {t("center.ignore")}
-        </Button>
-      </div>
     </div>
   );
 
-  return <NotificationCard record={record} onDismiss={onDismiss} footer={footer} hideActions />;
+  const actions = responded ? null : (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 px-2 text-[length:var(--text-small)]"
+        onClick={() => onDismiss(record.id)}
+      >
+        {t("center.ignore")}
+      </Button>
+      {record.sessionId && sessionAlive && (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-6 px-2 text-[length:var(--text-small)]"
+          onClick={() => {
+            // 聚焦现在异步（F7.3 弹出窗口），但 dismiss 与聚焦结果无关，照旧立即执行。
+            void focusNotificationSession(record.sessionId as string);
+            onDismiss(record.id);
+          }}
+        >
+          {t("center.focusSession")}
+        </Button>
+      )}
+    </>
+  );
+
+  return <NotificationCard record={record} onDismiss={onDismiss} footer={footer} actions={actions} />;
 }

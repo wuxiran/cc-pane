@@ -33,6 +33,9 @@ pub struct CodexAppServerOptions {
     pub arguments: Vec<String>,
     pub config_overrides: Vec<String>,
     pub env: HashMap<String, String>,
+    /// Inherited variables removed before `env` is applied (e.g. a managed
+    /// Provider clears conflicting credentials from the app environment).
+    pub env_remove: Vec<String>,
     pub request_timeout: Duration,
     pub client_name: String,
     pub client_version: String,
@@ -47,6 +50,7 @@ impl Default for CodexAppServerOptions {
             arguments: vec!["app-server".into(), "--listen".into(), "stdio://".into()],
             config_overrides: Vec::new(),
             env: HashMap::new(),
+            env_remove: Vec::new(),
             request_timeout: Duration::from_secs(30),
             client_name: "cc-panes".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),

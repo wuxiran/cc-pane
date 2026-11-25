@@ -213,6 +213,8 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           customTitle: binding.title,
         });
       }
+      const landed = usePanesStore.getState().findTabBySessionAcrossLayouts(sessionId);
+      if (landed) void usePanesStore.getState().captureTerminalLaunchProfileSnapshot(landed.tab.id, undefined, launchId);
       await updatePatch(next.id, {
         status: "running",
         progress: 30,

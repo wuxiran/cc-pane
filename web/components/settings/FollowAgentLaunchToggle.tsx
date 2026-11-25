@@ -3,8 +3,8 @@
 // 关闭时 worker 仍建在目标布局，只是改发一条可跳转的提示（useOrchestratorListener）。
 // 从 WebAccessSection 拆出（行数棘轮约束），与 McpYoloProfilesToggle 同构。
 import { useTranslation } from "react-i18next";
-import { Label } from "@/components/ui/label";
 import type { OrchestratorSettings } from "@/types";
+import { SettingsSwitchRow } from "./layout";
 
 export default function FollowAgentLaunchToggle({
   orchestrator,
@@ -15,21 +15,12 @@ export default function FollowAgentLaunchToggle({
 }) {
   const { t } = useTranslation("settings");
   return (
-    <div className="flex items-center justify-between gap-4 pt-2">
-      <div>
-        <Label>{t("followAgentLaunch")}</Label>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("followAgentLaunchHint")}
-        </p>
-      </div>
-      <input
-        type="checkbox"
-        aria-label={t("followAgentLaunch")}
-        checked={orchestrator.followAgentLaunch}
-        onChange={(event) => onChange({ ...orchestrator, followAgentLaunch: event.target.checked })}
-        className="w-4 h-4 flex-none cursor-default"
-        style={{ accentColor: "var(--app-accent)" }}
-      />
-    </div>
+    <SettingsSwitchRow
+      id="web-access-follow-agent-launch"
+      title={t("followAgentLaunch")}
+      description={t("followAgentLaunchHint")}
+      checked={orchestrator.followAgentLaunch}
+      onCheckedChange={(checked) => onChange({ ...orchestrator, followAgentLaunch: checked })}
+    />
   );
 }

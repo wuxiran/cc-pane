@@ -12,6 +12,9 @@ use super::process_guard::{configure_command, ProcessGuard};
 use crate::utils::AppError;
 
 const WEB_BIN_ENV: &str = "CCPANES_WEB_BIN";
+/// 与 cc-panes-web `web_auth::CONTROL_TOKEN_ENV` 同名：每次拉起 web 进程都换一个，
+/// 桌面端凭它（只限本机直连、只限网页会话管理接口）列出 / 吊销网页登录会话。
+const WEB_CONTROL_TOKEN_ENV: &str = "CCPANES_WEB_CONTROL_TOKEN";
 
 /// `stop()` 等待 web 进程优雅退出的上限，超时即强杀。
 /// 有界是硬要求：`stop()` 会在 UI 线程和退出路径上跑，不能无限阻塞。
@@ -46,6 +49,7 @@ struct WebAccessProcess {
     guard: ProcessGuard,
     port: u16,
     bind_host: String,
+    control_token: String,
 }
 
 #[derive(Default)]
@@ -128,6 +132,8 @@ impl WebAccessLifecycle {
         if let Some(dist_dir) = resolve_web_dist_dir(resource_dir) {
             command.env("CCPANES_WEB_DIST_DIR", dist_dir);
         }
+        let control_token = generate_control_token();
+        command.env(WEB_CONTROL_TOKEN_ENV, &control_token);
 
         let daemon_manifest = app_paths.runtime_dir().join("daemon-manifest.json");
         if daemon_manifest.exists() {
@@ -177,8 +183,20 @@ impl WebAccessLifecycle {
             guard,
             port: settings.port,
             bind_host,
+            control_token,
         });
         Ok(self.status(settings))
+    }
+
+    /// 正在运行的（本进程拉起的）Web 服务的端口与控制令牌；没在跑时为 `None`。
+    pub fn control_endpoint(&self) -> Option<(u16, String)> {
+        let mut guard = self.process.lock().unwrap_or_else(|err| err.into_inner());
+        let process = guard.as_mut()?;
+        if !matches!(process.child.try_wait(), Ok(None)) {
+            *guard = None;
+            return None;
+        }
+        Some((process.port, process.control_token.clone()))
     }
 
     pub fn restart(
@@ -260,6 +278,13 @@ impl WebAccessLifecycle {
         }
         None
     }
+}
+
+fn generate_control_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0_u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub fn local_url(port: u16) -> String {

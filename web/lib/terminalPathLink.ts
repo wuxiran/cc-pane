@@ -11,6 +11,12 @@ export interface TerminalPathLinkOptions {
   allowPosixAbsolute: boolean;
 }
 
+/**
+ * 识别阶段的存在性校验：返回 false 的候选不会变成可点链接。
+ * 没有它，「点了才发现路径不存在」只能靠错误 toast 告诉用户（不存在的路径本就不该带下划线）。
+ */
+export type TerminalPathLinkValidator = (reference: TerminalPathReference) => Promise<boolean>;
+
 export interface TerminalPathLink extends TerminalPathReference {
   startIndex: number;
   endIndex: number;
@@ -39,7 +45,12 @@ const URI_SCHEME = /^[a-z][a-z\d+.-]*:/i;
 const CONTROL_OR_BIDI = /[\u0000-\u001f\u007f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]/u;
 const FULLWIDTH_BOUNDARY = "　、。，：；！？（）【】《》「」『』";
 const WINDOWS_EXTENDED_DRIVE = /^\\\\\?\\[A-Za-z]:[\\/]/;
-const PATH_START = String.raw`(?:\\\\\?\\[A-Za-z]:[\\/]|[A-Za-z]:[\\/]|/(?!/)|\.{1,2}[\\/]|[A-Za-z0-9_.-]+[\\/])`;
+// TUI 自己截断过的长路径（Claude Code 的工具调用行会以 `…` / `...` 收尾）：
+// 缓冲区里根本没有完整路径，拿半截去解析只会报「路径已不可用」。
+const TRUNCATION_MARKER = /\u2026|\.{3}$/u;
+// `~[\\/]` 放在最前：主目录路径要整体匹配，否则 `/(?!/)` 会从 `~` 后面截出 `/Desktop/...`
+// 这种根目录下并不存在的路径（点开只会报「路径已不可用」）。
+const PATH_START = String.raw`(?:~[\\/]|\\\\\?\\[A-Za-z]:[\\/]|[A-Za-z]:[\\/]|/(?!/)|\.{1,2}[\\/]|[A-Za-z0-9_.-]+[\\/])`;
 
 const WITH_LOCATION = new RegExp(
   PATH_START +
@@ -78,6 +89,8 @@ function hasSupportedPathShape(path: string, options: TerminalPathLinkOptions): 
   }
   if (windowsAbsolute) return true;
   if (path.startsWith("/")) return options.allowPosixAbsolute && !path.startsWith("//");
+  // `~/…`：本机主目录（后端只在本机运行时展开；WSL/SSH 会话按不可用处理）。
+  if (/^~[\\/][^\\/]/.test(path)) return options.allowPosixAbsolute;
   if (/^\.{1,2}[\\/]/.test(path)) return true;
   return /^[A-Za-z0-9_.-]+[\\/][^\\/]+/u.test(path);
 }
@@ -89,7 +102,7 @@ export function parseTerminalPathReference(
   if (text.length > MAX_SCAN_CHARS || CONTROL_OR_BIDI.test(text)) return null;
   const suffix = text.match(LOCATION_SUFFIX);
   const path = suffix ? text.slice(0, -suffix[0].length) : text;
-  if (!hasSupportedPathShape(path, options)) return null;
+  if (TRUNCATION_MARKER.test(path) || !hasSupportedPathShape(path, options)) return null;
 
   const line = suffix ? Number(suffix[1]) : undefined;
   const column = suffix?.[2] ? Number(suffix[2]) : undefined;
@@ -323,6 +336,7 @@ export class TerminalPathLinkProvider implements ILinkProvider {
     private readonly onActivate: (reference: TerminalPathReference) => void,
     private readonly options: TerminalPathLinkOptions,
     private readonly isEnabled: () => boolean = () => true,
+    private readonly validate?: TerminalPathLinkValidator,
   ) {}
 
   provideLinks(viewportLine: number, callback: (links: ILink[] | undefined) => void): void {
@@ -337,20 +351,34 @@ export class TerminalPathLinkProvider implements ILinkProvider {
       if (window.truncatedStart && reference.startIndex === 0) return false;
       return !window.truncatedEnd || reference.endIndex < source.length;
     });
-    const links = candidates.flatMap((reference): ILink[] => {
+    const entries = candidates.flatMap((reference): Array<{ link: ILink; reference: TerminalPathLink }> => {
       const start = bufferPosition(this.terminal, chunks, reference.startIndex, "start");
       const end = bufferPosition(this.terminal, chunks, reference.endIndex, "end");
       if (!start || !end) return [];
       return [{
-        text: reference.text,
-        range: {
-          start: { x: start.x + 1, y: start.y + 1 },
-          end: { x: end.x, y: end.y + 1 },
+        reference,
+        link: {
+          text: reference.text,
+          range: {
+            start: { x: start.x + 1, y: start.y + 1 },
+            end: { x: end.x, y: end.y + 1 },
+          },
+          decorations: { pointerCursor: true, underline: true },
+          activate: () => this.onActivate(reference),
         },
-        decorations: { pointerCursor: true, underline: true },
-        activate: () => this.onActivate(reference),
       }];
     });
-    callback(links.length > 0 ? links : undefined);
+    const validate = this.validate;
+    if (!validate || entries.length === 0) {
+      callback(entries.length > 0 ? entries.map((entry) => entry.link) : undefined);
+      return;
+    }
+    // 存在性校验是异步的（走后端解析）：xterm 的 provideLinks 本就允许延迟回调。
+    // 校验失败/抛错一律当作「不是链接」，宁可少一条下划线也不要点了才报错。
+    void Promise.all(entries.map((entry) => Promise.resolve().then(() => validate(entry.reference)).catch(() => false)))
+      .then((verdicts) => {
+        const valid = entries.filter((_, index) => verdicts[index]).map((entry) => entry.link);
+        callback(valid.length > 0 && this.isEnabled() ? valid : undefined);
+      });
   }
 }

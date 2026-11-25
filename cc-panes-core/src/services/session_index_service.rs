@@ -168,6 +168,16 @@ impl SessionIndexService {
         Ok(entries)
     }
 
+    /// 按会话 id（= 终端标签的 resumeId）精确取索引条目，只读库不读转录。
+    pub fn lookup_sessions(&self, session_ids: &[String]) -> AppResult<Vec<SessionIndexEntry>> {
+        let mut entries = self
+            .repo
+            .get_sessions_by_ids(session_ids)
+            .map_err(AppError::from)?;
+        self.annotate_accounts(&mut entries);
+        Ok(entries)
+    }
+
     pub async fn refresh_session_index(self: Arc<Self>) -> AppResult<SessionIndexScanReport> {
         self.refresh_wsl_distros().await;
         self.refresh_from_cache_async().await

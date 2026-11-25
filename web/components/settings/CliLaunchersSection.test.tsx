@@ -77,7 +77,7 @@ describe("CliLaunchersSection", () => {
     expect(onChange).toHaveBeenCalledWith({ overrides: { claude: { command: "custom-claude" } } });
 
     await user.click(screen.getByRole("combobox", { name: i18n.t("settings:cliToolSelect") }));
-    expect(screen.getAllByRole("option")).toHaveLength(11);
+    expect(screen.getAllByRole("option")).toHaveLength(14);
     expect(screen.queryByText(i18n.t("settings:cliNotInstalled"))).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Codex CLI" }));
     expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "codex");

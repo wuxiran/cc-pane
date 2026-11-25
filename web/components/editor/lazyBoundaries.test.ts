@@ -54,8 +54,16 @@ describe("heavy dependency lazy boundaries", () => {
   });
 
   it("recharts stays behind the HomeUsageStats lazy boundary", () => {
+    // 设置页经 UsageStatsSettings 包装层间接引入 HomeUsageStats（及其 recharts），
+    // 懒加载边界落在 SettingsPaneContent 对包装层的动态 import 上。
     const settings = readWebFile("components/settings/SettingsPaneContent.tsx");
-    expect(settings).toContain('import("@/components/home/HomeUsageStats")');
+    expect(settings).toContain('import("./UsageStatsSettings")');
+    expect(staticValueImports(settings, "./UsageStatsSettings")).toEqual([]);
+    expect(staticValueImports(settings, "@/components/home/HomeUsageStats")).toEqual([]);
+    expect(staticValueImports(settings, "recharts")).toEqual([]);
+    const wrapper = readWebFile("components/settings/UsageStatsSettings.tsx");
+    expect(wrapper).toContain('from "@/components/home/HomeUsageStats"');
+    expect(staticValueImports(wrapper, "recharts")).toEqual([]);
   });
 
   it("mermaid is only dynamically imported", () => {

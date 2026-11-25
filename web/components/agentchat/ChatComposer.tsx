@@ -2,7 +2,7 @@
 // 从 AgentChatTabContent 拆出（行数棘轮）；附件摄取（对话框/粘贴/拖放）在
 // useComposerAttachments hook。发送块组装（text/image/resource_link）也在这里
 // ——父组件只提供会话身份与相位。
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { ArrowUp, Camera, RotateCw, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentChat";
@@ -21,6 +21,8 @@ import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
 import ChatAddMenu from "./ChatAddMenu";
+import ComposerSuggestionMenu from "./ComposerSuggestionMenu";
+import { useComposerSuggestions } from "./useComposerSuggestions";
 import type { OpenChatAttachment } from "./useChatFileActions";
 
 export interface ChatComposerProps {
@@ -114,8 +116,6 @@ export default function ChatComposer({
   });
   const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
   const draft = useAgentChatDraftStore((state) => state.drafts[chatId]?.text ?? "");
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [slashDismissed, setSlashDismissed] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const {
@@ -138,32 +138,8 @@ export default function ChatComposer({
     [chatId, draftToken],
   );
 
-  // `/` 开头且未含空格 → 斜杠命令菜单（点击/键盘补全，发送仍是普通文本 prompt）。
-  const slashMatches = useMemo(() => {
-    if (
-      slashDismissed
-      || !draft.startsWith("/")
-      || /\s/.test(draft)
-      || availableCommands.length === 0
-    ) {
-      return [];
-    }
-    const query = draft.slice(1).toLowerCase();
-    return availableCommands
-      .filter((command) => command.name.toLowerCase().startsWith(query))
-      .slice(0, 8);
-  }, [draft, availableCommands, slashDismissed]);
-
-  // 尾部 `@token` → 文件引用提示（发送时转 resource_link 块）。
-  const mentionQuery = useMemo(() => {
-    const match = /(?:^|\s)@(\S*)$/.exec(draft);
-    return match ? match[1] : null;
-  }, [draft]);
-
-  useEffect(() => {
-    setSlashIndex(0);
-    setSlashDismissed(false);
-  }, [draft]);
+  // `/` 命令 · `@` 引用文件 · `$` 使用技能：统一补全（发送仍是普通文本，@ 在 buildPromptBlocks 转 resource_link）。
+  const suggestions = useComposerSuggestions({ draft, cwd, availableCommands });
 
   /** 手动把文本插到光标处（接管粘贴后，默认插入行为已被 preventDefault）。 */
   const insertTextAtCursor = useCallback(
@@ -292,31 +268,15 @@ export default function ChatComposer({
     <div ref={hostRef} className={look.host} data-composer-look={compact ? "compact" : "pane"}>
       <div className={look.column}>
         {header}
-        {slashMatches.length > 0 ? (
-          <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-overlay)] py-1 shadow-md">
-            {slashMatches.map((command, index) => (
-              <button
-                key={command.name}
-                type="button"
-                className={`flex items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--app-hover)] ${
-                  index === slashIndex ? "bg-[var(--app-active-bg)]" : ""
-                }`}
-                onMouseEnter={() => setSlashIndex(index)}
-                onClick={() => setDraft(`/${command.name} `)}
-              >
-                <span className="font-mono text-xs">/{command.name}</span>
-                {command.description ? (
-                  <span className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
-                    {command.description}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {mentionQuery !== null ? (
+        <ComposerSuggestionMenu
+          items={suggestions.items}
+          activeIndex={suggestions.index}
+          onHover={suggestions.setIndex}
+          onPick={(item) => setDraft(item.nextDraft)}
+        />
+        {suggestions.mentionPending !== null ? (
           <div className="px-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
-            {t("agentChatMentionHint", { query: mentionQuery || "…" })}
+            {t("agentChatMentionHint", { query: suggestions.mentionPending || "…" })}
           </div>
         ) : null}
         <div
@@ -341,29 +301,22 @@ export default function ChatComposer({
             }}
             onPaste={handlePaste}
             onKeyDown={(event) => {
-              // 斜杠菜单打开时接管 ↑↓/Tab/Enter/Esc。
-              if (slashMatches.length > 0) {
-                if (event.key === "ArrowDown") {
+              // 补全菜单打开时接管 ↑↓/Tab/Enter/Esc（输入法组字中的 Enter 不算）。
+              if (suggestions.items.length > 0 && !event.nativeEvent.isComposing) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
-                  setSlashIndex((previous) => (previous + 1) % slashMatches.length);
-                  return;
-                }
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setSlashIndex(
-                    (previous) => (previous - 1 + slashMatches.length) % slashMatches.length,
-                  );
+                  suggestions.move(event.key === "ArrowDown" ? 1 : -1);
                   return;
                 }
                 if (event.key === "Tab" || event.key === "Enter") {
                   event.preventDefault();
-                  const command = slashMatches[slashIndex] ?? slashMatches[0];
-                  setDraft(`/${command.name} `);
+                  const item = suggestions.items[suggestions.index] ?? suggestions.items[0];
+                  setDraft(item.nextDraft);
                   return;
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  setSlashDismissed(true);
+                  suggestions.dismiss();
                   return;
                 }
               }

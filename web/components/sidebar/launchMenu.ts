@@ -50,6 +50,10 @@ export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "grok", labelKey: "cliToolGrok" },
   { id: "jcode", labelKey: "cliToolJcode" },
   { id: "antigravity", labelKey: "cliToolAntigravity" },
+  // 终端 CLI（裸启动）：SSH 是否可启动同样读注入描述（runtimes.ssh.launch=false）
+  { id: "kiro", labelKey: "cliToolKiro" },
+  { id: "fx", labelKey: "cliToolFx" },
+  { id: "muse", labelKey: "cliToolMuse" },
 ];
 
 const LEGACY_DEFAULT_FAVORITES = ["terminal-default", "claude-local", "codex-local"];

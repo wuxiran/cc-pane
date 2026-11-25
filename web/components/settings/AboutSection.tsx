@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { RefreshCw, FolderOpen, ShieldCheck } from "lucide-react";
 import { isTauriRuntime } from "@/services/runtime";
+import { SettingsRow, SettingsSection } from "./layout";
 
 export default function AboutSection() {
   const { t } = useTranslation("settings");
@@ -72,49 +73,29 @@ export default function AboutSection() {
     }
   };
 
-  return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("aboutTitle")}
-      </h3>
-
-      <div className="flex flex-col gap-2">
-        {([
-          [t("appName"), "CC-Panes"],
-          [t("version"), `v${version}`],
-          [t("description"), t("appDescription")],
-          [t("techStack"), "Tauri 2 + React 19 + TypeScript"],
-        ] as const).map(([label, value]) => (
-          <div
-            key={label}
-            className="flex justify-between items-center py-1.5"
-            style={{ borderBottom: "1px solid var(--app-border)" }}
-          >
-            <span className="text-[length:var(--text-row)]" style={{ color: "var(--app-text-secondary)" }}>{label}</span>
-            <span className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>{value}</span>
-          </div>
-        ))}
-      </div>
-
+  const isDesktop = isTauriRuntime();
+  const showUpdateBanner = Boolean(updateAvailable && updateVersion);
+  const updateNotices = (
+    <>
       {/* 更新状态提示 */}
-      {updateAvailable && updateVersion && (
-        <div
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-[length:var(--text-small)]"
+      {showUpdateBanner && (
+        <p
+          className="m-0 rounded-md px-3 py-2 text-[length:var(--text-small)]"
           style={{
             background: "var(--app-active-bg)",
             color: "var(--app-accent)",
             border: "1px solid var(--app-accent)",
           }}
         >
-          <span>{t("newVersionAvailable", { version: updateVersion })}</span>
-        </div>
+          {t("newVersionAvailable", { version: updateVersion })}
+        </p>
       )}
 
       {/* 静默检查失败：不弹任何东西，只在这里留一条可查的痕迹（docs/59 / L7 任务 2）。
           「需注意但可等」→ 用 warning 而非 danger（docs/46 §状态色映射）。 */}
       {lastCheckError && (
-        <div
-          className="px-3 py-2 rounded-md text-[length:var(--text-small)] break-all"
+        <p
+          className="m-0 break-all rounded-md px-3 py-2 text-[length:var(--text-small)]"
           style={{
             background: "var(--app-status-warning-bg)",
             color: "var(--app-status-warning)",
@@ -125,73 +106,101 @@ export default function AboutSection() {
             time: lastCheckFailedAt ? new Date(lastCheckFailedAt).toLocaleString() : "",
             reason: lastCheckError,
           })}
-        </div>
+        </p>
       )}
+    </>
+  );
 
-      <div className="flex flex-wrap gap-2 mt-2">
-        {isTauriRuntime() && (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={checking}
-          onClick={handleCheckUpdate}
-        >
-          <RefreshCw className={`w-4 h-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
-          {checking ? t("checking") : t("checkUpdate")}
-        </Button>
-        )}
+  return (
+    <>
+      <SettingsSection>
+        {([
+          [t("appName"), "CC-Panes"],
+          [t("version"), `v${version}`],
+          [t("techStack"), "Tauri 2 + React 19 + TypeScript"],
+        ] as const).map(([label, value]) => (
+          <SettingsRow
+            key={label}
+            title={label}
+            control={(
+              <span className="select-text text-[length:var(--text-row)] text-[var(--app-text-secondary)]">{value}</span>
+            )}
+          />
+        ))}
+        <SettingsRow title={t("description")} description={t("appDescription")} />
+      </SettingsSection>
 
-        {isTauriRuntime() && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            try {
-              await logService.openLogDir();
-            } catch (error) {
-              console.error("[AboutSection] Failed to open log dir:", error);
-            }
-          }}
-        >
-          <FolderOpen className="w-4 h-4 mr-1.5" />
-          {t("openLogDir")}
-        </Button>
-        )}
+      {(isDesktop || showUpdateBanner || Boolean(lastCheckError)) && (
+        <SettingsSection title={t("aboutGroups.maintenance")}>
+          <SettingsRow
+            title={t("checkUpdate")}
+            description={t("aboutGroups.checkUpdateDesc")}
+            control={isDesktop ? (
+              <Button variant="outline" size="sm" disabled={checking} onClick={handleCheckUpdate}>
+                <RefreshCw className={`w-4 h-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
+                {checking ? t("checking") : t("checkUpdate")}
+              </Button>
+            ) : undefined}
+          >
+            {showUpdateBanner || lastCheckError ? updateNotices : null}
+          </SettingsRow>
 
-        {isTauriRuntime() && (
-          <Button variant="outline" size="sm" onClick={() => setCleanupOpen(true)}>
-            <ShieldCheck className="w-4 h-4 mr-1.5" />
-            {t("cleanupBeforeUninstall")}
-          </Button>
-        )}
-      </div>
-
-      {cleanupReport && (
-        <div
-          className="mt-2 space-y-2 border-t pt-3 text-[length:var(--text-small)]"
-          style={{ borderColor: "var(--app-border)" }}
-          aria-live="polite"
-        >
-          <h4 className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
-            {t("cleanupReport")}
-          </h4>
-          {(["cleaned", "skipped", "failed"] as const).map((kind) => (
-            <div key={kind}>
-              <div className="font-medium" style={{ color: "var(--app-text-secondary)" }}>
-                {cleanupReportLabels[kind]} ({cleanupReport[kind].length})
-              </div>
-              {cleanupReport[kind].map((item) => (
-                <div
-                  key={`${kind}-${item}`}
-                  className="break-all"
-                  style={{ color: "var(--app-text-primary)" }}
+          {isDesktop && (
+            <SettingsRow
+              title={t("openLogDir")}
+              description={t("aboutGroups.openLogDirDesc")}
+              control={(
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await logService.openLogDir();
+                    } catch (error) {
+                      console.error("[AboutSection] Failed to open log dir:", error);
+                    }
+                  }}
                 >
-                  {item}
+                  <FolderOpen className="w-4 h-4 mr-1.5" />
+                  {t("openLogDir")}
+                </Button>
+              )}
+            />
+          )}
+
+          {isDesktop && (
+            <SettingsRow
+              title={t("cleanupBeforeUninstall")}
+              description={t("cleanupConfirmDescription")}
+              control={(
+                <Button variant="outline" size="sm" onClick={() => setCleanupOpen(true)}>
+                  <ShieldCheck className="w-4 h-4 mr-1.5" />
+                  {t("cleanupBeforeUninstall")}
+                </Button>
+              )}
+            >
+              {cleanupReport && (
+                <div className="flex flex-col gap-2 text-[length:var(--text-small)]" aria-live="polite">
+                  <h4 className="m-0 text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">
+                    {t("cleanupReport")}
+                  </h4>
+                  {(["cleaned", "skipped", "failed"] as const).map((kind) => (
+                    <div key={kind}>
+                      <div className="font-medium text-[var(--app-text-secondary)]">
+                        {cleanupReportLabels[kind]} ({cleanupReport[kind].length})
+                      </div>
+                      {cleanupReport[kind].map((item) => (
+                        <div key={`${kind}-${item}`} className="break-all font-mono text-[var(--app-text-primary)]">
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ))}
-        </div>
+              )}
+            </SettingsRow>
+          )}
+        </SettingsSection>
       )}
 
       <Dialog open={cleanupOpen} onOpenChange={(open) => !cleaning && setCleanupOpen(open)}>
@@ -216,6 +225,6 @@ export default function AboutSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

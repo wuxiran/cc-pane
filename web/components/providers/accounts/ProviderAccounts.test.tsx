@@ -8,6 +8,7 @@ import { useDialogStore, useProvidersStore } from "@/stores";
 import type { LoginAccountView, LoginCommand, Provider } from "@/types/provider";
 import { translateError } from "@/utils";
 import ProviderFormPanel from "../ProviderFormPanel";
+import { maskEmail } from "@/utils/maskEmail";
 
 vi.mock("@/components/editor/JsonEditor", () => ({ default: () => null }));
 
@@ -367,15 +368,15 @@ describe("login accounts", () => {
     vi.mocked(loginAccountService.getLoginStatus).mockResolvedValue({ state: "logged_in", identity: "me@personal.dev" });
     render(<ProviderFormPanel editProvider={provider} onBack={vi.fn()} />);
 
-    await waitFor(() => expect(within(accountRow("claude-a")).getByText(tp("login.state.loggedInAs", { identity: "work@corp.dev" }))).toBeInTheDocument());
+    await waitFor(() => expect(within(accountRow("claude-a")).getByText(tp("login.state.loggedInAs", { identity: maskEmail("work@corp.dev") }))).toBeInTheDocument());
     expect(within(accountRow("claude-b")).getByText(tp("login.state.notLoggedIn"))).toBeInTheDocument();
     expect(within(accountRow("claude-c")).getByText(tp("login.state.unknown"))).toBeInTheDocument();
-    expect(within(accountRow("default-login-claude")).getByText(tp("login.state.loggedInAs", { identity: "me@home.dev" }))).toBeInTheDocument();
+    expect(within(accountRow("default-login-claude")).getByText(tp("login.state.loggedInAs", { identity: maskEmail("me@home.dev") }))).toBeInTheDocument();
     // 默认登录不能改名、不能删。
     expect(within(accountRow("default-login-claude")).queryByRole("button", { name: /删除|Delete/ })).not.toBeInTheDocument();
 
     await user.click(within(accountRow("claude-b")).getByRole("button", { name: tp("login.recheck") }));
-    await waitFor(() => expect(within(accountRow("claude-b")).getByText(tp("login.state.loggedInAs", { identity: "me@personal.dev" }))).toBeInTheDocument());
+    await waitFor(() => expect(within(accountRow("claude-b")).getByText(tp("login.state.loggedInAs", { identity: maskEmail("me@personal.dev") }))).toBeInTheDocument());
     expect(loginAccountService.getLoginStatus).toHaveBeenCalledWith("p-1", "claude-b", "claude");
   });
 });

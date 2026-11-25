@@ -1,8 +1,11 @@
 import type {
   ConfigDirInfo,
+  ExternalProviderPreview,
+  ExternalProviderSource,
   Provider,
   ProviderApiCredentials,
   ProviderEnvPreviewEntry,
+  ProviderImportReport,
   SystemProviderInfo,
 } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
@@ -78,6 +81,20 @@ export const providerService = {
   }> {
     return invokeOrApi("import_cc_switch_providers", undefined, async () => {
       throw new Error("Importing from cc-switch is only available in the desktop app");
+    });
+  },
+
+  /** 预览外部来源（cc-switch / Magpie）里可导入的供应商；只读，不写任何东西。 */
+  async previewExternalProviders(source: ExternalProviderSource): Promise<ExternalProviderPreview> {
+    return invokeOrApi<ExternalProviderPreview>("preview_external_providers", { source }, async () => {
+      throw new Error("Importing providers is only available in the desktop app");
+    });
+  },
+
+  /** 导入预览里勾选的条目（keys 为预览返回的 key）。 */
+  async importExternalProviders(source: ExternalProviderSource, keys: string[]): Promise<ProviderImportReport> {
+    return invokeOrApi<ProviderImportReport>("import_external_providers", { source, keys }, async () => {
+      throw new Error("Importing providers is only available in the desktop app");
     });
   },
 

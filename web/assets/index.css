@@ -160,6 +160,39 @@
   transition-timing-function: var(--ease-out);
 }
 
+/* 品牌玻璃按钮：logo 橙的半透明磨砂底 + 顶部高光 + 细边，文字取「橙 × 主文字色」混色——
+ * 深色主题里偏亮橙、浅色主题里偏深橙，两边都保住对比度。首页「进入工作区」用它。 */
+@utility btn-glass-brand {
+  color: color-mix(in srgb, var(--app-accent-2) 78%, var(--app-text-primary));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 10%, transparent), transparent 55%),
+    color-mix(in srgb, var(--app-accent-2) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-accent-2) 42%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    0 4px 16px -4px color-mix(in srgb, var(--app-accent-2) 40%, transparent);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  &:hover {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 14%, transparent), transparent 55%),
+      color-mix(in srgb, var(--app-accent-2) 28%, transparent);
+    border-color: color-mix(in srgb, var(--app-accent-2) 60%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 28%, transparent),
+      0 6px 22px -4px color-mix(in srgb, var(--app-accent-2) 55%, transparent);
+  }
+  &:active {
+    transform: translateY(0.5px);
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--app-accent-2) 70%, transparent);
+    outline-offset: 2px;
+  }
+}
+
 @utility ui-selected {
   box-shadow: inset 2px 0 0 0 var(--primary);
 }
@@ -285,7 +318,7 @@
   --card-foreground: #1A1D21;
   --popover: #FFFFFF;
   --popover-foreground: #1A1D21;
-  --primary: #2563EB;
+  --primary: #0E7490;
   --primary-foreground: #ffffff;
   --secondary: #F1F3F6;
   --secondary-foreground: #1A1D21;
@@ -296,9 +329,9 @@
   --destructive: #CF222E;
   --border: rgba(17, 24, 39, 0.09);
   --input: rgba(17, 24, 39, 0.12);
-  --ring: #2563EB;
+  --ring: #0E7490;
 
-  --chart-1: #2563EB;
+  --chart-1: #0E7490;
   --chart-2: #1a7f37;
   --chart-3: #9A6700;
   --chart-4: #8250df;
@@ -306,12 +339,12 @@
 
   --sidebar: #F6F7F9;
   --sidebar-foreground: #1A1D21;
-  --sidebar-primary: #2563EB;
+  --sidebar-primary: #0E7490;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #ECEEF1;
   --sidebar-accent-foreground: #1A1D21;
   --sidebar-border: rgba(17, 24, 39, 0.08);
-  --sidebar-ring: #2563EB;
+  --sidebar-ring: #0E7490;
 
   /* 自定义应用层级变量 — 全部实色 */
   --app-menubar: #EEF0F3;
@@ -321,7 +354,10 @@
   --app-bg-deep: #EEF0F3;
   --app-bg-sidebar-deep: #F1F3F6;
   --app-overlay: #FFFFFF;
-  --app-accent: #2563EB;
+  --app-accent: #0E7490;
+  /* 品牌辅色（logo 橙）：运行中等状态点；主色 --app-accent 取 logo 青 */
+  --app-accent-2: #C2410C;
+  --app-accent-2-foreground: #ffffff;
   --app-tag-red: #D1242F;
   --app-tag-amber: #9A6700;
   --app-tag-green: #1A7F37;
@@ -336,7 +372,7 @@
   --app-text-tertiary: #6A717B;
   --app-border: rgba(17, 24, 39, 0.09);
   --app-hover: rgba(17, 24, 39, 0.04);
-  --app-active-bg: rgba(37, 99, 235, 0.10);
+  --app-active-bg: rgba(14, 116, 144, 0.10);
 
   /* Glass 变量 — Light 模式消灭 glass 效果 */
   --app-glass-bg: #F6F7F9;
@@ -364,8 +400,8 @@
   --app-activity-item-hover: var(--app-hover);
   --app-activity-item-active: var(--app-active-bg);
   --app-activity-item-active-shadow: none;
-  --app-active-gradient-from: rgba(37, 99, 235, 0.10);
-  --app-active-gradient-to: rgba(37, 99, 235, 0.02);
+  --app-active-gradient-from: rgba(14, 116, 144, 0.10);
+  --app-active-gradient-to: rgba(14, 116, 144, 0.02);
   --app-tab-highlight: #FFFFFF;
 
   /* Editor 专用变量 */
@@ -379,7 +415,7 @@
   --editor-breadcrumb-bg: #F6F7F9;
   --editor-breadcrumb-fg: #5A626C;
   --editor-breadcrumb-fg-active: #1A1D21;
-  --editor-selection-bg: rgba(37, 99, 235, 0.14);
+  --editor-selection-bg: rgba(14, 116, 144, 0.14);
   --editor-line-highlight: rgba(17, 24, 39, 0.03);
   --checkerboard-color: #e0e0e0;
   --checkerboard-bg: #ffffff;
@@ -401,8 +437,8 @@
   --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent);
   --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent);
   /* Canvas 管道语义色：管道、粒子和光晕统一从当前主题取色。 */
-  --app-canvas-pipe-primary: #2563EB;
-  --app-canvas-pipe-secondary: #60A5FA;
+  --app-canvas-pipe-primary: #0E7490;
+  --app-canvas-pipe-secondary: #22D3EE;
   --app-canvas-pipe-highlight: #DBEAFE;
   --app-canvas-pipe-channel: #FFFFFF;
   /* 身份色（运行环境等"是什么"而非"什么状态"）：WSL / SSH */
@@ -424,6 +460,10 @@
   /* Antigravity 无单色品牌色（logo 为渐变拱形），取未占用的靛蓝，
      与 gemini 的 #4285F4 / opencode 的紫拉开色相 */
   --app-cli-antigravity: #4F46E5;
+  /* 终端 CLI：Kiro 紫（品牌主色）、fx 青柠、Muse 靛（Meta 蓝与 gemini 过近） */
+  --app-cli-kiro: #6D28D9;
+  --app-cli-fx: #65A30D;
+  --app-cli-muse: #E11D48;
   /*
    * Provider 类型身份色（ProviderAvatar 头像底色）。
    * 与 --app-cli-* 数值多有重合但**不能复用**：cli 那套是前景色，暗色下被整体提亮
@@ -455,7 +495,7 @@
   --app-icon-hover: #5A626C;
   --app-close-btn-hover-bg: #CF222E;
   --app-close-btn-hover-fg: #FFFFFF;
-  --app-tab-active-border: #2563EB;
+  --app-tab-active-border: #0E7490;
   --app-terminal-bg: #ffffff;
   --app-terminal-fg: #000000;
   --app-terminal-cursor: #919191;
@@ -497,8 +537,8 @@
   --card-foreground: #ECECEC;
   --popover: #2F2F2F;
   --popover-foreground: #ECECEC;
-  --primary: #4C8DF5;
-  --primary-foreground: #ffffff;
+  --primary: #22D3EE;
+  --primary-foreground: #062A30;
   --secondary: #2F2F2F;
   --secondary-foreground: #ECECEC;
   /* --muted 与 --card 同档；muted-foreground 在其上 5.6 ≥4.5 */
@@ -509,9 +549,9 @@
   --destructive: #F85149;
   --border: rgba(255, 255, 255, 0.09);
   --input: rgba(255, 255, 255, 0.12);
-  --ring: #4C8DF5;
+  --ring: #22D3EE;
 
-  --chart-1: #4C8DF5;
+  --chart-1: #22D3EE;
   --chart-2: #3FB950;
   --chart-3: #D6A625;
   --chart-4: #A371F7;
@@ -519,12 +559,12 @@
 
   --sidebar: #1E1E1E;
   --sidebar-foreground: #ECECEC;
-  --sidebar-primary: #4C8DF5;
-  --sidebar-primary-foreground: #ffffff;
+  --sidebar-primary: #22D3EE;
+  --sidebar-primary-foreground: #062A30;
   --sidebar-accent: #2F2F2F;
   --sidebar-accent-foreground: #ECECEC;
   --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #4C8DF5;
+  --sidebar-ring: #22D3EE;
 
   /* 自定义应用层级变量 — 实色明度分层（阶梯方向见上：内容最暗、外壳次之、浮起面最亮） */
   --app-menubar: #282828;
@@ -534,7 +574,10 @@
   --app-bg-deep: #181818;
   --app-bg-sidebar-deep: #282828;
   --app-overlay: #2F2F2F;
-  --app-accent: #5E99F6;
+  --app-accent: #22D3EE;
+  /* 品牌辅色（logo 橙）：运行中等状态点；主色 --app-accent 取 logo 青 */
+  --app-accent-2: #FF7A1A;
+  --app-accent-2-foreground: #1F0D02;
   --app-tag-red: #FF7B72;
   --app-tag-amber: #E3B341;
   --app-tag-green: #56D364;
@@ -562,7 +605,7 @@
   --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --app-glass-blur: 0px;
   --app-glass-blur-sm: 0px;
-  --app-orb-1: rgba(76, 141, 245, 0.10);
+  --app-orb-1: rgba(34, 211, 238, 0.10);
   --app-orb-2: rgba(124, 92, 255, 0.08);
   --app-orb-3: rgba(63, 185, 80, 0.06);
   --app-orb-blur-lg: 120px;
@@ -576,10 +619,10 @@
   --app-home-kbd-bg: rgba(0, 0, 0, 0.40);
   --app-activity-border: rgba(255, 255, 255, 0.08);
   --app-activity-item-hover: rgba(255, 255, 255, 0.06);
-  --app-activity-item-active: rgba(76, 141, 245, 0.13);
+  --app-activity-item-active: rgba(34, 211, 238, 0.13);
   --app-activity-item-active-shadow: none;
-  --app-active-gradient-from: rgba(76, 141, 245, 0.18);
-  --app-active-gradient-to: rgba(76, 141, 245, 0.04);
+  --app-active-gradient-from: rgba(34, 211, 238, 0.18);
+  --app-active-gradient-to: rgba(34, 211, 238, 0.04);
   --app-tab-highlight: rgba(255, 255, 255, 0.10);
 
   /* Editor 专用变量 */
@@ -593,7 +636,7 @@
   --editor-breadcrumb-bg: #181818;
   --editor-breadcrumb-fg: #A0A0A0;
   --editor-breadcrumb-fg-active: #E8E8E8;
-  --editor-selection-bg: rgba(76, 141, 245, 0.22);
+  --editor-selection-bg: rgba(34, 211, 238, 0.22);
   --editor-line-highlight: rgba(255, 255, 255, 0.05);
   --checkerboard-color: #383838;
   --checkerboard-bg: #262626;
@@ -615,7 +658,7 @@
   --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   /* Canvas 管道语义色：深色主题使用同一套蓝色层级，避免混入固定白色。 */
-  --app-canvas-pipe-primary: #4C8DF5;
+  --app-canvas-pipe-primary: #22D3EE;
   --app-canvas-pipe-secondary: #79C0FF;
   --app-canvas-pipe-highlight: #DCEBFF;
   --app-canvas-pipe-channel: #1E1E1E;
@@ -635,6 +678,9 @@
   /* 比 identity-ssh 的 #67E8F9 压暗一档，避免两类青色在暗色下混淆 */
   --app-cli-jcode: #06B6D4;
   --app-cli-antigravity: #818CF8;
+  --app-cli-kiro: #C4B5FD;
+  --app-cli-fx: #A3E635;
+  --app-cli-muse: #FB7185;
   /*
    * Provider 身份色暗色套：只有对暗底不成立的两个改值（cursor / config_profile），
    * 其余品牌色本就是「深底白字」，提亮反而伤对比度，故与亮色同值。
@@ -670,7 +716,7 @@
   --app-icon-hover: #A0A0A0;
   --app-close-btn-hover-bg: #F85149;
   --app-close-btn-hover-fg: #FFFFFF;
-  --app-tab-active-border: #4C8DF5;
+  --app-tab-active-border: #22D3EE;
   --app-terminal-bg: #181818;
   --app-terminal-fg: #f5f5f7;
   --app-terminal-cursor: #0a84ff;
@@ -692,6 +738,8 @@
 
 /* ===== Named application themes ===== */
 :root[data-theme="cyber-purple"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: dark;
   /* 顶部内高光：与 .dark 同值（rgba 白 0.045，Linear/VSCode 暗色面板手法），
      显式定义避免依赖 .dark 继承；消费方见 TitleBar / AlertBannerShell / 空态卡片 / slab 形状。 */
@@ -798,6 +846,8 @@
 }
 
 :root[data-theme="amber-gold"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: dark;
   /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
@@ -902,6 +952,8 @@
 }
 
 :root[data-theme="warm-gray"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: light;
   --background: #f7f6f4;
   --foreground: #24221f;
@@ -996,6 +1048,8 @@
 }
 
 :root[data-theme="sky-blue"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: light;
   --background: #f3f7fb;
   --foreground: #192838;
@@ -1090,6 +1144,8 @@
 }
 
 :root[data-theme="nord-frost"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: dark;
   /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
@@ -1195,6 +1251,8 @@
 }
 
 :root[data-theme="tokyo-night"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: dark;
   /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
@@ -1299,6 +1357,8 @@
 }
 
 :root[data-theme="rice-paper"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: light;
   --background: #FAF8F2;
   --foreground: #2A2925;
@@ -1393,6 +1453,8 @@
 }
 
 :root[data-theme="mint-mist"] {
+  --app-accent-2: var(--app-accent);
+  --app-accent-2-foreground: var(--primary-foreground);
   color-scheme: light;
   --background: #F6FAF8;
   --foreground: #212B26;
@@ -2473,4 +2535,24 @@ textarea,
 [data-pane-statusbar="dimmed"]:hover,
 [data-pane-statusbar="dimmed"]:focus-within {
   opacity: 1;
+}
+
+/* Agent 对话区拖放提示：useComposerAttachments 在原生拖放悬停时给对话区打
+   data-chat-drop-active，文案由 data-chat-drop-label 传入（已本地化）。 */
+[data-agent-chat-drop-zone][data-chat-drop-active]::after {
+  content: attr(data-chat-drop-label);
+  position: absolute;
+  inset: 8px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--app-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-accent) 10%, transparent);
+  backdrop-filter: blur(2px);
+  color: var(--app-accent);
+  font-size: var(--text-body);
+  font-weight: 600;
+  pointer-events: none;
 }

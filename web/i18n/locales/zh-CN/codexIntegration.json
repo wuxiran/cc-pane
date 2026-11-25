@@ -6,7 +6,7 @@
   "nativeHint": "准备独立 Agent 对话，保留当前终端",
   "unavailable": "所选引擎不可用，请选择已安装的引擎。",
   "handoff": "交给 Codex 桌面…",
-  "handoffHint": "在 Codex 中打开任务草稿，由你点击发送。只交接这段说明，聊天记录和附件不会自动附带。",
+  "handoffHint": "在 Codex 中打开任务草稿，由你点击发送。选中对话文字后再交接，会作为引用预填；只交接这段说明，其余聊天记录和附件不会自动附带。",
   "taskLabel": "任务说明",
   "taskPlaceholder": "说明目标、文件范围和验收要求；可引用本地计划文件路径。",
   "taskTooLong": "说明过长，请保存为计划文件并在这里引用路径。",
@@ -14,5 +14,8 @@
   "openDraft": "打开 Codex 草稿",
   "opening": "正在打开…",
   "cancel": "取消",
-  "done": "完成"
+  "done": "完成",
+  "handoffSelection": "交给 Codex 桌面",
+  "quoteLastReply": "引用最后一条回复",
+  "quoteTruncated": "引用内容过长，已截断。完整内容请保存为计划文件并在这里引用路径。"
 }

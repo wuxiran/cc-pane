@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toolLabel, type ProfilesT } from "@/components/providers/launchProfileHelpers";
+import { HintIcon } from "@/components/providers/launchProfileParts";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -211,5 +212,19 @@ export function ScopeSelect({ onChange }: { onChange?: () => void }) {
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/** 资源库子页标题：介绍收进 ⓘ；没有启动档时在标题旁带一句淡色说明，不再各占一整行 */
+export function LibraryTitle({ title, intro, noProfiles }: { title: string; intro: string; noProfiles: boolean }) {
+  const { t } = useTranslation("settings");
+  return (
+    <div className="mr-auto flex min-w-0 items-center gap-1.5">
+      <h1 className="text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{title}</h1>
+      <HintIcon text={intro} />
+      {noProfiles && (
+        <span className="ml-1 truncate text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceCenter.noProfiles")}</span>
+      )}
+    </div>
   );
 }

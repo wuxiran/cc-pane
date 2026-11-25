@@ -239,6 +239,7 @@ export function syncTabTerminalState(tab: Tab): void {
       modelId: tab.modelId,
       providerSelection: tab.providerSelection,
       launchProfileId: tab.launchProfileId,
+      launchProfileSnapshot: tab.launchProfileSnapshot,
       workspacePath: tab.workspacePath,
       workspaceSnapshotId: tab.workspaceSnapshotId,
       cliTool: tab.cliTool,
@@ -276,6 +277,7 @@ export function syncTabTerminalState(tab: Tab): void {
   tab.modelId = activeLeaf.modelId;
   tab.providerSelection = activeLeaf.providerSelection;
   tab.launchProfileId = activeLeaf.launchProfileId;
+  tab.launchProfileSnapshot = activeLeaf.launchProfileSnapshot;
   tab.workspacePath = activeLeaf.workspacePath;
   tab.workspaceSnapshotId = activeLeaf.workspaceSnapshotId;
   tab.cliTool = activeLeaf.cliTool;

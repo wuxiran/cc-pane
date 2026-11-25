@@ -644,6 +644,25 @@ fn claude_status_reads_email_and_checks_only_whether_the_keychain_item_exists() 
         .unwrap();
     assert_eq!(status.state, LoginState::LoggedIn);
     assert_eq!(status.identity.as_deref(), Some("default@example.com"));
+
+    // 「CLI 自带登录」不依赖任何供应商：系统 id 查到的是同一个默认目录。
+    let system = fixture
+        .service
+        .login_status(
+            crate::models::provider::SYSTEM_PROVIDER_ID,
+            DEFAULT_LOGIN_ACCOUNT_ID,
+            Some("claude"),
+        )
+        .unwrap();
+    assert_eq!(system, status);
+    assert!(fixture
+        .service
+        .login_status(
+            crate::models::provider::SYSTEM_PROVIDER_ID,
+            DEFAULT_LOGIN_ACCOUNT_ID,
+            Some("kimi"),
+        )
+        .is_err());
 }
 
 /// 钥匙串查不了（锁着 / 被拒）：未知，不猜。

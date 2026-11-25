@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { performanceService } from "@/services/performanceService";
 import { isTauriRuntime } from "@/services/runtime";
+import { SettingsHint, SettingsRow, SettingsSection } from "./layout";
 
 export default function PerformanceDiagnosticsCard() {
   const { t } = useTranslation("settings");
@@ -28,15 +29,24 @@ export default function PerformanceDiagnosticsCard() {
     finally { setBusy(false); }
   };
   if (!isTauriRuntime()) return null;
-  return <div className="border-t pt-3 space-y-2 text-[length:var(--text-small)]">
-    <div className="font-medium">{t("performanceRecords")}</div>
-    <p style={{ color: "var(--app-text-secondary)" }}>{t("performanceRecordsDescription")}</p>
-    <p role="status">{status?.running && !status.lastError ? t("performanceRecording") : t("performanceRecorderUnavailable")}</p>
-    <div className="flex gap-2">
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(false)}>{t("openPerformanceRecords")}</Button>
-      <Button variant="outline" size="sm" disabled={busy || !status?.running || Boolean(status.lastError)} onClick={() => void act(true)}>{t("markPerformanceIncident")}</Button>
-    </div>
-    {marked && <p role="status">{t("performanceIncidentMarked")}</p>}
-    {(error || status?.lastError) && <p role="alert">{error ?? status?.lastError}</p>}
-  </div>;
+  const recording = Boolean(status?.running && !status.lastError);
+  const failure = error ?? status?.lastError;
+  return (
+    <SettingsSection title={t("performanceRecords")} description={t("performanceRecordsDescription")}>
+      <SettingsRow
+        title={<span role="status">{recording ? t("performanceRecording") : t("performanceRecorderUnavailable")}</span>}
+        control={(
+          <>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(false)}>{t("openPerformanceRecords")}</Button>
+            <Button variant="outline" size="sm" disabled={busy || !status?.running || Boolean(status.lastError)} onClick={() => void act(true)}>{t("markPerformanceIncident")}</Button>
+          </>
+        )}
+      >
+        {marked && <SettingsHint><span role="status">{t("performanceIncidentMarked")}</span></SettingsHint>}
+        {failure && (
+          <p role="alert" className="m-0 break-all text-[length:var(--text-small)] text-[var(--app-status-danger)]">{failure}</p>
+        )}
+      </SettingsRow>
+    </SettingsSection>
+  );
 }

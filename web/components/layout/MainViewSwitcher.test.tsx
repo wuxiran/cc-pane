@@ -58,6 +58,7 @@ const activityState = vi.hoisted(() => ({
   activeView: "explorer" as ActivityView,
   appViewMode: "panes" as AppViewMode,
   orchestrationOverlayOpen: false,
+  providersViewRequest: { view: "profiles" as const, seq: 0 },
   closeOrchestrationOverlay: () => {},
   setAppViewMode: (mode: AppViewMode) => {
     activityState.appViewMode = mode;

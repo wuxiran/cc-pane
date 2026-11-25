@@ -91,7 +91,7 @@ export default function SkillInstallCard() {
   };
 
   return (
-    <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--app-border)" }} data-testid="skill-install-card" aria-label={t("skillLibrary.install.title")}>
+    <section className="mb-4" data-testid="skill-install-card" aria-label={t("skillLibrary.install.title")}>
       <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void find(); }}>
         <div className="relative min-w-0 flex-1">
           <Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />

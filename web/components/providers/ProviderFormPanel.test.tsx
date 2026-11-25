@@ -286,6 +286,38 @@ describe("ProviderFormPanel", () => {
     });
   });
 
+  it("toggles a model's hidden-in-dropdown flag and saves it", async () => {
+    const user = userEvent.setup();
+    const actions = setupStore();
+    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+
+    await user.type(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
+      "Hidden Model Provider"
+    );
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
+    );
+    const row = screen.getByTestId("provider-model-row-0");
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelId")),
+      "legacy-model"
+    );
+    const toggle = within(row).getByTestId("provider-model-hidden-0");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await waitFor(() => {
+      expect(actions.addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [expect.objectContaining({ id: "legacy-model", hidden: true })],
+        })
+      );
+    });
+  });
+
   it("hydrates model rows and supports changing and removing the default", async () => {
     const user = userEvent.setup();
     const existing = {

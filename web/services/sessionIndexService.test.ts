@@ -27,6 +27,14 @@ describe("sessionIndexService", () => {
     expect(invoke).toHaveBeenCalledWith("list_session_index", { params });
   });
 
+  it("looks up index entries by session id and skips IPC for an empty batch", async () => {
+    mockTauriInvoke({ lookup_session_index: [] });
+    await expect(sessionIndexService.lookup([])).resolves.toEqual([]);
+    expect(invoke).not.toHaveBeenCalled();
+    await sessionIndexService.lookup(["a", "b"]);
+    expect(invoke).toHaveBeenCalledWith("lookup_session_index", { sessionIds: ["a", "b"] });
+  });
+
   it("refreshes the cache and preserves the scan report", async () => {
     const report = { rootsScanned: 2, filesSeen: 10, filesParsed: 1, filesSkipped: 9, bytesRead: 512 };
     mockTauriInvoke({ refresh_session_index: report });

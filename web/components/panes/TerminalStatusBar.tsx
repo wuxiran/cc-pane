@@ -2,6 +2,7 @@ import { EyeOff, FileDiff, FolderOpen, MessageSquareText, RefreshCw, Terminal } 
 import { requestTerminalRepairDisplay } from "./terminalFitEvents";
 import { useTranslation } from "react-i18next";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
+import LaunchProfileBadge from "@/components/LaunchProfileBadge";
 import StatusIndicator from "@/components/StatusIndicator";
 import {
   ContextMenu,
@@ -162,6 +163,7 @@ export default function TerminalStatusBar({
               {effort}
             </span>
           ) : null}
+          <LaunchProfileBadge session={terminalContext} mode="terminal" className="max-w-32" />
           {showContextUsage && (
             <ContextUsageIndicator terminalContext={terminalContext} enabled={enabled} />
           )}

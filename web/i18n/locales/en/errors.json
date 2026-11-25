@@ -154,5 +154,7 @@
   "CURSOR_BRIDGE_CONFIRM_REQUIRED": "forget/abandon require confirm=true",
   "CURSOR_BRIDGE_QUERY_REQUIRED": "context requires a query",
   "CURSOR_BRIDGE_TASK_REQUIRED": "do requires a task",
-  "CURSOR_BRIDGE_IO": "Cursor Bridge registry I/O failed"
+  "CURSOR_BRIDGE_IO": "Cursor Bridge registry I/O failed",
+  "MAGPIE_GATEWAY_UNREACHABLE": "The Magpie gateway is not running ({{address}}). Open Magpie or run magpie serve first.",
+  "CC_SWITCH_PROXY_UNREACHABLE": "The cc-switch proxy is not running ({{address}}). Open cc-switch and enable its local proxy first."
 }

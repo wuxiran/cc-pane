@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import ProviderToolSelect from "./ProviderToolTabs";
 import type { KnownCliTool } from "@/types/terminal";
@@ -16,7 +18,11 @@ interface Props {
   /** 页面级动作槽（凭证页放「从预设创建」/「从 cc-switch 导入」） */
   compact?: boolean;
   showTopViewTabs?: boolean;
+  /** 运行配置页宽屏下智能体在左栏选，不再需要右上角这排 CLI 图标 */
+  showToolSelect?: boolean;
   actions?: ReactNode;
+  /** 凭证页不再有顶部标签：从运行配置进来后用它返回 */
+  onBack?: () => void;
 }
 
 /**
@@ -30,7 +36,9 @@ export default function ProviderPagesHeader({
   counts,
   compact,
   showTopViewTabs = true,
+  showToolSelect = true,
   actions,
+  onBack,
 }: Props) {
   const { t } = useTranslation("settings");
 
@@ -50,8 +58,13 @@ export default function ProviderPagesHeader({
           ]}
         />
       )}
+      {onBack && (
+        <Button variant="ghost" size={compact ? "xs" : "sm"} onClick={onBack}>
+          <ArrowLeft size={14} /> {t("launchProfilesTab")}
+        </Button>
+      )}
       <div className="min-w-0 flex-1" />
-      <ProviderToolSelect activeTab={activeTab} onTabChange={onTabChange} providerCounts={counts} />
+      {showToolSelect && <ProviderToolSelect activeTab={activeTab} onTabChange={onTabChange} providerCounts={counts} />}
       {actions}
     </div>
   );

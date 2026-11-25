@@ -36,6 +36,7 @@ export {
 export {
   useLayoutUiStore,
   type LayoutBarDensity,
+  type PinnedLayoutSide,
   type LayoutSwitcherMode,
 } from "./useLayoutUiStore";
 export { useExplorerSectionsStore } from "./useExplorerSectionsStore";

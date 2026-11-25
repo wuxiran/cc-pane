@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpRight, Clock3, Gauge } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import {
   useActiveTerminalContext,
   type ActiveTerminalContext,
@@ -107,9 +107,12 @@ export default function ContextUsageIndicator({
     : displaySnapshot.status === "error"
       ? <AlertTriangle className="h-3.5 w-3.5" />
       : <Gauge className="h-3.5 w-3.5" />;
-  const primary = displaySnapshot.status === "waiting" || displaySnapshot.status === "error"
-    ? t("contextUsage.windowSources.unknown")
-    : percentage === null ? "-%" : `${percentage}%`;
+  // 等待首条用量 = 新会话还没开始，上下文就是 0，不是「未知」。
+  const primary = displaySnapshot.status === "waiting"
+    ? "0%"
+    : displaySnapshot.status === "error"
+      ? t("contextUsage.windowSources.unknown")
+      : percentage === null ? "-%" : `${percentage}%`;
   const rawSummary = `${formatTokens(displaySnapshot.usedTokens)} / ${formatTokens(displaySnapshot.windowTokens)}`;
   const effectiveDiffers = displaySnapshot.effectiveUsedTokens !== displaySnapshot.usedTokens
     || displaySnapshot.effectiveWindowTokens !== displaySnapshot.windowTokens;
@@ -166,7 +169,7 @@ export default function ContextUsageIndicator({
             {displaySnapshot.diagnosticCode === "WINDOW_UNKNOWN" && (
               <button
                 type="button"
-                onClick={() => navigateToSettings({ paneId: "provider" })}
+                onClick={() => useActivityBarStore.getState().openProvidersView("providers")}
                 aria-label={t("contextUsage.windowUnknownAction")}
                 className="flex w-fit items-center gap-1 rounded text-left underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
                 style={{ color: "var(--app-status-danger)" }}

@@ -61,7 +61,7 @@ impl OrchestratorService {
             .build()
             .map_err(|e| e.to_string())?
             .post(format!("http://127.0.0.1:{port}{RETRY_PATH}"))
-            .bearer_auth(&self.token)
+            .bearer_auth(self.token())
             .json(&RetryRequest {
                 binding_id: binding_id.to_owned(),
             })
@@ -95,7 +95,7 @@ pub(super) async fn handle_retry(
     State(state): State<AppState>,
     Json(request): Json<RetryRequest>,
 ) -> (StatusCode, Json<Value>) {
-    if !verify_token(&headers, &state.token) {
+    if !verify_token(&headers, &state.token.current()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error":"Invalid or missing Bearer token"})),
@@ -355,7 +355,7 @@ mod tests {
         *service.cancel_tx.lock().unwrap() = Some(cancel);
         let entered = Arc::new(tokio::sync::Notify::new());
         let complete = Arc::new(tokio::sync::Notify::new());
-        let expected_token = service.token.clone();
+        let expected_token = service.token();
         let entered_request = entered.clone();
         let complete_request = complete.clone();
         let app = Router::new().route(

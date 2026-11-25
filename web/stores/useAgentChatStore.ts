@@ -19,6 +19,7 @@ import { parentToolCallIdOf } from "@/types/agentChat";
 import { createElicitationActions, type ElicitationActions, type ElicitationState } from "./agentChatElicitation";
 import { seedForkTranscript } from "./agentChatForkTranscript";
 import { dropAgentChatDraft } from "./useAgentChatDraftStore";
+import { createHandoffActions, emptyHandoff, type HandoffActions, type HandoffState } from "./useAgentChatStoreHandoff";
 import { createPromptSubmissionActions, emptyPromptSubmission, observePromptPhase, type PromptSubmissionActions, type PromptSubmissionState } from "./agentChatPromptSubmission";
 
 export type { PendingChatElicitation } from "./agentChatElicitation";
@@ -40,10 +41,12 @@ export interface ChatSetupState {
   pending: boolean;
   error: string | null;
   firstPrompt?: string;
+  /** 启动页随首条消息带上的附件（重启时与 firstPrompt 一起重发）。 */
+  firstAttachments?: AgentChatAttachment[];
   preamble?: string;
 }
 
-export interface AgentChatSessionState extends PromptSubmissionState, ElicitationState {
+export interface AgentChatSessionState extends PromptSubmissionState, ElicitationState, HandoffState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
   /** 当前会话正文的起点；切项目留下的旧会话和分隔提示属于此前的只读前缀。 */
@@ -71,7 +74,7 @@ export interface AgentChatSessionState extends PromptSubmissionState, Elicitatio
   terminals: Record<string, AcpTerminalOutput>;
 }
 
-interface AgentChatStoreState extends PromptSubmissionActions, ElicitationActions {
+interface AgentChatStoreState extends PromptSubmissionActions, ElicitationActions, HandoffActions {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
   seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
@@ -92,7 +95,7 @@ interface AgentChatStoreState extends PromptSubmissionActions, ElicitationAction
   enqueuePermission: (chatId: string, request: AcpPermissionRequest) => void;
   beginPermissionResponse: (chatId: string, requestKey: string) => boolean;
   finishPermissionResponse: (chatId: string, requestKey: string, error?: string) => void;
-  beginSetup: (chatId: string, prompt?: { firstPrompt?: string; preamble?: string }) => number | null;
+  beginSetup: (chatId: string, prompt?: { firstPrompt?: string; firstAttachments?: AgentChatAttachment[]; preamble?: string }) => number | null;
   finishSetup: (chatId: string, token: number, error?: string) => void;
   pushNotice: (chatId: string, text: string) => void;
   turnEnded: (chatId: string, stopReason: string, error?: string) => void;
@@ -103,6 +106,7 @@ interface AgentChatStoreState extends PromptSubmissionActions, ElicitationAction
 export function emptySession(): AgentChatSessionState {
   return {
     ...emptyPromptSubmission(),
+    ...emptyHandoff(),
     snapshot: null,
     items: [],
     transcriptSessionId: null,
@@ -173,6 +177,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     chats: {},
     ...createElicitationActions(set, (state, chatId) => ensure(state.chats, chatId)),
     ...createPromptSubmissionActions(set, (state, chatId) => ensure(state.chats, chatId), pushItem, nextItemId),
+    ...createHandoffActions(set, (state, chatId) => ensure(state.chats, chatId)),
 
     seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
       seedForkTranscript(ensure(state.chats, chatId), items, acpSessionId, preservedPrefixLength);
@@ -201,15 +206,9 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         }
       }),
 
-    setConcierge: (chatId, concierge) =>
-      set((state) => {
-        ensure(state.chats, chatId).concierge = concierge;
-      }),
+    setConcierge: (chatId, concierge) => set((state) => { ensure(state.chats, chatId).concierge = concierge; }),
 
-    setCwdOverride: (chatId, cwd) =>
-      set((state) => {
-        ensure(state.chats, chatId).cwdOverride = cwd;
-      }),
+    setCwdOverride: (chatId, cwd) => set((state) => { ensure(state.chats, chatId).cwdOverride = cwd; }),
 
     beginHistoryReplay: (chatId, acpSessionId) =>
       set((state) => {

@@ -18,11 +18,11 @@ describe("StatusIndicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("thinking 状态渲染强调色圆点且不带 pulse 动效", () => {
+  it("thinking 状态渲染品牌辅色圆点且不带 pulse 动效", () => {
     const { container } = render(<StatusIndicator status="thinking" />);
     const dot = getDot(container);
     expect(dot).not.toBeNull();
-    expect(dot?.style.backgroundColor).toBe("var(--app-accent)");
+    expect(dot?.style.backgroundColor).toBe("var(--app-accent-2)");
     expect(dot?.className).not.toContain("cc-status-pulse");
     expect(dot?.getAttribute("title")).toBeTruthy();
   });

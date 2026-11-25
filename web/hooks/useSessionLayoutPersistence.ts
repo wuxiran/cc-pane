@@ -19,6 +19,7 @@ import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntim
 import { startVisibleInterval } from "@/utils/visibleInterval";
 import { collectAllScopeSessionIds, getActiveLayoutScope } from "@/stores/useLayoutScopeStore";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
+import { launchProfileIdForLaunch } from "@/lib/launchProfileSnapshot";
 import {
   reconcileTerminalSessions,
   runBackgroundLayoutRestore,
@@ -160,7 +161,7 @@ export function collectRestorableSessions(): SavedSession[] {
         providerId: leaf.providerId ?? tab.providerId,
         providerAccountId: leaf.providerAccountId ?? tab.providerAccountId,
         providerSelection: leaf.providerSelection ?? tab.providerSelection,
-        launchProfileId: leaf.launchProfileId ?? tab.launchProfileId,
+        launchProfileId: launchProfileIdForLaunch(leaf) ?? launchProfileIdForLaunch(tab),
         cliTool: leaf.cliTool || tab.cliTool || (tab.launchClaude ? "claude" : "none"),
         runtimeKind: resolveRuntimeKind({ ssh, wsl }),
         resumeId: leaf.resumeId ?? tab.resumeId,

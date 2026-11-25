@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TerminalContextMenu from "./TerminalContextMenu";
+import { useTaskQueuePopoverStore } from "@/stores/useTaskQueuePopoverStore";
 import { resolveNativeMenuBlock } from "./terminalViewHelpers";
 import type {
   TerminalSessionMenu,
@@ -261,5 +262,22 @@ describe("TerminalContextMenu", () => {
     openMenu();
 
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("任务队列入口：仅当该会话挂着队列面板时显示，点击发出打开请求", async () => {
+    const unregister = useTaskQueuePopoverStore.getState().register("pty-1");
+    renderMenu({ getSessionId: () => "pty-1" });
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /任务队列|Task Queue/i }));
+    expect(useTaskQueuePopoverStore.getState().requested).toBe("pty-1");
+    useTaskQueuePopoverStore.getState().consume();
+    unregister();
+  });
+
+  it("没有队列面板的会话不显示任务队列入口", async () => {
+    renderMenu({ getSessionId: () => "pty-2" });
+    openMenu();
+    await screen.findByRole("menuitem", { name: /修复显示|Repair/i });
+    expect(screen.queryByRole("menuitem", { name: /任务队列|Task Queue/i })).toBeNull();
   });
 });

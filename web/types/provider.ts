@@ -1,3 +1,5 @@
+import type { ImportedProfileHints, NativeOverrides } from "./native-config";
+import type { ExternalRelayInfo, ExternalSkippedItem } from "./providerImport";
 import type { KnownCliTool, LaunchEffort } from "./terminal";
 
 export type ProviderType =
@@ -26,6 +28,8 @@ export interface ProviderModel {
    * 与 `contextWindowTokens` 互补：前者控制注入时形态，后者控制 context 解析。
    */
   contextSize?: string | null;
+  /** 在下拉中隐藏：启动档 / 启动器的模型下拉不列出；已引用它的启动档仍可解析（显示「已隐藏」）。 */
+  hidden?: boolean;
 }
 
 export const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS = 1_000;
@@ -149,6 +153,10 @@ export interface LoginAccountStatus {
   expiresAt?: string;
   /** `unknown` 的原因码：keychain_unavailable / antigravity_reports_in_cli / credential_file_missing / account_file_unreadable / home_unavailable / unsupported_cli。 */
   reason?: string;
+  /** 套餐 / 登录方式的显示名（如 `Claude Team`、`ChatGPT Plus`、`API Key`）。读不到时没有。 */
+  plan?: string;
+  /** 认证方式代码：`oauth` / `chatgpt` / `api_key`，或 CLI 写的原值。 */
+  authKind?: string;
 }
 
 /** 一个登录账号（`list_login_accounts` / `create_login_account`）。 */
@@ -238,6 +246,8 @@ export interface Provider {
   accounts?: ProviderAccount[];
   defaultAccountId?: string | null;
   source?: ProviderOrigin | null;
+  /** 原生 CLI 配置覆盖片段：CLI id（codex / claude）→ 原文（Codex TOML / Claude JSON）。 */
+  nativeOverrides?: NativeOverrides;
 }
 
 /** 供应商的默认账号（`defaultAccountId` 失效时退回第一个）。 */
@@ -409,6 +419,9 @@ export const CLI_TOOL_TABS = [
   { id: "grok" as const, labelKey: "tabGrok", accentColor: "#71767B" },
   { id: "jcode" as const, labelKey: "tabJcode", accentColor: "#0891B2" },
   { id: "antigravity" as const, labelKey: "tabAntigravity", accentColor: "#4F46E5" },
+  { id: "kiro" as const, labelKey: "tabKiro", accentColor: "#6D28D9" },
+  { id: "fx" as const, labelKey: "tabFx", accentColor: "#65A30D" },
+  { id: "muse" as const, labelKey: "tabMuse", accentColor: "#E11D48" },
 ] as const;
 
 export type PresetCategory = "official" | "cloud" | "proxy_intl" | "openai_compat" | "domestic";
@@ -434,4 +447,52 @@ export interface ConfigDirInfo {
   hasCredentials: boolean;
   settingsSummary: string | null;
   files: string[];
+}
+
+/** 可导入供应商的外部来源（镜像后端 `ExternalProviderSource`）。 */
+export type ExternalProviderSource = "cc_switch" | "magpie";
+
+/** 导入预览的一行（不含密钥明文）。 */
+export interface ExternalProviderCandidate {
+  /** 预览与导入之间对上同一条的键。 */
+  key: string;
+  name: string;
+  providerType: ProviderType;
+  baseUrl?: string | null;
+  hasKey: boolean;
+  modelCount: number;
+  /** CC-Panes 里已经有了：不能再勾。 */
+  duplicate: boolean;
+  /** 建议给运行配置的内容（片段 / YOLO / 模型 / 没导入的键）。不含密钥。 */
+  profile?: ImportedProfileHints;
+  /** 中转站一层有原生配置片段。 */
+  hasProviderNativeOverride?: boolean;
+  /** 导入模型的上下文窗口。 */
+  contextWindowTokens?: number | null;
+  /** 已存在的中转站可以「补充原生配置」（片段空 / 模型缺上下文窗口，而来源里有）。 */
+  canSupplementProvider?: boolean;
+  /** 已存在的中转站 id（duplicate 时）。 */
+  existingProviderId?: string | null;
+  /** 依赖本地网关的条目（Magpie 路由组 / cc-switch 代理）。 */
+  relay?: ExternalRelayInfo | null;
+}
+
+export interface ExternalProviderPreview {
+  /** 来源文件存在。 */
+  available: boolean;
+  path?: string | null;
+  candidates: ExternalProviderCandidate[];
+  skippedEmpty: number;
+  skippedUnsupported: number;
+  /** 来源里有、但暂不导入的登录账号数（Magpie logins.json）。 */
+  unsupportedLogins: number;
+  /** 带原因略过的条目（如 cc-switch 代理占位凭据）。 */
+  skippedItems?: ExternalSkippedItem[];
+}
+
+export interface ProviderImportReport {
+  imported: number;
+  skippedDuplicate: number;
+  skippedEmpty: number;
+  skippedUnsupported: number;
 }

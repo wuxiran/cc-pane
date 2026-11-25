@@ -1,18 +1,23 @@
 # Codex App Server 接入
 
-CC-Panes 提供三个独立入口，已有会话不会自动迁移：
+CC-Panes 提供以下入口，已有会话不会自动迁移：
 
 | 入口 | 执行方式 |
 | --- | --- |
 | 终端中的 Codex | 原有 Codex CLI / TUI，保持原样 |
-| Agent 的 Codex (ACP) | 原有固定版本 `codex-acp` 适配器 |
-| Agent 的 Codex App Server、`cc-panes-ctl codex` | 本机 `codex app-server` 的原生双向 JSON-RPC 协议 |
+| Agent 的「Codex」（id `codex-app-server`） | 优先本机 `codex app-server`；起不来时自动改走固定版本 `codex-acp`（ACP 兼容模式） |
+| 旧 Agent 会话（id `codex`） | 只在历史 / 续接里出现，照旧走 `codex-acp`；引擎列表不再单列 |
+| `cc-panes-ctl codex` | 本机 `codex app-server` 的原生双向 JSON-RPC 协议 |
+
+自动降级只发生在 App Server「起不来」时（可执行文件缺失、spawn 失败、进程在 initialize 前退出或 initialize 被拒）；
+握手后段失败照常报错。确定性失败按 codex 二进制身份（规范化路径 + 大小 + 修改时间）缓存在进程内，同一二进制之后直接走 ACP；
+升级 codex 即重新探测。设置 → 工具 → Agent Chat 的「Codex 始终使用 ACP 兼容模式」只影响新会话。
 
 需要本机安装并登录 Codex CLI。原生接入直接解析本机 `codex` 可执行文件；不下载 ACP 包，不读取或展示登录凭据。当前按 Codex CLI 0.162.1 生成的协议及官方文档校对。App Server 为实验性接口，升级 CLI 后应重新跑兼容性验收。
 
 ## 桌面入口
 
-Agent 启动页选择 **Codex App Server**。CLI 的 Codex 标签右键可新建该引擎的 Agent 对话；原终端保留，新页面预选引擎，不自动发送任务或恢复正在运行的 CLI 线程。
+Agent 启动页选择 **Codex**（原生 App Server 优先）。CLI 的 Codex 标签右键可新建该引擎的 Agent 对话；原终端保留，新页面预选引擎，不自动发送任务或恢复正在运行的 CLI 线程。
 
 原生 Agent 支持流式回复、工具输出、截图输入与 MCP 图片结果、模型与思考深度、审批与表单提问、停止、恢复和分叉。继续使用现有运行记录和整轮变更审阅。历史里的图片保留引用或占位，不承诺恢复原始缩略图；App Server 文件补丁不包含完整旧文件时，不提供单工具撤销，改用有可靠快照的整轮审阅。无法确认后台命令已结束时，快照保留可读并禁用还原。
 

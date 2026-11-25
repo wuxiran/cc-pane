@@ -19,13 +19,16 @@ mod codex;
 pub mod context_size;
 mod cursor;
 mod fs_atomic;
+mod fx;
 mod gemini;
 mod grok;
 pub mod injection_profile;
 mod jcode;
 mod kimi;
+mod kiro;
 pub mod mcp_config_lifecycle;
 pub mod mcp_file_injection;
+mod muse;
 mod omp;
 mod opencode;
 mod opencode_isolation;
@@ -51,6 +54,7 @@ pub const CODEX_LIGHTWEIGHT_OPTION: &str = "codexLightweight";
 /// adapter option 键：Codex 低配模式（`agents.max_concurrent_threads_per_session=2`）。
 pub const CODEX_LOW_SPEC_OPTION: &str = "codexLowSpecMode";
 pub use cursor::CursorAdapter;
+pub use fx::FxAdapter;
 pub use gemini::GeminiAdapter;
 pub use grok::GrokAdapter;
 pub use injection_profile::{
@@ -59,6 +63,8 @@ pub use injection_profile::{
 };
 pub use jcode::JcodeAdapter;
 pub use kimi::KimiAdapter;
+pub use kiro::KiroAdapter;
+pub use muse::MuseAdapter;
 pub use omp::OmpAdapter;
 pub use opencode::OpenCodeAdapter;
 pub use pi::{
@@ -612,6 +618,8 @@ fn is_directly_executable(path: &Path) -> bool {
 fn home_fallback_cli_dirs(home: &Path) -> Vec<PathBuf> {
     vec![
         home.join(".cargo").join("bin"),
+        // Kiro（kiro-cli）/ Antigravity（agy）/ fx / Muse Code（muse）的官方
+        // 安装脚本在 macOS/Linux 上都默认落到 ~/.local/bin。
         home.join(".local").join("bin"),
         // Bun's global bin dir (`bun install -g`, omp's documented install
         // path). The installer appends it to the user PATH, but an
@@ -717,6 +725,11 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // Antigravity CLI（agy）的 PowerShell/CMD 安装器把 agy.exe 放在
         // `%LOCALAPPDATA%\agy\bin`（install.ps1 的 TARGET_DIR），同样只写用户 PATH。
         home.join("AppData").join("Local").join("agy").join("bin"),
+        // Muse Code 的 install.ps1 落在 `%LOCALAPPDATA%\Programs\muse`。
+        home.join("AppData")
+            .join("Local")
+            .join("Programs")
+            .join("muse"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -1490,6 +1503,32 @@ pub const MANAGED_PROVIDER_ENV_OPTION: &str = "__ccpanesProviderEnv";
 /// that rewrite the managed environment themselves must re-apply these last: user-filled values
 /// win over generated ones. May contain sensitive values; never log or forward to CLI arguments.
 pub const MANAGED_PROVIDER_CUSTOM_ENV_OPTION: &str = "__ccpanesProviderCustomEnv";
+
+/// Internal adapter option: merged native Codex config leaves (provider ← profile fragments),
+/// a JSON array of `key=value` strings with TOML literal values. Each becomes one `-c` flag.
+/// Never contains secrets (fragments reject secret-like keys on save).
+pub const NATIVE_CODEX_CONFIG_OPTION: &str = "__ccpanesNativeCodexConfig";
+
+/// Internal adapter option: merged native Claude settings (provider ← profile fragments) as a
+/// JSON object, merged into the per-session `--settings` file. Generated env wins on conflicts.
+pub const NATIVE_CLAUDE_SETTINGS_OPTION: &str = "__ccpanesNativeClaudeSettings";
+
+/// `-c` flags for [`NATIVE_CODEX_CONFIG_OPTION`] (empty when absent). Shared by the local
+/// adapter, the WSL launch script and the SSH remote command.
+pub fn native_codex_config_args(options: &HashMap<String, serde_json::Value>) -> Vec<String> {
+    options
+        .get(NATIVE_CODEX_CONFIG_OPTION)
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .filter(|item| item.contains('='))
+                .flat_map(|item| ["-c".to_string(), item.to_string()])
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// 路径是链接（软链接 / 目录联接）时返回它指向的原件，否则原样返回。
 ///
@@ -2349,6 +2388,10 @@ impl CliToolRegistry {
         registry.register(Arc::new(OmpAdapter::new()));
         registry.register(Arc::new(JcodeAdapter::new()));
         registry.register(Arc::new(AntigravityAdapter::new()));
+        // 终端 CLI：裸启动 + 保守能力位（见各适配器模块头）
+        registry.register(Arc::new(KiroAdapter::new()));
+        registry.register(Arc::new(FxAdapter::new()));
+        registry.register(Arc::new(MuseAdapter::new()));
         registry
     }
 
@@ -2390,11 +2433,45 @@ impl CliToolRegistry {
             .unwrap_or_else(InjectionProfile::unsupported)
     }
 
-    /// 检测所有工具的安装状态（保持注册顺序）
+    /// 检测所有工具的安装状态（保持注册顺序）。
+    ///
+    /// 每个工具一个线程并行检测：耗时大头是逐个起 `--version` 子进程（每个最长 5s），
+    /// 串行时总耗时是各工具之和，并行后约等于最慢的那一个。
+    ///
+    /// 并行有一个要补的口子：解析全部落空时的「重读机器环境」自愈（`fresh_environment_dirs`）
+    /// 同一时刻只放一个线程去读，抢不到闸门的直接按 not found 返回。串行时后面的工具会
+    /// 命中前面那次读出的快照，并行时它们却可能同时落空。所以第一轮之后，对报 not found
+    /// 的工具再串行补测一次——此时快照已在限频窗口内，补测只是几次文件系统查找。
     pub fn detect_all(&self) -> Vec<CliToolInfo> {
-        self.order
+        let adapters: Vec<&Arc<dyn CliToolAdapter>> = self
+            .order
             .iter()
-            .filter_map(|id| self.adapters.get(id).map(|a| a.detect()))
+            .filter_map(|id| self.adapters.get(id))
+            .collect();
+        let first_pass: Vec<CliToolInfo> = std::thread::scope(|scope| {
+            let handles: Vec<_> = adapters
+                .iter()
+                .map(|adapter| scope.spawn(move || adapter.detect()))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+                })
+                .collect()
+        });
+        first_pass
+            .into_iter()
+            .zip(adapters)
+            .map(|(info, adapter)| {
+                if info.installed {
+                    info
+                } else {
+                    adapter.detect()
+                }
+            })
             .collect()
     }
 
@@ -2444,6 +2521,73 @@ impl Default for CliToolRegistry {
 #[cfg(test)]
 mod registry_tests {
     use super::*;
+
+    /// 检测要睡一会儿的假适配器：记录被检测的次数。
+    struct SlowAdapter {
+        info: CliToolInfo,
+        capabilities: CliToolCapabilities,
+        installed: bool,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SlowAdapter {
+        fn new(id: &str, installed: bool) -> Self {
+            Self {
+                info: CliToolInfo {
+                    id: id.to_string(),
+                    ..CliToolInfo::default()
+                },
+                capabilities: CliToolCapabilities::default(),
+                installed,
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl CliToolAdapter for SlowAdapter {
+        fn info(&self) -> &CliToolInfo {
+            &self.info
+        }
+        fn capabilities(&self) -> &CliToolCapabilities {
+            &self.capabilities
+        }
+        fn build_command(&self, _ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+            anyhow::bail!("not used")
+        }
+        fn detect(&self) -> CliToolInfo {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(200));
+            CliToolInfo {
+                installed: self.installed,
+                ..self.info.clone()
+            }
+        }
+    }
+
+    #[test]
+    fn detect_all_runs_in_parallel_keeps_order_and_rechecks_missing_tools() {
+        let adapters: Vec<Arc<SlowAdapter>> = [("a", true), ("b", false), ("c", true), ("d", true)]
+            .into_iter()
+            .map(|(id, installed)| Arc::new(SlowAdapter::new(id, installed)))
+            .collect();
+        let mut registry = CliToolRegistry::new();
+        for adapter in &adapters {
+            registry.register(adapter.clone());
+        }
+        let started = Instant::now();
+        let infos = registry.detect_all();
+        let elapsed = started.elapsed();
+        let ids: Vec<&str> = infos.iter().map(|info| info.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c", "d"]);
+        // 串行要 4×200ms + 补测 200ms；并行一轮 + 补测约 400ms
+        assert!(elapsed < Duration::from_millis(800), "took {elapsed:?}");
+        let calls: Vec<usize> = adapters
+            .iter()
+            .map(|adapter| adapter.calls.load(std::sync::atomic::Ordering::SeqCst))
+            .collect();
+        // 报 not found 的工具串行补测一次，已装的不重测
+        assert_eq!(calls, [1, 2, 1, 1]);
+    }
 
     #[test]
     fn guarded_hook_command_is_silent_when_binary_is_missing() {
@@ -2576,7 +2720,10 @@ mod registry_tests {
                 "pi",
                 "omp",
                 "jcode",
-                "antigravity"
+                "antigravity",
+                "kiro",
+                "fx",
+                "muse"
             ]
         );
         assert!(registry.get("claude").is_some());

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { LaunchProfile, LaunchProfileDraft, LaunchProfileRuntime } from "@/types";
+import type { LaunchProfile, LaunchProfileDraft } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import {
@@ -10,7 +10,6 @@ import {
 
 interface UseLaunchProfileUnsavedChangesArgs {
   activeTool: KnownCliTool;
-  initialRuntime: LaunchProfileRuntime;
   profiles: LaunchProfile[];
   selectedId: string | null;
   toolDefaultProfile: LaunchProfile | null;
@@ -22,7 +21,6 @@ interface UseLaunchProfileUnsavedChangesArgs {
 
 export function useLaunchProfileUnsavedChanges({
   activeTool,
-  initialRuntime,
   profiles,
   selectedId,
   toolDefaultProfile,
@@ -44,12 +42,12 @@ export function useLaunchProfileUnsavedChanges({
     if (selectedId === SYSTEM_DEFAULT_PROFILE_ID) {
       return toolDefaultProfile
         ? toDraft(toolDefaultProfile)
-        : systemDefaultLaunchProfileDraft(activeTool, initialRuntime, translate);
+        : systemDefaultLaunchProfileDraft(activeTool, translate);
     }
     if (selectedId === null) return null;
     const profile = profiles.find((item) => item.id === selectedId);
     return profile ? toDraft(profile) : null;
-  }, [activeTool, initialRuntime, profiles, selectedId, toolDefaultProfile, translate]);
+  }, [activeTool, profiles, selectedId, toolDefaultProfile, translate]);
 
   const isDirty = !defaultDraftHydrating && (
     selectedId === null
@@ -68,5 +66,5 @@ export function useLaunchProfileUnsavedChanges({
     discardGuard.request(action);
   }, [discardGuard.request]);
 
-  return { discardGuard, requestDiscard };
+  return { discardGuard, requestDiscard, isDirty };
 }

@@ -21,6 +21,7 @@ impl AcpChatService {
             (block.get("type").and_then(Value::as_str) == Some("text"))
                 .then(|| block.get("text").and_then(Value::as_str))
                 .flatten()
+                .filter(|text| !super::handoff::is_handoff_context(text))
                 .map(str::to_string)
         });
         let turn = session.turn_control.lock().await;

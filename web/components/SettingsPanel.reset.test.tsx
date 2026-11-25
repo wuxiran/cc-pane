@@ -42,11 +42,11 @@ async function resetActive(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("settings reset respects visible section ownership", () => {
-  it("performance reset restores its policy fields and preserves terminal appearance", async () => {
+  // 「恢复本页默认」按页生效：性能分区平铺在「系统与连接」页里，重置该页即重置性能策略字段。
+  it("system page reset restores performance policy fields and preserves terminal appearance", async () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: t("pages.system.title") }));
-    await user.click(screen.getByRole("button", { name: new RegExp(t("performance.title")) }));
     const saved = await resetActive(user);
     expect(saved.terminal.lowerSessionPriority).toBe(true);
     expect(saved.terminal.sessionCpuWeight).toBeNull();

@@ -22,6 +22,7 @@ pub mod system;
 pub mod task_verification;
 pub mod terminal;
 pub mod usage_stats;
+pub mod web_sessions;
 pub mod workflow;
 
 #[cfg(test)]
@@ -243,6 +244,12 @@ pub fn build_router(state: AppState) -> Router {
             get(system::get_cli_injection_profiles),
         )
         .route("/api/device/info", get(device::get_device_info))
+        .route("/api/auth/sessions", get(web_sessions::list_sessions))
+        .route(
+            "/api/auth/sessions/{id}",
+            delete(web_sessions::revoke_session),
+        )
+        .route("/api/auth/revoke-others", post(web_sessions::revoke_others))
         .route("/api/environment", get(device::get_environment))
         .route("/api/project-cli-hooks", get(system::get_project_cli_hooks))
         .route(

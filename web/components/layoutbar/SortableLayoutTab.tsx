@@ -3,7 +3,7 @@
 // 右键菜单含重命名、绑定、密度切换、删除（与 corner 面板的行保持能力对等）。
 // 绑定视觉语言：secondary 亮 = 右键显式绑定；tertiary 暗 + ? = 自动派生。
 // 选中态是中性浮起面：accent 蓝只表示「运行中」，accent 描边只留给拖放落点。
-import { Pencil, Rows2, Rows3, Star, Trash2, X } from "lucide-react";
+import { FoldHorizontal, Pencil, Pin, Rows2, Rows3, Star, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
@@ -26,6 +26,7 @@ import { nonEmptyGroups } from "./layoutTypeSummary";
 import type { LayoutTypeSummary } from "./layoutTypeSummary";
 import type { LayoutStatusSummary } from "./layoutStatusSummary";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useWorkspaceAppearance } from "./useWorkspaceAppearance";
 
 /** 计数桁是卡片按钮的兄弟节点（避免嵌套 button），绑定名要按桁数给它让位。 */
 const TYPE_COUNT_SLOT_PX = 34;
@@ -75,6 +76,9 @@ export default function SortableLayoutTab({
   onRequestDelete,
   onToggleDensity,
   onJumpToTab,
+  groupKey = null,
+  onCollapseGroup,
+  onPin,
 }: {
   layout: LayoutEntry;
   tree: PaneNode;
@@ -93,8 +97,14 @@ export default function SortableLayoutTab({
   onRequestDelete: () => void;
   onToggleDensity: () => void;
   onJumpToTab: (paneId: string, tabId: string) => void;
+  /** 所属工作空间分组（≥2 个布局才成组）；底部画一条组色线，右键可折叠整组。 */
+  groupKey?: string | null;
+  onCollapseGroup?: () => void;
+  /** 固定：缩成图标常驻布局条一端。 */
+  onPin?: () => void;
 }) {
   const { t } = useTranslation("panes");
+  const groupAppearance = useWorkspaceAppearance(groupKey ?? "");
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver } =
     useSortable({
       id: layout.id,
@@ -254,6 +264,14 @@ export default function SortableLayoutTab({
         </span>
       ) : null}
       {deleteButton}
+      {groupKey ? (
+        <span
+          aria-hidden="true"
+          data-layout-group-line={groupKey}
+          className="pointer-events-none absolute inset-x-2 -bottom-[3px] h-[2px] rounded-full"
+          style={{ background: groupAppearance.color }}
+        />
+      ) : null}
     </div>
   );
 
@@ -268,6 +286,18 @@ export default function SortableLayoutTab({
               {t("renameLayout")}
             </ContextMenuItem>
             <LayoutWorkspaceMenuItems layout={layout} />
+            {onPin ? (
+              <ContextMenuItem onSelect={onPin}>
+                <Pin />
+                {t("pinLayout")}
+              </ContextMenuItem>
+            ) : null}
+            {groupKey && onCollapseGroup ? (
+              <ContextMenuItem onSelect={onCollapseGroup}>
+                <FoldHorizontal />
+                {t("collapseLayoutGroup", { name: groupAppearance.label })}
+              </ContextMenuItem>
+            ) : null}
             <ContextMenuSeparator />
           </>
         ) : null}

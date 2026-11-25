@@ -4,7 +4,7 @@
 //   普通密钥供应商的最短新增路径（名字、地址、密钥、保存）不变。
 // - 编辑已带账号的供应商：带上 `accounts` / `defaultAccountId` / `endpoints` / `env`，
 //   后端以它们为准，旧三字段被忽略。
-import type { Provider, ProviderAccount, ProviderModel } from "@/types/provider";
+import type { Provider, ProviderAccount, ProviderModel, ProviderOrigin } from "@/types/provider";
 import { isValidProviderContextWindowTokens } from "@/types/provider";
 import type { FormState } from "../providerFormState";
 import { accountPayload, accountProblem, envPayload, envProblem } from "./drafts";
@@ -20,6 +20,7 @@ export function normalizeFormModels(form: FormState): ModelsResult {
     label: model.label?.trim() || null,
     defaultEffort: model.defaultEffort ?? null,
     ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens ?? null }),
+    ...(model.hidden ? { hidden: true } : {}),
   }));
   if (models.some((model) => !model.id)) return { errorKey: "providerModelIdRequired" };
   if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) {
@@ -77,9 +78,16 @@ function accountsForSave(form: FormState): ProviderAccount[] {
 
 export function buildProviderPayload(
   form: FormState,
-  options: { id: string; models: ProviderModel[]; isDefault: boolean; manageAccounts: boolean },
+  options: {
+    id: string;
+    models: ProviderModel[];
+    isDefault: boolean;
+    manageAccounts: boolean;
+    /** 编辑时原样带回的来源标记（表单不编辑它）；新增 / 复制不传。 */
+    source?: ProviderOrigin | null;
+  },
 ): Provider {
-  const { id, models, isDefault, manageAccounts } = options;
+  const { id, models, isDefault, manageAccounts, source } = options;
   const provider: Provider = {
     id,
     name: form.name.trim(),
@@ -96,6 +104,8 @@ export function buildProviderPayload(
     isDefault,
     endpoints: endpointsPayload(primaryEndpointKind(form.providerType, form.codexWireApi), form.baseUrl, form.endpoints),
     env: envPayload(form.env),
+    nativeOverrides: form.nativeOverrides,
+    ...(source ? { source } : {}),
   };
   if (!manageAccounts) return provider;
   return {

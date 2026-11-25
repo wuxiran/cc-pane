@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskQueueSnapshot } from "@/types/taskQueue";
@@ -20,6 +20,7 @@ const { taskQueueServiceMock } = vi.hoisted(() => ({
 vi.mock("@/services/taskQueueService", () => ({ taskQueueService: taskQueueServiceMock }));
 
 import { useTaskQueueStore } from "@/stores/useTaskQueueStore";
+import { useTaskQueuePopoverStore } from "@/stores/useTaskQueuePopoverStore";
 import TaskQueuePopover from "./TaskQueuePopover";
 
 function snapshot(overrides: Partial<TaskQueueSnapshot> = {}): TaskQueueSnapshot {
@@ -61,7 +62,8 @@ describe("TaskQueuePopover", () => {
   async function openPopover() {
     const user = userEvent.setup();
     render(<TaskQueuePopover sessionId="pty-1" />);
-    await user.click(screen.getByRole("button", { name: /任务队列|Task queue/i }));
+    // 空队列时状态栏不露图标，入口在终端右键菜单 → 走打开请求通道
+    act(() => useTaskQueuePopoverStore.getState().request("pty-1"));
     return user;
   }
 
@@ -163,5 +165,23 @@ describe("TaskQueuePopover", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "每个任务最多添加 10 张图片。",
     );
+  });
+
+  it("hides the status-bar icon while the queue is empty and registers as openable", async () => {
+    render(<TaskQueuePopover sessionId="pty-1" />);
+    await waitFor(() => expect(taskQueueServiceMock.get).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /任务队列|Task queue/i })).toBeNull();
+    expect(useTaskQueuePopoverStore.getState().mounted.has("pty-1")).toBe(true);
+  });
+
+  it("shows the status-bar icon once tasks are queued", async () => {
+    taskQueueServiceMock.get.mockResolvedValue(snapshot({
+      items: [{
+        id: "item-1", sessionId: "pty-1", position: 0, text: "next task",
+        imageRefs: [], state: "queued", createdAt: 1, lastError: null,
+      }],
+    }));
+    render(<TaskQueuePopover sessionId="pty-1" />);
+    expect(await screen.findByRole("button", { name: /任务队列|Task queue/i })).toBeInTheDocument();
   });
 });

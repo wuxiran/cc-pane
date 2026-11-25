@@ -46,9 +46,11 @@ interface SharedMcpEditorDialogProps {
   /** null 表示新增 */
   server: SharedMcpServerInfo | null;
   onOpenChange: (open: boolean) => void;
+  /** 保存成功后回调最终名称（运行配置页新增后顺手开给当前配置） */
+  onSaved?: (name: string) => void;
 }
 
-export default function SharedMcpEditorDialog({ open, server, onOpenChange }: SharedMcpEditorDialogProps) {
+export default function SharedMcpEditorDialog({ open, server, onOpenChange, onSaved }: SharedMcpEditorDialogProps) {
   const { t } = useTranslation(["settings", "common"]);
   const servers = useSharedMcpStore((s) => s.servers);
   const config = useSharedMcpStore((s) => s.config);
@@ -108,6 +110,7 @@ export default function SharedMcpEditorDialog({ open, server, onOpenChange }: Sh
       if (server && server.name !== name) await removeServer(server.name);
       await upsertServer(name, updated);
       toastOk(server ? t("sharedMcp.updated") : t("sharedMcp.added"));
+      onSaved?.(name);
       onOpenChange(false);
     } catch (error) {
       toastErr(t("common:saveFailed", { error: translateError(error) }));

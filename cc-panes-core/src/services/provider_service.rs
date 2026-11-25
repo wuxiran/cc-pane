@@ -17,6 +17,10 @@ use crate::models::provider::{
 use crate::services::cc_switch_import::{
     candidate_to_provider, cc_switch_db_path, load_cc_switch_providers, CcSwitchImportReport,
 };
+use crate::services::external_provider_import::{
+    default_source_path, is_same_provider, load_external_batch, primary_url,
+    ExternalProviderCandidateView, ExternalProviderPreview, ExternalProviderSource,
+};
 use crate::services::provider_secret_service::ProviderSecretStore;
 use crate::utils::{error::AppError, error_codes as EC};
 use anyhow::{Context, Result};
@@ -488,6 +492,165 @@ impl ProviderService {
         Ok(report)
     }
 
+    /// 预览外部来源（cc-switch / Magpie）里可导入的供应商；已存在的标 `duplicate`。不写任何东西。
+    pub fn preview_external_providers(
+        &self,
+        source: ExternalProviderSource,
+        path: Option<&Path>,
+    ) -> Result<ExternalProviderPreview> {
+        let Some(path) = path
+            .map(Path::to_path_buf)
+            .or_else(|| default_source_path(source))
+        else {
+            return Ok(ExternalProviderPreview::default());
+        };
+        if !path.is_file() {
+            return Ok(ExternalProviderPreview {
+                path: Some(path.display().to_string()),
+                ..ExternalProviderPreview::default()
+            });
+        }
+        let batch = load_external_batch(source, &path)?;
+        let config = self.lock_latest_config();
+        let candidates = batch
+            .candidates
+            .into_iter()
+            .map(|candidate| {
+                let provider = candidate.provider;
+                let existing = config
+                    .providers
+                    .iter()
+                    .find(|existing| is_same_provider(existing, &provider));
+                let can_supplement_provider = existing.is_some_and(|existing| {
+                    crate::services::external_provider_import::supplement_native_fields(
+                        &mut existing.clone(),
+                        &provider,
+                    )
+                });
+                ExternalProviderCandidateView {
+                    key: candidate.key,
+                    base_url: primary_url(&provider),
+                    has_key: provider.api_key.is_some(),
+                    model_count: provider.models.len(),
+                    has_provider_native_override: !provider.native_overrides.is_empty(),
+                    context_window_tokens: provider
+                        .models
+                        .iter()
+                        .find_map(|model| model.context_window_tokens),
+                    name: provider.name,
+                    provider_type: provider.provider_type,
+                    duplicate: existing.is_some(),
+                    existing_provider_id: existing.map(|existing| existing.id.clone()),
+                    can_supplement_provider,
+                    profile: candidate.profile,
+                    relay: candidate.relay,
+                }
+            })
+            .collect();
+        Ok(ExternalProviderPreview {
+            available: true,
+            path: Some(path.display().to_string()),
+            candidates,
+            skipped_empty: batch.skipped_empty,
+            skipped_unsupported: batch.skipped_unsupported,
+            unsupported_logins: batch.unsupported_logins,
+            skipped_items: batch.skipped_items,
+        })
+    }
+
+    /// 从外部来源导入供应商。`keys` = 预览里勾选的键；`None` = 全部。已存在的跳过，不改默认项。
+    pub fn import_external_providers(
+        &self,
+        source: ExternalProviderSource,
+        keys: Option<&[String]>,
+        path: Option<&Path>,
+    ) -> Result<CcSwitchImportReport> {
+        let path = path
+            .map(Path::to_path_buf)
+            .or_else(|| default_source_path(source))
+            .filter(|path| path.is_file())
+            .ok_or_else(|| anyhow::anyhow!("import source not found"))?;
+        let batch = load_external_batch(source, &path)?;
+        let mut report = CcSwitchImportReport {
+            skipped_empty: batch.skipped_empty,
+            skipped_unsupported: batch.skipped_unsupported,
+            ..CcSwitchImportReport::default()
+        };
+        let mut config = self.lock_latest_config();
+        let mut next = config.clone();
+        for candidate in batch.candidates {
+            if keys.is_some_and(|keys| !keys.iter().any(|key| key == &candidate.key)) {
+                continue;
+            }
+            let mut provider = candidate.provider;
+            if next
+                .providers
+                .iter()
+                .any(|existing| is_same_provider(existing, &provider))
+            {
+                report.skipped_duplicate += 1;
+                continue;
+            }
+            Self::normalize_provider_models(&mut provider)?;
+            Self::normalize_accounts(&mut provider, None, false)?;
+            Self::validate_provider(&provider)?;
+            if next.providers.len() >= MAX_PROVIDER_COUNT {
+                anyhow::bail!("providers config exceeds {MAX_PROVIDER_COUNT} entries");
+            }
+            provider.is_default = false;
+            next.providers.push(provider);
+            report.imported += 1;
+        }
+        if report.imported > 0 {
+            self.commit_config(&mut config, next)?;
+        }
+        Ok(report)
+    }
+
+    /// 「补充原生配置」：对已存在的中转站，只把来源里的原生配置片段 / 模型上下文窗口
+    /// 填进空着的位置，绝不覆盖用户已有的内容。`keys` = 预览里勾选的键。返回改动的中转站数。
+    pub fn supplement_external_providers(
+        &self,
+        source: ExternalProviderSource,
+        keys: &[String],
+        path: Option<&Path>,
+    ) -> Result<usize> {
+        let path = path
+            .map(Path::to_path_buf)
+            .or_else(|| default_source_path(source))
+            .filter(|path| path.is_file())
+            .ok_or_else(|| anyhow::anyhow!("import source not found"))?;
+        let batch = load_external_batch(source, &path)?;
+        let mut config = self.lock_latest_config();
+        let mut next = config.clone();
+        let mut updated = 0;
+        for candidate in batch.candidates {
+            if !keys.iter().any(|key| key == &candidate.key) {
+                continue;
+            }
+            let Some(existing) = next
+                .providers
+                .iter_mut()
+                .find(|existing| is_same_provider(existing, &candidate.provider))
+            else {
+                continue;
+            };
+            if crate::services::external_provider_import::supplement_native_fields(
+                existing,
+                &candidate.provider,
+            ) {
+                existing.native_overrides = crate::services::native_config::normalize_overrides(
+                    Some(std::mem::take(&mut existing.native_overrides)),
+                )?;
+                updated += 1;
+            }
+        }
+        if updated > 0 {
+            self.commit_config(&mut config, next)?;
+        }
+        Ok(updated)
+    }
+
     /// 更新 Provider
     pub fn update_provider(&self, mut provider: Provider) -> Result<()> {
         // 同 add_provider：保留 id 不可写入 providers.json。
@@ -503,6 +666,10 @@ impl ProviderService {
         // 界面拿到的是清掉密钥明文的副本：已存的密钥标记 / 文件回退时的明文从旧条目承接。
         Self::normalize_accounts(&mut provider, Some(&config.providers[pos]), false)?;
         Self::validate_provider(&provider)?;
+        // 来源标记不在编辑表单里：载荷没带就承接旧条目，编辑不抹掉「从哪导入」。
+        if provider.source.is_none() {
+            provider.source = config.providers[pos].source.clone();
+        }
         let mut next = config.clone();
 
         if provider.is_default && !next.providers[pos].is_default {
@@ -689,6 +856,10 @@ impl ProviderService {
     }
 
     fn normalize_provider_models(provider: &mut Provider) -> Result<()> {
+        // 原生配置片段：去掉空白片段，校验其余（托管键 / 像密钥的键直接拒绝保存）。
+        provider.native_overrides = crate::services::native_config::normalize_overrides(Some(
+            std::mem::take(&mut provider.native_overrides),
+        ))?;
         if provider.models.len() > MAX_PROVIDER_MODELS {
             return Err(Self::provider_model_error(
                 EC::PROVIDER_MODEL_INVALID,
@@ -848,6 +1019,7 @@ mod tests {
             default_effort: None,
             context_window_tokens: None,
             context_size: None,
+            hidden: false,
         }
     }
 
@@ -907,6 +1079,7 @@ mod tests {
                 default_effort: Some(" HIGH ".to_string()),
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
             provider_model("model-b"),
             ProviderModel {
@@ -915,6 +1088,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
         ];
 
@@ -950,6 +1124,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: Some(window),
                 context_size: None,
+                hidden: false,
             }];
 
             service.add_provider(provider).unwrap();
@@ -967,6 +1142,7 @@ mod tests {
             default_effort: None,
             context_window_tokens: Some(128_000),
             context_size: None,
+            hidden: false,
         }];
         service.add_provider(persisted).unwrap();
 
@@ -1005,6 +1181,7 @@ mod tests {
             default_effort: None,
             context_window_tokens: None,
             context_size: None,
+            hidden: false,
         }];
 
         service.add_provider(provider).unwrap();
@@ -1127,6 +1304,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
             ProviderModel {
                 id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS + 1),
@@ -1134,6 +1312,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
             ProviderModel {
                 id: "valid-id".to_string(),
@@ -1141,6 +1320,7 @@ mod tests {
                 default_effort: None,
                 context_window_tokens: None,
                 context_size: None,
+                hidden: false,
             },
         ];
 
@@ -1415,6 +1595,92 @@ mod tests {
     }
 
     #[test]
+    fn external_magpie_preview_marks_duplicates_and_import_takes_only_selected_keys() {
+        use crate::services::external_provider_import::ExternalProviderSource;
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        // 与 CC-Panes 自己的 providers.json 同名：放进子目录，免得被服务写回覆盖
+        let magpie_dir = dir.path().join("magpie");
+        std::fs::create_dir_all(&magpie_dir).unwrap();
+        let path = magpie_dir.join("providers.json");
+        std::fs::write(
+            &path,
+            r#"{"providers":[
+                {"id":"relay","name":"Relay","key":"sk-r","anthropic":"https://relay.example","responses":"https://relay.example/v1"},
+                {"id":"gem","name":"Gem","key":"sk-g","gemini":"https://gem.example"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let preview = service
+            .preview_external_providers(ExternalProviderSource::Magpie, Some(&path))
+            .unwrap();
+        assert!(preview.available);
+        assert_eq!(preview.candidates.len(), 3);
+        assert!(preview.candidates.iter().all(|c| !c.duplicate && c.has_key));
+
+        let claude_key = preview
+            .candidates
+            .iter()
+            .find(|c| c.name == "Relay (Claude)")
+            .unwrap()
+            .key
+            .clone();
+        let report = service
+            .import_external_providers(
+                ExternalProviderSource::Magpie,
+                Some(&[claude_key.clone()]),
+                Some(&path),
+            )
+            .unwrap();
+        assert_eq!(report.imported, 1);
+        let imported = service
+            .list_providers()
+            .into_iter()
+            .find(|p| p.name == "Relay (Claude)")
+            .unwrap();
+        assert_eq!(
+            service
+                .get_env_vars(Some(&imported.id))
+                .get("ANTHROPIC_API_KEY")
+                .map(String::as_str),
+            Some("sk-r")
+        );
+
+        let again = service
+            .preview_external_providers(ExternalProviderSource::Magpie, Some(&path))
+            .unwrap();
+        let claude = again
+            .candidates
+            .iter()
+            .find(|c| c.key == claude_key)
+            .unwrap();
+        assert!(claude.duplicate);
+        assert_eq!(again.candidates.iter().filter(|c| c.duplicate).count(), 1);
+
+        let report = service
+            .import_external_providers(ExternalProviderSource::Magpie, None, Some(&path))
+            .unwrap();
+        assert_eq!(report.imported, 2);
+        assert_eq!(report.skipped_duplicate, 1);
+    }
+
+    #[test]
+    fn external_preview_missing_source_is_unavailable_not_an_error() {
+        use crate::services::external_provider_import::ExternalProviderSource;
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let preview = service
+            .preview_external_providers(
+                ExternalProviderSource::Magpie,
+                Some(&dir.path().join("missing.json")),
+            )
+            .unwrap();
+        assert!(!preview.available);
+        assert!(preview.candidates.is_empty());
+    }
+
+    #[test]
     fn import_cc_switch_missing_db_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let service = new_service(&dir);
@@ -1664,6 +1930,31 @@ mod tests {
         assert_eq!(b.name, "renamed");
         assert!(b.is_default);
         assert!(!service.get_provider("a").unwrap().is_default);
+    }
+
+    #[test]
+    fn update_provider_keeps_import_source_when_payload_omits_it() {
+        use crate::models::provider::{ProviderOrigin, ProviderOriginKind};
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let origin = ProviderOrigin {
+            kind: ProviderOriginKind::CcSwitch,
+            external_id: Some("ext-1".to_string()),
+            imported_at: Some("2026-01-01T00:00:00Z".to_string()),
+            fingerprint: Some("fp".to_string()),
+        };
+        let mut imported = make_provider("a", false);
+        imported.source = Some(origin.clone());
+        service.add_provider(imported).unwrap();
+
+        let mut edited = make_provider("a", false);
+        edited.name = "renamed".to_string();
+        edited.source = None;
+        service.update_provider(edited).unwrap();
+
+        let stored = service.get_provider("a").unwrap();
+        assert_eq!(stored.name, "renamed");
+        assert_eq!(stored.source, Some(origin));
     }
 
     #[test]

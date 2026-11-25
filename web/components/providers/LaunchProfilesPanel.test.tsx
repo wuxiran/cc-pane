@@ -1,7 +1,7 @@
 import "@/i18n";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import { createTestWorkspace, createTestWorkspaceProject } from "@/test/utils/testData";
@@ -104,7 +104,11 @@ function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => vo
   render(<LaunchProfilesPanel initialTool="claude" />);
 }
 
-function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
+function renderKimiPanel(
+  onSave: (draft: LaunchProfileDraft) => void,
+  extraModels: NonNullable<Provider["models"]> = [],
+  profiles: LaunchProfile[] = [],
+) {
   const kimiProvider: Provider = {
     id: "kimi-provider",
     name: "Kimi API",
@@ -114,13 +118,14 @@ function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
     models: [
       { id: "kimi-k2.5", label: "Kimi K2.5", contextWindowTokens: 1_000_000 },
       { id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+      ...extraModels,
     ],
     defaultModelId: "kimi-k2.5",
     isDefault: false,
   };
 
   mockTauriInvoke({
-    list_launch_profiles: [],
+    list_launch_profiles: profiles,
     list_providers: [kimiProvider],
     list_workspaces: [],
     get_shared_mcp_status: [],
@@ -267,9 +272,8 @@ describe("LaunchProfilesPanel external skills", () => {
       savedDraft = draft;
     });
 
-    // 标题走 i18n（providers:launchExternalSkills），zh 环境渲染「外部 Skills」
-    await screen.findByText("外部 Skills");
-    await user.click(screen.getByRole("checkbox", { name: "Claude" }));
+    // 外部来源开关与其它 Skill 开关横排，标签带 i18n 前缀（providers:launchExternalSkills）
+    await user.click(await screen.findByRole("checkbox", { name: "外部 Skills · Claude" }));
     const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
     await user.click(saveButtons[saveButtons.length - 1]);
 
@@ -286,7 +290,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     // Skill 卡现为 ui/card（data-slot=card），mode 三连改 SegmentedTabs（role=tab）
-    const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest('[data-slot="card"]');
+    const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest("section");
     expect(skillSection).not.toBeNull();
     // 逐条勾选已移到资源库，卡片里只剩组开关和「在资源库管理」
     expect(within(skillSection as HTMLElement).getByTestId("open-skills-library")).toBeInTheDocument();
@@ -349,13 +353,13 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
-    const aliasInput = await screen.findByDisplayValue(tp("systemDefaultName", { tool: "Claude" }));
-    await user.clear(aliasInput);
-    await user.type(aliasInput, "Typed Before Load");
+    // 系统默认已不再显示名称输入框：改用共享 MCP 开关做「加载前的编辑」
+    const sharedMcp = await screen.findByRole("checkbox", { name: new RegExp(`^${tp("sharedMcpService")}`) });
+    expect(sharedMcp).toBeChecked();
+    await user.click(sharedMcp);
     await act(async () => { resolveProfiles([loadedDefault]); });
 
-    await waitFor(() => expect(screen.getByDisplayValue("Typed Before Load")).toBeInTheDocument());
-    expect(screen.queryByDisplayValue("Loaded Default")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: new RegExp(`^${tp("sharedMcpService")}`) })).not.toBeChecked());
   });
 
   it("asks before switching away from an unsaved launch profile", async () => {
@@ -375,11 +379,11 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
-    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    await user.click(await screen.findByRole("button", { name: /^First Profile/ }));
     const aliasInput = screen.getByDisplayValue("First Profile");
     await user.clear(aliasInput);
     await user.type(aliasInput, "Edited First Profile");
-    await user.click(screen.getByRole("button", { name: /Second Profile/ }));
+    await user.click(screen.getByRole("button", { name: /^Second Profile/ }));
 
     expect(screen.getByDisplayValue("Edited First Profile")).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
@@ -408,7 +412,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
-    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    await user.click(await screen.findByRole("button", { name: /^First Profile/ }));
     const aliasInput = screen.getByDisplayValue("First Profile");
     await user.clear(aliasInput);
     await user.type(aliasInput, "Edited First Profile");
@@ -441,7 +445,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
-    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    await user.click(await screen.findByRole("button", { name: /^First Profile/ }));
     const aliasInput = screen.getByDisplayValue("First Profile");
     await user.clear(aliasInput);
     await user.type(aliasInput, "Edited First Profile");
@@ -462,7 +466,8 @@ describe("LaunchProfilesPanel external skills", () => {
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
 
-    const providerSelect = screen.getByRole("combobox", { name: tp("fieldProvider") });
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    const providerSelect = screen.getByRole("combobox", { name: tp("credentialKind.relay") });
     expect(providerSelect).not.toBeDisabled();
 
     await selectOption(user, providerSelect, "Kimi API");
@@ -485,7 +490,8 @@ describe("LaunchProfilesPanel external skills", () => {
     renderKimiPanel(() => {});
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Kimi API");
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await selectOption(user, screen.getByRole("combobox", { name: tp("credentialKind.relay") }), "Kimi API");
 
     // 模型下拉逐项标注上下文窗口；未配置窗口的模型显式写「未配置」而不是留白
     await user.click(screen.getByRole("combobox", { name: tp("fieldModel") }));
@@ -498,6 +504,36 @@ describe("LaunchProfilesPanel external skills", () => {
     })).toBeInTheDocument();
   });
 
+  it("omits hidden Provider models from the model dropdown", async () => {
+    const user = userEvent.setup();
+    renderKimiPanel(() => {}, [{ id: "kimi-legacy", label: "Kimi Legacy", hidden: true }]);
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await selectOption(user, screen.getByRole("combobox", { name: tp("credentialKind.relay") }), "Kimi API");
+
+    await user.click(screen.getByRole("combobox", { name: tp("fieldModel") }));
+    const listbox = await screen.findByRole("listbox");
+    expect(within(listbox).queryByRole("option", { name: /kimi-legacy/ })).toBeNull();
+    expect(within(listbox).getByRole("option", { name: /kimi-k2-thinking/ })).toBeInTheDocument();
+  });
+
+  it("keeps a hidden model selected on a profile that already references it", async () => {
+    const user = userEvent.setup();
+    const profile: LaunchProfile = {
+      ...makeLaunchProfile("profile-hidden", "Hidden Ref", ["kimi"]),
+      providerId: "kimi-provider",
+      modelId: "kimi-legacy",
+    };
+    renderKimiPanel(() => {}, [{ id: "kimi-legacy", label: "Kimi Legacy", hidden: true }], [profile]);
+
+    await user.click(await screen.findByRole("button", { name: /^Hidden Ref/ }));
+    const modelSelect = screen.getByRole("combobox", { name: tp("fieldModel") });
+    expect(modelSelect).toHaveTextContent(
+      tp("hiddenProviderModel", { model: "Kimi Legacy (kimi-legacy) - 未配置" }),
+    );
+  });
+
   it("inherits the model effort by default and saves a profile override", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
@@ -506,7 +542,8 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Codex API");
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await selectOption(user, screen.getByRole("combobox", { name: tp("credentialKind.relay") }), "Codex API");
 
     // 未覆盖时 trigger 显示「沿用模型默认强度（高）」，而非某个具体档位
     const effortSelect = screen.getByRole("combobox", { name: tp("fieldReasoningEffort") });
@@ -523,13 +560,33 @@ describe("LaunchProfilesPanel external skills", () => {
     });
   });
 
-  it("creates a profile from the empty-state action in the list aside", async () => {
+  it("creates a profile from the add row under the profile list", async () => {
     const user = userEvent.setup();
     renderPanelWithExternalSkills(() => {});
 
-    // 无运行配置 → 左列表空态，其动作与顶部「复制为运行配置」同一回调
-    await user.click(await screen.findByRole("button", { name: tp("listEmptyAction") }));
+    // 新建入口在配置列表最下面一行；新建的草稿成为展开的那一行
+    await user.click(await screen.findByTestId("launch-profile-add-row"));
     expect(await screen.findByRole("button", { name: new RegExp(tp("saveAsProfile")) })).toBeInTheDocument();
+    expect(screen.getAllByTestId("launch-profile-expanded")).toHaveLength(1);
+  });
+
+  it("hides the workspace lens by default", async () => {
+    renderPanelWithExternalSkills(() => {});
+    await screen.findByTestId("launch-profile-expanded");
+    expect(screen.queryByRole("tab", { name: new RegExp(tp("workspaceListTab")) })).toBeNull();
+  });
+
+  it("collapses the expanded profile into a summary row and expands it again", async () => {
+    const user = userEvent.setup();
+    renderPanelWithExternalSkills(() => {});
+
+    await screen.findByTestId("launch-profile-expanded");
+    await user.click(screen.getByRole("button", { name: tp("profileRowCollapse") }));
+    expect(screen.queryByTestId("launch-profile-expanded")).toBeNull();
+    const row = screen.getByRole("button", { name: new RegExp(`^${tp("systemDefaultShort")}`) });
+    expect(row).toHaveTextContent(tp("credentialKind.cli"));
+    await user.click(row);
+    expect(await screen.findByTestId("launch-profile-expanded")).toBeInTheDocument();
   });
 
   it("switches between all saved profiles and workspace bindings", async () => {
@@ -567,7 +624,7 @@ describe("LaunchProfilesPanel external skills", () => {
       preview_launch_profile_resolution: emptyResolution,
     });
 
-    render(<LaunchProfilesPanel initialTool="claude" />);
+    render(<LaunchProfilesPanel initialTool="claude" showWorkspaceLens />);
 
     expect(await screen.findByText("Design Profile")).toBeInTheDocument();
     expect(screen.queryByText("Codex Profile")).not.toBeInTheDocument();
@@ -589,12 +646,16 @@ describe("LaunchProfilesPanel external skills", () => {
     );
 
     await user.click(designWorkspaceRow as HTMLElement);
-    expect(await screen.findByRole("heading", { name: "Design Profile" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: tp("fieldAlias") })).toHaveValue("Design Profile");
     expect(designWorkspaceRow).toHaveTextContent(tp("currentWorkspace"));
   });
 });
 
 describe("LaunchProfilesPanel Pi options", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     resetTauriInvoke();
     useLaunchProfilesStore.setState({ profiles: [], loading: false });
@@ -616,10 +677,6 @@ describe("LaunchProfilesPanel Pi options", () => {
     expect(screen.queryByRole("checkbox", { name: "YOLO mode" })).not.toBeInTheDocument();
 
     expect(screen.queryByRole("combobox", { name: tp("fieldPiTransport") })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("combobox", { name: tp("fieldRuntime") }));
-    const runtimeOptions = await screen.findByRole("listbox");
-    expect(within(runtimeOptions).queryByRole("option", { name: tp("runtime.ssh") })).not.toBeInTheDocument();
-    await user.keyboard("{Escape}");
     await selectOption(
       user,
       screen.getByRole("combobox", { name: tp("fieldPiProjectTrust") }),
@@ -632,6 +689,7 @@ describe("LaunchProfilesPanel Pi options", () => {
     await waitFor(() => expect(savedDraft).not.toBeNull());
     expect(savedDraft).toMatchObject({
       targetTools: ["pi"],
+      targetRuntime: null,
       providerId: null,
       modelId: null,
       yoloMode: false,

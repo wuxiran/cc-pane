@@ -60,6 +60,9 @@ interface ActivityBarState {
   toggleFilesMode: () => void;
   toggleHomeMode: () => void;
   toggleProvidersMode: () => void;
+  /** 供应商全屏视图要打开的子页；每次 openProvidersView 递增 seq 让面板重挂到该子页 */
+  providersViewRequest: { view: "profiles" | "providers"; seq: number };
+  openProvidersView: (view: "profiles" | "providers") => void;
   toggleDramaGenMode: () => void;
   toggleResourcesMode: () => void;
 }
@@ -188,6 +191,14 @@ export const useActivityBarStore = create<ActivityBarState>()(
         set((s) => ({
           appViewMode: s.appViewMode === "providers" ? "panes" : "providers",
           orchestrationOverlayOpen: false,
+        })),
+
+      providersViewRequest: { view: "profiles", seq: 0 },
+      openProvidersView: (view) =>
+        set((s) => ({
+          appViewMode: "providers",
+          orchestrationOverlayOpen: false,
+          providersViewRequest: { view, seq: s.providersViewRequest.seq + 1 },
         })),
 
       toggleDramaGenMode: () =>

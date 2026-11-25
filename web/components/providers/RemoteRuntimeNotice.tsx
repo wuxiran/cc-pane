@@ -3,19 +3,18 @@
 // - WSL：skills 通过 /mnt 挂载没问题；MCP 只有 HTTP 型能进，stdio 型要提醒
 import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
-import type { LaunchProfile, Workspace } from "@/types";
+import type { Workspace } from "@/types";
 import { workspaceRemoteRuntimes } from "./launchProfileHelpers";
 
 interface RemoteRuntimeNoticeProps {
   workspace: Workspace | undefined;
-  profile: LaunchProfile | null;
   subject: "mcp" | "skills";
   className?: string;
 }
 
-export default function RemoteRuntimeNotice({ workspace, profile, subject, className }: RemoteRuntimeNoticeProps) {
+export default function RemoteRuntimeNotice({ workspace, subject, className }: RemoteRuntimeNoticeProps) {
   const { t } = useTranslation("providers");
-  const runtimes = workspaceRemoteRuntimes(workspace, profile);
+  const runtimes = workspaceRemoteRuntimes(workspace);
   const key = runtimes.includes("ssh")
     ? `remoteRuntimeNotice.ssh.${subject}`
     : runtimes.includes("wsl") && subject === "mcp"

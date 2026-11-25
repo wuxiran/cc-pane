@@ -60,6 +60,9 @@ pub(super) async fn spawn(
         arguments,
     );
     let mut command = crate::utils::no_window_tokio_command(executable);
+    for key in &options.env_remove {
+        command.env_remove(key);
+    }
     command
         .args(arguments)
         .current_dir(&options.cwd)

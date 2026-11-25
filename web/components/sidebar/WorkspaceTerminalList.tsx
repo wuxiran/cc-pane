@@ -1,17 +1,17 @@
-// 工作空间树「终端模式」的展开体：该工作空间下运行中的终端列表。
-// 单行：左=首条输入（或 tab 标题），右=状态点；原 tab 标题与状态词收进 tooltip / aria-label。
-// 只有需要人介入的状态（waitingInput / error）常显状态词，保留色+文字冗余（docs/46 §9）。
-// 点击聚焦对应 tab；当前布局里激活的 tab 带胶囊背景。
-import { useState } from "react";
+// 工作空间树的展开体：该工作空间下运行中的会话（终端 + Agent 对话）卡片列表。
+// 两行卡片（SessionCard）：项目头像/项目名/状态/相对时间 + 会话标题/用过的引擎。
+// 状态用形状+颜色+状态词三重冗余（docs/46 §9）；原 tab 标题与首条提问收进 tooltip。
+// 点击聚焦对应 tab；↑/↓ 在卡片间移动焦点；当前布局里激活的 tab 用浮起底色。
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Pin } from "lucide-react";
-import StatusIndicator from "@/components/StatusIndicator";
 import { focusTab } from "@/hooks/useFocusTab";
 import { findPane } from "@/lib/paneTree";
-import { DEFAULT_STATUS_COLOR_TOKEN, statusColorToken, statusLabelKey } from "@/lib/statusPresentation";
+import { statusLabelKey } from "@/lib/statusPresentation";
 import { useDialogStore, usePanesStore } from "@/stores";
-import type { TerminalStatusType } from "@/types";
 import { asTabId } from "@/types/ids";
+import { startVisibleInterval } from "@/utils/visibleInterval";
+import SessionCard from "./SessionCard";
+import { resolveSessionTitle } from "./sessionCardModel";
 import type { WorkspaceTerminalRow } from "./workspaceTerminals";
 import WorkspaceTerminalRowMenu from "./WorkspaceTerminalRowMenu";
 
@@ -20,12 +20,32 @@ interface Props {
   rows: WorkspaceTerminalRow[];
 }
 
-const ATTENTION_STATUSES: ReadonlySet<TerminalStatusType> = new Set(["waitingInput", "error"]);
+const RELATIVE_TIME_TICK_MS = 30_000;
 
-/** 行名：手动重命名 > CLI 自己起的标题 > 首条输入 > 标签标题（用户记的是「让它干什么」而非项目名） */
+/** 行名：手动重命名 > 提炼标题 > 首条提问 > 标签标题（用户记的是「让它干什么」而非项目名） */
 export function terminalRowName(row: WorkspaceTerminalRow): string {
-  if (row.titleRenamed) return row.title;
-  return row.sessionTitle ?? row.firstPrompt ?? row.title;
+  return resolveSessionTitle(row).text;
+}
+
+/** 相对时间的节拍：页面可见时每 30s 刷一次。 */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => startVisibleInterval(() => setNow(Date.now()), RELATIVE_TIME_TICK_MS), []);
+  return now;
+}
+
+/** ↑/↓/Home/End 在同一列表的卡片间移动焦点（Enter/Space 由原生 button 处理）。 */
+function moveCardFocus(event: KeyboardEvent<HTMLDivElement>) {
+  const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+  if (!keys.includes(event.key)) return;
+  const cards = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-session-card]")];
+  const index = cards.indexOf(document.activeElement as HTMLButtonElement);
+  if (index < 0 || cards.length === 0) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? cards.length - 1
+      : Math.min(cards.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)));
+  cards[next]?.focus();
 }
 
 /** 重命名：标签只在当前布局里可改，先聚焦过去。 */
@@ -39,6 +59,7 @@ function renameRow(tabId: string, title: string) {
 export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
   const { t } = useTranslation(["sidebar", "dialogs"]);
   const [editing, setEditing] = useState<{ tabId: string; value: string } | null>(null);
+  const now = useNow();
   const activeTabId = usePanesStore((s) => {
     const pane = findPane(s.rootPane, s.activePaneId);
     return pane?.type === "panel" ? pane.activeTabId : null;
@@ -61,11 +82,10 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-px pb-1.5 pt-0.5">
+    <div className="flex flex-col gap-0.5 pb-1.5 pt-0.5" onKeyDown={moveCardFocus}>
       {[...rows].sort((a, b) => Number(b.pinned) - Number(a.pinned)).map((row) => {
         const labelKey = statusLabelKey(row.status);
         const statusLabel = labelKey ? t(`dialogs:${labelKey}` as never) : "";
-        const needsAttention = row.status != null && ATTENTION_STATUSES.has(row.status);
         const active = row.tabId === activeTabId;
         const name = terminalRowName(row);
         if (editing?.tabId === row.tabId) {
@@ -91,51 +111,32 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
           );
         }
         const tooltip = [
-          row.sessionTitle && !row.titleRenamed ? row.firstPrompt : null,
+          name,
+          row.sessionTitle && !row.titleRenamed && row.firstPrompt !== name ? row.firstPrompt : null,
           name !== row.title ? row.title : null,
-          statusLabel || null,
-        ].filter(Boolean).join(" · ");
+        ].filter(Boolean).join("\n");
         return (
           <WorkspaceTerminalRowMenu
             key={row.tabId}
             tabId={row.tabId}
             onRename={() => setEditing({ tabId: row.tabId, value: name })}
           >
-          <button
-            type="button"
-            title={tooltip || undefined}
-            aria-label={statusLabel ? `${name} ${statusLabel}` : name}
-            className={`flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ${
-              active
-                ? "bg-[var(--app-hover)] text-[var(--app-text-primary)]"
-                : "text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-            }`}
-            onClick={() => focusTab(asTabId(row.tabId))}
-          >
-            {row.pinned && (
-              <Pin className="size-3 shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" />
-            )}
-            <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)]">{name}</span>
-            {row.sessionCount > 1 && (
-              <span className="shrink-0 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("sidebar:terminalSplitCount", { count: row.sessionCount })}
-              </span>
-            )}
-            {needsAttention && statusLabel && (
-              <span
-                className="shrink-0 text-[length:var(--text-caption)]"
-                style={{ color: row.status ? statusColorToken(row.status) : DEFAULT_STATUS_COLOR_TOKEN }}
-              >
-                {statusLabel}
-              </span>
-            )}
-            <StatusIndicator
+            <SessionCard
+              title={name}
+              projectName={row.projectName}
               status={row.status}
-              toolName={row.toolName}
-              oscProgress={row.oscProgress}
-              size={7}
+              statusLabel={statusLabel}
+              engines={row.engines}
+              lastActivityAt={row.lastActivityAt}
+              now={now}
+              active={active}
+              pinned={row.pinned}
+              sessionCount={row.sessionCount}
+              tooltip={tooltip}
+              aria-label={[name, row.projectName, statusLabel].filter(Boolean).join(" · ")}
+              data-kind={row.kind}
+              onClick={() => focusTab(asTabId(row.tabId))}
             />
-          </button>
           </WorkspaceTerminalRowMenu>
         );
       })}

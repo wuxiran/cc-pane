@@ -37,7 +37,7 @@ impl Access {
     pub fn permissions(&self, state: &AppState) -> Option<bool> {
         let settings = state.settings_service.get_settings().web_access;
         if let Some(token) = &self.device_token {
-            let allowed = state.web_auth.verify_device_token(token)
+            let allowed = state.web_auth.verify_device_token_from(token, self.peer)
                 && self.peer.is_none_or(|ip| {
                     web_auth::device_peer_allowed(ip, &settings, state.web_auth.require_auth())
                 });

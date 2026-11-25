@@ -1,4 +1,4 @@
-import { Plus, Star, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Plus, Star, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,6 +236,17 @@ export default function ProviderModelsEditor({
                   >
                     <Star size={16} fill={isDefault ? "currentColor" : "none"} />
                   </button></TooltipTrigger><TooltipContent>{t(isDefault ? "defaultProviderModel" : "setDefaultProviderModel")}</TooltipContent></Tooltip>
+                  <Tooltip><TooltipTrigger asChild><button
+                    type="button"
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
+                    style={{ color: model.hidden ? "var(--app-accent)" : "var(--app-text-tertiary)" }}
+                    aria-label={t("hideProviderModelInDropdown")}
+                    aria-pressed={!!model.hidden}
+                    data-testid={`provider-model-hidden-${index}`}
+                    onClick={() => updateModel(index, { hidden: !model.hidden })}
+                  >
+                    {model.hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button></TooltipTrigger><TooltipContent>{t(model.hidden ? "showProviderModelInDropdown" : "hideProviderModelInDropdown")}</TooltipContent></Tooltip>
                   <Tooltip><TooltipTrigger asChild><button
                     type="button"
                     className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"

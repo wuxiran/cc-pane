@@ -74,11 +74,13 @@ describe("remoteUnsupportedByProfile 与后端规则一致", () => {
     [["opencode"], remote("sse"), undefined, true],
     [["antigravity"], remote("sse"), undefined, true],
     [["kimi"], remote("sse", true), undefined, false],
-    [["claude"], remote("http", true), "wsl", true],
+    // 启动档本机 / WSL / SSH 通用：旧数据里的 targetRuntime 被忽略，按本机判定
+    [["claude"], remote("http", true), "wsl", false],
     [[], remote("sse", true), undefined, false],
     [["jcode", "claude"], remote("http"), undefined, false],
   ] as const)("%j %j %s → %s", (tools, spec, runtime, expected) => {
-    expect(remoteUnsupportedByProfile({ targetTools: [...tools], targetRuntime: runtime as never }, spec)).toBe(expected);
+    const profile = { targetTools: [...tools], targetRuntime: runtime as never };
+    expect(remoteUnsupportedByProfile(profile, spec)).toBe(expected);
   });
 });
 

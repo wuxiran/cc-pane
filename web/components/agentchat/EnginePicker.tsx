@@ -9,23 +9,21 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import logoUrl from "@/assets/logo.svg";
-import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
+import type { AcpChatHistoryEntry, AcpEngineInfo, AgentChatAttachment } from "@/types/agentChat";
 import { agentChatService, type AcpRemoteLaunch } from "@/services/agentChatService";
 import type { LocalWorktreeDraft } from "@/types/localLaunch";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatVoiceButton from "./ChatVoiceButton";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
+import AcpRegistryDialog from "./AcpRegistryDialog";
+import ChatModelPicker from "./ChatModelPicker";
+import ChatLaunchProfileMenu from "./ChatLaunchProfileMenu";
+import type { PickerModelRow } from "./chatModelPickerModel";
 import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
 import StartTray from "./StartTray";
@@ -34,13 +32,18 @@ import CompactStartPage from "./CompactStartPage";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
 import { usePendingDraft } from "./pendingDraft";
+import { useStartPageAttachments } from "./useStartPageAttachments";
+import ChatAttachmentList from "./ChatAttachmentList";
+import ChatAddMenu from "./ChatAddMenu";
 import { startConfiguredChat } from "./startConfiguredChat";
 import "@/i18n/codexIntegrationResources";
 import { CODEX_APP_SERVER_ENGINE, codexEngineLabel } from "@/lib/codexIntegration";
 import {
   loadAutoApproveKinds,
   loadEnginePrefs,
+  loadLaunchProfileId,
   saveAutoApproveKinds,
+  saveLaunchProfileId,
   savePreferredMode,
   savePreferredModel,
   type EngineModelPrefs,
@@ -71,9 +74,15 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   const [error, setError] = useState<string | null>(null);
   const [modelPrefs, setModelPrefs] = useState<EngineModelPrefs | null>(null);
   const [autoApproveKinds, setAutoApproveKinds] = useState<string[]>([]);
+  // 新会话的运行配置（按引擎记忆）；null = 系统默认。
+  const [launchProfileId, setLaunchProfileId] = useState<string | null>(null);
   const [worktree, setWorktree] = useState<LocalWorktreeDraft | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   usePendingDraft(chatId, setDraft, textareaRef);
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const startAttachments = useStartPageAttachments(chatId, textareaRef, setDraft, setAttachNotice);
+  const { attachments, clearAttachments } = startAttachments;
+  useEffect(() => setAttachNotice(null), [attachments]);
   const pickCwd = useCallback((nextCwd: string) => {
     if (useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
     onPickCwd(nextCwd);
@@ -88,7 +97,12 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   useEffect(() => {
     setModelPrefs(selectedEngine ? loadEnginePrefs(selectedEngine) : null);
     setAutoApproveKinds(selectedEngine ? loadAutoApproveKinds(selectedEngine) : []);
+    setLaunchProfileId(selectedEngine ? loadLaunchProfileId(selectedEngine) : null);
   }, [selectedEngine]);
+
+  // 注册表装/卸后递增，触发引擎列表重拉
+  const [engineReload, setEngineReload] = useState(0);
+  const [registryOpen, setRegistryOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +124,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
     return () => {
       cancelled = true;
     };
-  }, [preferredEngineId]);
+  }, [preferredEngineId, engineReload]);
 
   const loadHistory = useCallback(() => {
     agentChatService
@@ -155,6 +169,8 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
       preamble?: string,
       launchWorktree?: LocalWorktreeDraft,
       launchRemote?: AcpRemoteLaunch,
+      launchAttachments?: AgentChatAttachment[],
+      launchProfile?: string,
     ) => {
       if (!startCwd || useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
       // 续接/首页交接都是本地会话；残留的远程选择不能让画面误标成远程。
@@ -167,28 +183,38 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
           onCwdAdopted,
           worktree: launchWorktree,
           remote: launchRemote,
+          firstAttachments: launchAttachments,
+          launchProfileId: launchProfile,
+          // 会话视图接管后附件已归首条消息（失败时在 rejectedPrompt / setup 里可重试），
+          // 不能再留在同一 chatId 的会话输入区草稿里。
+          onStarted: launchAttachments?.length ? clearAttachments : undefined,
         });
       } catch (startError) {
         setError(startError instanceof Error ? startError.message : String(startError));
+        // 未建会话（准备失败）：附件留在启动页可直接重试；已建会话则由 setup 带着重启重发。
+        if (launchAttachments?.length && useAgentChatStore.getState().chats[chatId]?.snapshot) clearAttachments();
       } finally {
         setStartingEngine(null);
       }
     },
-    [chatId, onCwdAdopted],
+    [chatId, onCwdAdopted, clearAttachments],
   );
 
   const remoteChecking = remote?.probe.status === "checking";
   const launch = useCallback(() => {
     if (!cwd || !selectedEngine || !engines?.some((engine) => engine.id === selectedEngine && engine.available) || startingEngine !== null) return;
     if (!remote) {
-      void start(selectedEngine, cwd, undefined, draft, undefined, worktree);
+      // 运行配置只对声明了 launchProfileCli 的引擎下发（其余引擎后端会拒绝）。
+      const profileCli = engines.find((engine) => engine.id === selectedEngine)?.launchProfileCli;
+      const profile = profileCli && launchProfileId ? launchProfileId : undefined;
+      void start(selectedEngine, cwd, undefined, draft, undefined, worktree, undefined, attachments, profile);
       return;
     }
     if (remoteChecking) return;
     const remoteCwd = remote.cwd.trim() || "~";
     if (remoteCwd !== remote.cwd) useAgentChatRemoteStore.getState().setRemoteCwd(chatId, remoteCwd);
-    void start(selectedEngine, remoteCwd, undefined, draft, undefined, undefined, remoteLaunchOf(remote));
-  }, [chatId, cwd, engines, selectedEngine, startingEngine, start, draft, worktree, remote, remoteChecking]);
+    void start(selectedEngine, remoteCwd, undefined, draft, undefined, undefined, remoteLaunchOf(remote), attachments);
+  }, [chatId, cwd, engines, selectedEngine, startingEngine, start, draft, worktree, remote, remoteChecking, attachments, launchProfileId]);
 
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const workspaces = useWorkspacesStore((state) => state.workspaces);
@@ -198,76 +224,13 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
 
   const launching = startingEngine !== null && startingEngine === selectedEngine;
 
-  const engineMenu = (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={engines === null || engines.length === 0}
-                    className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-50"
-                  >
-                    {engines === null ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <>
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            selected?.available
-                              ? "bg-[var(--app-status-success)]"
-                              : "bg-[var(--app-text-tertiary)]"
-                          }`}
-                        />
-                        <span className="truncate">{selected ? codexEngineLabel(selected.id, selected.label) : t("agentChatPickEngine")}</span>
-                      </>
-                    )}
-                    <ChevronDown className="h-3 w-3 text-[var(--app-text-tertiary)]" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {(engines ?? []).map((engine) => (
-                    <DropdownMenuItem
-                      key={engine.id}
-                      disabled={!engine.available}
-                      title={engine.available ? undefined : engine.requirement}
-                      onSelect={() => setSelectedEngine(engine.id)}
-                    >
-                      <span
-                        className={`mr-2 h-1.5 w-1.5 rounded-full ${
-                          engine.available
-                            ? "bg-[var(--app-status-success)]"
-                            : "bg-[var(--app-text-tertiary)]"
-                        }`}
-                      />
-                      {codexEngineLabel(engine.id, engine.label)}
-                      {!engine.available ? (
-                        <span className="ml-2 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-                          {t("agentChatUnavailableEngine")}
-                        </span>
-                      ) : null}
-                      {engine.id === selectedEngine ? (
-                        <span className="ml-auto pl-3 text-[var(--app-text-primary)]">✓</span>
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-  );
-  const modelMenu = (
-              <StartPrefDropdown
-                items={(modelPrefs?.models ?? []).map((model) => ({
-                  id: model.modelId,
-                  label: model.name || model.modelId,
-                  description: model.description,
-                }))}
-                currentId={modelPrefs?.preferredModelId ?? null}
-                defaultLabel={t("agentChatModelDefault")}
-                onSelect={(modelId) => {
-                  if (!selectedEngine) return;
-                  savePreferredModel(selectedEngine, modelId);
-                  setModelPrefs(loadEnginePrefs(selectedEngine));
-                }}
-              />
-  );
+  // 「默认」行 = 跟随引擎、不主动设置；其后是该引擎握手缓存里的模型（首次使用时为空）。
+  const startModelsOf = (engineId: string): PickerModelRow[] => [
+    { engineId, modelId: null, label: t("agentChatModelDefault") },
+    ...((engineId === selectedEngine ? modelPrefs : loadEnginePrefs(engineId))?.models ?? []).map((model) => ({
+      engineId, modelId: model.modelId, label: model.name || model.modelId, description: model.description,
+    })),
+  ];
   const modeMenu = (
               <StartPrefDropdown
                 items={(modelPrefs?.modes ?? []).map((mode) => ({
@@ -283,6 +246,53 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
                   setModelPrefs(loadEnginePrefs(selectedEngine));
                 }}
               />
+  );
+  const engineMenu = (
+            <>
+              <ChatModelPicker
+                engines={engines?.map((engine) => ({
+                  id: engine.id, label: codexEngineLabel(engine.id, engine.label), available: engine.available, requirement: engine.requirement,
+                })) ?? null}
+                currentEngineId={selectedEngine}
+                currentModelId={modelPrefs?.preferredModelId ?? null}
+                modelsOf={startModelsOf}
+                blockedReason={(engineId) => {
+                  const engine = engines?.find((item) => item.id === engineId);
+                  return engine?.available ? null : engine?.requirement || t("agentChatUnavailableEngine");
+                }}
+                effort={null}
+                effortNote={t("agentChatReasoningAfterStart")}
+                onPickModel={(engineId, modelId) => {
+                  // 新对话还没有会话：换引擎只是改选中项，模型记成该引擎的偏好，启动后应用。
+                  savePreferredModel(engineId, modelId);
+                  if (engineId === selectedEngine) setModelPrefs(loadEnginePrefs(engineId));
+                  else setSelectedEngine(engineId);
+                }}
+                footer={(modelPrefs?.modes?.length ?? 0) > 0 ? modeMenu : undefined}
+                onBrowseRegistry={() => setRegistryOpen(true)}
+              />
+              {selectedEngine ? (
+                <ChatLaunchProfileMenu
+                  cli={selected?.launchProfileCli}
+                  remote={Boolean(remote)}
+                  value={launchProfileId}
+                  disabled={startingEngine !== null}
+                  onChange={(profileId) => {
+                    saveLaunchProfileId(selectedEngine, profileId);
+                    setLaunchProfileId(profileId);
+                  }}
+                />
+              ) : null}
+              <AcpRegistryDialog
+                open={registryOpen}
+                onOpenChange={setRegistryOpen}
+                onInstalled={(engineId) => {
+                  setSelectedEngine(engineId);
+                  setEngineReload((value) => value + 1);
+                }}
+                onUninstalled={() => setEngineReload((value) => value + 1)}
+              />
+            </>
   );
   const permissionMenu = (
               <PermissionPolicyDropdown
@@ -324,6 +334,14 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   const projectMenu = (trigger: React.ReactElement) => remote
     ? <span data-testid="remote-target-label" title={t("agentChatRemoteTargetTip", { host: remote.host, path: remote.cwd })}>{remoteLabel}</span>
     : <StartProjectMenu cwd={cwd} onPickCwd={pickCwd} trigger={trigger} />;
+  const attachmentChips = attachments.length > 0 ? (
+    <div className="mb-2"><ChatAttachmentList attachments={attachments} onRemove={startAttachments.removeAttachment} /></div>
+  ) : null;
+  const addMenu = (
+    <ChatAddMenu chatId={chatId} cwd={remote ? "" : cwd} generating={false} blocked={startingEngine !== null}
+      onFiles={startAttachments.attachFromDialog} onFolders={startAttachments.attachFoldersFromDialog}
+      onProject={() => startAttachments.attachDirectory(cwd)} onNotice={setAttachNotice} />
+  );
   if (compact) {
     return (
       <CompactStartPage
@@ -335,13 +353,15 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
         onDraft={setDraft}
         onSubmit={launch}
         textareaRef={textareaRef}
+        onPaste={startAttachments.handlePaste}
+        attachments={attachmentChips}
         placeholder={t("agentChatCompactPlaceholder")}
         permissionMenu={permissionMenu}
         engineMenu={engineMenu}
-        modelMenu={modelMenu}
+        modelMenu={null}
         voiceButton={voiceButton}
         sendButton={sendButton}
-        notice={selectedEngine && engines && !selected?.available ? (selected?.requirement || codexT("unavailable")) : null}
+        notice={attachNotice ?? (selectedEngine && engines && !selected?.available ? (selected?.requirement || codexT("unavailable")) : null)}
         error={error ? `${t("agentChatStartFailed")}: ${error}` : null}
       />
     );
@@ -385,6 +405,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
           )}
         </div>
 
+        {attachNotice ? <p role="status" className="mb-2 px-2 text-sm text-[var(--app-text-tertiary)]">{attachNotice}</p> : null}
         {selectedEngine && engines && !selected?.available && <p role="status" className="mb-2 px-2 text-sm text-[var(--app-text-tertiary)]">{selected?.requirement || codexT("unavailable")}</p>}
         {error ? (
           <div className="mb-2 whitespace-pre-wrap break-all rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-xs text-[var(--app-status-danger)]">
@@ -400,10 +421,12 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               remote={remote} remoteLabel={remoteLabel} />
           ) : null}
           <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border px-4 pb-3 pt-3 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)]">
+            {attachmentChips}
             <textarea
               ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onPaste={startAttachments.handlePaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
@@ -415,11 +438,9 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               className="agent-chat-composer-input block max-h-72 w-full resize-none bg-transparent px-1 py-1 text-[length:var(--text-body)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
             />
             <div className="agent-chat-composer-toolbar mt-2 flex items-center justify-between gap-3">
-              <div className="flex shrink-0 items-center">{permissionMenu}</div>
+              <div className="flex shrink-0 items-center">{addMenu}{permissionMenu}</div>
               <div className="agent-chat-composer-options flex min-w-0 items-center justify-end gap-0.5">
                 {engineMenu}
-                {modelMenu}
-                {modeMenu}
               </div>
               <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
                 {voiceButton}

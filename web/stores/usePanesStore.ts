@@ -27,6 +27,7 @@ import { createTabBasicActions } from "./panes/tabBasicActions";
 import { createTabMoveActions } from "./panes/tabMoveActions";
 import { createTabOpenActions } from "./panes/tabOpenActions";
 import { createTerminalLeafActions } from "./panes/terminalLeafActions";
+import { createLaunchProfileSnapshotActions } from "./panes/launchProfileSnapshotActions";
 import { findTabAcrossLayouts } from "./panes/crossLayoutSearch";
 import { createStarredLayout, ensureLayoutState, ensureStarredLayoutInDraft } from "./panes/layoutLifecycle";
 import { defaultLayoutName, isStarredLayout } from "./paneLayoutHelpers";
@@ -79,6 +80,7 @@ export const usePanesStore = create<PanesState>()(
     ...createTabMoveActions({ set, get }),
     ...createTabOpenActions({ set, get }),
     ...createTerminalLeafActions({ set, get }),
+    ...createLaunchProfileSnapshotActions({ set, get }),
     ...createSessionBindingActions({ set, get }),
 
     ...createWorkspaceToolTabActions({ set, get }),

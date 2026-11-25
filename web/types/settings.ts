@@ -32,6 +32,14 @@ export interface AppSettings {
   experimental: ExperimentalSettings;
   /** 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊 */
   performance: PerformanceSettings;
+  /** Agent Chat 偏好（镜像 cc-panes-core AgentChatSettings）；旧后端 / 测试夹具可能缺失，读取时按默认值。 */
+  agentChat?: AgentChatSettings;
+}
+
+/** Agent Chat 偏好（镜像 cc-panes-core AgentChatSettings）。 */
+export interface AgentChatSettings {
+  /** 「Codex」始终走 ACP 兼容模式（不尝试原生 App Server）；只影响新会话。默认 false。 */
+  codexForceAcp: boolean;
 }
 
 /** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
@@ -250,7 +258,7 @@ export interface ScreenshotSettings {
 /** 语音输入设置 */
 export interface VoiceSettings {
   enabled: boolean;
-  provider: "dashscope" | "mimo" | "custom";
+  provider: "dashscope" | "mimo" | "custom" | "local";
   dashscopeApiKey: string;
   region: "cn" | "intl";
   model: string;
@@ -263,11 +271,24 @@ export interface VoiceSettings {
   customModel: string;
   /** 录音先转 WAV 再发送（目标服务不支持 WebM 时开启） */
   customPreferWav: boolean;
+  /** provider = "local" 时用的本机模型：sense-voice | qwen3-asr */
+  localModel: string;
   language: string | null;
   enableItn: boolean;
   maxRecordSeconds: number;
   /** 是否在终端右下角显示语音悬浮按钮（关闭后仍可用快捷键触发录音） */
   showFloatingButton: boolean;
+  /** 麦克风优先级：录音用第一个已连接的；deviceId "default" = 系统默认；空 = 系统默认 */
+  microphones: VoiceMicrophone[];
+  /** 词典：人名、术语，转写时作为上下文提示给服务 */
+  customWords: string[];
+  /** 去掉「嗯」「呃」「um」「uh」等语气词 */
+  removeFillerWords: boolean;
+}
+
+export interface VoiceMicrophone {
+  deviceId: string;
+  label: string;
 }
 
 export interface CliLauncherSettings {

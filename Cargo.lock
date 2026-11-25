@@ -921,11 +921,13 @@ dependencies = [
 name = "cc-panes"
 version = "0.13.2"
 dependencies = [
+ "aes",
  "anyhow",
  "arboard",
  "axum",
  "base64 0.22.1",
  "block2",
+ "cbc",
  "cc-cli-adapters",
  "cc-memory",
  "cc-notify",
@@ -937,6 +939,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "futures-util",
+ "hmac",
  "image",
  "libc",
  "log",
@@ -955,6 +958,7 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "similar",
  "socket2",
@@ -1062,6 +1066,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "toml_edit 0.22.27",
  "tracing",
  "trash",
  "unicode-width",
@@ -1152,6 +1157,34 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "urlencoding",
+]
+
+[[package]]
+name = "cc-wechat-mcp"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "cbc",
+ "chrono",
+ "cipher",
+ "ctrlc",
+ "hmac",
+ "image",
+ "log",
+ "md-5",
+ "pbkdf2",
+ "rayon",
+ "rusqlite",
+ "ruzstd",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "windows-registry 0.5.3",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3924,6 +3957,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4961,6 +5004,16 @@ name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
+
+[[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest",
+ "hmac",
+]
 
 [[package]]
 name = "percent-encoding"
@@ -6224,6 +6277,15 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "ruzstd"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fad02996bfc73da3e301efe90b1837be9ed8f4a462b6ed410aa35d00381de89f"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "ryu"
@@ -8207,6 +8269,16 @@ dependencies = [
  "sha1",
  "thiserror 2.0.18",
  "utf-8",
+]
+
+[[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "static_assertions",
 ]
 
 [[package]]

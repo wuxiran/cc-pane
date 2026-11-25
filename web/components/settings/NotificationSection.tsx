@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Label } from "@/components/ui/label";
 import type { NotificationSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
+import { SettingsSection, SettingsSwitchRow } from "./layout";
 
 interface NotificationSectionProps {
   value: NotificationSettings;
@@ -16,68 +16,36 @@ export default function NotificationSection({ value, onChange }: NotificationSec
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("notificationTitle")}
-      </h3>
-      <p className="text-xs mb-3" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("notificationDesc", { ns: "dialogs" })}
-      </p>
-
-      <SearchableSetting sectionId="notification-controls">
-      <div className="flex flex-col gap-[calc(var(--density-gap)+4px)]">
-      <div className="flex items-center justify-between">
-        <Label htmlFor="notification-enabled">{t("enableNotification")}</Label>
-        <input
+    <SearchableSetting sectionId="notification-controls">
+      <SettingsSection title={t("notification")} description={t("notificationDesc", { ns: "dialogs" })}>
+        <SettingsSwitchRow
           id="notification-enabled"
-          type="checkbox"
+          title={t("enableNotification")}
           checked={value.enabled}
-          onChange={(e) => update("enabled", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("enabled", checked)}
         />
-      </div>
-
-      <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label htmlFor="notification-on-exit">{t("notifyOnExit")}</Label>
-        <input
+        <SettingsSwitchRow
           id="notification-on-exit"
-          type="checkbox"
+          title={t("notifyOnExit")}
           checked={value.onExit}
           disabled={!value.enabled}
-          onChange={(e) => update("onExit", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("onExit", checked)}
         />
-      </div>
-
-      <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label htmlFor="notification-on-waiting-input">{t("notifyOnWaitingInput")}</Label>
-        <input
+        <SettingsSwitchRow
           id="notification-on-waiting-input"
-          type="checkbox"
+          title={t("notifyOnWaitingInput")}
           checked={value.onWaitingInput}
           disabled={!value.enabled}
-          onChange={(e) => update("onWaitingInput", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("onWaitingInput", checked)}
         />
-      </div>
-
-      <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label htmlFor="notification-only-unfocused">{t("notifyOnlyUnfocused")}</Label>
-        <input
+        <SettingsSwitchRow
           id="notification-only-unfocused"
-          type="checkbox"
+          title={t("notifyOnlyUnfocused")}
           checked={value.onlyWhenUnfocused}
           disabled={!value.enabled}
-          onChange={(e) => update("onlyWhenUnfocused", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
+          onCheckedChange={(checked) => update("onlyWhenUnfocused", checked)}
         />
-      </div>
-      </div>
-      </SearchableSetting>
-    </div>
+      </SettingsSection>
+    </SearchableSetting>
   );
 }

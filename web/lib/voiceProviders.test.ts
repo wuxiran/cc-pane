@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { missingApiKey, resolveVoiceProvider, shouldPreferWav } from "./voiceProviders";
+import { isLocalVoice, missingApiKey, resolveVoiceProvider, shouldPreferWav, wavSampleRate } from "./voiceProviders";
 import type { VoiceSettings } from "@/types";
 
 function makeVoice(overrides: Partial<VoiceSettings> = {}): VoiceSettings {
@@ -16,10 +16,14 @@ function makeVoice(overrides: Partial<VoiceSettings> = {}): VoiceSettings {
     customBaseUrl: "http://127.0.0.1:8080/v1",
     customModel: "whisper-1",
     customPreferWav: false,
+    localModel: "sense-voice",
     language: null,
     enableItn: false,
     maxRecordSeconds: 60,
     showFloatingButton: true,
+    microphones: [],
+    customWords: [],
+    removeFillerWords: true,
     ...overrides,
   };
 }
@@ -51,5 +55,16 @@ describe("missingApiKey", () => {
 
   it("custom 空 key 不判缺失（本地无鉴权服务）", () => {
     expect(missingApiKey(makeVoice({ provider: "custom", customApiKey: "" }))).toBe(false);
+  });
+});
+
+describe("local provider", () => {
+  it("不需要密钥、恒转 16kHz WAV", () => {
+    const voice = makeVoice({ provider: "local" });
+    expect(isLocalVoice(voice)).toBe(true);
+    expect(missingApiKey(voice)).toBe(false);
+    expect(shouldPreferWav(voice)).toBe(true);
+    expect(wavSampleRate(voice)).toBe(16_000);
+    expect(wavSampleRate(makeVoice({ provider: "mimo" }))).toBeUndefined();
   });
 });

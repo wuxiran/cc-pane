@@ -41,6 +41,7 @@ export function toClosedTabSnapshot(t: {
   modelId?: string;
   providerSelection?: ClosedTabSnapshot["providerSelection"];
   launchProfileId?: string;
+  launchProfileSnapshot?: ClosedTabSnapshot["launchProfileSnapshot"];
   workspacePath?: string;
   workspaceSnapshotId?: string;
   launchClaude?: boolean;
@@ -67,6 +68,7 @@ export function toClosedTabSnapshot(t: {
     modelId: t.modelId,
     providerSelection: detach(t.providerSelection),
     launchProfileId: t.launchProfileId,
+    launchProfileSnapshot: detach(t.launchProfileSnapshot),
     workspacePath: t.workspacePath,
     workspaceSnapshotId: t.workspaceSnapshotId,
     launchClaude: t.launchClaude,

@@ -47,7 +47,7 @@ export function useLaunchProfileNavigation({
 }: UseLaunchProfileNavigationArgs) {
   const selectSystemDefault = useCallback(() => {
     setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+    setDraft(toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, t));
     resetTransientState();
   }, [activeTool, resetTransientState, t, toolDefaultProfile]);
   const handleSelectSystemDefault = useCallback(() => requestDiscard(selectSystemDefault), [requestDiscard, selectSystemDefault]);
@@ -74,10 +74,10 @@ export function useLaunchProfileNavigation({
   }), [requestDiscard, selectProfile, setWorkspaceFilterName]);
 
   const copySystemDefault = useCallback(() => {
-    const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, draft.targetRuntime ?? null, t);
+    const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, t);
     const name = t("profileDefaultName", { tool: toolLabel(activeTool, t) });
     setSelectedId(null);
-    setDraft({ ...base, name, alias: name, targetTools: [activeTool], targetRuntime: draft.targetRuntime ?? null, isDefault: false });
+    setDraft({ ...base, name, alias: name, targetTools: [activeTool], targetRuntime: null, isDefault: false });
     setPreview(null);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);

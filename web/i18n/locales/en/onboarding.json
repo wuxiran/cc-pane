@@ -2,34 +2,27 @@
   "progress": "Step {{current}} of {{total}}",
   "agentHint": "You can also tell the agent directly",
   "actions": {
-    "useCurrentProject": "Continue with imported project",
     "launchPair": "Launch side by side",
-    "finish": "Finish guide",
     "skipStep": "Skip this step",
-    "skipAll": "Skip all",
+    "skipAll": "Skip guide",
     "back": "Back",
     "continueSetup": "Continue"
   },
   "steps": {
     "environment": {
-      "title": "Check your environment, pick a workbench mode",
-      "description": "Verify the CLIs multi-session workflows need; copy a repair command for anything missing. The mode only sets module defaults - adjust anytime.",
-      "navTitle": "Environment & mode"
+      "title": "Check your environment",
+      "description": "Copy a command for anything missing; you can change the mode any time.",
+      "navTitle": "Environment"
     },
     "workspace": {
-      "title": "Create your first workspace",
-      "description": "Gather related projects and working materials into a portable work context.",
-      "navTitle": "Create workspace"
+      "title": "Import a project",
+      "description": "Pick a code folder; its Git repositories are imported into a workspace of the same name.",
+      "navTitle": "Project"
     },
     "parallel": {
-      "title": "Launch two sessions side by side",
-      "description": "Run two agents in the same project. After launch this window steps aside so you can watch them start.",
-      "navTitle": "Side-by-side launch"
-    },
-    "finish": {
-      "title": "Your workbench is ready",
-      "description": "Two agents are working in parallel behind you. The workspace gathers context - next, move from watching to dispatching.",
-      "navTitle": "Ready"
+      "title": "Run two agents side by side",
+      "description": "Two sessions in the same project at once. The guide ends after launch.",
+      "navTitle": "Start"
     }
   },
   "environment": {
@@ -41,7 +34,11 @@
     "copied": "Copied",
     "copyRepair": "Copy {{name}} repair command",
     "copyFailed": "Could not write to the clipboard. Check system permissions.",
-    "checkFailed": "Environment check failed. Skip this step and retry from Settings."
+    "checkFailed": "Environment check failed. Skip this step and retry from Settings.",
+    "baseTitle": "Basics",
+    "cliFound": "{{count}} CLI detected",
+    "cliNone": "No CLI found yet — install one:",
+    "installMore": "Install other CLIs ({{count}})"
   },
   "preset": {
     "groupLabel": "Workbench mode",
@@ -55,33 +52,25 @@
     }
   },
   "workspace": {
-    "principleGather": "Gather: collaboration settings, sessions, and plans live outside your code repositories.",
-    "principleMaterials": "Materials: designs, samples, and documents can sit beside code projects in one workspace.",
-    "principlePortable": "Move devices: sync workspace materials, restore code from the project list, and resume work.",
-    "currentProject": "The next step will use {{workspace}} / {{project}}",
     "nameLabel": "Workspace name",
-    "namePlaceholder": "For example: Product development",
-    "pathLabel": "Project directory",
-    "pathPlaceholder": "Enter a directory containing projects",
-    "scan": "Scan directory",
-    "found": "Found {{count}} projects",
-    "createAndImport": "Create and import",
-    "noneFound": "No importable Git projects were found in this directory.",
-    "scanFailed": "Directory scan failed. Check the path and access permissions.",
-    "importFailed": "Creation or import failed. Existing results remain visible so you can correct and retry."
+    "namePlaceholder": "e.g. Product",
+    "pathLabel": "Project folder",
+    "pathPlaceholder": "Code folder path, e.g. ~/code",
+    "pick": "Choose…",
+    "import": "Import",
+    "importOther": "Import another folder…",
+    "noneFound": "No importable Git projects found in this folder.",
+    "scanFailed": "Folder scan failed. Check the path and permissions.",
+    "importFailed": "Create or import failed. Fix and retry (the workspace name may already exist)."
   },
   "parallel": {
-    "description": "Two sessions will start side by side in {{project}}.",
-    "noCli": "No CLI is available. Return to Environment to copy a repair command, or skip and retry in Settings.",
-    "noProject": "There is no launchable project. Return to Workspace to import one, or skip this step.",
-    "launchFailed": "The current project runtime cannot launch a session. Check its runtime configuration."
+    "where": "Project: {{project}}",
+    "noCli": "No CLI detected. Go back to Environment to copy an install command, or skip the guide.",
+    "noProject": "No project yet. Go back to Project to import one, or skip the guide.",
+    "launchFailed": "This project's runtime cannot start a session. Check the project's runtime settings."
   },
   "finish": {
-    "description": "The workspace gathers context while multiple agents work across the same projects in parallel.",
-    "explorer": "Explorer: inspect projects, files, and Git state.",
-    "rightDock": "Right Dock: keep tools visible without covering terminals.",
-    "skills": "Advanced: use orchestration skills to dispatch, track, and report work.",
-    "recoverHint": "You can reopen this guide and the checklist anytime from Settings > Getting started."
+    "recoverHint": "Reopen the guide and checklist any time from Settings → Getting started."
   },
   "concierge": {
     "action": "Tell the agent",

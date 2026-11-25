@@ -4,7 +4,6 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Compass, FolderOpen } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { resolveWorkspaceLaunchProfile } from "@/components/providers/launchProfileHelpers";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
 import { Button } from "@/components/ui/button";
 import { toastErr } from "@/lib/feedback";
@@ -14,7 +13,7 @@ import { readSkillsCheckedAt, useSkillLibraryStore } from "@/stores/useSkillLibr
 import { translateError } from "@/utils";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import FoundSkillsSection from "./FoundSkillsSection";
-import { profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope } from "./libraryChrome";
+import { LibraryTitle, profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope } from "./libraryChrome";
 import ProfileChips from "./ProfileChips";
 import { setSkillResource, skillChipState, type ChipBlockReason, type ProfileSkillResource } from "./resourceCenterModel";
 import SkillBuiltinSections from "./SkillBuiltinSections";
@@ -73,7 +72,6 @@ export default function SkillsLibraryPage() {
     })()
     : selected;
 
-  const workspaceProfile = resolveWorkspaceLaunchProfile(workspace, profiles);
 
   const chips = (key: string, name: string, resource: ProfileSkillResource) => (
     <ProfileChips
@@ -122,7 +120,7 @@ export default function SkillsLibraryPage() {
     <div className="flex h-full" data-testid="skills-library-page" style={{ background: "var(--app-panel-bg)" }}>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-6 pb-3 pt-5">
-          <h1 className="mr-auto text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.skills")}</h1>
+          <LibraryTitle title={t("resourceLibrary.skills")} intro={t("skillLibrary.intro")} noProfiles={profiles.length === 0} />
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToDiscover}><Compass size={13} className="mr-1" />{t("resourceLibrary.discover")}</Button>
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => void openFolder()}><FolderOpen size={13} className="mr-1" />{t("resourceLibrary.folder")}</Button>
           <ScopeSelect onChange={() => setSelected(null)} />
@@ -130,9 +128,7 @@ export default function SkillsLibraryPage() {
         </header>
 
         <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-          <RemoteRuntimeNotice workspace={workspace} profile={workspaceProfile} subject="skills" className="mb-3" />
-          <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.intro")}</p>
-          {profiles.length === 0 && <p className="mb-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceCenter.noProfiles")}</p>}
+          <RemoteRuntimeNotice workspace={workspace} subject="skills" className="mb-3" />
           <SkillInstallCard />
           <SkillLibrarySection
             skills={skills}

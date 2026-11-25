@@ -45,3 +45,35 @@ it("does not open an empty or oversized UTF-8 task", () => {
   expect(screen.getByRole("button", { name: "Open Codex draft" })).toBeDisabled();
   expect(codexDesktopService.open).not.toHaveBeenCalled();
 });
+
+it("prefills the captured selection as a quote block before any draft text", async () => {
+  const token = acquireChatDraft("source");
+  useAgentChatDraftStore.getState().setText("source", token, "draft text");
+  vi.mocked(codexDesktopService.open).mockResolvedValue("codex://new");
+  render(<CodexHandoffDialog cwd="/repo" chatId="source" selection={"line one\nline two"} onClose={vi.fn()} />);
+  const textarea = screen.getByRole("textbox");
+  expect(textarea).toHaveValue("> line one\n> line two\n\n");
+  fireEvent.change(textarea, { target: { value: "> line one\n> line two\n\nFix this." } });
+  fireEvent.click(screen.getByRole("button", { name: "Open Codex draft" }));
+  await waitFor(() => expect(codexDesktopService.open).toHaveBeenCalledWith({ cwd: "/repo", prompt: "> line one\n> line two\n\nFix this." }));
+});
+
+it("truncates an oversized selection and points to a plan file instead of failing", () => {
+  render(<CodexHandoffDialog cwd="/repo" selection={"中".repeat(5000)} onClose={vi.fn()} />);
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value.endsWith("> …\n\n")).toBe(true);
+  expect(screen.getByText(/Save the full content to a plan file/)).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: `${(screen.getByRole("textbox") as HTMLTextAreaElement).value}Go.` } });
+  expect(screen.getByRole("button", { name: "Open Codex draft" })).toBeEnabled();
+});
+
+it("quotes the last reply ahead of the typed instruction on demand", () => {
+  render(<CodexHandoffDialog cwd="/repo" lastReply="Final answer" onClose={vi.fn()} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Implement it." } });
+  fireEvent.click(screen.getByRole("button", { name: "Quote last reply" }));
+  expect(screen.getByRole("textbox")).toHaveValue("> Final answer\n\nImplement it.");
+});
+
+it("hides the quote-last-reply shortcut when there is no reply", () => {
+  render(<CodexHandoffDialog cwd="/repo" onClose={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Quote last reply" })).not.toBeInTheDocument();
+});

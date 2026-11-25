@@ -20,6 +20,16 @@ pub async fn list_session_index(
     super::blocking::run(move || service.list_sessions(query)).await
 }
 
+/// 侧栏会话卡：按 resumeId 批量取 CLI 标题 / 首条提问（只查索引库，不读转录文件）。
+#[tauri::command]
+pub async fn lookup_session_index(
+    service: State<'_, Arc<SessionIndexService>>,
+    session_ids: Vec<String>,
+) -> AppResult<Vec<SessionIndexEntry>> {
+    let service = service.inner().clone();
+    super::blocking::run(move || service.lookup_sessions(&session_ids)).await
+}
+
 #[tauri::command]
 pub async fn refresh_session_index(
     service: State<'_, Arc<SessionIndexService>>,

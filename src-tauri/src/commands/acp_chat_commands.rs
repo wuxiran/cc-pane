@@ -19,6 +19,8 @@ use cc_panes_core::repository::HistoryFileRepository;
 use cc_panes_core::utils::orchestrator_manifest;
 use cc_panes_core::utils::AppPaths;
 
+mod launch;
+
 struct AcpEngineSpec {
     id: &'static str,
     label: &'static str,
@@ -27,6 +29,8 @@ struct AcpEngineSpec {
     args: &'static [&'static str],
     /// What the user must install for this engine to become available.
     requirement: &'static str,
+    /// Extra environment variables the adapter needs (e.g. Muse's ACP opt-in).
+    env: &'static [(&'static str, &'static str)],
 }
 
 /// 用户自定义引擎（`<data>/agent-chats/engines.json`）：接任何 ACP agent 的
@@ -42,6 +46,8 @@ struct CustomAcpEngine {
     args: Vec<String>,
     #[serde(default)]
     requirement: Option<String>,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
 }
 
 /// 内置 + 自定义合并后的统一形态。pub 是给 automation_service 复用引擎解析
@@ -53,6 +59,7 @@ pub struct ResolvedEngine {
     pub executable: String,
     pub args: Vec<String>,
     pub requirement: String,
+    pub env: Vec<(String, String)>,
 }
 
 fn custom_engines_path(app_paths: &AppPaths) -> std::path::PathBuf {
@@ -89,6 +96,11 @@ fn resolved_engines(app_paths: &AppPaths) -> Vec<ResolvedEngine> {
             executable: engine.executable.to_string(),
             args: engine.args.iter().map(|arg| arg.to_string()).collect(),
             requirement: engine.requirement.to_string(),
+            env: engine
+                .env
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
         })
         .collect();
     for custom in load_custom_engines(app_paths) {
@@ -103,6 +115,7 @@ fn resolved_engines(app_paths: &AppPaths) -> Vec<ResolvedEngine> {
             label: custom.label,
             executable: custom.executable,
             args: custom.args,
+            env: custom.env.into_iter().collect(),
         });
     }
     engines
@@ -113,11 +126,14 @@ fn resolved_engines(app_paths: &AppPaths) -> Vec<ResolvedEngine> {
 // 桥接型（npx 包）pin 版本防远端发布改协议。
 const ACP_ENGINES: &[AcpEngineSpec] = &[
     AcpEngineSpec {
+        // 引擎列表里唯一的「Codex」：原生 App Server 优先，起不来自动改走下面的
+        // `codex`（ACP 桥）。id 兼容决策见 acp_chat_commands/launch.rs 文件头。
         id: "codex-app-server",
-        label: "Codex App Server",
+        label: "Codex",
         executable: "codex",
         args: &["app-server", "--listen", "stdio://"],
-        requirement: "Logged-in Codex CLI with App Server support",
+        requirement: "Logged-in Codex CLI",
+        env: &[],
     },
     AcpEngineSpec {
         id: "claude",
@@ -125,6 +141,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "npx",
         args: &["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"],
         requirement: "npm (npx) + logged-in Claude Code",
+        env: &[],
     },
     AcpEngineSpec {
         id: "codex",
@@ -132,6 +149,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "npx",
         args: &["-y", "@agentclientprotocol/codex-acp@2.2.2"],
         requirement: "npm (npx) + logged-in Codex CLI",
+        env: &[],
     },
     AcpEngineSpec {
         id: "grok",
@@ -139,6 +157,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "grok",
         args: &["agent", "stdio"],
         requirement: "xAI Grok CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "gemini",
@@ -146,6 +165,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "gemini",
         args: &["--acp"],
         requirement: "Google Gemini CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "qwen",
@@ -153,6 +173,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "qwen",
         args: &["--acp"],
         requirement: "Qwen Code CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "opencode",
@@ -160,6 +181,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "opencode",
         args: &["acp"],
         requirement: "OpenCode CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "copilot",
@@ -167,6 +189,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "copilot",
         args: &["--acp", "--stdio"],
         requirement: "GitHub Copilot CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "cursor",
@@ -174,6 +197,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "cursor-agent",
         args: &["acp"],
         requirement: "Cursor CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "kimi",
@@ -181,6 +205,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "kimi",
         args: &["acp"],
         requirement: "Kimi CLI (native ACP)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "pi",
@@ -188,6 +213,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "npx",
         args: &["-y", "pi-acp@0.0.33"],
         requirement: "npm (npx) + configured Pi",
+        env: &[],
     },
     AcpEngineSpec {
         id: "jcode",
@@ -195,6 +221,33 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "jcode",
         args: &["acp"],
         requirement: "Jcode CLI (native ACP)",
+        env: &[],
+    },
+    AcpEngineSpec {
+        id: "kiro",
+        label: "Kiro",
+        executable: "kiro-cli",
+        // V3 引擎才说 ACP；`--auth-method=cli` 让访问令牌留在 Kiro 自己手里（同 T3 Code）。
+        args: &["acp", "--agent-engine=v3", "--auth-method=cli"],
+        requirement: "Kiro CLI (curl -fsSL https://cli.kiro.dev/install | bash; kiro-cli login)",
+        env: &[],
+    },
+    AcpEngineSpec {
+        id: "fx",
+        label: "fx",
+        executable: "fx",
+        args: &["acp"],
+        requirement: "fx >= 0.0.13 (curl -fsSL https://fx.sh/setup.sh | bash; fx login)",
+        env: &[],
+    },
+    AcpEngineSpec {
+        id: "muse",
+        label: "Muse Code",
+        executable: "muse",
+        args: &["acp"],
+        requirement: "Meta Muse Code CLI (muse login)",
+        // Muse 的 ACP 仍是实验开关（ACP 官方注册表条目同样注入它）。
+        env: &[("MUSE_EXPERIMENTAL_ACP", "on")],
     },
     // `agy acp`：官方文档 antigravity.google/docs/cli/acp 的原生 ACP 服务端
     // （stdin/stdout JSON-RPC，复用交互 agy 的登录态，未登录时 `agy acp --login`）。
@@ -204,6 +257,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "agy",
         args: &["acp"],
         requirement: "Antigravity CLI (native ACP, signed in)",
+        env: &[],
     },
     AcpEngineSpec {
         id: "openclaw",
@@ -211,6 +265,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         executable: "openclaw",
         args: &["acp"],
         requirement: "OpenClaw CLI (native ACP)",
+        env: &[],
     },
 ];
 
@@ -221,6 +276,15 @@ pub struct AcpEngineInfo {
     pub label: String,
     pub available: bool,
     pub requirement: String,
+    /// 可接收哪个 CLI 的运行配置（`codex` / `claude`）；缺失 = 此引擎不支持运行配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile_cli: Option<String>,
+}
+
+/// 内置引擎 id（ACP 注册表测试用它校验「内置别名」都指向真实引擎）。
+#[cfg(test)]
+pub(crate) fn built_in_engine_ids() -> impl Iterator<Item = &'static str> {
+    ACP_ENGINES.iter().map(|engine| engine.id)
 }
 
 pub fn engine_spec(app_paths: &AppPaths, engine_id: &str) -> AppResult<ResolvedEngine> {
@@ -258,6 +322,10 @@ pub fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<Ac
         fork_acp_session_id: None,
         auto_approve_kinds: Vec::new(),
         remote: None,
+        env: engine.env.clone(),
+        env_remove: Vec::new(),
+        launch_profile_id: None,
+        transport_fallback: None,
     })
 }
 
@@ -275,7 +343,21 @@ async fn remote_engine_launch(
     let absolute_cwd = remote::resolve_remote_cwd(&target, cwd)
         .await
         .map_err(|message| AppError::coded("ACP_REMOTE_CWD_INVALID", message))?;
-    let script = remote::launch_script(&target, &absolute_cwd, &engine.executable, &engine.args);
+    // 引擎声明的 env（如 Muse 的 MUSE_EXPERIMENTAL_ACP）设在本机 ssh 进程上到不了远端，
+    // POSIX 远端改用 `env K=V <exe> ...` 包一层；Windows 远端（cmd）暂不支持，原样启动。
+    let (executable, args) = if engine.env.is_empty() || target.windows {
+        (engine.executable.clone(), engine.args.clone())
+    } else {
+        let mut args: Vec<String> = engine
+            .env
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect();
+        args.push(engine.executable.clone());
+        args.extend(engine.args.iter().cloned());
+        ("env".to_string(), args)
+    };
+    let script = remote::launch_script(&target, &absolute_cwd, &executable, &args);
     let mut args = target.ssh_args.clone();
     args.push(script);
     Ok(AcpLaunchSpec {
@@ -288,6 +370,11 @@ async fn remote_engine_launch(
         fork_acp_session_id: None,
         auto_approve_kinds: Vec::new(),
         remote: Some(target),
+        // 已在远端脚本里处理，本机 ssh 进程不需要。
+        env: Vec::new(),
+        env_remove: Vec::new(),
+        launch_profile_id: None,
+        transport_fallback: None,
     })
 }
 
@@ -301,8 +388,12 @@ pub async fn list_acp_engines(
     tauri::async_runtime::spawn_blocking(move || {
         let mut engines: Vec<AcpEngineInfo> = resolved_engines(&app_paths)
             .into_iter()
+            // `codex`（ACP 桥）并进「Codex」，不单独列出；按 id 启动仍然有效。
+            .filter(|engine| !launch::is_hidden_engine(&engine.id))
             .map(|engine| AcpEngineInfo {
                 available: resolve_executable(&engine.executable).is_ok(),
+                launch_profile_cli: launch::launch_profile_cli(&engine.id)
+                    .map(|cli| cli.as_id().to_string()),
                 id: engine.id,
                 label: engine.label,
                 requirement: engine.requirement,
@@ -338,6 +429,8 @@ pub async fn start_acp_chat(
     service: State<'_, Arc<AcpChatService>>,
     app_paths: State<'_, Arc<AppPaths>>,
     machines: State<'_, Arc<cc_panes_core::services::SshMachineService>>,
+    terminal_service: State<'_, Arc<cc_panes_core::services::TerminalService>>,
+    settings: State<'_, Arc<cc_panes_core::services::SettingsService>>,
     chat_id: String,
     engine_id: String,
     cwd: String,
@@ -345,25 +438,179 @@ pub async fn start_acp_chat(
     auto_approve_kinds: Option<Vec<String>>,
     machine_id: Option<String>,
     remote_os: Option<String>,
+    launch_profile_id: Option<String>,
 ) -> AppResult<AcpChatSnapshot> {
-    let engine = engine_spec(&app_paths, &engine_id)?;
     let machine_id = machine_id
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty());
-    let mut spec = match machine_id {
+    let resume_meta = resume_acp_session_id
+        .as_deref()
+        .map(|id| service.chat_launch_meta(id))
+        .unwrap_or_default();
+    // 未显式传入时，续接沿用会话启动时的运行配置；空串 = 明确选「系统默认」。
+    let profile_id = launch::effective_profile_id(
+        launch_profile_id.as_deref(),
+        resume_meta.launch_profile_id.as_deref(),
+    );
+    let overlay = match profile_id.as_deref() {
+        None => None,
+        Some(_) if machine_id.is_some() => {
+            // 远程会话不支持运行配置：登录账号目录在本机、密钥只该进本机子进程环境，
+            // 经 ssh 的 `env K=V` 包装会把密钥摆在对方机器的进程参数里。
+            return Err(AppError::coded(
+                "ACP_PROFILE_REMOTE_UNSUPPORTED",
+                "Launch profiles are not supported for remote Agent Chat sessions",
+            ));
+        }
+        Some(id) => {
+            let cli = launch::launch_profile_cli(&engine_id).ok_or_else(|| {
+                AppError::coded(
+                    "ACP_PROFILE_UNSUPPORTED",
+                    format!("Engine '{engine_id}' does not support launch profiles"),
+                )
+            })?;
+            let terminal_service = terminal_service.inner().clone();
+            let id = id.to_string();
+            Some(
+                tauri::async_runtime::spawn_blocking(move || {
+                    terminal_service.build_agent_chat_launch_overlay(cli, &id)
+                })
+                .await
+                .map_err(|error| AppError::from(error.to_string()))??,
+            )
+        }
+    };
+    let request = StartRequest {
+        chat_id,
+        cwd,
+        machine_id,
+        remote_os,
+        resume_acp_session_id,
+        auto_approve_kinds: auto_approve_kinds.unwrap_or_default(),
+        overlay,
+    };
+    let snapshot = if engine_id == launch::CODEX_ENGINE {
+        let route = launch::RouteInput {
+            resume_engine: request
+                .resume_acp_session_id
+                .as_ref()
+                .and(resume_meta.engine_id.as_deref()),
+            force_acp: settings.get_settings().agent_chat.codex_force_acp,
+            remote: request.machine_id.is_some(),
+            known_unsupported: false,
+        };
+        start_codex(&app, &service, &app_paths, &machines, request, route).await?
+    } else {
+        let engine = engine_spec(&app_paths, &engine_id)?;
+        start_engine(
+            &app, &service, &app_paths, &machines, &request, engine, None,
+        )
+        .await?
+    };
+    if let Some(session_id) = snapshot.acp_session_id.as_deref() {
+        service.note_launch_profile(session_id, snapshot.launch_profile_id.as_deref());
+    }
+    Ok(snapshot)
+}
+
+/// 一次 Agent Chat 启动的引擎无关部分（传输路由时可能用两个引擎各试一次）。
+struct StartRequest {
+    chat_id: String,
+    cwd: String,
+    machine_id: Option<String>,
+    remote_os: Option<String>,
+    resume_acp_session_id: Option<String>,
+    auto_approve_kinds: Vec<String>,
+    overlay: Option<cc_panes_core::services::AgentChatLaunchOverlay>,
+}
+
+/// 「Codex」：原生 App Server 优先，起不来自动改走 ACP 桥（见 launch.rs 文件头）。
+async fn start_codex(
+    app: &AppHandle,
+    service: &Arc<AcpChatService>,
+    app_paths: &AppPaths,
+    machines: &cc_panes_core::services::SshMachineService,
+    request: StartRequest,
+    mut route: launch::RouteInput<'_>,
+) -> AppResult<AcpChatSnapshot> {
+    let native = engine_spec(app_paths, launch::CODEX_ENGINE)?;
+    let identity = if route.remote {
+        None
+    } else {
+        let executable = native.executable.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            resolve_executable(&executable)
+                .ok()
+                .and_then(|path| launch::binary_identity(&path))
+        })
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
+    };
+    route.known_unsupported = launch::known_unsupported(identity.as_ref());
+    let fallback = match launch::plan_codex_route(route) {
+        launch::CodexRoute::Acp(reason) => reason,
+        launch::CodexRoute::Native => {
+            match start_engine(app, service, app_paths, machines, &request, native, None).await {
+                Ok(snapshot) => {
+                    launch::remember_outcome(identity.as_ref(), None);
+                    return Ok(snapshot);
+                }
+                Err(error) if launch::is_app_server_unavailable(&error) => {
+                    tracing::warn!(error = %error, "Codex App Server unavailable; falling back to ACP compatibility mode");
+                    launch::remember_outcome(identity.as_ref(), Some(&error));
+                    Some(launch::FallbackReason::StartFailed)
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    };
+    let acp = engine_spec(app_paths, launch::CODEX_ACP_ENGINE)?;
+    start_engine(
+        app,
+        service,
+        app_paths,
+        machines,
+        &request,
+        acp,
+        fallback.map(launch::FallbackReason::as_str),
+    )
+    .await
+}
+
+async fn start_engine(
+    app: &AppHandle,
+    service: &Arc<AcpChatService>,
+    app_paths: &AppPaths,
+    machines: &cc_panes_core::services::SshMachineService,
+    request: &StartRequest,
+    mut engine: ResolvedEngine,
+    transport_fallback: Option<&str>,
+) -> AppResult<AcpChatSnapshot> {
+    let env_remove = request
+        .overlay
+        .as_ref()
+        .map(|overlay| launch::apply_overlay(&mut engine, overlay))
+        .unwrap_or_default();
+    let mut spec = match request.machine_id.as_deref() {
         Some(machine_id) => {
-            let machine = machines.get(&machine_id).ok_or_else(|| {
+            let machine = machines.get(machine_id).ok_or_else(|| {
                 AppError::coded(
                     "ACP_REMOTE_UNSUPPORTED",
                     format!("SSH machine '{machine_id}' not found"),
                 )
             })?;
-            remote_engine_launch(&engine, &machine, remote_os.as_deref(), &cwd).await?
+            remote_engine_launch(
+                &engine,
+                &machine,
+                request.remote_os.as_deref(),
+                &request.cwd,
+            )
+            .await?
         }
         None => {
-            let mcp_servers = ccpanes_mcp_servers(&app_paths);
+            let mcp_servers = ccpanes_mcp_servers(app_paths);
             let mut spec = tauri::async_runtime::spawn_blocking({
-                let cwd = cwd.clone();
+                let cwd = request.cwd.clone();
                 move || resolve_engine_launch(&engine, &cwd)
             })
             .await
@@ -372,11 +619,19 @@ pub async fn start_acp_chat(
             spec
         }
     };
-    spec.resume_acp_session_id = resume_acp_session_id;
+    spec.resume_acp_session_id = request.resume_acp_session_id.clone();
     // 交互式 chat 的按类自动放行（用户在权限下拉里勾选；与 Automations 同一条
     // 会话级通道，命中的权限请求不再弹卡）。
-    spec.auto_approve_kinds = auto_approve_kinds.unwrap_or_default();
-    service.start(app, chat_id, spec).await
+    spec.auto_approve_kinds = request.auto_approve_kinds.clone();
+    spec.env_remove = env_remove;
+    spec.launch_profile_id = request
+        .overlay
+        .as_ref()
+        .map(|overlay| overlay.profile_id.clone());
+    spec.transport_fallback = transport_fallback.map(str::to_string);
+    service
+        .start(app.clone(), request.chat_id.clone(), spec)
+        .await
 }
 
 #[tauri::command]
@@ -402,10 +657,13 @@ pub async fn save_acp_chat_transcript(
     service: State<'_, Arc<AcpChatService>>,
     acp_session_id: String,
     items: Vec<Value>,
+    inherited: Option<Vec<Value>>,
+    engines: Option<Vec<String>>,
 ) -> AppResult<()> {
     let service = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        service.save_chat_transcript(&acp_session_id, items)
+        // inherited / engines 只在换引擎交接时传（替换继承段 + 记录引擎序列）。
+        service.save_chat_transcript_with(&acp_session_id, items, inherited, engines)
     })
     .await
     .map_err(|error| AppError::from(error.to_string()))?
@@ -581,6 +839,7 @@ pub async fn fork_acp_chat(
     app: AppHandle,
     service: State<'_, Arc<AcpChatService>>,
     app_paths: State<'_, Arc<AppPaths>>,
+    terminal_service: State<'_, Arc<cc_panes_core::services::TerminalService>>,
     source_chat_id: String,
     chat_id: String,
     cwd: String,
@@ -603,11 +862,25 @@ pub async fn fork_acp_chat(
     let session_id = source
         .acp_session_id
         .ok_or_else(|| AppError::from("Source conversation has no session ID"))?;
-    let engine = engine_spec(&app_paths, &source.engine_id)?;
-    let mut spec =
-        tauri::async_runtime::spawn_blocking(move || resolve_engine_launch(&engine, &cwd))
-            .await
-            .map_err(|e| AppError::from(e.to_string()))??;
+    let mut engine = engine_spec(&app_paths, &source.engine_id)?;
+    // 分叉沿用源会话的运行配置（同一个供应商 / 账号才找得到被分叉的线程）。
+    let profile_id = source.launch_profile_id.clone();
+    let cli = launch::launch_profile_cli(&source.engine_id);
+    let terminal_service = terminal_service.inner().clone();
+    let (mut spec, env_remove) = tauri::async_runtime::spawn_blocking(move || {
+        let env_remove = match (profile_id.as_deref(), cli) {
+            (Some(id), Some(cli)) => {
+                let overlay = terminal_service.build_agent_chat_launch_overlay(cli, id)?;
+                launch::apply_overlay(&mut engine, &overlay)
+            }
+            _ => Vec::new(),
+        };
+        resolve_engine_launch(&engine, &cwd).map(|spec| (spec, env_remove))
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))??;
+    spec.env_remove = env_remove;
+    spec.launch_profile_id = source.launch_profile_id.clone();
     spec.mcp_servers = ccpanes_mcp_servers(&app_paths);
     spec.fork_acp_session_id = Some(session_id);
     spec.auto_approve_kinds = source.auto_approve_kinds;

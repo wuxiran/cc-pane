@@ -128,6 +128,18 @@ export { WORKSPACE_COLORS } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
+  ImportedProfileHints,
+  NativeConfigEntry,
+  NativeConfigIssue,
+  NativeConfigIssueCode,
+  NativeConfigPreview,
+  NativeConfigRuntime,
+  NativeConfigSource,
+  NativeOverrides,
+  NativeOverrideTool,
+} from "./native-config";
+export { NATIVE_OVERRIDE_TOOLS, isNativeOverrideTool } from "./native-config";
+export type {
   QuickCommand,
   QuickCommandDraft,
   QuickCommandKind,
@@ -176,6 +188,7 @@ export type {
   ScreenshotSettings,
   QuickTerminalSettings,
   VoiceSettings,
+  VoiceMicrophone,
   CliLauncherSettings,
   CliLauncherOverride,
   LayoutSwitcherSettings,

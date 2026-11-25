@@ -5,10 +5,8 @@ import { toastInfo, toastOk, toastErr } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { handleErrorSilent, isTauriRuntime } from "@/utils";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormField } from "@/components/ui/form-field";
 import {
   Select,
   SelectContent,
@@ -27,7 +25,13 @@ import {
 import { useCliTools } from "@/hooks/useCliTools";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
-import AdvancedSettings from "./AdvancedSettings";
+import {
+  SettingsHint,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+  SettingsValue,
+} from "./layout";
 import { nativeConfirm } from "@/services/nativeDialog";
 
 // 托盘「待处理会话最多显示条数」的可选域（1-10）。
@@ -130,354 +134,237 @@ export default function GeneralSection({
     }
   }
 
+  const selectTriggerClass = "w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]";
+
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("generalTitle")}
-      </h3>
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor="general-close-to-tray">{t("closeToTray")}</Label>
-        <input
-          id="general-close-to-tray"
-          type="checkbox"
-          checked={value.closeToTray}
-          onChange={(e) => update("closeToTray", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      {/* 系统托盘：data-settings-section 供托盘「打开设置」滚动定位（general-tray） */}
-      <div
-        className="mt-1 flex flex-col gap-3 border-t pt-3"
-        style={{ borderColor: "var(--app-border)" }}
-        data-settings-section="general-tray"
-      >
-        <Label>{t("traySectionTitle")}</Label>
-
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col pr-4">
-            <Label htmlFor="general-tray-show-session-status">{t("trayShowSessionStatus")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("trayShowSessionStatusDesc")}
-            </p>
-          </div>
-          <input
-            id="general-tray-show-session-status"
-            type="checkbox"
-            checked={value.trayShowSessionStatus ?? true}
-            onChange={(e) => update("trayShowSessionStatus", e.target.checked)}
-            className="w-4 h-4 cursor-default shrink-0"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between gap-6">
-          <div className="min-w-0">
-            <Label htmlFor="general-tray-max-pending">{t("trayMaxPendingEntries")}</Label>
-            <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("trayMaxPendingEntriesDesc")}
-            </p>
-          </div>
-          <Select
-            value={String(value.trayMaxPendingEntries ?? TRAY_MAX_PENDING_ENTRIES_DEFAULT)}
-            onValueChange={(next) => update("trayMaxPendingEntries", Number(next))}
-          >
-            <SelectTrigger
-              id="general-tray-max-pending"
-              aria-label={t("trayMaxPendingEntries")}
-              className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TRAY_MAX_PENDING_OPTIONS.map((count) => (
-                <SelectItem key={count} value={String(count)}>
-                  {count}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col pr-4">
-            <Label htmlFor="general-tray-tooltip-summary">{t("trayTooltipSummary")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("trayTooltipSummaryDesc")}
-            </p>
-          </div>
-          <input
-            id="general-tray-tooltip-summary"
-            type="checkbox"
-            checked={value.trayTooltipSummary ?? true}
-            onChange={(e) => update("trayTooltipSummary", e.target.checked)}
-            className="w-4 h-4 cursor-default shrink-0"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col pr-4">
-            <Label htmlFor="general-tray-confirm-quit">{t("trayConfirmQuit")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("trayConfirmQuitDesc")}
-            </p>
-          </div>
-          <input
-            id="general-tray-confirm-quit"
-            type="checkbox"
-            checked={value.trayConfirmQuit ?? true}
-            onChange={(e) => update("trayConfirmQuit", e.target.checked)}
-            className="w-4 h-4 cursor-default shrink-0"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor="general-auto-start">{t("autoStart")}</Label>
-        <input
-          id="general-auto-start"
-          type="checkbox"
-          checked={value.autoStart}
-          onChange={(e) => update("autoStart", e.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor="general-show-system-resources">{t("showSystemResources")}</Label>
-        <input
-          id="general-show-system-resources"
-          type="checkbox"
-          aria-label={t("showSystemResources")}
-          checked={value.showSystemResources ?? true}
-          onChange={(e) => update("showSystemResources", e.target.checked)}
-          className="w-4 h-4 cursor-default shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col pr-4">
-          <Label htmlFor="general-update-notify-enabled">{t("updateNotifyEnabled")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("updateNotifyEnabledDesc")}
-          </p>
-        </div>
-        <input
-          id="general-update-notify-enabled"
-          type="checkbox"
-          aria-label={t("updateNotifyEnabled")}
-          checked={updateNotifyEnabled}
-          onChange={(event) => onUpdateNotifyEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-default shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col pr-4">
-          <Label htmlFor="general-feature-tips-enabled">{t("featureTipsEnabled")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("featureTipsEnabledDesc")}
-          </p>
-        </div>
-        <input
-          id="general-feature-tips-enabled"
-          type="checkbox"
-          aria-label={t("featureTipsEnabled")}
-          checked={featureTipsEnabled}
-          onChange={(event) => onFeatureTipsEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-default shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col pr-4">
-          <Label htmlFor="general-local-history-enabled">{t("localHistoryEnabled")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("localHistoryEnabledDesc")}
-          </p>
-        </div>
-        <input
-          id="general-local-history-enabled"
-          type="checkbox"
-          aria-label={t("localHistoryEnabled")}
-          checked={localHistoryEnabled}
-          onChange={(event) => onLocalHistoryEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-default shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <AdvancedSettings>
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <Label htmlFor="general-disable-wsl-usage-scan">{t("disableWslUsageScan")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("disableWslUsageScanDesc")}
-            </p>
-          </div>
-          <input
-            id="general-disable-wsl-usage-scan"
-            type="checkbox"
-            checked={value.disableWslUsageScan ?? false}
-            onChange={(e) => update("disableWslUsageScan", e.target.checked)}
-            className="w-4 h-4 cursor-default shrink-0"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-        </div>
-      </AdvancedSettings>
-
-      <div className="flex items-center justify-between gap-6">
-        <Label htmlFor="general-language">{t("language")}</Label>
-        <Select value={value.language} onValueChange={(next) => update("language", next)}>
-          <SelectTrigger id="general-language" aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="zh-CN">{t("zhCN")}</SelectItem>
-            <SelectItem value="en">{t("en")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* 默认 CLI 工具 */}
-      <div className="flex items-center justify-between gap-6">
-        <div className="min-w-0">
-          <Label htmlFor="general-default-cli-tool">{t("defaultCliTool")}</Label>
-          <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("defaultCliToolDesc")}
-          </p>
-        </div>
-        <Select value={value.defaultCliTool ?? "claude"} onValueChange={(next) => update("defaultCliTool", next)}>
-          <SelectTrigger id="general-default-cli-tool" aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {cliTools.map((tool) => (
-              <SelectItem key={tool.id} value={tool.id}>{tool.displayName}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* 搜索范围 */}
-      <div className="mt-1 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <div className="flex items-center justify-between gap-6">
-          <div className="min-w-0">
-            <Label htmlFor="general-search-scope">{t("searchScope")}</Label>
-            <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("searchScopeDesc")}
-            </p>
-          </div>
-          <Select value={value.searchScope} onValueChange={(next) => update("searchScope", next as SearchScope)}>
-            <SelectTrigger id="general-search-scope" aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Workspace">{t("searchScopeWorkspace")}</SelectItem>
-              <SelectItem value="FullDisk">{t("searchScopeFullDisk")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {value.searchScope === "FullDisk" && (
-          <p className="mt-2 text-xs" style={{ color: "var(--app-accent)" }}>
-            {t("searchScopeFullDiskHint")}
-          </p>
-        )}
-      </div>
-
-      {/* 数据目录 */}
-      {isDesktopRuntime && (
-      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <Label>{t("dataDir")}</Label>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("dataDirDesc")}
-        </p>
-        <div className="flex items-center gap-2">
-          <span
-            className="flex-1 text-[length:var(--text-row)] px-2.5 py-1.5 rounded-md overflow-hidden text-ellipsis whitespace-nowrap font-mono"
-            style={{
-              color: "var(--app-text-secondary)",
-              background: "var(--app-hover)",
-              border: "1px solid var(--app-border)",
-            }}
-            title={dataDirInfo?.currentPath}
-          >
-            {dataDirInfo?.currentPath || t("loading", { ns: "common" })}
-          </span>
-          <Button variant="secondary" size="sm" onClick={handleBrowse} disabled={migrating}>
-            {migrating ? t("migrating") : t("browse", { ns: "common" })}
-          </Button>
-        </div>
-        {dataDirInfo && (
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("dataSize", { size: formatSize(dataDirInfo.sizeBytes) })}
-            {!dataDirInfo.isDefault && (
-              <>
-                {" · "}
-                <button
-                  type="button"
-                  className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                  style={{ color: "var(--app-accent)" }}
-                  onClick={handleResetDataDir}
-                >
-                  {t("resetDataDir")}
-                </button>
-              </>
-            )}
-          </p>
-        )}
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("dataDirRestartHint")}
-        </p>
-      </div>
-      )}
-      {isDesktopRuntime && <DefaultWorkspaceDirSetting />}
-
-      {/* 记忆库路径：允许 dev / release 共用一份记忆 */}
-      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <FormField label={t("memoryDbPath")} className="flex flex-col gap-1" hint={t("memoryDbPathDesc")} hintClassName="text-xs m-0 text-[var(--app-text-tertiary)]">
-          {({ id }) => (
-            <Input
-              id={id}
-              value={value.memoryDbPath ?? ""}
-              onChange={(e) => update("memoryDbPath", e.target.value.trim() ? e.target.value : null)}
-              placeholder={t("memoryDbPathPlaceholder")}
-              className="h-8 font-mono text-xs"
-            />
+    <>
+      <SettingsSection sectionId="general-basics">
+        <SettingsRow
+          title={t("language")}
+          htmlFor="general-language"
+          control={(
+            <Select value={value.language} onValueChange={(next) => update("language", next)}>
+              <SelectTrigger id="general-language" aria-label={t("language")} className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="zh-CN">{t("zhCN")}</SelectItem>
+                <SelectItem value="en">{t("en")}</SelectItem>
+              </SelectContent>
+            </Select>
           )}
-        </FormField>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("dataDirRestartHint")}
-        </p>
-      </div>
+        />
+        <SettingsRow
+          title={t("defaultCliTool")}
+          description={t("defaultCliToolDesc")}
+          htmlFor="general-default-cli-tool"
+          control={(
+            <Select value={value.defaultCliTool ?? "claude"} onValueChange={(next) => update("defaultCliTool", next)}>
+              <SelectTrigger id="general-default-cli-tool" aria-label={t("defaultCliTool")} className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {cliTools.map((tool) => (
+                  <SelectItem key={tool.id} value={tool.id}>{tool.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <SettingsSwitchRow
+          id="general-auto-start"
+          title={t("autoStart")}
+          checked={value.autoStart}
+          onCheckedChange={(checked) => update("autoStart", checked)}
+        />
+        <SettingsSwitchRow
+          id="general-close-to-tray"
+          title={t("closeToTray")}
+          checked={value.closeToTray}
+          onCheckedChange={(checked) => update("closeToTray", checked)}
+        />
+        <SettingsSwitchRow
+          id="general-show-system-resources"
+          title={t("showSystemResources")}
+          checked={value.showSystemResources ?? true}
+          onCheckedChange={(checked) => update("showSystemResources", checked)}
+        />
+        <SettingsSwitchRow
+          id="general-update-notify-enabled"
+          title={t("updateNotifyEnabled")}
+          description={t("updateNotifyEnabledDesc")}
+          checked={updateNotifyEnabled}
+          onCheckedChange={(checked) => onUpdateNotifyEnabledChange?.(checked)}
+        />
+        <SettingsSwitchRow
+          id="general-feature-tips-enabled"
+          title={t("featureTipsEnabled")}
+          description={t("featureTipsEnabledDesc")}
+          checked={featureTipsEnabled}
+          onCheckedChange={(checked) => onFeatureTipsEnabledChange?.(checked)}
+        />
+      </SettingsSection>
 
-      {/* 新手引导 */}
-      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <Label>{t("restartOnboarding", { ns: "onboarding" })}</Label>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("restartOnboardingDesc", { ns: "onboarding" })}
-        </p>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="w-fit mt-1"
-          onClick={() => {
-            onChange({ ...value, onboardingCompleted: false });
-            if (isSettingsWindow()) void sendActionToMainWindow({ type: "openOnboarding" });
-            else useDialogStore.getState().openOnboarding();
-          }}
+      {/* 系统托盘：general-tray 供托盘「打开设置」滚动定位 */}
+      <SettingsSection title={t("traySectionTitle")} sectionId="general-tray">
+        <SettingsSwitchRow
+          id="general-tray-show-session-status"
+          title={t("trayShowSessionStatus")}
+          description={t("trayShowSessionStatusDesc")}
+          checked={value.trayShowSessionStatus ?? true}
+          onCheckedChange={(checked) => update("trayShowSessionStatus", checked)}
+        />
+        <SettingsRow
+          title={t("trayMaxPendingEntries")}
+          description={t("trayMaxPendingEntriesDesc")}
+          htmlFor="general-tray-max-pending"
+          control={(
+            <Select
+              value={String(value.trayMaxPendingEntries ?? TRAY_MAX_PENDING_ENTRIES_DEFAULT)}
+              onValueChange={(next) => update("trayMaxPendingEntries", Number(next))}
+            >
+              <SelectTrigger
+                id="general-tray-max-pending"
+                aria-label={t("trayMaxPendingEntries")}
+                className={selectTriggerClass}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRAY_MAX_PENDING_OPTIONS.map((count) => (
+                  <SelectItem key={count} value={String(count)}>
+                    {count}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <SettingsSwitchRow
+          id="general-tray-tooltip-summary"
+          title={t("trayTooltipSummary")}
+          description={t("trayTooltipSummaryDesc")}
+          checked={value.trayTooltipSummary ?? true}
+          onCheckedChange={(checked) => update("trayTooltipSummary", checked)}
+        />
+        <SettingsSwitchRow
+          id="general-tray-confirm-quit"
+          title={t("trayConfirmQuit")}
+          description={t("trayConfirmQuitDesc")}
+          checked={value.trayConfirmQuit ?? true}
+          onCheckedChange={(checked) => update("trayConfirmQuit", checked)}
+        />
+      </SettingsSection>
+
+      <SettingsSection title={t("generalGroups.files")} sectionId="general-files">
+        <SettingsSwitchRow
+          id="general-local-history-enabled"
+          title={t("localHistoryEnabled")}
+          description={t("localHistoryEnabledDesc")}
+          checked={localHistoryEnabled}
+          onCheckedChange={(checked) => onLocalHistoryEnabledChange?.(checked)}
+        />
+        <SettingsRow
+          title={t("searchScope")}
+          description={t("searchScopeDesc")}
+          htmlFor="general-search-scope"
+          control={(
+            <Select value={value.searchScope} onValueChange={(next) => update("searchScope", next as SearchScope)}>
+              <SelectTrigger id="general-search-scope" aria-label={t("searchScope")} className={selectTriggerClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Workspace">{t("searchScopeWorkspace")}</SelectItem>
+                <SelectItem value="FullDisk">{t("searchScopeFullDisk")}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         >
-          {t("restartOnboarding", { ns: "onboarding" })}
-        </Button>
-      </div>
-    </div>
+          {value.searchScope === "FullDisk" && (
+            <p className="m-0 text-[length:var(--text-small)]" style={{ color: "var(--app-accent)" }}>
+              {t("searchScopeFullDiskHint")}
+            </p>
+          )}
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title={t("generalGroups.data")} sectionId="general-data">
+        {isDesktopRuntime && (
+          <SettingsRow
+            title={t("dataDir")}
+            description={t("dataDirDesc")}
+            control={(
+              <Button variant="secondary" size="sm" onClick={handleBrowse} disabled={migrating}>
+                {migrating ? t("migrating") : t("browse", { ns: "common" })}
+              </Button>
+            )}
+          >
+            <SettingsValue title={dataDirInfo?.currentPath}>
+              {dataDirInfo?.currentPath || t("loading", { ns: "common" })}
+            </SettingsValue>
+            <SettingsHint>
+              {dataDirInfo && t("dataSize", { size: formatSize(dataDirInfo.sizeBytes) })}
+              {dataDirInfo && !dataDirInfo.isDefault && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                    style={{ color: "var(--app-accent)" }}
+                    onClick={handleResetDataDir}
+                  >
+                    {t("resetDataDir")}
+                  </button>
+                </>
+              )}
+              {dataDirInfo && " · "}
+              {t("dataDirRestartHint")}
+            </SettingsHint>
+          </SettingsRow>
+        )}
+        {isDesktopRuntime && <DefaultWorkspaceDirSetting />}
+        {/* 记忆库路径：允许 dev / release 共用一份记忆 */}
+        <SettingsRow
+          title={t("memoryDbPath")}
+          description={`${t("memoryDbPathDesc")} ${t("dataDirRestartHint")}`}
+          htmlFor="general-memory-db-path"
+        >
+          <Input
+            id="general-memory-db-path"
+            value={value.memoryDbPath ?? ""}
+            onChange={(e) => update("memoryDbPath", e.target.value.trim() ? e.target.value : null)}
+            placeholder={t("memoryDbPathPlaceholder")}
+            className="h-8 font-mono text-xs"
+          />
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title={t("advancedSettings")} sectionId="general-advanced">
+        <SettingsSwitchRow
+          id="general-disable-wsl-usage-scan"
+          title={t("disableWslUsageScan")}
+          description={t("disableWslUsageScanDesc")}
+          checked={value.disableWslUsageScan ?? false}
+          onCheckedChange={(checked) => update("disableWslUsageScan", checked)}
+        />
+        <SettingsRow
+          title={t("restartOnboarding", { ns: "onboarding" })}
+          description={t("restartOnboardingDesc", { ns: "onboarding" })}
+          control={(
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                onChange({ ...value, onboardingCompleted: false });
+                if (isSettingsWindow()) void sendActionToMainWindow({ type: "openOnboarding" });
+                else useDialogStore.getState().openOnboarding();
+              }}
+            >
+              {t("restartOnboarding", { ns: "onboarding" })}
+            </Button>
+          )}
+        />
+      </SettingsSection>
+    </>
   );
 }

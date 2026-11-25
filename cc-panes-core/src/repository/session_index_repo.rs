@@ -9,6 +9,7 @@ const SESSION_COLUMNS: &str = "
     workspace_name, first_prompt, last_summary, message_count, mtime_ms,
     size, source, wsl_distro, updated_at, title";
 const ALGO_VERSION_KEY: &str = "_algo_version";
+const MAX_LOOKUP_IDS: usize = 200;
 
 pub struct SessionIndexRepository {
     db: Arc<Database>,
@@ -116,6 +117,31 @@ impl SessionIndexRepository {
         let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
         let rows = stmt
             .query_map(params_from_iter(values.iter()), map_session_entry)
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
+    }
+
+    /// 按会话 id 精确取索引条目（侧栏会话卡按 resumeId 取标题/首条提问用）。
+    /// 只读 SQLite，不碰转录文件；空 id 会被跳过，最多取 `MAX_LOOKUP_IDS` 个。
+    pub fn get_sessions_by_ids(&self, ids: &[String]) -> Result<Vec<SessionIndexEntry>, String> {
+        let ids: Vec<&str> = ids
+            .iter()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .take(MAX_LOOKUP_IDS)
+            .collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let sql = format!(
+            "SELECT {SESSION_COLUMNS} FROM session_index WHERE session_id IN ({placeholders})"
+        );
+        let conn = self.db.connection().map_err(|error| error.to_string())?;
+        let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params_from_iter(ids.iter()), map_session_entry)
             .map_err(|error| error.to_string())?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())
@@ -273,6 +299,27 @@ mod tests {
     fn repo() -> SessionIndexRepository {
         let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
         SessionIndexRepository::new(db)
+    }
+
+    #[test]
+    fn get_sessions_by_ids_returns_only_requested_rows() {
+        let repo = repo();
+        for id in ["a", "b", "c"] {
+            repo.upsert_session(&entry(id, "claude", "/workspace/alpha", "main"))
+                .expect("upsert session");
+        }
+        let mut rows = repo
+            .get_sessions_by_ids(&[
+                "c".to_string(),
+                " a ".to_string(),
+                String::new(),
+                "missing".to_string(),
+            ])
+            .expect("lookup");
+        rows.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+        let ids: Vec<_> = rows.iter().map(|row| row.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "c"]);
+        assert!(repo.get_sessions_by_ids(&[]).expect("empty").is_empty());
     }
 
     #[test]

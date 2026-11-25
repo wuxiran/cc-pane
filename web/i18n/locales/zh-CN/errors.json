@@ -154,5 +154,7 @@
   "CURSOR_BRIDGE_CONFIRM_REQUIRED": "forget/abandon 必须 confirm=true",
   "CURSOR_BRIDGE_QUERY_REQUIRED": "context 必须带 query",
   "CURSOR_BRIDGE_TASK_REQUIRED": "do 必须带 task",
-  "CURSOR_BRIDGE_IO": "Cursor Bridge 登记簿读写失败"
+  "CURSOR_BRIDGE_IO": "Cursor Bridge 登记簿读写失败",
+  "MAGPIE_GATEWAY_UNREACHABLE": "Magpie 网关未运行（{{address}}），请先打开 Magpie 或运行 magpie serve",
+  "CC_SWITCH_PROXY_UNREACHABLE": "cc-switch 代理未运行（{{address}}），请先打开 cc-switch 并启用本地代理"
 }

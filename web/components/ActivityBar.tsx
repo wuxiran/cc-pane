@@ -1,4 +1,4 @@
-import { Boxes, CalendarClock, Clapperboard, Contact, FolderTree, House, Library, Settings } from "lucide-react";
+import { Boxes, CalendarClock, Clapperboard, Cloud, Contact, FolderTree, House, Library, Settings } from "lucide-react";
 import { ACTIVITY_ICON_ACTIVE, ACTIVITY_ICON_IDLE } from "@/components/activityBarIconStyle";
 import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
 import { useTranslation } from "react-i18next";
@@ -256,6 +256,13 @@ export default function ActivityBar() {
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
+            />
+            {/* 供应商 / 运行配置：独立入口，不再埋在设置里 */}
+            <ActivityBarIcon
+              icon={<Cloud className={ICON_CLASS} />}
+              label={t("providers")}
+              active={appViewMode === "providers"}
+              onClick={useActivityBarStore.getState().toggleProvidersMode}
             />
             {/* 通讯录：常驻、有人设的 Bot 联系人（原在资源管理器标题旁） */}
             <ActivityBarIcon

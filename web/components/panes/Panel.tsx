@@ -263,6 +263,8 @@ export default memo(function Panel({ pane }: PanelProps) {
         modelId: tab.modelId,
         providerSelection: tab.providerSelection,
         launchProfileId: tab.launchProfileId,
+        // 沿用原标签启动时实际用的配置（快照），而不是现在的默认配置。
+        launchProfileSnapshot: tab.launchProfileSnapshot,
         workspacePath: tab.workspacePath,
         workspaceSnapshotId: tab.workspaceSnapshotId,
         cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : undefined),

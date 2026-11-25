@@ -67,7 +67,7 @@ export default function QuestionCard({ request, values, onChange, onRespond, res
       </fieldset>)}</div>
       {form.unsupported && <p role="alert" className="mt-3 text-xs text-[var(--app-status-warning)]">{t("agentChatQuestionUnsupported")}</p>}
       {error && <p role="alert" className="mt-3 text-xs text-[var(--app-status-danger)] break-words">{error}</p>}
-      <div className="mt-3 flex justify-end gap-2"><button type="button" disabled={responding} className="rounded-full border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-text-primary)] hover:bg-[var(--app-hover)] disabled:opacity-50" onClick={() => onRespond({ action: "decline" })}>{t("agentChatQuestionSkip")}</button><button type="submit" disabled={responding || content === null} className="rounded-full bg-[var(--app-accent)] px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40">{responding ? t("agentChatQuestionSending") : t("agentChatSend")}</button></div>
+      <div className="mt-3 flex justify-end gap-2"><button type="button" disabled={responding} className="rounded-full border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--app-text-primary)] hover:bg-[var(--app-hover)] disabled:opacity-50" onClick={() => onRespond({ action: "decline" })}>{t("agentChatQuestionSkip")}</button><button type="submit" disabled={responding || content === null} className="rounded-full bg-[var(--app-accent)] px-4 py-1.5 text-sm font-medium text-[var(--primary-foreground)] disabled:opacity-40">{responding ? t("agentChatQuestionSending") : t("agentChatSend")}</button></div>
     </form>
   </section>;
 }

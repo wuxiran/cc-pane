@@ -6,7 +6,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { terminalService, voiceService } from "@/services";
 import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { cn } from "@/lib/utils";
-import { missingApiKey, shouldPreferWav } from "@/lib/voiceProviders";
+import { missingApiKey, shouldPreferWav, wavSampleRate } from "@/lib/voiceProviders";
+import { openPreferredMicrophone } from "@/lib/voiceMicrophones";
+import { finalizeTranscript } from "@/lib/voiceTranscript";
 import { blobToAudioPayload, getRecorderMimeType } from "@/lib/voiceAudio";
 import { isTauriRuntime } from "@/services/runtime";
 
@@ -40,8 +42,12 @@ function clamp(value: number, min: number, max: number): number {
 export default function VoiceInputButton({ sessionId, paneId, disabled = false }: VoiceInputButtonProps) {
   const { t } = useTranslation("panes");
   const voice = useSettingsStore((s) => s.settings?.voice);
-  // 设置里关掉悬浮按钮则完全不渲染（settings 未加载时按默认显示）
-  const hidden = voice ? voice.showFloatingButton === false : false;
+  // 语音没配置（未启用 / 缺 API key）或设置里关掉悬浮按钮时完全不渲染；
+  // settings 未加载时同样隐藏，避免闪一下再消失。
+  const hidden = !voice
+    || !voice.enabled
+    || missingApiKey(voice)
+    || voice.showFloatingButton === false;
   const activeTargetId = useVoiceInputStore((s) => s.activeTargetId);
   const toggleRequest = useVoiceInputStore((s) => s.toggleRequest);
   const setActiveTarget = useVoiceInputStore((s) => s.setActiveTarget);
@@ -121,14 +127,14 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
         if (blob.size === 0) {
           throw new Error(t("voiceEmptyAudio"));
         }
-        const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false);
+        const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false, wavSampleRate(voice));
         const result = await voiceService.transcribe({
           audioBase64: audio.audioBase64,
           mimeType: audio.mimeType || blob.type || mimeType || "audio/webm",
           language: voice?.language ?? null,
           enableItn: voice?.enableItn ?? false,
         });
-        const text = result.text.trim();
+        const text = finalizeTranscript(result.text, voice);
         if (!text) {
           throw new Error(t("voiceEmptyTranscript"));
         }
@@ -164,7 +170,7 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
     chunksRef.current = [];
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await openPreferredMicrophone(voice);
       streamRef.current = stream;
       const mimeType = getRecorderMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -329,9 +335,9 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
             status === "recording"
               ? "border-[color-mix(in_srgb,var(--app-status-danger)_60%,transparent)] bg-[var(--app-status-danger)] text-white shadow-[0_0_0_5px_var(--app-status-danger-bg),0_14px_34px_var(--app-status-danger-border)]"
               : status === "transcribing"
-                ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-white shadow-[0_0_0_5px_var(--app-active-bg),0_14px_34px_var(--app-border)]"
+                ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-[var(--primary-foreground)] shadow-[0_0_0_5px_var(--app-active-bg),0_14px_34px_var(--app-border)]"
                 : voice?.enabled
-                  ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-white shadow-[0_0_0_4px_var(--app-active-bg),0_14px_34px_var(--app-border)] hover:scale-105 hover:bg-[color-mix(in_srgb,var(--app-accent)_85%,white)]"
+                  ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-[var(--primary-foreground)] shadow-[0_0_0_4px_var(--app-active-bg),0_14px_34px_var(--app-border)] hover:scale-105 hover:bg-[color-mix(in_srgb,var(--app-accent)_85%,white)]"
                   : "border-[var(--app-border)] bg-[var(--muted)] text-[var(--app-text-secondary)] shadow-[0_14px_34px_var(--app-border)] backdrop-blur hover:border-[var(--app-border)] hover:text-[var(--app-text-primary)]"
           )}
           style={{ right: position.right, bottom: position.bottom }}

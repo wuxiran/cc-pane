@@ -9,8 +9,39 @@ describe("useLayoutUiStore", () => {
       layoutBarDensity: "comfortable",
       collapsedWorkspaceGroups: [],
       expandedWorktreeGroups: [],
+      collapsedLayoutGroups: [],
+      pinnedLayoutIds: [],
+      pinnedLayoutSide: "left",
     });
     await useLayoutUiStore.persist.rehydrate();
+  });
+
+  it("布局条分组折叠状态幂等写入并持久化", () => {
+    const { setLayoutGroupCollapsed } = useLayoutUiStore.getState();
+    setLayoutGroupCollapsed("frontend", true);
+    setLayoutGroupCollapsed("frontend", true);
+    setLayoutGroupCollapsed(" ", true);
+    expect(useLayoutUiStore.getState().collapsedLayoutGroups).toEqual(["frontend"]);
+    expect(JSON.parse(localStorage.getItem(LAYOUT_UI_STORAGE_KEY) ?? "null")).toMatchObject({
+      state: { collapsedLayoutGroups: ["frontend"] },
+    });
+    setLayoutGroupCollapsed("frontend", false);
+    expect(useLayoutUiStore.getState().collapsedLayoutGroups).toEqual([]);
+  });
+
+  it("固定布局去重持久化，固定区方向坏值回落 left", async () => {
+    const { setLayoutPinned, setPinnedLayoutSide } = useLayoutUiStore.getState();
+    setLayoutPinned("a", true);
+    setLayoutPinned("a", true);
+    setPinnedLayoutSide("right");
+    expect(useLayoutUiStore.getState()).toMatchObject({ pinnedLayoutIds: ["a"], pinnedLayoutSide: "right" });
+
+    localStorage.setItem(LAYOUT_UI_STORAGE_KEY, JSON.stringify({
+      state: { pinnedLayoutIds: ["b"], pinnedLayoutSide: "top" },
+      version: 0,
+    }));
+    await useLayoutUiStore.persist.rehydrate();
+    expect(useLayoutUiStore.getState()).toMatchObject({ pinnedLayoutIds: ["b"], pinnedLayoutSide: "right" });
   });
 
   it("布局条密度默认使用舒适档", () => {

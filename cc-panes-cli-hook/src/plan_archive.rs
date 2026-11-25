@@ -56,7 +56,7 @@ pub fn run_with_stdin(input: &str) {
         None => return,
     };
 
-    // Check if the file is in ~/.claude/plans/
+    // Check if the file is in the Claude plans dir ($CLAUDE_CONFIG_DIR/plans or ~/.claude/plans)
     let plans_dir = match get_claude_plans_dir() {
         Some(d) => d,
         None => return,
@@ -193,16 +193,20 @@ fn find_existing_archive(
     None
 }
 
+/// Claude 的 plans 目录：会话设了 `CLAUDE_CONFIG_DIR`（登录账号目录）就在它下面，
+/// 否则是 `~/.claude/plans`。目录不存在也返回路径，后面的前缀比较自然不命中。
 fn get_claude_plans_dir() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let plans_dir = home.join(".claude").join("plans");
-    if plans_dir.is_dir() {
-        Some(plans_dir)
-    } else {
-        // Return the path even if it doesn't exist yet;
-        // the file comparison will handle it
-        Some(plans_dir)
-    }
+    claude_plans_dir_from(
+        std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+        dirs::home_dir(),
+    )
+}
+
+fn claude_plans_dir_from(config_dir: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let config_dir = config_dir
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .or_else(|| home.map(|home| home.join(".claude")))?;
+    Some(config_dir.join("plans"))
 }
 
 // ============ Plan-as-memory: tag extraction + POST ============
@@ -689,5 +693,25 @@ risk: extreme
             .iter()
             .all(|c| !c.ends_with(Path::new(".ccpanes").join("plans"))));
         assert!(archive_dir_candidates(None, None).is_empty());
+    }
+
+    #[test]
+    fn claude_plans_dir_follows_claude_config_dir() {
+        assert_eq!(
+            claude_plans_dir_from(
+                Some(PathBuf::from("/data/login-accounts/claude-x")),
+                Some(PathBuf::from("/home/u"))
+            ),
+            Some(PathBuf::from("/data/login-accounts/claude-x/plans"))
+        );
+        assert_eq!(
+            claude_plans_dir_from(Some(PathBuf::new()), Some(PathBuf::from("/home/u"))),
+            Some(PathBuf::from("/home/u/.claude/plans"))
+        );
+        assert_eq!(
+            claude_plans_dir_from(None, Some(PathBuf::from("/home/u"))),
+            Some(PathBuf::from("/home/u/.claude/plans"))
+        );
+        assert_eq!(claude_plans_dir_from(None, None), None);
     }
 }

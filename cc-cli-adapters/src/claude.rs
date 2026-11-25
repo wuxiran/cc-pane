@@ -229,6 +229,39 @@ impl ClaudeAdapter {
     }
 
     fn generate_provider_settings(ctx: &CliAdapterContext) -> Result<Option<String>> {
+        // 分层原生配置（中转站片段 ← 运行配置片段，core 已深合并）：作为 settings 打底，
+        // 生成的 env 在路由键上胜出。
+        let mut settings = ctx
+            .adapter_options
+            .get(crate::NATIVE_CLAUDE_SETTINGS_OPTION)
+            .and_then(serde_json::Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let env = Self::managed_provider_env(ctx)?;
+        if env.is_none() && settings.is_empty() {
+            return Ok(None);
+        }
+        if let Some(env) = env {
+            let mut merged_env = match settings.remove("env") {
+                Some(serde_json::Value::Object(map)) => map,
+                _ => serde_json::Map::new(),
+            };
+            for (key, value) in env {
+                merged_env.insert(key, serde_json::Value::String(value));
+            }
+            settings.insert("env".to_string(), serde_json::Value::Object(merged_env));
+        }
+
+        let file_name = format!("{PROVIDER_SETTINGS_PREFIX}{}.json", ctx.session_id);
+        let settings_path = ctx.data_dir.join(&file_name);
+        Self::cleanup_stale_provider_settings(&ctx.data_dir, &file_name);
+        let content = serde_json::to_vec(&serde_json::Value::Object(settings))?;
+        crate::atomic_file::write_atomic(&settings_path, content)?;
+        Ok(Some(settings_path.to_string_lossy().into_owned()))
+    }
+
+    /// 托管供应商要写进 `--settings` 的 env；非托管返回 `None`。
+    fn managed_provider_env(ctx: &CliAdapterContext) -> Result<Option<HashMap<String, String>>> {
         let Some(value) = ctx.adapter_options.get(crate::MANAGED_PROVIDER_ENV_OPTION) else {
             return Ok(None);
         };
@@ -266,13 +299,7 @@ impl ClaudeAdapter {
                 .context("managed Claude Provider custom environment is invalid")?;
             env.extend(custom);
         }
-
-        let file_name = format!("{PROVIDER_SETTINGS_PREFIX}{}.json", ctx.session_id);
-        let settings_path = ctx.data_dir.join(&file_name);
-        Self::cleanup_stale_provider_settings(&ctx.data_dir, &file_name);
-        let content = serde_json::to_vec(&serde_json::json!({ "env": env }))?;
-        crate::atomic_file::write_atomic(&settings_path, content)?;
-        Ok(Some(settings_path.to_string_lossy().into_owned()))
+        Ok(Some(env))
     }
 
     /// 生成 MCP 配置文件，返回路径
@@ -2004,6 +2031,55 @@ mod tests {
         ctx.adapter_options
             .insert(crate::MANAGED_PROVIDER_ENV_OPTION.to_string(), env);
         ctx
+    }
+
+    #[test]
+    fn native_settings_overlay_merges_under_generated_env() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({ "ANTHROPIC_BASE_URL": "https://provider.example.test" }),
+        );
+        ctx.adapter_options.insert(
+            crate::NATIVE_CLAUDE_SETTINGS_OPTION.to_string(),
+            serde_json::json!({
+                "alwaysThinkingEnabled": true,
+                "env": { "DISABLE_TELEMETRY": "1", "ANTHROPIC_MODEL": "overlay-loses" }
+            }),
+        );
+
+        let settings = managed_settings(&adapter.build_command(&ctx).unwrap());
+
+        assert_eq!(settings["alwaysThinkingEnabled"], serde_json::json!(true));
+        assert_eq!(
+            settings.pointer("/env/DISABLE_TELEMETRY"),
+            Some(&serde_json::json!("1"))
+        );
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_MODEL"),
+            Some(&serde_json::json!("claude-sonnet-5"))
+        );
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_BASE_URL"),
+            Some(&serde_json::json!("https://provider.example.test"))
+        );
+    }
+
+    #[test]
+    fn native_settings_overlay_alone_still_writes_settings_without_routing_resets() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.adapter_options.insert(
+            crate::NATIVE_CLAUDE_SETTINGS_OPTION.to_string(),
+            serde_json::json!({ "effortLevel": "high" }),
+        );
+
+        let settings = managed_settings(&adapter.build_command(&ctx).unwrap());
+
+        assert_eq!(settings, serde_json::json!({ "effortLevel": "high" }));
     }
 
     /// 路由键必须**逐个**出现且为空串。漏掉任何一个，用户 shell 里残留的

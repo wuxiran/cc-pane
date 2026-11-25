@@ -1,7 +1,7 @@
 // 右侧面板窄版启动页：中间一句问话（项目名可点，换项目），底部输入框。
 // 卡片里左边权限、右边引擎/模型/语音/发送；项目只在问话里出现一次，不再重复挂条。
 // 控件本身由 EnginePicker 传入，这里只管排版——和窗格启动页共用同一套状态与行为。
-import type { ReactElement, ReactNode, RefObject } from "react";
+import type { ClipboardEventHandler, ReactElement, ReactNode, RefObject } from "react";
 import { FolderOpen } from "lucide-react";
 import logoUrl from "@/assets/logo.svg";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,9 @@ interface CompactStartPageProps {
   onDraft: (value: string) => void;
   onSubmit: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
+  /** 附件 chip（与会话内输入区共用 ChatAttachmentList），挂在输入框上方。 */
+  attachments?: ReactNode;
   placeholder: string;
   permissionMenu: ReactNode;
   engineMenu: ReactNode;
@@ -27,7 +30,7 @@ interface CompactStartPageProps {
 }
 
 export default function CompactStartPage({
-  projectName, cwd, busy, projectMenu, draft, onDraft, onSubmit, textareaRef, placeholder,
+  projectName, cwd, busy, projectMenu, draft, onDraft, onSubmit, textareaRef, onPaste, attachments, placeholder,
   permissionMenu, engineMenu, modelMenu, voiceButton, sendButton, notice, error,
 }: CompactStartPageProps) {
   const { t } = useTranslation("panes");
@@ -74,10 +77,12 @@ export default function CompactStartPage({
 
       {/* 不挂 agent-chat-start-composer：那组全局样式是给窗格大启动页的（外框底色 + 112px 输入高度）。 */}
       <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-3 pb-2 pt-2.5 transition-[border-color] duration-[var(--dur)] focus-within:border-[var(--app-text-tertiary)]">
+        {attachments}
         <textarea
           ref={textareaRef}
           value={draft}
           onChange={(event) => onDraft(event.target.value)}
+          onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();

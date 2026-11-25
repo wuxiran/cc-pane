@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowRight, BadgeCheck, GraduationCap, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SettingsBlock, SettingsRow, SettingsSection } from "@/components/settings/layout";
 import AgentConciergeEntry from "./AgentConciergeEntry";
 import { openGuideDoc } from "@/components/tips/openGuideDoc";
 import { openOnboarding, openSkills, useSetupGuideItems } from "./useSetupGuideItems";
@@ -58,7 +59,28 @@ export default function SetupGuideChecklist({
   const { items, completed, nextItem, skillCheckFailed } = useSetupGuideItems();
   const Heading = variant === "home" ? "h3" : "h2";
 
-  // 完成收束态：整卡缩成一条 success 横条
+  // 完成收束态：整卡缩成一条 success 横条（设置页里是一行：标题 + 说明 + 两个安静动作）
+  if (!nextItem && variant === "settings") {
+    return (
+      <SettingsSection sectionId="setup-guide-journey" data-testid="setup-guide-checklist">
+        <SettingsRow
+          icon={BadgeCheck}
+          title={t("setupGuide.doneTitle")}
+          description={t("setupGuide.doneSummary")}
+          control={(
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={openOnboarding}>
+                {t("setupGuide.replay")}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={openSkills}>
+                {t("setupGuide.browseSkills")}
+              </Button>
+            </>
+          )}
+        />
+      </SettingsSection>
+    );
+  }
   if (!nextItem) {
     return (
       <section
@@ -93,22 +115,19 @@ export default function SetupGuideChecklist({
     : `setupGuide.items.${nextItem.id}.description`;
   // 0/5 初始态：教程是整卡主 CTA，聚焦卡收起；有进度后教程降级 outline 常驻卡头
   const isFresh = completed === 0;
+  const isSettings = variant === "settings";
 
-  return (
-    <section
-      className={cn(
-        "min-w-0",
-        variant === "home"
-          && "rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-5",
-      )}
-      data-testid={variant === "home" ? "getting-started" : "setup-guide-checklist"}
-    >
+  const journey = (
+    <>
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <Heading className="text-[length:var(--text-title)] font-semibold text-[var(--app-text-primary)]">
-            {t("setupGuide.title")}
-          </Heading>
-          <p className="mt-0.5 text-xs leading-relaxed text-[var(--app-text-tertiary)]">
+          {/* 设置页的页标题已是清单名，卡内不再重复标题 */}
+          {!isSettings && (
+            <Heading className="text-[length:var(--text-title)] font-semibold text-[var(--app-text-primary)]">
+              {t("setupGuide.title")}
+            </Heading>
+          )}
+          <p className={cn("text-xs leading-relaxed text-[var(--app-text-tertiary)]", !isSettings && "mt-0.5")}>
             {t("setupGuide.description")}
           </p>
         </div>
@@ -149,7 +168,7 @@ export default function SetupGuideChecklist({
                   className={cn(
                     "relative z-[1] grid place-items-center rounded-full border-[1.5px] text-[length:var(--text-caption)] font-semibold",
                     isCurrent
-                      ? "guide-node-pulse size-[30px] border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
+                      ? "guide-node-pulse size-[30px] border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--primary-foreground)]"
                       : "size-[26px]",
                     !isCurrent && item.complete
                       && "border-[var(--app-status-success)] bg-[color-mix(in_srgb,var(--app-status-success)_12%,transparent)] text-[var(--app-status-success)]",
@@ -215,11 +234,35 @@ export default function SetupGuideChecklist({
         </div>
       )}
 
+    </>
+  );
+
+  const conciergeHint = (
+    <span className="flex items-center gap-1.5">
+      {t("setupGuide.conciergeHint")}
+      <AgentConciergeEntry compact className="inline-flex" />
+    </span>
+  );
+
+  if (isSettings) {
+    return (
+      <SettingsSection sectionId="setup-guide-journey" data-testid="setup-guide-checklist">
+        <SettingsBlock>{journey}</SettingsBlock>
+        <SettingsBlock className="flex flex-wrap items-center gap-4 py-3 text-xs text-[var(--app-text-tertiary)]">
+          {conciergeHint}
+        </SettingsBlock>
+      </SettingsSection>
+    );
+  }
+
+  return (
+    <section
+      className="min-w-0 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-5"
+      data-testid="getting-started"
+    >
+      {journey}
       <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-[var(--app-home-border)] pt-3 text-xs text-[var(--app-text-tertiary)]">
-        <span className="flex items-center gap-1.5">
-          {t("setupGuide.conciergeHint")}
-          <AgentConciergeEntry compact className="inline-flex" />
-        </span>
+        {conciergeHint}
       </div>
     </section>
   );

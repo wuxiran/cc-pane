@@ -6,7 +6,7 @@
   "nativeHint": "Prepare a separate Agent chat; keep this terminal running",
   "unavailable": "The selected engine is unavailable. Choose an installed engine.",
   "handoff": "Hand off to Codex desktop…",
-  "handoffHint": "Open a task draft in Codex, then click Send there. Only this text is handed off; chat history and attachments are not included automatically.",
+  "handoffHint": "Open a task draft in Codex, then click Send there. Text you select in the chat before handing off is prefilled as a quote; only this text is handed off — the rest of the chat history and attachments are not included.",
   "taskLabel": "Task instructions",
   "taskPlaceholder": "Describe the goal, file scope and acceptance criteria. You can reference a local plan file.",
   "taskTooLong": "The task text is too long. Save a plan file and reference its path here.",
@@ -14,5 +14,8 @@
   "openDraft": "Open Codex draft",
   "opening": "Opening…",
   "cancel": "Cancel",
-  "done": "Done"
+  "done": "Done",
+  "handoffSelection": "Hand off to Codex desktop",
+  "quoteLastReply": "Quote last reply",
+  "quoteTruncated": "The quoted text was too long and has been truncated. Save the full content to a plan file and reference its path here."
 }

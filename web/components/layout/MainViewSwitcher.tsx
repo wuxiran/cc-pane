@@ -67,6 +67,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const isDark = useThemeStore((s) => s.isDark);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
+  const providersViewRequest = useActivityBarStore((s) => s.providersViewRequest);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
   const closeOrchestrationOverlay = useActivityBarStore((s) => s.closeOrchestrationOverlay);
@@ -220,7 +221,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           <SelfChatManager />
         </div>
       )}
-      {/* Providers 全屏模式（旧入口，保留兼容） */}
+      {/* 供应商全屏视图：左侧图标栏的独立入口（不再放在设置里） */}
       {isMounted("providers") && (
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
@@ -228,7 +229,10 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           {...layerA11yAttrs("providers")}
           style={viewStyle("providers")}
         >
-          <ProvidersPanel />
+          <ProvidersPanel
+            key={providersViewRequest.seq}
+            initialView={providersViewRequest.view}
+          />
         </div>
       )}
       {/* 短剧制作台：剧本→分镜→镜头→成片流水线 */}

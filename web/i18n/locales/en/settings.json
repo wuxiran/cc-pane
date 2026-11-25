@@ -6,6 +6,24 @@
   "searchLabel": "Search settings",
   "searchPlaceholder": "Search fonts, notifications, shortcuts…",
   "clearSearch": "Clear search",
+  "searchShortcutHint": "Press / to search",
+  "breadcrumbLabel": "Breadcrumb",
+  "generalGroups": {
+    "files": "Files & search",
+    "data": "Data & storage"
+  },
+  "terminalGroups": {
+    "display": "Display",
+    "colors": "Colors",
+    "features": "Features",
+    "session": "Session"
+  },
+  "wallpaperGroups": {
+    "effects": "Display",
+    "video": "Video",
+    "music": "Background music",
+    "musicFile": "Music file"
+  },
   "searchEmpty": "No matching settings",
   "searchCommandGroup": "Settings",
   "searchLayers": {
@@ -36,11 +54,18 @@
     "notification": "notification alert exit waiting input",
     "imBridge": "im push dingtalk wecom wechat work feishu lark bot webhook notification outbound message",
     "screenshot": "screenshot screen shortcut retention",
-    "voice": "voice recording transcription microphone whisper custom",
+    "voice": "voice recording transcription microphone whisper custom dictionary filler dictation local offline on-device sherpa SenseVoice Qwen3",
     "ccchan": "cc-chan pet companion window",
     "experimental": "experimental preview beta feature flag performance recording lag diagnostics",
+    "agentChat": "agent chat ACP codex app server compatibility bridge engine",
     "about": "version update logs uninstall cleanup",
-    "island": "dynamic island notch always on top capsule status approval quota"
+    "island": "dynamic island notch always on top capsule status approval quota",
+    "deviceInfo": "this device host machine version update os",
+    "deviceClients": "clients devices pairing authorized revoke remove phone",
+    "deviceMcp": "MCP external apps token endpoint",
+    "tailscale": "Tailscale remote tailnet",
+    "webService": "web service start stop restart open browser",
+    "orchestrator": "orchestrator MCP endpoint listener YOLO"
   },
   "groups": {
     "application": "Application",
@@ -57,7 +82,10 @@
       "title": "Tools"
     },
     "system": {
-      "title": "System & Connectivity"
+      "title": "System"
+    },
+    "devices": {
+      "title": "Devices & Access"
     },
     "advanced": {
       "title": "Advanced"
@@ -120,6 +148,12 @@
   "setupGuide": {
     "title": "Setup Guide",
     "description": "Revisit the golden five-minute path and track real progress through the core parallel workflow."
+  },
+  "agentChat": {
+    "title": "Agent Chat",
+    "description": "Structured agent conversations (ACP engines and Codex).",
+    "codexForceAcp": "Always use ACP compatibility mode for Codex",
+    "codexForceAcpDesc": "New Codex chats use the codex-acp bridge instead of the native App Server. Off by default: Codex uses the App Server and falls back to ACP automatically when it can't start. Existing conversations keep the transport they started with."
   },
   "experimental": {
     "title": "Experimental",
@@ -300,7 +334,7 @@
     "ipWhitelist": "IP allowlist",
     "ipWhitelistHint": "Leave blank to allow any LAN client; separate multiple entries with newlines or commas.",
     "orchestrator": {
-      "title": "MCP orchestrator listener",
+      "title": "Orchestrator (MCP endpoint)",
       "description": "Built-in CC-Panes orchestrator (for CLI ccpanes MCP tools to connect back). Restart the app after changing.",
       "bindMode": "Listen on",
       "bindModes": {
@@ -317,11 +351,20 @@
           "hint": "Always 0.0.0.0 (visible on the LAN, protected by a random port and token)."
         }
       },
-      "currentListen": "Current listener: {{address}} ({{reason}})"
+      "currentListen": "Current listener: {{address}} ({{reason}})",
+      "rotate": {
+        "title": "Access token",
+        "description": "CLI sessions and external MCP clients use it to reach the orchestrator. Rotate it if you suspect it leaked.",
+        "button": "Rotate token",
+        "confirm": "Rotate the orchestrator access token?\n\n• The old token stops working immediately. The new token is saved and kept across restarts.\n• MCP clients in other apps configured with the old URL / token must switch to the new URL shown under \"Use in other apps (MCP)\".\n• {{count}} terminal session(s) are running now (plus any open Agent Chats). They received the old token at launch (in their environment and MCP config, which can't be updated live): CC-Panes MCP tool calls and status reporting in those sessions will fail until you close and reopen their tabs. Sessions connected through the cc-panes-ctl MCP proxy switch to the new token automatically.\n• Sessions opened afterwards use the new token.",
+        "confirmUnknown": "Rotate the orchestrator access token?\n\n• The old token stops working immediately. The new token is saved and kept across restarts.\n• External MCP clients configured with the old token must switch to the new URL.\n• Running sessions (including Agent Chats) received the old token at launch and can't be updated live: their CC-Panes MCP tool calls and status reporting will fail until you close and reopen their tabs.\n• Sessions opened afterwards use the new token.",
+        "done": "Token rotated. New sessions will use the new token.",
+        "failed": "Couldn't rotate the token: {{error}}"
+      }
     },
     "tailscale": {
       "title": "Tailscale remote access (recommended)",
-      "description": "Securely access the Web app from your own devices through Tailscale Serve: no LAN exposure is needed and the service stays bound to localhost. CC-Panes only performs read-only detection; it does not execute commands or store Tailscale credentials.",
+      "description": "Securely access the Web app from your own devices through Tailscale Serve: no LAN exposure is needed and the service stays bound to localhost. Detection is read-only; tailscale serve runs only when you click Turn on / Turn off. CC-Panes never stores Tailscale credentials.",
       "detect": "Detect",
       "cliNotFound": "Tailscale CLI not detected. Install it and try again: https://tailscale.com/download",
       "notRunning": "Tailscale is installed but not running{{state}}. Run",
@@ -332,7 +375,25 @@
       "address": "Address",
       "copyAddress": "Copy address",
       "tailnetHint": "Run the command above in a terminal, then access this address from any device in your tailnet. We recommend enabling \"Account password login\" and \"Remote read-only mode\"; Tailscale access is treated as a remote source. To unpublish, run",
-      "tailnetHintEnd": "."
+      "tailnetHintEnd": ".",
+      "serve": {
+        "on": "Published to your tailnet:",
+        "off": "Not published through Tailscale Serve.",
+        "enable": "Turn on",
+        "disable": "Turn off",
+        "enabled": "Published through Tailscale Serve",
+        "disabled": "Tailscale Serve turned off",
+        "hint": "tailscale serve only runs when you click: turning on forwards your tailnet's HTTPS 443 to the local Web server; turning off removes only that entry. Requires an access password.",
+        "errors": {
+          "notInstalled": "Tailscale CLI not found. Install Tailscale first: https://tailscale.com/download",
+          "notRunning": "Tailscale is not connected ({{state}}). Run tailscale up in a terminal to sign in.",
+          "needsApproval": "Serve isn't enabled on your tailnet yet and needs admin approval. Open this link in a browser to enable it, then try again: {{url}}",
+          "needsApprovalNoUrl": "Serve isn't enabled on your tailnet yet. Ask an admin to enable HTTPS / Serve in the Tailscale admin console, then try again.",
+          "permissionDenied": "Not allowed to change the Tailscale Serve config. On Linux, run sudo tailscale set --operator=$USER and try again. Details: {{detail}}",
+          "passwordRequired": "Access through Tailscale Serve counts as remote. Set an access password under Sign-in first.",
+          "failed": "tailscale serve failed: {{detail}}"
+        }
+      }
     },
     "status": {
       "running": "Running",
@@ -395,9 +456,9 @@
   "resetDone": "Defaults restored (click Save to apply)",
   "autoSaved": "Auto-saved {{time}}",
   "autoSaveHint": "Changes save automatically",
-  "resetSection": "Reset section",
+  "resetSection": "Reset this page",
   "resetSectionConfirm": "Click again to confirm",
-  "sectionResetDone": "Section reset to defaults",
+  "sectionResetDone": "Page reset to defaults",
   "generalTitle": "General Settings",
   "closeToTray": "Minimize to tray on close",
   "traySectionTitle": "System Tray",
@@ -498,10 +559,8 @@
   "shellAutoDetect": "Auto-detect if empty",
   "voiceTitle": "Voice Input",
   "voiceDesc": "Record from any terminal pane and insert the transcript into that pane without auto-submitting.",
-  "voiceEnable": "Enable voice input",
   "voiceShowFloatingButton": "Show floating button in terminal",
   "voiceShowFloatingButtonDesc": "When off, the microphone button no longer appears in the terminal corner; the voice shortcut still works.",
-  "voiceProvider": "Voice service",
   "voiceProviderDashscope": "DashScope / Qwen-ASR",
   "voiceProviderMimo": "Xiaomi MiMo",
   "voiceDashscopeApiKey": "DashScope API Key",
@@ -523,15 +582,113 @@
   "voiceLimitHint": "This uses the Qwen-ASR OpenAI-compatible sync API for short recordings; the backend rejects audio over 10 MB.",
   "voiceMimoHint": "Xiaomi MiMo uses the open-platform audio understanding API. CC-Panes converts recordings to WAV locally and sends Base64 audio; use mimo-v2.5 or mimo-v2-omni.",
   "voiceProviderCustom": "Custom (OpenAI-compatible)",
+  "voiceProviderLocal": "On this device (offline)",
+  "voiceManageLocalModels": "Manage on-device models",
+  "voiceLocalDialogTitle": "On-device transcription",
+  "voiceLocalHint": "Runs sherpa-onnx on this computer. Audio never leaves the device and no API key is needed. The first time, download the engine and a model.",
+  "voiceLocalModel": "Model",
+  "voiceLocalSenseVoice": "SenseVoice Small",
+  "voiceLocalSenseVoiceDesc": "Fast: a few seconds of speech transcribes in about a second. Chinese, Cantonese, English, Japanese and Korean, with punctuation. No dictionary support.",
+  "voiceLocalQwen3": "Qwen3-ASR 0.6B",
+  "voiceLocalQwen3Desc": "More accurate with fuller punctuation, and uses your dictionary. Larger, and takes a few seconds longer.",
+  "voiceLocalDownload": "Download ({{size}})",
+  "voiceLocalDownloading": "Downloading {{part}}: {{received}} / {{total}}",
+  "voiceLocalPartEngine": "the engine",
+  "voiceLocalPartModel": "the model",
+  "voiceLocalExtracting": "Unpacking…",
+  "voiceLocalCancel": "Cancel download",
+  "voiceLocalInstalled": "Downloaded",
+  "voiceLocalRemove": "Delete {{name}}",
+  "voiceLocalFailed": "Download failed: {{error}}",
+  "voiceLocalRetry": "Retry download",
+  "voiceLocalUnsupported": "On-device transcription isn't available on this system.",
+  "voiceLocalSource": "The engine and models come from the k2-fsa/sherpa-onnx GitHub releases, are checked against SHA256, use your network proxy setting, and resume if interrupted.",
+  "voiceLocalDirectory": "Stored in {{path}}",
+  "voiceLocalReady": "{{model}} is ready. Audio stays on this device.",
+  "voiceLocalNotReady": "No on-device model yet. Use the button on the right to download one.",
+  "voiceDictionaryLocalUnsupported": "SenseVoice doesn't support a dictionary. Switch to Qwen3-ASR or a cloud service to use it.",
   "voiceCustomApiKey": "API Key (leave empty for local servers)",
   "voiceCustomBaseUrl": "Base URL",
   "voiceCustomPreferWav": "Convert recording to WAV before sending",
   "voiceCustomPreferWavDesc": "Enable when the target service does not accept WebM, e.g. whisper.cpp server.",
   "voiceCustomHint": "Standard /v1/audio/transcriptions multipart endpoint, compatible with whisper.cpp server, faster-whisper, Groq, OpenAI, etc. Leave the API key empty for unauthenticated local servers. Language support depends on the target service.",
+  "voiceGroupTranscription": "Transcription",
+  "voiceGroupInput": "Input",
+  "voiceGroupDictionary": "Dictionary",
+  "voiceGroupAdvanced": "More",
+  "voiceTranscribeWith": "Transcribe with",
+  "voiceTranscribeWithDesc": "The service that turns speech into text. Choose Off to disable voice input and hide the microphone buttons.",
+  "voiceTranscribeWithKeyMissing": "No API key yet. Use the key button to set it up.",
+  "voiceOff": "Off",
+  "voiceManageConnection": "Manage key and endpoint",
+  "voiceProviderDialogTitle": "Set up {{name}}",
+  "voiceDone": "Done",
+  "voiceLanguageDesc": "Auto works for mixed speech; a fixed language is usually more accurate.",
+  "voiceRemoveFillerWords": "Remove filler words",
+  "voiceRemoveFillerWordsDesc": "Drop “嗯”, “呃”, “um” and “uh” from transcripts.",
+  "voiceTestTitle": "Try it",
+  "voiceTestDesc": "Say a sentence and transcribe it with the current settings. The text only shows here.",
+  "voiceTestDesktopOnly": "Transcription tests only run in the desktop app.",
+  "voiceTestTranscription": "Record",
+  "voiceTestSaySomething": "Click Stop when you're done",
+  "voiceTestTranscribing": "Transcribing…",
+  "voiceTestResult": "Test transcript",
+  "voiceTestNoSpeech": "No speech recognized. Try again.",
+  "voiceTestClose": "Close transcription test",
+  "voiceMicrophone": "Microphone",
+  "voiceMicrophoneDesc": "Voice input uses the first connected microphone in this list. Drag or use the arrows to reorder.",
+  "voiceRefreshMicrophones": "Refresh microphones",
+  "voiceMicrophoneOrder": "Microphones, preferred first",
+  "voiceMicrophoneSystemDefault": "System default",
+  "voiceMicrophoneUnnamed": "Unnamed microphone (name shows after permission)",
+  "voiceMicrophoneInUse": "In use",
+  "voiceMicrophoneNotConnected": "Not connected",
+  "voiceMicrophoneDrag": "Drag {{name}} to reorder",
+  "voiceMicrophoneMoveUp": "Move {{name}} up",
+  "voiceMicrophoneMoveDown": "Move {{name}} down",
+  "voiceMicrophoneForget": "Forget {{name}}",
+  "voiceMicrophoneTest": "Test microphone",
+  "voiceMicrophoneTestDesc": "Record ten seconds and play it back. The audio stays on this device.",
+  "voiceRecord": "Record",
+  "voiceRecordAgain": "Record again",
+  "voiceStop": "Stop",
+  "voiceOpeningMicrophone": "Opening microphone…",
+  "voiceDiscardRecording": "Discard recording",
+  "voicePlayRecording": "Play recording",
+  "voicePausePlayback": "Pause",
+  "voicePlaybackPosition": "Playback position",
+  "voicePlaybackFailed": "Could not play this recording. Try recording again.",
+  "voiceInputLevel": "Input level",
+  "voiceMicUnsupported": "Recording isn't supported here.",
+  "voiceMicDenied": "Microphone access is blocked. Allow CC-Panes in System Settings › Privacy & Security › Microphone.",
+  "voiceMicNotFound": "No microphone found.",
+  "voiceMicEmpty": "No audio was recorded. Try again.",
+  "voiceMicFailed": "Could not open the microphone. Try again.",
+  "voiceDictionary": "Your dictionary",
+  "voiceDictionaryDesc": "Names, project names and terms the service should spell your way.",
+  "voiceDictionaryAdd": "Add a word or phrase",
+  "voiceDictionaryPlaceholder": "Add words, separated by commas",
+  "voiceDictionaryAddButton": "Add",
+  "voiceDictionaryEntries": "Dictionary entries",
+  "voiceDictionaryRemove": "Remove {{word}}",
+  "voiceDictionaryTooLong": "Each entry can be at most {{max}} characters.",
+  "voiceDictionaryFull": "The dictionary holds at most {{max}} entries.",
+  "voiceMaxRecordSecondsDesc": "Recording stops and transcribes automatically after this long (1–300 s).",
+  "voiceSecondsUnit": "s",
   "shortcutsTitle": "Keyboard Shortcuts",
   "shortcutsHint": "Click a shortcut then press a new key combination to change it, press Esc to cancel",
   "pressNewKey": "Press new shortcut...",
   "shortcutConflict": "Shortcut {{combo}} is already used by \"{{label}}\"",
+  "proxyGroups": {
+    "server": "Proxy server"
+  },
+  "webAccessGroups": {
+    "server": "Web service",
+    "auth": "Sign-in",
+    "network": "Network & remote",
+    "service": "Service control",
+    "refreshStatus": "Refresh status"
+  },
   "proxyTitle": "Proxy Settings",
   "enableProxy": "Enable Proxy",
   "proxyType": "Proxy Type",
@@ -612,6 +769,8 @@
   "defaultProviderModel": "Default model",
   "setDefaultProviderModel": "Set as default model",
   "removeProviderModel": "Remove model",
+  "hideProviderModelInDropdown": "Hide in dropdowns",
+  "showProviderModelInDropdown": "Show in dropdowns",
   "providerModelIdRequired": "Model ID is required",
   "providerModelIdsUnique": "Model IDs must be unique within a Provider",
   "providerDeleted": "Provider deleted",
@@ -714,6 +873,11 @@
   "cleanupReportSkipped": "Skipped",
   "cleanupReportFailed": "Failed",
   "cleanupCancel": "Cancel",
+  "aboutGroups": {
+    "maintenance": "Updates & maintenance",
+    "checkUpdateDesc": "Check manually whether a newer version is available.",
+    "openLogDirDesc": "Attach these log files when troubleshooting or reporting a bug."
+  },
   "updateAvailable": "New version v{{version}} available, click to update",
   "newVersionAvailable": "New version v{{version}} available",
   "updateCheckFailed": "Last update check failed ({{time}}): {{reason}}",
@@ -900,6 +1064,9 @@
   "tabGrok": "Grok",
   "tabJcode": "Jcode",
   "tabAntigravity": "Antigravity",
+  "tabKiro": "Kiro",
+  "tabFx": "fx",
+  "tabMuse": "Muse",
   "cliInstalled": "Installed",
   "cliNotInstalled": "Not installed",
   "cliToolSelect": "Select CLI",
@@ -1527,5 +1694,87 @@
   "imInboundNeedsNumericChatId": "Receiving messages needs a numeric Chat ID (such as 123456789 or -100…). @usernames can be taken over after a rename and are not accepted.",
   "imInboundDefaultBotFirst": "First bot",
   "islandTitle": "Dynamic Island",
-  "islandDesc": "A session status capsule at the top of the screen: what is running, who needs you, quota left."
+  "islandDesc": "A session status capsule at the top of the screen: what is running, who needs you, quota left.",
+  "browserImport": {
+    "title": "Browser",
+    "description": "Sign-in state and data for the built-in browser.",
+    "keywords": "browser built-in Chrome import login sign in cookie cookies session Brave Edge Arc keychain",
+    "importTitle": "Import sign-in state from another browser",
+    "importHint": "Copies the cookies of one profile in Chrome or a similar browser into the built-in browser once. Afterwards the two stay independent.",
+    "loading": "Looking for installed browsers…",
+    "noSources": "No importable browser found (Chrome, Brave, Edge, Arc and Chromium are supported).",
+    "browser": "Browser",
+    "profile": "Profile",
+    "noteQuit": "Quit {{browser}} completely first, otherwise recent sign-ins may not be on disk yet.",
+    "noteKeychain": "macOS will ask for keychain access. Choose Allow so the cookies can be decrypted.",
+    "noteOneTime": "This is a one-time copy. Signing in or out on either side later is not synced.",
+    "noteRelogin": "Some sites check the device or bind the session, so you may still need to sign in again.",
+    "importButton": "Import from {{browser}}",
+    "importing": "Importing…",
+    "result": "Imported {{imported}} cookies covering {{domains}} sites.",
+    "resultFailed": "{{failed}} more could not be decrypted and were skipped.",
+    "errors": {
+      "BROWSER_IMPORT_UNSUPPORTED_PLATFORM": "Importing is not supported on this platform yet. Only macOS is supported (on Windows, Chromium browsers use app-bound encryption that cannot be read).",
+      "BROWSER_IMPORT_SOURCE_NOT_FOUND": "That browser or profile was not found. Make sure it is installed and has been opened at least once.",
+      "BROWSER_IMPORT_KEYCHAIN_DENIED": "Keychain access was denied, so the cookies cannot be decrypted. Choose Allow in the system prompt when you retry.",
+      "BROWSER_IMPORT_KEYCHAIN_NOT_FOUND": "The browser's encryption key (Safe Storage) was not found in the keychain.",
+      "BROWSER_IMPORT_READ_FAILED": "Could not read the browser's cookie database. Quit that browser and try again.",
+      "BROWSER_IMPORT_NO_WEBVIEW": "The built-in browser is not ready yet. Try again in a moment."
+    }
+  },
+  "deviceAccess": {
+    "local": {
+      "title": "This device",
+      "os": "Operating system",
+      "version": "App version",
+      "webUrl": "Local Web URL",
+      "webUrlHint": "Open it in a browser on this computer.",
+      "update": "Updates",
+      "upToDate": "Up to date",
+      "updateAvailable": "New version v{{version}} available",
+      "checking": "Checking for updates…",
+      "checkFailed": "Update check failed. Try again later.",
+      "notChecked": "Not checked yet",
+      "desktopOnly": "Update checks are only available in the desktop app"
+    },
+    "mcpTitle": "Use in other apps (MCP)",
+    "clientsTitle": "Authorized clients",
+    "clientsDescription": "Devices that exchanged a pairing code for a token can access this computer.",
+    "activity": {
+      "online": "Online",
+      "minutes": "Last seen {{count}} min ago",
+      "hours": "Last seen {{count}} h ago",
+      "days": "Last seen {{count}} d ago",
+      "never": "Never connected",
+      "ip": "IP {{ip}}"
+    },
+    "expiry": {
+      "label": "Expires",
+      "days": "{{count}} days",
+      "never": "Never",
+      "neverShort": "Never expires",
+      "until": "Expires {{date}}",
+      "expired": "Expired"
+    },
+    "webSessions": {
+      "title": "Web sign-in sessions",
+      "description": "Browsers signed in to this computer's Web app with the account password (sessions live only in the Web server's memory and end when it restarts).",
+      "empty": "No Web sign-in sessions.",
+      "notRunning": "The Web access server is not running, so there are no Web sessions.",
+      "loadFailed": "Couldn't read Web sessions: {{error}}",
+      "current": "This session",
+      "unknownBrowser": "Unknown browser",
+      "createdAt": "Signed in {{date}}",
+      "revoke": "Sign out",
+      "revokeConfirm": "Sign out this Web session? That browser will have to sign in again and its open terminals will disconnect."
+    },
+    "revokeOthers": {
+      "title": "Revoke all others",
+      "description": "Remove every paired device and sign out every other Web session.",
+      "nothing": "There is no other access to revoke.",
+      "button": "Revoke all others",
+      "confirm": "Revoke all other access?\n\nThis removes {{devices}} paired device(s) and signs out {{sessions}} Web session(s). They must pair or sign in again to reach this computer.\n\nThis desktop app is not affected.",
+      "done": "Removed {{devices}} device(s) and signed out {{sessions}} Web session(s)"
+    }
+  }
 }

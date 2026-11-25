@@ -708,6 +708,7 @@ async fn folder_install_links_without_copying() {
                 enabled_skill_ids: vec!["user:alpha".into()],
                 ..Default::default()
             },
+            native_overrides: Default::default(),
             is_default: false,
         })
         .unwrap();
@@ -763,6 +764,7 @@ async fn remove_moves_to_backup_and_strips_profile_ids() {
             disabled_skill_ids: disabled.into_iter().map(str::to_string).collect(),
             ..Default::default()
         },
+        native_overrides: Default::default(),
         is_default: false,
     };
     let first = fixture

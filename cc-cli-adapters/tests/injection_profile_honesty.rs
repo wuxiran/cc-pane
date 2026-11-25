@@ -398,7 +398,7 @@ fn every_declared_injection_has_evidence() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let registry = CliToolRegistry::with_builtin_adapters();
     let profiles = registry.injection_profiles();
-    assert_eq!(profiles.len(), 11, "new CLI? add it to the honesty guard");
+    assert_eq!(profiles.len(), 14, "new CLI? add it to the honesty guard");
     let mut failures = Vec::new();
     for (cli, profile) in &profiles {
         let sandbox = Sandbox::new();

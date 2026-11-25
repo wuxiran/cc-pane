@@ -13,9 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useDialogStore, usePanesStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
+import { useDialogStore, usePanesStore, useWorkspacesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
-import { buildLaunchRecordTerminalOptions, formatRelativeTime } from "@/utils";
+import { formatRelativeTime } from "@/utils";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import WorkspaceEmptyActions from "./WorkspaceEmptyActions";
 import {
@@ -26,47 +26,13 @@ import {
   SECTION_HEADING_CLASS,
   type EmptyStateDensity,
 } from "./emptyStateShared";
-import type { CliTool, Panel as PanelType } from "@/types";
+import type { Panel as PanelType } from "@/types";
+import { LaunchMethodItems, MAX_RECENT_LAUNCHES, launchFromRecord, pickRecentLaunches } from "./launchMethods";
 
-const MAX_RECENT = 5;
-const MAX_METHODS = 4;
+// 选择逻辑在 launchMethods（侧栏任务视图共用），这里保留导出兼容既有引用
+export { pickProjectMethods, pickRecentLaunches } from "./launchMethods";
+
 const HISTORY_FETCH = 60;
-
-// 按项目路径去重（保留最新一条）
-export function pickRecentLaunches(records: LaunchRecord[], max = MAX_RECENT): LaunchRecord[] {
-  const seen = new Set<string>();
-  const result: LaunchRecord[] = [];
-  for (const record of records) {
-    const key = record.projectPath.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(record);
-    if (result.length >= max) break;
-  }
-  return result;
-}
-
-// 该项目历史上用过的打开方式：按 CLI×运行环境 去重（不含纯终端——菜单里已有置顶项）
-export function pickProjectMethods(
-  records: LaunchRecord[],
-  projectPath: string,
-  max = MAX_METHODS,
-): LaunchRecord[] {
-  const target = projectPath.toLowerCase();
-  const seen = new Set<string>();
-  const result: LaunchRecord[] = [];
-  for (const record of records) {
-    if (record.projectPath.toLowerCase() !== target) continue;
-    const cli = record.cliTool ?? "none";
-    if (cli === "none") continue;
-    const key = `${cli}|${record.runtimeKind ?? "local"}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(record);
-    if (result.length >= max) break;
-  }
-  return result;
-}
 
 export default function PanelEmptyActions({
   pane,
@@ -126,40 +92,9 @@ export default function PanelEmptyActions({
   }
 
   // 窄窗格里列太多条会顶出容器，跟着密度收
-  const records = pickRecentLaunches(allRecords, density === "full" ? MAX_RECENT : 3);
+  const records = pickRecentLaunches(allRecords, density === "full" ? MAX_RECENT_LAUNCHES : 3);
 
-  function launch(record: LaunchRecord, cliToolOverride?: CliTool) {
-    // 复用启动历史的还原逻辑（含 WSL distro / SSH 机器解析）；
-    // pendingLaunch 通道不支持 resume，这里始终开全新会话（不带 resumeId）。
-    const options = buildLaunchRecordTerminalOptions(
-      record,
-      useWorkspacesStore.getState().workspaces,
-      useSshMachinesStore.getState().machines,
-    );
-    useDialogStore.getState().setPendingLaunch({
-      path: options.path,
-      workspaceName: options.workspaceName,
-      workspacePath: options.workspacePath,
-      providerId: options.providerId ?? "",
-      providerSelection: options.providerSelection ?? "inherit",
-      launchProfileId: options.launchProfileId,
-      cliTool: cliToolOverride ?? (options.cliTool as CliTool | undefined),
-      ssh: options.ssh,
-      wsl: options.wsl,
-      machineName: options.machineName,
-    });
-  }
-
-  function methodLabel(record: LaunchRecord): string {
-    const base =
-      record.cliTool === "codex"
-        ? t("recentLaunchWithCodex")
-        : record.cliTool === "claude" || !record.cliTool
-          ? t("recentLaunchWithClaude")
-          : t("recentLaunchWithTool", { tool: record.cliTool });
-    const runtime = record.runtimeKind ?? "local";
-    return runtime === "local" ? base : `${base} · ${runtime.toUpperCase()}`;
-  }
+  const launch = (record: LaunchRecord) => launchFromRecord(record);
 
   const compact = density !== "full";
 
@@ -195,8 +130,6 @@ export default function PanelEmptyActions({
           <h2 id="panel-empty-recent-heading" className={SECTION_HEADING_CLASS}>{t("recentLaunches")}</h2>
           <div className="flex flex-col gap-0.5">
             {records.map((record) => {
-              const methods = pickProjectMethods(allRecords, record.projectPath);
-              const historyClis = new Set(methods.map((m) => m.cliTool));
               return (
                 <div key={record.id} className="group relative flex min-w-0 items-center rounded-lg transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]">
                   <button
@@ -236,42 +169,12 @@ export default function PanelEmptyActions({
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-[200px]">
-                      {/* 终端置顶 */}
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 text-[length:var(--text-row)]"
-                        onSelect={() => launch(record, "none")}
-                      >
-                        <CliIcon cliTool="none" className="size-3.5" />
-                        {t("recentLaunchTerminalOnly")}
-                      </DropdownMenuItem>
-                      {(methods.length > 0 || !historyClis.has("claude") || !historyClis.has("codex")) && (
-                        <DropdownMenuSeparator />
-                      )}
-                      {/* 该项目历史上用过的打开方式（按原记录完整还原环境） */}
-                      {methods.map((method) => (
-                        <DropdownMenuItem
-                          key={`${method.cliTool}|${method.runtimeKind}`}
-                          className="flex items-center gap-2 text-[length:var(--text-row)]"
-                          onSelect={() => launch(method)}
-                        >
-                          <CliIcon cliTool={method.cliTool} className="size-3.5" />
-                          <span className="flex-1">{methodLabel(method)}</span>
-                          <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-                            {formatRelativeTime(method.launchedAt)}
-                          </span>
-                        </DropdownMenuItem>
-                      ))}
-                      {/* 历史里没用过的 CLI 兜底 */}
-                      {(["claude", "codex"] as const).filter((cli) => !historyClis.has(cli)).map((cli) => (
-                        <DropdownMenuItem
-                          key={cli}
-                          className="flex items-center gap-2 text-[length:var(--text-row)]"
-                          onSelect={() => launch(record, cli)}
-                        >
-                          <CliIcon cliTool={cli} className="size-3.5" />
-                          {cli === "claude" ? t("recentLaunchWithClaude") : t("recentLaunchWithCodex")}
-                        </DropdownMenuItem>
-                      ))}
+                      <LaunchMethodItems
+                        record={record}
+                        records={allRecords}
+                        Item={DropdownMenuItem}
+                        Separator={DropdownMenuSeparator}
+                      />
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

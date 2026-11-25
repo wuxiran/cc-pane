@@ -1,9 +1,8 @@
 import { getCurrentWindowIfTauri } from "@/services/runtime";
 import { type CSSProperties, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Settings, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastInfo } from "@/lib/feedback";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +13,6 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
-import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import UnsavedChangesDialog from "@/components/providers/UnsavedChangesDialog";
 import SettingsSearchBox from "./settings/SettingsSearchBox";
 import {
@@ -22,7 +20,7 @@ import {
   scrollToSettingsSection,
 } from "./settings/SettingsSearchContext";
 import SettingsSidebar from "./settings/SettingsSidebar";
-import SettingsPaneAccordion from "./settings/SettingsPaneAccordion";
+import { SettingsPage } from "./settings/layout";
 import {
   createSettingsDraft,
   resetSettingsSection,
@@ -30,7 +28,6 @@ import {
 } from "./settings/settingsDraft";
 import { useSettingsAutosave } from "./settings/useSettingsAutosave";
 import {
-  getSettingsPane,
   getSettingsPageForPane,
   getSettingsPanesForPage,
   getVisibleSettingsPages,
@@ -56,10 +53,11 @@ interface SettingsPanelProps {
 const SETTINGS_WEBVIEW_BLOCKER_ID = "settings-panel";
 
 const SETTINGS_LAYOUT_STYLE = {
-  "--settings-sidebar-width": "clamp(10rem, 18cqw, 18rem)",
-  "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
-  "--settings-chrome-gutter": "clamp(0.75rem, 1cqw, 1rem)",
+  "--settings-sidebar-width": "clamp(11rem, 20cqw, 15rem)",
+  "--settings-content-gutter": "clamp(1rem, 3cqw, 2.5rem)",
 } as CSSProperties;
+
+const IS_MAC = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
 export default function SettingsPanel({ open, onOpenChange, presentation = "dialog" }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
@@ -67,25 +65,18 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   const getDefaults = useSettingsStore((state) => state.getDefaults);
   const setBrowserWebviewBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked);
   const { draft, updateDraft, lastSavedAt, flush, discard } = useSettingsAutosave(open);
+  // 当前聚焦的分区（搜索/跳转目标）；页面由它推出，页面内所有分区平铺显示。
   const [activePaneId, setActivePaneIdRaw] = useState<SettingsPaneId>("general");
-  // 分段折叠：多分段页里当前分段可被收起（全部收起时不挂载任何正文）
-  const [paneCollapsed, setPaneCollapsed] = useState(false);
   const setActivePaneId = useCallback((paneId: SettingsPaneId) => {
     setActivePaneIdRaw(paneId);
-    setPaneCollapsed(false);
   }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
-  const [providerDirty, setProviderDirty] = useState(false);
   const [saveCloseFailed, setSaveCloseFailed] = useState(false);
-  const providerDiscardGuard = useUnsavedChangesGuard(providerDirty, () => setProviderDirty(false));
-  const requestProviderNavigation = providerDiscardGuard.request;
   const resetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPaneByPageRef = useRef<Partial<Record<SettingsPageId, SettingsPaneId>>>({
-    general: "general",
-  });
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setBrowserWebviewBlocked(SETTINGS_WEBVIEW_BLOCKER_ID, open);
@@ -93,16 +84,18 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   }, [open, setBrowserWebviewBlocked]);
 
   const panes = useMemo(() => getVisibleSettingsPanes({
-    isMac: navigator.platform.toUpperCase().includes("MAC"),
+    isMac: IS_MAC,
     isTauri: isTauriRuntime(),
   }), []);
   const pages = useMemo(() => getVisibleSettingsPages(panes), [panes]);
-  const activePane = getSettingsPane(activePaneId);
   const activePage = getSettingsPageForPane(activePaneId);
   const activePagePanes = getSettingsPanesForPage(activePage.id, panes);
-  const usesAccordion = activePagePanes.length > 1;
-  const contentMounted = !(usesAccordion && paneCollapsed);
-  const resettableKeys = contentMounted ? SECTION_DRAFT_KEYS[activePaneId] : undefined;
+  const multiPanePage = activePagePanes.length > 1;
+  const widePage = activePage.id === "usage-stats" || activePagePanes.some((pane) => pane.layout === "wide");
+  // 「恢复本页默认」覆盖本页所有带草稿字段的分区
+  const resettablePaneIds = activePagePanes
+    .map((pane) => pane.id)
+    .filter((paneId) => SECTION_DRAFT_KEYS[paneId] !== undefined);
   const translate = (key: string) => t(key as never);
   const searchResults = useMemo(
     () => searchSettings(panes, translate, appliedQuery),
@@ -112,21 +105,20 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
   );
   const matchedSectionIds = useMemo(() => new Set(
     searchResults
-      .filter((result) => result.paneId === activePaneId)
+      .filter((result) => getSettingsPageForPane(result.paneId).id === activePage.id)
       .map((result) => result.targetSectionId),
-  ), [activePaneId, searchResults]);
+  ), [activePage.id, searchResults]);
 
+  // 换页回到顶部；同页内的跳转由 scrollToSettingsSection 负责定位。
   useEffect(() => {
-    lastPaneByPageRef.current[activePage.id] = activePaneId;
-  }, [activePage.id, activePaneId]);
+    scrollRef.current?.scrollTo?.({ top: 0 });
+  }, [activePage.id]);
 
   useEffect(() => {
     if (!open) {
-      setProviderDirty(false);
       setSaveCloseFailed(false);
       return;
     }
-    setProviderDirty(false);
     setResetArmed(false);
   }, [open]);
 
@@ -142,29 +134,25 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
     }
     const first = searchResults[0];
     if (!first) return;
-    requestProviderNavigation(() => {
-      setActivePaneId(first.paneId);
-      setHighlightedSectionId(first.targetSectionId);
-      scrollToSettingsSection(first.targetSectionId);
-    });
-  }, [appliedQuery, requestProviderNavigation, searchResults, setActivePaneId]);
+    setActivePaneId(first.paneId);
+    setHighlightedSectionId(first.targetSectionId);
+    scrollToSettingsSection(first.targetSectionId);
+  }, [appliedQuery, searchResults, setActivePaneId]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const target = (event as CustomEvent<SettingsNavigationTarget>).detail;
       if (!panes.some((pane) => pane.id === target.paneId)) return;
-      requestProviderNavigation(() => {
-        setActivePaneId(target.paneId);
-        setSearchQuery("");
-        setAppliedQuery("");
-        const sectionId = target.targetSectionId ?? `${target.paneId}-root`;
-        setHighlightedSectionId(sectionId);
-        scrollToSettingsSection(sectionId);
-      });
+      setActivePaneId(target.paneId);
+      setSearchQuery("");
+      setAppliedQuery("");
+      const sectionId = target.targetSectionId ?? `${target.paneId}-root`;
+      setHighlightedSectionId(sectionId);
+      scrollToSettingsSection(sectionId);
     };
     window.addEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
     return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
-  }, [panes, requestProviderNavigation, setActivePaneId]);
+  }, [panes, setActivePaneId]);
 
   const requestCloseRef = useRef<() => void>(() => undefined);
   requestCloseRef.current = () => handleClose(false);
@@ -197,7 +185,7 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
 
   function handleClose(nextOpen: boolean) {
     if (!nextOpen) {
-      requestProviderNavigation(() => closeNow(false));
+      closeNow(false);
       return;
     }
     closeNow(nextOpen);
@@ -211,40 +199,20 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
     setResetArmed(false);
   }
 
-  function handleSelectPane(paneId: SettingsPaneId) {
-    if (paneId === activePaneId && !paneCollapsed) return;
-    requestProviderNavigation(() => selectPaneNow(paneId));
-  }
-
-  /** 分段标题点击：点开着的那段 = 收起（收起会卸载正文，同样过未保存守卫）。 */
-  function handleTogglePane(paneId: SettingsPaneId) {
-    if (paneId === activePaneId && !paneCollapsed) {
-      requestProviderNavigation(() => {
-        setPaneCollapsed(true);
-        setResetArmed(false);
-      });
-      return;
-    }
-    handleSelectPane(paneId);
-  }
-
   function handleSelectPage(pageId: SettingsPageId) {
-    const pagePanes = getSettingsPanesForPage(pageId, panes);
-    const rememberedPaneId = lastPaneByPageRef.current[pageId];
-    const nextPane = pagePanes.find((pane) => pane.id === rememberedPaneId) ?? pagePanes[0];
-    if (nextPane) handleSelectPane(nextPane.id);
+    if (pageId === activePage.id) return;
+    const nextPane = getSettingsPanesForPage(pageId, panes)[0];
+    if (nextPane) selectPaneNow(nextPane.id);
   }
 
   function handleSelectSearchResult(result: SettingsSearchResult) {
-    requestProviderNavigation(() => {
-      setActivePaneId(result.paneId);
-      setHighlightedSectionId(result.targetSectionId);
-      scrollToSettingsSection(result.targetSectionId);
-    });
+    setActivePaneId(result.paneId);
+    setHighlightedSectionId(result.targetSectionId);
+    scrollToSettingsSection(result.targetSectionId);
   }
 
   function handleResetSection() {
-    if (!resettableKeys) return;
+    if (resettablePaneIds.length === 0) return;
     if (!resetArmed) {
       setResetArmed(true);
       if (resetArmTimerRef.current) clearTimeout(resetArmTimerRef.current);
@@ -254,19 +222,28 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
     if (resetArmTimerRef.current) clearTimeout(resetArmTimerRef.current);
     setResetArmed(false);
     const defaults = createSettingsDraft(getDefaults());
-    updateDraft(resetSettingsSection(draft, defaults, activePaneId));
+    updateDraft(resettablePaneIds.reduce(
+      (next, paneId) => resetSettingsSection(next, defaults, paneId),
+      draft,
+    ));
     toastInfo(t("sectionResetDone"));
   }
 
-  const paneContent = (
-    <Suspense fallback={<div role="status">{t("loading", { ns: "common" })}</div>}>
-      <SettingsPaneContent
-        paneId={activePaneId}
-        draft={draft}
-        updateDraft={updateDraft}
-        onUnsavedChangesChange={setProviderDirty}
-      />
-    </Suspense>
+  const pageFooter = (
+    <>
+      {resettablePaneIds.length > 0 ? (
+        <button
+          type="button"
+          onClick={handleResetSection}
+          className={resetArmed
+            ? "rounded-sm text-[var(--destructive)] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            : "rounded-sm text-[var(--app-text-tertiary)] underline-offset-2 hover:text-[var(--app-text-secondary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"}
+        >
+          {resetArmed ? t("resetSectionConfirm") : t("resetSection")}
+        </button>
+      ) : <span />}
+      <span>{lastSavedAt ? t("autoSaved", { time: lastSavedAt }) : t("autoSaveHint")}</span>
+    </>
   );
 
   return (
@@ -290,38 +267,12 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
           containerType: "inline-size",
         }}
       >
-        <DialogHeader
-          data-testid="settings-dialog-header"
-          className="shape-chrome grid h-12 shrink-0 items-center gap-0 space-y-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-[var(--settings-chrome-gutter)]"
-          style={{
-            gridTemplateColumns: "calc(var(--settings-sidebar-width) + var(--settings-content-gutter) - var(--settings-chrome-gutter)) minmax(0, 1fr) auto",
-          }}
-        >
-          <div className="flex min-w-0 items-center gap-2.5">
-            {!isWindow && <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
-              <Settings size={16} />
-            </span>}
-            <DialogTitle className={isWindow ? "sr-only" : "hidden truncate text-[length:var(--text-body)] font-semibold sm:block"}>{t("title")}</DialogTitle>
-            <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
-          </div>
-          <div className="min-w-0 truncate text-[length:var(--text-body)] font-medium text-[var(--app-text-primary)]">
-            {t(activePage.titleKey)}
-          </div>
-          {!isWindow && (<button
-            type="button"
-            aria-label={t("close", { ns: "common" })}
-            onClick={() => handleClose(false)}
-            className="shape-control ml-2 flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-          >
-            <X aria-hidden="true" size={16} />
-          </button>)}
-        </DialogHeader>
-
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <SettingsSidebar
             pages={pages}
             activePageId={activePage.id}
             onSelect={handleSelectPage}
+            titlebarInset={isWindow && IS_MAC}
             searchSlot={(
               <SettingsSearchBox
                 query={searchQuery}
@@ -332,10 +283,34 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
             )}
           />
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className={usesAccordion || activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
+            <DialogHeader
+              data-testid="settings-dialog-header"
+              data-tauri-drag-region={isWindow ? true : undefined}
+              className="flex h-11 shrink-0 flex-row items-center justify-between gap-3 space-y-0 text-left border-b border-[var(--app-border)] px-4"
+            >
+              <nav aria-label={t("breadcrumbLabel")} className="flex min-w-0 items-center gap-1.5 text-[length:var(--text-row)]">
+                <DialogTitle className="shrink-0 text-[length:var(--text-row)] font-normal text-[var(--app-text-tertiary)]">
+                  {t("title")}
+                </DialogTitle>
+                <span aria-hidden="true" className="text-[var(--app-text-tertiary)]">/</span>
+                <span aria-current="page" className="truncate font-medium text-[var(--app-text-primary)]">
+                  {t(activePage.titleKey)}
+                </span>
+                <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
+              </nav>
+              {!isWindow && (<button
+                type="button"
+                aria-label={t("close", { ns: "common" })}
+                onClick={() => handleClose(false)}
+                className="shape-control flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              >
+                <X aria-hidden="true" size={16} strokeWidth={1.6} />
+              </button>)}
+            </DialogHeader>
+            <div ref={scrollRef} className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
               <div
                 data-testid="settings-content-container"
-                className={usesAccordion || activePane.layout === "wide" ? "h-full min-h-0 w-full" : "w-full py-5 sm:py-6"}
+                className="w-full"
                 style={{ paddingInline: "var(--settings-content-gutter)" }}
               >
                 <SettingsSearchProvider value={{
@@ -343,48 +318,27 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
                   matchedSectionIds,
                   highlightedSectionId,
                 }}>
-                  {usesAccordion ? (
-                    <SettingsPaneAccordion
-                      panes={activePagePanes}
-                      expandedPaneId={paneCollapsed ? null : activePaneId}
-                      onToggle={handleTogglePane}
-                    >
-                      {paneContent}
-                    </SettingsPaneAccordion>
-                  ) : paneContent}
+                  <SettingsPage title={t(activePage.titleKey)} wide={widePage} footer={pageFooter}>
+                    <Suspense fallback={<div role="status">{t("loading", { ns: "common" })}</div>}>
+                      {activePagePanes.map((pane) => (
+                        <SettingsPaneContent
+                          key={pane.id}
+                          paneId={pane.id}
+                          draft={draft}
+                          updateDraft={updateDraft}
+                          legacyTitle={multiPanePage ? t(pane.titleKey) : undefined}
+                          legacyDescription={multiPanePage && pane.descriptionKey ? t(pane.descriptionKey) : undefined}
+                        />
+                      ))}
+                    </Suspense>
+                  </SettingsPage>
                 </SettingsSearchProvider>
               </div>
             </div>
           </main>
         </div>
-
-        <footer className="shape-chrome flex h-12 shrink-0 items-center justify-between gap-3 border-t border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 sm:px-4">
-          {resettableKeys ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleResetSection}
-              className={resetArmed ? "text-[var(--destructive)] hover:text-[var(--destructive)]" : ""}
-            >
-              {resetArmed ? t("resetSectionConfirm") : t("resetSection")}
-            </Button>
-          ) : <span />}
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-[var(--app-text-tertiary)] sm:inline">
-              {lastSavedAt ? t("autoSaved", { time: lastSavedAt }) : t("autoSaveHint")}
-            </span>
-            {!isWindow && <Button variant="secondary" size="sm" onClick={() => handleClose(false)}>
-              {t("close", { ns: "common" })}
-            </Button>}
-          </div>
-        </footer>
       </DialogContent>
     </Dialog>
-    <UnsavedChangesDialog
-      open={providerDiscardGuard.confirmOpen}
-      onCancel={providerDiscardGuard.cancel}
-      onDiscard={providerDiscardGuard.discard}
-    />
     <UnsavedChangesDialog
       open={saveCloseFailed}
       onCancel={() => setSaveCloseFailed(false)}

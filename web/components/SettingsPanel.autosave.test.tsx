@@ -26,7 +26,9 @@ vi.mock("@/services/settingsService", () => ({ settingsService: {
   getWebAccessStatus: async () => ({ running: false, passwordConfigured: Boolean(io.disk?.webAccess.passwordHash) }),
 } }));
 vi.mock("./settings/SettingsPaneContent", () => ({
-  default: (props: NonNullable<typeof io.pane>) => {
+  // 一页内的分区平铺渲染：只让「常规」分区承载被测表单，避免同页其他分区重复挂载。
+  default: (props: NonNullable<typeof io.pane> & { paneId: string }) => {
+    if (props.paneId !== "general") return null;
     io.pane = props;
     return <WebAccessSection value={props.draft.webAccess} onChange={(webAccess) => props.updateDraft({ ...props.draft, webAccess })} />;
   },

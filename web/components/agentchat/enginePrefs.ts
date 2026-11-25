@@ -25,6 +25,8 @@ export interface EngineModelPrefs {
    * （思维深度等）——mode/model 已由上面两个字段管，避免双写打架。
    */
   preferredConfigOptions?: Record<string, string>;
+  /** 新会话用的运行配置 id；null/缺失 = 系统默认（CLI 自己的登录与配置）。 */
+  launchProfileId?: string | null;
 }
 
 type PrefsMap = Record<string, EngineModelPrefs>;
@@ -119,4 +121,14 @@ export function savePreferredConfigOption(engineId: string, configId: string, va
   if (value === null) delete next[configId];
   else next[configId] = value;
   merge(engineId, { preferredConfigOptions: next });
+}
+
+/** 该引擎新会话的运行配置；无记录 = 系统默认（null）。 */
+export function loadLaunchProfileId(engineId: string): string | null {
+  const value = loadAll()[engineId]?.launchProfileId;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function saveLaunchProfileId(engineId: string, launchProfileId: string | null): void {
+  merge(engineId, { launchProfileId });
 }

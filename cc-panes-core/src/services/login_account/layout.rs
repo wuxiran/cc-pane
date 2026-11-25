@@ -39,6 +39,9 @@ const CLAUDE: LoginCliLayout = LoginCliLayout {
         "output-styles",
         "hooks",
         "plugins",
+        // 计划文件：不是凭据也不是会话历史，共享后各账号写的 plan 都落在默认目录一处
+        // （`settings.json` 里的 `plansDirectory` 本就是共享的）。账号里已有非空 plans 目录时保持不动。
+        "plans",
     ],
     isolated: &[
         ".claude.json",

@@ -1,5 +1,6 @@
 import { terminalRestoreLaunchQueue } from "@/components/panes/terminalRestoreQueue";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
+import { launchProfileIdForLaunch } from "@/lib/launchProfileSnapshot";
 import { acquireTerminalSlot } from "@/lib/terminalSlot";
 import { terminalService } from "@/services";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
@@ -96,7 +97,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           providerAccountId: freshLeaf.providerAccountId ?? tab.providerAccountId,
           modelId: freshLeaf.modelId ?? tab.modelId,
           providerSelection: freshLeaf.providerSelection ?? tab.providerSelection,
-          launchProfileId: freshLeaf.launchProfileId ?? tab.launchProfileId,
+          launchProfileId: launchProfileIdForLaunch(freshLeaf) ?? launchProfileIdForLaunch(tab),
           workspacePath: freshLeaf.workspacePath ?? tab.workspacePath,
           workspaceSnapshotId: freshLeaf.workspaceSnapshotId ?? tab.workspaceSnapshotId,
           launchClaude: freshLeaf.launchClaude ?? tab.launchClaude,

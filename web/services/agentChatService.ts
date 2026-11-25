@@ -9,6 +9,7 @@ import type {
   AcpEngineInfo,
   AcpElicitationResponse,
   AgentChatItem,
+  AcpRegistryListing,
 } from "@/types/agentChat";
 
 export const ACP_CHAT_EVENT = "acp-chat-event";
@@ -34,10 +35,30 @@ export function listAcpEngines(): Promise<AcpEngineInfo[]> {
   return call("list_acp_engines");
 }
 
+/** ACP 官方注册表：浏览（失败时退回本地缓存）、安装为自定义引擎、卸载。 */
+export function listAcpRegistryAgents(): Promise<AcpRegistryListing> {
+  return call("list_acp_registry_agents");
+}
+
+/** 返回装好后的引擎 id（`acp-registry-<agentId>`）。 */
+export function installAcpRegistryAgent(agentId: string): Promise<string> {
+  return call("install_acp_registry_agent", { agentId });
+}
+
+export function uninstallAcpRegistryAgent(agentId: string): Promise<void> {
+  return call("uninstall_acp_registry_agent", { agentId });
+}
+
 /** 远程启动目标：经系统 ssh 在已保存的 SSH 机器上跑引擎；os 缺省按 POSIX 处理。 */
 export interface AcpRemoteLaunch {
   machineId: string;
   os?: string | null;
+}
+
+/** 启动的附加选项。launchProfileId：运行配置 id；"" = 明确用系统默认；undefined = 新会话用
+ * 系统默认、续接沿用该会话启动时的配置（后端读历史 meta）。 */
+export interface AcpStartOptions {
+  launchProfileId?: string;
 }
 
 /**
@@ -51,6 +72,7 @@ export function startAcpChat(
   resumeAcpSessionId?: string,
   autoApproveKinds?: string[],
   remote?: AcpRemoteLaunch,
+  options?: AcpStartOptions,
 ): Promise<AcpChatSnapshot> {
   return call("start_acp_chat", {
     chatId,
@@ -59,6 +81,7 @@ export function startAcpChat(
     resumeAcpSessionId,
     autoApproveKinds,
     ...(remote ? { machineId: remote.machineId, remoteOs: remote.os ?? undefined } : {}),
+    ...(options?.launchProfileId !== undefined ? { launchProfileId: options.launchProfileId } : {}),
   });
 }
 
@@ -85,9 +108,23 @@ export function deleteAcpChatHistory(acpSessionId: string): Promise<void> {
   return call("delete_acp_chat_history", { acpSessionId });
 }
 
+/** 换引擎交接时随转写一并落盘：inherited 替换继承段，engines 写入历史 meta。 */
+export interface AcpTranscriptHandoff {
+  inherited: AgentChatItem[];
+  engines: string[];
+}
+
 /** 保存会话的渲染层转写（整段替换；后端钳制大小并随历史删除一起回收）。 */
-export function saveAcpChatTranscript(acpSessionId: string, items: AgentChatItem[]): Promise<void> {
-  return call("save_acp_chat_transcript", { acpSessionId, items });
+export function saveAcpChatTranscript(
+  acpSessionId: string,
+  items: AgentChatItem[],
+  handoff?: AcpTranscriptHandoff,
+): Promise<void> {
+  return call("save_acp_chat_transcript", {
+    acpSessionId,
+    items,
+    ...(handoff ? { inherited: handoff.inherited, engines: handoff.engines } : {}),
+  });
 }
 
 /** 行级文本 diff（复用 Local History diff 引擎）。 */
@@ -160,6 +197,9 @@ export async function listenAgentChatEvents(
 /** ACP chat transport（结构化 agent 对话标签）。终端启动不走这里。 */
 export const agentChatService = {
   listEngines: listAcpEngines,
+  listRegistry: listAcpRegistryAgents,
+  installRegistryAgent: installAcpRegistryAgent,
+  uninstallRegistryAgent: uninstallAcpRegistryAgent,
   start: startAcpChat,
   fork: (sourceChatId: string, chatId: string, cwd: string): Promise<AcpChatSnapshot> =>
     call("fork_acp_chat", { sourceChatId, chatId, cwd }),

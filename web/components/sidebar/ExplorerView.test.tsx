@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExplorerView from "./ExplorerView";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/lib/commands/paletteEvents";
 import { gitService } from "@/services/gitService";
+import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
 import type { OpenTerminalOptions } from "@/types";
 
 // --- i18n: t 直接回 key，便于断言 ---
@@ -31,6 +32,11 @@ vi.mock("@/components/sidebar/WorkspaceTree", () => ({
 // --- 「最近」分区 stub：桩掉其会话索引 / 对话历史加载 ---
 vi.mock("@/components/sidebar/RecentSessionsSection", () => ({
   default: () => <div>recent-sessions-stub</div>,
+}));
+
+// --- 任务面板 stub：keep-alive 常挂载，桩掉其 panes/status 订阅 ---
+vi.mock("@/components/sidebar/TaskBoardView", () => ({
+  default: ({ active }: { active: boolean }) => <div>task-board-stub:{String(active)}</div>,
 }));
 
 // --- FileTree stub ---
@@ -70,15 +76,21 @@ describe("ExplorerView", () => {
       hasChanges: null,
       message: null,
     });
+    useExplorerSectionsStore.setState({ explorerMode: "workspaces" });
   });
 
-  it("is just a title, a search button and the workspace tree", () => {
+  it("defaults to workspaces mode: mode switch, search button, tree and recent", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByText("explorer.title")).toBeVisible();
+    // 标题文字已去掉，只作为区域的无障碍名保留
+    expect(screen.queryByText("explorer.title")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "explorer.title" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "explorer.modeSwitch" })).toHaveClass("grid-cols-2");
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
     expect(screen.getByText("recent-sessions-stub")).toBeVisible();
-    // 会话进了搜索面板、通讯录进了左侧图标栏：标题旁不再有视图切换
-    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    // 标题旁只有「工作空间 | 任务」两档切换
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: "explorer.modeWorkspaces" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("task-board-stub:false")).not.toBeVisible();
     // 「启动终端」主操作行已去掉（搜索面板的快捷操作 / 快捷键 / 标签栏 + 仍可启动）
     expect(screen.queryByRole("button", { name: /launchTerminal/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId("explorer-mode-trigger")).not.toBeInTheDocument();
@@ -105,5 +117,17 @@ describe("ExplorerView", () => {
   it("no longer has a separate new-workspace row (it lives in the workspace header)", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
+  });
+
+  it("switches to tasks mode: task board only, tree and recent hidden but still mounted", () => {
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    fireEvent.click(screen.getByRole("tab", { name: "explorer.modeTasks" }));
+
+    expect(useExplorerSectionsStore.getState().explorerMode).toBe("tasks");
+    expect(screen.getByText("task-board-stub:true")).toBeVisible();
+    expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
+    expect(screen.getByText("recent-sessions-stub")).not.toBeVisible();
+    // 搜索按钮两种模式都在
+    expect(screen.getByRole("button", { name: "explorer.search" })).toBeVisible();
   });
 });

@@ -74,6 +74,8 @@ interface TranscriptRestorePayload {
   acpSessionId?: unknown;
   items?: unknown;
   truncated?: unknown;
+  /** loadSession 续接成功时只推继承段（更早会话 / 换引擎交接的记录）。 */
+  inheritedOnly?: unknown;
 }
 
 /** `transcript_restore` → 只读前缀：「之前的对话记录」…「以下为恢复后的新会话」。 */
@@ -86,6 +88,10 @@ export function applyRestoredTranscript(chatId: string, payload: unknown): void 
     .map((raw, index) => restoredItem(raw, `rst-${to}-${index}`))
     .filter((item): item is AgentChatItem => item !== null);
   if (restored.length === 0) return;
+  if (data.inheritedOnly === true) {
+    applyInheritedPrefix(chatId, to, restored);
+    return;
+  }
   const now = Date.now();
   const first = restored[0].at;
   const headerKey = data.truncated === true ? "agentChat.restoredTranscriptHeaderTruncated" : "agentChat.restoredTranscriptHeader";
@@ -112,6 +118,25 @@ export function applyRestoredTranscript(chatId: string, payload: unknown): void 
       chat.transcriptStart += block.length;
     } else {
       // ready 未到：追加即可，ready 时 transcriptStart = items.length 自然把它划进前缀。
+      chat.items.push(...block);
+    }
+  });
+}
+
+/** 继承段只放进全新标签的只读前缀；已有前缀（同标签原地重启/交接后）说明画面上已有这些记录。 */
+function applyInheritedPrefix(chatId: string, to: string, restored: AgentChatItem[]): void {
+  const head: AgentChatItem = {
+    type: "notice", id: `rst-${to}-head`, at: restored[0].at, divider: true,
+    text: i18n.t("agentChatHandoffRestoredHeader", { ns: "panes" }),
+  };
+  useAgentChatStore.setState((state) => {
+    const chat = (state.chats[chatId] ??= emptySession());
+    if (chat.transcriptStart > 0 || chat.items.some((item) => item.id === head.id)) return;
+    const block = [head, ...restored];
+    if (chat.transcriptSessionId === to) {
+      chat.items.splice(chat.transcriptStart, 0, ...block);
+      chat.transcriptStart += block.length;
+    } else {
       chat.items.push(...block);
     }
   });

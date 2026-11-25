@@ -16,15 +16,15 @@ function createValue(overrides: Partial<NotificationSettings> = {}): Notificatio
 }
 
 describe("NotificationSection", () => {
-  it("renders four checkboxes reflecting the current value", () => {
+  it("renders four switches reflecting the current value", () => {
     render(<NotificationSection value={createValue()} onChange={vi.fn()} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(4);
-    expect(checkboxes[0]).toBeChecked(); // enabled
-    expect(checkboxes[1]).not.toBeChecked(); // onExit
-    expect(checkboxes[2]).toBeChecked(); // onWaitingInput
-    expect(checkboxes[3]).not.toBeChecked(); // onlyWhenUnfocused
+    const switches = screen.getAllByRole("switch");
+    expect(switches).toHaveLength(4);
+    expect(switches[0]).toBeChecked(); // enabled
+    expect(switches[1]).not.toBeChecked(); // onExit
+    expect(switches[2]).toBeChecked(); // onWaitingInput
+    expect(switches[3]).not.toBeChecked(); // onlyWhenUnfocused
   });
 
   it("emits an immutable update when toggling a sub option", async () => {
@@ -33,7 +33,7 @@ describe("NotificationSection", () => {
     const value = createValue();
     render(<NotificationSection value={value} onChange={onChange} />);
 
-    await user.click(screen.getAllByRole("checkbox")[1]);
+    await user.click(screen.getAllByRole("switch")[1]);
 
     expect(onChange).toHaveBeenCalledWith({ ...value, onExit: true });
     // 原对象不被修改
@@ -45,7 +45,7 @@ describe("NotificationSection", () => {
     const onChange = vi.fn();
     render(<NotificationSection value={createValue()} onChange={onChange} />);
 
-    await user.click(screen.getAllByRole("checkbox")[0]);
+    await user.click(screen.getAllByRole("switch")[0]);
 
     expect(onChange).toHaveBeenCalledWith(createValue({ enabled: false }));
   });
@@ -53,10 +53,10 @@ describe("NotificationSection", () => {
   it("disables sub options when notifications are disabled", () => {
     render(<NotificationSection value={createValue({ enabled: false })} onChange={vi.fn()} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes[0]).not.toBeDisabled();
-    expect(checkboxes[1]).toBeDisabled();
-    expect(checkboxes[2]).toBeDisabled();
-    expect(checkboxes[3]).toBeDisabled();
+    const switches = screen.getAllByRole("switch");
+    expect(switches[0]).not.toBeDisabled();
+    expect(switches[1]).toBeDisabled();
+    expect(switches[2]).toBeDisabled();
+    expect(switches[3]).toBeDisabled();
   });
 });

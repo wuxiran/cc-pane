@@ -2073,6 +2073,9 @@ impl TerminalService {
             CliTool::Omp => "omp",
             CliTool::Jcode => "jcode",
             CliTool::Antigravity => "agy",
+            CliTool::Kiro => "kiro-cli",
+            CliTool::Fx => "fx",
+            CliTool::Muse => "muse",
             other => {
                 return Err(anyhow!(
                     "WSL generic launch does not support CLI tool {:?}",
@@ -2493,6 +2496,20 @@ impl TerminalService {
                 cli_args.push(cc_cli_adapters::ANTIGRAVITY_INITIAL_PROMPT_FLAG.to_string());
                 cli_args.push(prompt.to_string());
             }
+        } else if matches!(cli_tool, CliTool::Kiro | CliTool::Fx | CliTool::Muse) {
+            // 与本地 kiro.rs / fx.rs / muse.rs 同口径：裸启动 + extraArgs 透传；
+            // initial_prompt 只走官方文档给出的交互入口（kiro `chat <INPUT>`），
+            // fx / muse 没有该入口则忽略。
+            let initial_prompt = initial_prompt
+                .map(str::trim)
+                .filter(|prompt| !prompt.is_empty());
+            if cli_tool == CliTool::Kiro && initial_prompt.is_some() {
+                cli_args.push("chat".to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
+            if let Some(prompt) = initial_prompt.filter(|_| cli_tool == CliTool::Kiro) {
+                cli_args.push(prompt.to_string());
+            }
         } else if let Some(prompt) = initial_prompt {
             cli_args.push(prompt.to_string());
         }
@@ -2685,6 +2702,8 @@ impl TerminalService {
             &mut provider_env,
             provider,
         );
+        // 分层原生配置：与本机 codex.rs 同一份 `-c` 叶子（core 已合并）
+        codex_args.extend(cc_cli_adapters::native_codex_config_args(adapter_options));
         push_wsl_provider_env_unsets(&mut remote_parts, CliTool::Codex, provider.is_some());
         push_wsl_env_exports(&mut remote_parts, &provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);

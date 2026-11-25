@@ -67,6 +67,9 @@
   "errorPiSshUnsupported": "Pi 仅支持本地或 WSL 运行环境",
   "errorOmpSshUnsupported": "Oh My Pi 仅支持本地或 WSL 运行环境",
   "errorJcodeSshUnsupported": "Jcode 仅支持本地或 WSL 运行环境",
+  "errorKiroSshUnsupported": "Kiro CLI 仅支持本地或 WSL 运行环境",
+  "errorFxSshUnsupported": "fx 仅支持本地或 WSL 运行环境",
+  "errorMuseSshUnsupported": "Muse Code 仅支持本地或 WSL 运行环境",
   "errorResolveFailed": "启动配置解析失败（{{code}}），请检查工作空间环境设置",
   "scenario": {
     "default": "默认",

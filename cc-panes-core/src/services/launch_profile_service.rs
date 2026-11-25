@@ -9,7 +9,10 @@ use crate::models::provider::Provider;
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::ExternalSkillSource;
 use crate::models::Workspace;
-use crate::services::{resolve_provider_plan, validate_provider_runtime, ProviderResolutionInput};
+use crate::services::{
+    adapt_plan_for_runtime, resolve_provider_plan, validate_provider_runtime,
+    ProviderResolutionInput,
+};
 use crate::services::{ExternalSkillRegistry, UserSkillContent, UserSkillService};
 use crate::utils::error::AppError;
 use crate::utils::{AppResult, LaunchRuntime};
@@ -27,7 +30,8 @@ pub struct ProfileResolutionDiagnostic {
     pub requested_profile_name: String,
     /// 请求的 profile 的 target_tools 不包含当前 CLI。
     pub cli_mismatch: bool,
-    /// 请求的 profile 的 target_runtime 与当前运行环境不符。
+    /// 恒为 false：运行配置不再区分运行位置（一份配置在本机/WSL/SSH 通用），
+    /// 字段保留只为日志与前端事件的线上兼容。
     pub runtime_mismatch: bool,
     /// 实际回落使用的 profile（可能为 None，即无任何默认可用）。
     pub used_profile_id: Option<String>,
@@ -76,7 +80,55 @@ impl LaunchProfileService {
         if content.trim().is_empty() {
             return Ok(LaunchProfileConfig::default());
         }
-        serde_json::from_str(&content).with_context(|| "Failed to parse launch profiles")
+        let mut config: LaunchProfileConfig =
+            serde_json::from_str(&content).with_context(|| "Failed to parse launch profiles")?;
+        Self::migrate_to_runtime_agnostic(&mut config);
+        Ok(config)
+    }
+
+    /// 运行配置不再区分运行位置：一份配置在本机 / WSL / SSH 通用，环境差异由启动链路适配。
+    /// 旧数据可能按运行位置各存了一份默认（如「本机默认」+「WSL 默认」），清掉 runtime 后
+    /// 同一 CLI 会出现多个默认——只保留一个：原本不限运行位置的优先，其次是本机的，再其次按顺序。
+    /// 只改内存；下次任何写入时随整份配置落盘。返回是否有改动。
+    pub(crate) fn migrate_to_runtime_agnostic(config: &mut LaunchProfileConfig) -> bool {
+        let mut changed = false;
+        let rank = |runtime: Option<&str>| match runtime {
+            None => 0,
+            Some("local") => 1,
+            Some(_) => 2,
+        };
+        let mut defaults: Vec<usize> = config
+            .profiles
+            .iter()
+            .enumerate()
+            .filter(|(_, profile)| profile.is_default)
+            .map(|(index, _)| index)
+            .collect();
+        defaults.sort_by_key(|&index| {
+            (
+                rank(config.profiles[index].target_runtime.as_deref()),
+                index,
+            )
+        });
+        let mut kept: Vec<Vec<String>> = Vec::new();
+        for index in defaults {
+            let tools = config.profiles[index].target_tools.clone();
+            if kept
+                .iter()
+                .any(|kept_tools| Self::target_tools_overlap(kept_tools, &tools))
+            {
+                config.profiles[index].is_default = false;
+                changed = true;
+            } else {
+                kept.push(tools);
+            }
+        }
+        for profile in &mut config.profiles {
+            if profile.target_runtime.take().is_some() {
+                changed = true;
+            }
+        }
+        changed
     }
 
     fn normalize_target_tools(target_tools: Vec<String>) -> Vec<String> {
@@ -93,33 +145,12 @@ impl LaunchProfileService {
         normalized
     }
 
-    fn normalize_runtime(runtime: Option<String>) -> Option<String> {
-        runtime
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && *value != "all")
-            .map(str::to_ascii_lowercase)
-            .filter(|value| matches!(value.as_str(), "local" | "wsl" | "ssh"))
-    }
-
-    fn normalize_runtime_ref(runtime: Option<&str>) -> Option<String> {
-        runtime
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && *value != "all")
-            .map(str::to_ascii_lowercase)
-            .filter(|value| matches!(value.as_str(), "local" | "wsl" | "ssh"))
-    }
-
     fn target_tools_overlap(left: &[String], right: &[String]) -> bool {
         if left.is_empty() || right.is_empty() {
             return true;
         }
         left.iter()
             .any(|tool| right.iter().any(|other| other == tool))
-    }
-
-    fn target_runtime_overlap(left: Option<&str>, right: Option<&str>) -> bool {
-        left.is_none() || right.is_none() || left == right
     }
 
     fn profile_matches_cli(profile: &LaunchProfile, cli_tool: Option<&str>) -> bool {
@@ -132,29 +163,6 @@ impl LaunchProfileService {
             return true;
         };
         profile.target_tools.is_empty() || profile.target_tools.iter().any(|tool| tool == &cli_tool)
-    }
-
-    fn profile_matches_runtime(profile: &LaunchProfile, runtime_kind: Option<&str>) -> bool {
-        let Some(runtime_kind) = runtime_kind
-            .map(str::trim)
-            .filter(|runtime| !runtime.is_empty() && *runtime != "all")
-        else {
-            return true;
-        };
-        profile.target_runtime.as_deref().is_none()
-            || profile.target_runtime.as_deref() == Some(runtime_kind)
-    }
-
-    fn runtime_match_score(profile: &LaunchProfile, runtime_kind: Option<&str>) -> Option<u8> {
-        let runtime_kind = runtime_kind
-            .map(str::trim)
-            .filter(|runtime| !runtime.is_empty() && *runtime != "all");
-        match (profile.target_runtime.as_deref(), runtime_kind) {
-            (Some(profile_runtime), Some(runtime)) if profile_runtime == runtime => Some(2),
-            (None, Some(_)) => Some(1),
-            (_, None) => Some(1),
-            _ => None,
-        }
     }
 
     fn normalize_alias(alias: Option<String>, fallback_name: &str) -> Option<String> {
@@ -188,12 +196,10 @@ impl LaunchProfileService {
         config: &mut LaunchProfileConfig,
         keep_id: &str,
         target_tools: &[String],
-        target_runtime: Option<&str>,
     ) {
         for existing in &mut config.profiles {
             if existing.id != keep_id
                 && Self::target_tools_overlap(&existing.target_tools, target_tools)
-                && Self::target_runtime_overlap(existing.target_runtime.as_deref(), target_runtime)
             {
                 existing.is_default = false;
             }
@@ -237,7 +243,7 @@ impl LaunchProfileService {
     }
 
     /// 与 [`resolve_launch_profile`](Self::resolve_launch_profile) 相同的解析，但额外返回诊断：
-    /// 当**显式传入**的 `profile_id` 对应的 profile 存在、却因 CLI/运行环境不匹配未能被选中
+    /// 当**显式传入**的 `profile_id` 对应的 profile 存在、却因 CLI 不匹配未能被选中
     /// （被静默丢弃、回落到默认或无）时，返回 `Some(ProfileResolutionDiagnostic)`。
     /// 启动链路据此提示用户"所选配置未生效"，避免 YOLO 等 profile 级设置无声失效。
     pub fn resolve_launch_profile_with_diagnostic(
@@ -246,11 +252,10 @@ impl LaunchProfileService {
         workspace: Option<&Workspace>,
         project_id: Option<&str>,
         cli_tool: Option<&str>,
-        runtime_kind: Option<&str>,
+        // 运行配置不区分运行位置，runtime 不参与挑选；参数保留给调用方的线上兼容。
+        _runtime_kind: Option<&str>,
     ) -> (Option<LaunchProfile>, Option<ProfileResolutionDiagnostic>) {
         let profiles = self.list_profiles();
-        let runtime_kind = Self::normalize_runtime_ref(runtime_kind);
-        let runtime_kind = runtime_kind.as_deref();
         let project_profile_id = project_id.and_then(|project_id| {
             workspace.and_then(|ws| {
                 ws.projects
@@ -268,43 +273,34 @@ impl LaunchProfileService {
                 profiles
                     .iter()
                     .find(|profile| {
-                        profile.id == id
-                            && Self::profile_matches_cli(profile, cli_tool)
-                            && Self::profile_matches_runtime(profile, runtime_kind)
+                        profile.id == id && Self::profile_matches_cli(profile, cli_tool)
                     })
                     .cloned()
             })
             .or_else(|| {
                 profiles
                     .iter()
-                    .filter(|profile| {
-                        profile.is_default
-                            && Self::profile_matches_cli(profile, cli_tool)
-                            && Self::profile_matches_runtime(profile, runtime_kind)
-                    })
-                    .max_by_key(|profile| {
-                        Self::runtime_match_score(profile, runtime_kind).unwrap_or(0)
+                    .find(|profile| {
+                        profile.is_default && Self::profile_matches_cli(profile, cli_tool)
                     })
                     .cloned()
             });
 
-        // 诊断：仅当用户「显式选中」了一个存在的 profile，但它因 CLI/runtime 不匹配
+        // 诊断：仅当用户「显式选中」了一个存在的 profile，但它因 CLI 不匹配
         // 未能成为 resolved（被静默丢弃）时给出信号。默认/工作区回落不触发提示。
         let diagnostic = profile_id
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .and_then(|id| profiles.iter().find(|profile| profile.id == id))
             .and_then(|requested| {
-                let cli_ok = Self::profile_matches_cli(requested, cli_tool);
-                let runtime_ok = Self::profile_matches_runtime(requested, runtime_kind);
-                if cli_ok && runtime_ok {
+                if Self::profile_matches_cli(requested, cli_tool) {
                     return None;
                 }
                 Some(ProfileResolutionDiagnostic {
                     requested_profile_id: requested.id.clone(),
                     requested_profile_name: requested.name.clone(),
-                    cli_mismatch: !cli_ok,
-                    runtime_mismatch: !runtime_ok,
+                    cli_mismatch: true,
+                    runtime_mismatch: false,
                     used_profile_id: resolved.as_ref().map(|profile| profile.id.clone()),
                     used_profile_name: resolved.as_ref().map(|profile| profile.name.clone()),
                 })
@@ -317,19 +313,15 @@ impl LaunchProfileService {
         &self,
         profile_id: &str,
         cli_tool: Option<&str>,
-        runtime_kind: Option<&str>,
+        _runtime_kind: Option<&str>,
     ) -> Option<bool> {
-        let runtime_kind = Self::normalize_runtime_ref(runtime_kind);
         self.config
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .profiles
             .iter()
             .find(|profile| profile.id == profile_id)
-            .map(|profile| {
-                Self::profile_matches_cli(profile, cli_tool)
-                    && Self::profile_matches_runtime(profile, runtime_kind.as_deref())
-            })
+            .map(|profile| Self::profile_matches_cli(profile, cli_tool))
     }
 
     /// 本次启动是否关掉**全部** MCP 注入（请求显式跳过 / 启动档 MCP 模式为 Disabled）。
@@ -674,7 +666,7 @@ impl LaunchProfileService {
             .as_deref()
             .and_then(|id| self.get_profile(id));
         let cli_tool = preview_cli_tool(request.cli_tool.as_deref())?;
-        let provider_plan = resolve_provider_plan(
+        let mut provider_plan = resolve_provider_plan(
             ProviderResolutionInput {
                 cli_tool,
                 selection: request.provider_selection,
@@ -701,6 +693,15 @@ impl LaunchProfileService {
             registry,
         )?;
         if let Some(runtime) = preview_runtime(request.runtime_kind.as_deref())? {
+            let account_requested = request
+                .provider_account_id
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty());
+            if let Some(note) =
+                adapt_plan_for_runtime(&mut provider_plan, runtime, cli_tool, account_requested)
+            {
+                resolution.warnings.push(note);
+            }
             validate_provider_runtime(&provider_plan, runtime, cli_tool)?;
         }
         resolution.provider_id = provider_plan
@@ -1457,6 +1458,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -1603,6 +1605,7 @@ mod tests {
                     ..Default::default()
                 },
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -1663,6 +1666,7 @@ mod tests {
                 yolo_mode: yolo,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default,
             })
             .unwrap()
@@ -1713,27 +1717,26 @@ mod tests {
         assert_eq!(diag.used_profile_name.as_deref(), Some("Claude Default"));
     }
 
+    /// 一份配置多处通用：显式选中的配置在本机 / WSL / SSH 都生效，不再因运行位置被丢弃。
     #[test]
-    fn diagnostic_flags_runtime_mismatch() {
+    fn explicit_profile_applies_in_every_runtime() {
         let service = test_service();
-        let local_only = mk_profile(
-            &service,
-            "Codex Local",
-            &["codex"],
-            Some("local"),
-            true,
-            false,
-        );
-        let (_resolved, diag) = service.resolve_launch_profile_with_diagnostic(
-            Some(&local_only.id),
-            None,
-            None,
-            Some("codex"),
-            Some("wsl"),
-        );
-        let diag = diag.expect("显式 profile 因 runtime 不匹配被丢弃时应给出诊断");
-        assert!(diag.runtime_mismatch);
-        assert!(!diag.cli_mismatch);
+        let profile = mk_profile(&service, "Codex", &["codex"], Some("local"), true, false);
+        for runtime in ["local", "wsl", "ssh"] {
+            let (resolved, diag) = service.resolve_launch_profile_with_diagnostic(
+                Some(&profile.id),
+                None,
+                None,
+                Some("codex"),
+                Some(runtime),
+            );
+            assert_eq!(
+                resolved.map(|p| p.id),
+                Some(profile.id.clone()),
+                "{runtime}"
+            );
+            assert!(diag.is_none(), "{runtime}");
+        }
     }
 
     #[test]
@@ -1793,6 +1796,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -1840,6 +1844,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: true,
             })
             .unwrap();
@@ -2009,6 +2014,7 @@ mod tests {
                     ],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2040,6 +2046,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: true,
             })
             .unwrap();
@@ -2057,6 +2064,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: true,
             })
             .unwrap();
@@ -2118,104 +2126,69 @@ mod tests {
     }
 
     #[test]
-    fn resolve_profile_picks_default_for_requested_runtime() {
-        let service = test_service();
-        service
-            .create_profile(LaunchProfileDraft {
-                name: Some("Codex Local Default".into()),
-                alias: None,
-                description: None,
-                provider_id: Some("codex-local-provider".into()),
-                provider_account_id: None,
-                model_id: None,
-                adapter_options: Default::default(),
-                target_tools: vec!["codex".into()],
-                target_runtime: Some("local".into()),
-                yolo_mode: true,
-                mcp_policy: Default::default(),
-                skill_policy: Default::default(),
-                is_default: true,
-            })
-            .unwrap();
-        service
-            .create_profile(LaunchProfileDraft {
-                name: Some("Codex WSL Default".into()),
-                alias: None,
-                description: None,
-                provider_id: Some("codex-wsl-provider".into()),
-                provider_account_id: None,
-                model_id: None,
-                adapter_options: Default::default(),
-                target_tools: vec!["codex".into()],
-                target_runtime: Some("wsl".into()),
-                yolo_mode: false,
-                mcp_policy: Default::default(),
-                skill_policy: Default::default(),
-                is_default: true,
-            })
-            .unwrap();
-        let providers = vec![
-            provider("codex-local-provider"),
-            provider("codex-wsl-provider"),
-        ];
+    fn migration_drops_runtime_and_keeps_one_default_per_cli() {
+        // 旧数据：同一个 codex 按运行位置各存了一份默认，外加一份不限运行位置的普通配置
+        let raw = |name: &str, runtime: Option<&str>, is_default: bool| LaunchProfile {
+            id: name.to_string(),
+            name: name.to_string(),
+            alias: None,
+            description: None,
+            provider_id: None,
+            provider_account_id: None,
+            model_id: None,
+            adapter_options: Default::default(),
+            target_tools: vec!["codex".into()],
+            target_runtime: runtime.map(str::to_string),
+            yolo_mode: false,
+            mcp_policy: Default::default(),
+            skill_policy: Default::default(),
+            native_overrides: Default::default(),
+            is_default,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let mut config = LaunchProfileConfig {
+            profiles: vec![
+                raw("wsl-default", Some("wsl"), true),
+                raw("local-default", Some("local"), true),
+                raw("plain", None, false),
+            ],
+            ..Default::default()
+        };
 
-        let local_resolution = service.resolve_profile(
-            &LaunchProfilePreviewRequest {
-                profile_id: None,
-                use_system_default: false,
-                workspace_name: None,
-                project_id: None,
-                provider_id: None,
-                provider_account_id: None,
-                model_id: None,
-                provider_selection: LaunchProviderSelection::Inherit,
-                cli_tool: Some("codex".into()),
-                runtime_kind: Some("local".into()),
-            },
-            &[],
-            &providers,
-            &SharedMcpConfig::default(),
-            &HashMap::new(),
-        );
-        let wsl_resolution = service.resolve_profile(
-            &LaunchProfilePreviewRequest {
-                profile_id: None,
-                use_system_default: false,
-                workspace_name: None,
-                project_id: None,
-                provider_id: None,
-                provider_account_id: None,
-                model_id: None,
-                provider_selection: LaunchProviderSelection::Inherit,
-                cli_tool: Some("codex".into()),
-                runtime_kind: Some("wsl".into()),
-            },
-            &[],
-            &providers,
-            &SharedMcpConfig::default(),
-            &HashMap::new(),
-        );
-
-        assert_eq!(
-            local_resolution.profile_name.as_deref(),
-            Some("Codex Local Default")
-        );
-        assert!(service
-            .list_profiles()
+        assert!(LaunchProfileService::migrate_to_runtime_agnostic(
+            &mut config
+        ));
+        assert!(config
+            .profiles
             .iter()
-            .any(|profile| profile.name == "Codex Local Default" && profile.yolo_mode));
-        assert_eq!(
-            wsl_resolution.profile_name.as_deref(),
-            Some("Codex WSL Default")
+            .all(|profile| profile.target_runtime.is_none()));
+        let defaults: Vec<&str> = config
+            .profiles
+            .iter()
+            .filter(|profile| profile.is_default)
+            .map(|profile| profile.id.as_str())
+            .collect();
+        // 本机那份优先于 WSL 那份
+        assert_eq!(defaults, vec!["local-default"]);
+        // 幂等：再跑一遍无改动
+        assert!(!LaunchProfileService::migrate_to_runtime_agnostic(
+            &mut config
+        ));
+    }
+
+    #[test]
+    fn saved_profiles_never_carry_a_runtime() {
+        let service = test_service();
+        let profile = mk_profile(
+            &service,
+            "Codex Local",
+            &["codex"],
+            Some("wsl"),
+            false,
+            false,
         );
-        assert_eq!(
-            service
-                .list_profiles()
-                .iter()
-                .filter(|profile| profile.is_default)
-                .count(),
-            2
-        );
+        assert!(profile.target_runtime.is_none());
     }
 
     #[test]
@@ -2235,6 +2208,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2252,6 +2226,7 @@ mod tests {
                 yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: true,
             })
             .unwrap();
@@ -2304,6 +2279,7 @@ mod tests {
                     ..Default::default()
                 },
                 skill_policy: Default::default(),
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2364,6 +2340,7 @@ mod tests {
                     disabled_skill_ids: vec!["builtin:ccpanes-launch-task".into()],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2430,6 +2407,7 @@ mod tests {
                     }],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2508,6 +2486,7 @@ mod tests {
                     enabled_skill_ids: vec!["user:frontend-design".into()],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2571,6 +2550,7 @@ mod tests {
                     include_external_claude_skills: false,
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2628,6 +2608,7 @@ mod tests {
                     enabled_skill_ids: vec!["claude:rust-patterns".into()],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2688,6 +2669,7 @@ mod tests {
                     disabled_skill_ids: vec!["claude:frontend-ui".into()],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();
@@ -2752,6 +2734,7 @@ mod tests {
                     enabled_skill_ids: vec!["claude:rust-patterns".into()],
                     ..Default::default()
                 },
+                native_overrides: Default::default(),
                 is_default: false,
             })
             .unwrap();

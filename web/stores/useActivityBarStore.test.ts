@@ -296,6 +296,14 @@ describe("useActivityBarStore", () => {
       expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     });
 
+    it("openProvidersView 进入 providers 并递增请求序号以落到指定子页", () => {
+      useActivityBarStore.setState({ appViewMode: "panes", providersViewRequest: { view: "profiles", seq: 3 } });
+      useActivityBarStore.getState().openProvidersView("providers");
+      const state = useActivityBarStore.getState();
+      expect(state.appViewMode).toBe("providers");
+      expect(state.providersViewRequest).toEqual({ view: "providers", seq: 4 });
+    });
+
     it("toggleFilesMode 进入 files 模式应设置 activeView 为 files", () => {
       useActivityBarStore.setState({ appViewMode: "panes", activeView: "explorer" });
 

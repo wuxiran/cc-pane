@@ -122,7 +122,8 @@ impl CodexAdapter {
         serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
     }
 
-    fn codex_provider_id(provider_id: &str) -> String {
+    /// Codex `model_provider` id that CC-Panes registers for a selected Provider.
+    pub fn codex_provider_id(provider_id: &str) -> String {
         let suffix = provider_id
             .chars()
             .map(|ch| {
@@ -1912,6 +1913,10 @@ impl CliToolAdapter for CodexAdapter {
 
         Self::push_provider_overrides(&mut args, &mut env_inject, ctx.provider.as_ref());
 
+        // 分层原生配置（中转站片段 ← 运行配置片段，已在 core 深合并并拍平成叶子）。
+        // 托管键（路由 / MCP / model / effort / yolo）不会出现在这里，由下面各自注入。
+        args.extend(crate::native_codex_config_args(&ctx.adapter_options));
+
         // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
             info!(
@@ -2185,6 +2190,39 @@ mod tests {
             .position(|arg| arg == "resume")
             .expect("resume subcommand present");
         assert!(model_pos < resume_pos);
+    }
+
+    #[test]
+    fn build_command_injects_native_config_leaves_before_resume_subcommand() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.adapter_options.insert(
+            crate::NATIVE_CODEX_CONFIG_OPTION.to_string(),
+            serde_json::json!([
+                "service_tier=\"fast\"",
+                "model_context_window=400000",
+                "not-a-pair"
+            ]),
+        );
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        let tier_pos = result
+            .args
+            .windows(2)
+            .position(|pair| pair[0] == "-c" && pair[1] == "service_tier=\"fast\"")
+            .expect("native config leaf present");
+        assert!(result
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && pair[1] == "model_context_window=400000"));
+        assert!(!result.args.iter().any(|arg| arg == "not-a-pair"));
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume subcommand present");
+        assert!(tier_pos < resume_pos);
     }
 
     #[test]

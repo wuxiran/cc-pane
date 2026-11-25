@@ -105,6 +105,10 @@ mod smoke {
                 fork_acp_session_id: None,
                 auto_approve_kinds: vec![],
                 remote: None,
+                env: vec![],
+                env_remove: vec![],
+                launch_profile_id: None,
+                transport_fallback: None,
             }
         }
 

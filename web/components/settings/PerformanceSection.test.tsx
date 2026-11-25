@@ -107,7 +107,7 @@ describe("PerformanceSection", () => {
     for (const [id] of [...SWITCH_IDS, ...NUMBER_IDS]) {
       expect(container.querySelector(`#${id}`), id).not.toBeNull();
     }
-    expect(screen.getByRole("checkbox", { name: /降低会话进程优先级|Lower session process priority/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /降低会话进程优先级|Lower session process priority/i })).toBeInTheDocument();
     expect(cpuWeightThumb(container)).toHaveAttribute("aria-valuemin", "1");
     expect(cpuWeightThumb(container)).toHaveAttribute("aria-valuemax", "9");
     expect(screen.getByRole("button", { name: /清空台账|Clear ledger/i })).toBeInTheDocument();
@@ -222,14 +222,14 @@ describe("PerformanceSection", () => {
     expect(container.querySelector("#performance-parked-terminal-limit")).not.toBeDisabled();
   });
 
-  it("moves the lowerSessionPriority checkbox here and keeps it under settings.terminal", async () => {
+  it("moves the lowerSessionPriority switch here and keeps it under settings.terminal", async () => {
     const user = userEvent.setup();
     const terminal = createTerminal({ lowerSessionPriority: true });
     const { onChange, onTerminalChange } = renderSection({ terminal });
 
-    const checkbox = screen.getByRole("checkbox", { name: /降低会话进程优先级|Lower session process priority/i });
-    expect(checkbox).toBeChecked();
-    await user.click(checkbox);
+    const toggle = screen.getByRole("switch", { name: /降低会话进程优先级|Lower session process priority/i });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
 
     expect(onTerminalChange).toHaveBeenLastCalledWith({ ...terminal, lowerSessionPriority: false });
     expect(onChange).not.toHaveBeenCalled();

@@ -1,7 +1,14 @@
 import { create } from "zustand";
+import { nativeConfigService } from "@/services/nativeConfigService";
 import { providerService } from "@/services/providerService";
 import * as workspaceService from "@/services/workspaceService";
-import { createSystemProvider, SYSTEM_PROVIDER_ID, type Provider } from "@/types/provider";
+import {
+  createSystemProvider,
+  SYSTEM_PROVIDER_ID,
+  type ExternalProviderSource,
+  type Provider,
+  type ProviderImportReport,
+} from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import { handleErrorSilent } from "@/utils";
 
@@ -25,6 +32,10 @@ interface ProvidersState {
     skippedEmpty: number;
     skippedUnsupported: number;
   }>;
+  /** 导入预览里勾选的外部供应商（cc-switch / Magpie），完成后重载列表。 */
+  importExternalProviders: (source: ExternalProviderSource, keys: string[]) => Promise<ProviderImportReport>;
+  /** 「补充原生配置」：只填已存在中转站里空着的片段与上下文窗口，完成后重载列表。返回改动数。 */
+  supplementExternalProviders: (source: ExternalProviderSource, keys: string[]) => Promise<number>;
   addProvider: (provider: Provider) => Promise<void>;
   updateProvider: (provider: Provider) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
@@ -88,6 +99,18 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     const report = await providerService.importCcSwitchProviders();
     await get().loadProviders();
     return report;
+  },
+
+  importExternalProviders: async (source, keys) => {
+    const report = await providerService.importExternalProviders(source, keys);
+    await get().loadProviders();
+    return report;
+  },
+
+  supplementExternalProviders: async (source, keys) => {
+    const updated = await nativeConfigService.supplementExternalProviders(source, keys);
+    await get().loadProviders();
+    return updated;
   },
 
   addProvider: async (provider) => {

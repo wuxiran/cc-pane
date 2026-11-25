@@ -2,34 +2,27 @@
   "progress": "第 {{current}} / {{total}} 步",
   "agentHint": "也可以直接对 agent 说",
   "actions": {
-    "useCurrentProject": "使用已导入项目继续",
-    "launchPair": "一键并排启动",
-    "finish": "完成引导",
+    "launchPair": "并排启动",
     "skipStep": "跳过此步",
-    "skipAll": "跳过全部",
+    "skipAll": "跳过引导",
     "back": "上一步",
     "continueSetup": "继续"
   },
   "steps": {
     "environment": {
-      "title": "先确认环境，选好工作台模式",
-      "description": "检查多会话工作流需要的 CLI，缺项可直接复制修复命令；模式只决定模块初值，之后随时可调。",
-      "navTitle": "环境与模式"
+      "title": "检查环境",
+      "description": "缺什么就复制命令装上；模式之后随时可改。",
+      "navTitle": "环境"
     },
     "workspace": {
-      "title": "创建第一个工作空间",
-      "description": "把相关项目与工作材料收束到可携带的工作上下文。",
-      "navTitle": "建工作空间"
+      "title": "导入项目",
+      "description": "选一个代码目录，里面的 Git 仓库会一起导入到同名工作空间。",
+      "navTitle": "项目"
     },
     "parallel": {
-      "title": "并排启动两个会话",
-      "description": "在同一项目里同时运行两个 agent。启动后本窗口会先让开，让你看清它们各自跑起来的样子。",
-      "navTitle": "并排启动"
-    },
-    "finish": {
-      "title": "你的工作台已就绪",
-      "description": "两个 agent 正在你身后并行工作。工作空间负责收束上下文，接下来从观察进入派工与协作。",
-      "navTitle": "就绪"
+      "title": "并排启动两个 agent",
+      "description": "在同一个项目里同时跑两个会话，启动后引导自动结束。",
+      "navTitle": "开始"
     }
   },
   "environment": {
@@ -41,7 +34,11 @@
     "copied": "已复制",
     "copyRepair": "复制 {{name}} 修复命令",
     "copyFailed": "无法写入剪贴板，请检查系统权限。",
-    "checkFailed": "环境检测失败，可跳过此步后在设置中重试。"
+    "checkFailed": "环境检测失败，可跳过此步后在设置中重试。",
+    "baseTitle": "基础依赖",
+    "cliFound": "已检测到 {{count}} 个 CLI",
+    "cliNone": "还没有可用的 CLI，先装一个：",
+    "installMore": "安装其他 CLI（{{count}}）"
   },
   "preset": {
     "groupLabel": "工作台模式",
@@ -55,33 +52,25 @@
     }
   },
   "workspace": {
-    "principleGather": "收束：协作配置、会话与计划离开代码仓库，统一住进工作空间。",
-    "principleMaterials": "材料：设计稿、样本与文档可以和代码项目编成一组。",
-    "principlePortable": "换机：同步工作空间材料，再按项目清单恢复代码即可开工。",
-    "currentProject": "将使用 {{workspace}} / {{project}} 完成下一步",
     "nameLabel": "工作空间名称",
     "namePlaceholder": "例如：产品研发",
     "pathLabel": "项目目录",
-    "pathPlaceholder": "输入包含项目的目录路径",
-    "scan": "扫描目录",
-    "found": "发现 {{count}} 个项目",
-    "createAndImport": "创建并导入",
+    "pathPlaceholder": "代码目录路径，如 ~/code",
+    "pick": "选择…",
+    "import": "导入",
+    "importOther": "导入其他目录…",
     "noneFound": "该目录下没有发现可导入的 Git 项目。",
     "scanFailed": "目录扫描失败，请检查路径与访问权限。",
-    "importFailed": "创建或导入失败，现有内容未被隐藏，可修正后重试。"
+    "importFailed": "创建或导入失败，可修正后重试（工作空间名可能已存在）。"
   },
   "parallel": {
-    "description": "将在 {{project}} 中并排启动两个会话。",
-    "noCli": "未检测到可用 CLI。返回环境步骤复制修复命令，或跳过后在设置中重试。",
-    "noProject": "还没有可启动的项目。返回工作空间步骤完成导入，或跳过此步。",
+    "where": "项目：{{project}}",
+    "noCli": "未检测到可用 CLI。回到「环境」复制安装命令，或先跳过引导。",
+    "noProject": "还没有项目。回到「项目」导入，或先跳过引导。",
     "launchFailed": "当前项目的运行环境无法启动会话，请检查项目运行配置。"
   },
   "finish": {
-    "description": "工作空间负责收束上下文，多个 agent 可以围绕同一批项目并行工作。",
-    "explorer": "资源管理器：查看项目、文件与 Git 状态。",
-    "rightDock": "右坞：让常驻工具保持可见但不遮挡终端。",
-    "skills": "进阶：用编排 skill 派工、跟踪与汇报。",
-    "recoverHint": "本引导与上手清单随时可从 设置 → 上手清单 重新打开。"
+    "recoverHint": "引导和上手清单随时可从 设置 → 上手清单 重新打开。"
   },
   "concierge": {
     "action": "对 agent 说",

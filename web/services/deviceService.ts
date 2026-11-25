@@ -7,11 +7,17 @@ import type {
   DeviceAddRequest,
   DeviceSnapshot,
   DeviceSummary,
+  LocalDeviceInfo,
 } from "@/types/device";
 import { invokeOrApi } from "./apiClient";
 import { listenIfTauri } from "./runtime";
 
 const DESKTOP_ONLY = () => Promise.reject(new Error("Devices are only available in the desktop app"));
+
+/** 本机主机名 / 系统 / 版本。Web 端没有对应命令，返回 null 由界面退回 UA 推断。 */
+export function getLocalDeviceInfo(): Promise<LocalDeviceInfo | null> {
+  return invokeOrApi<LocalDeviceInfo | null>("get_local_device_info", undefined, async () => null);
+}
 
 export function listDevices(): Promise<DeviceSummary[]> {
   return invokeOrApi<DeviceSummary[]>("device_list", undefined, async () => []);
@@ -81,11 +87,24 @@ export interface DeviceAccessRecord {
   name: string;
   hint: string;
   createdAt: string;
+  /** 过期时间；null = 永不过期（老令牌 / 命令行建的令牌） */
+  expiresAt?: string | null;
+  expired?: boolean;
+  /** 最后一次用令牌访问本机的时间（每分钟至多记录一次） */
+  lastSeenAt?: string | null;
+  lastIp?: string | null;
 }
 
-/** 本机作为被连接方：生成一次性配对码。 */
-export function startDevicePairing(): Promise<PairingInfo> {
-  return invokeOrApi<PairingInfo>("device_access_pairing_start", undefined, DESKTOP_ONLY);
+/**
+ * 本机作为被连接方：生成一次性配对码。
+ * `tokenTtlDays`：兑换出的令牌有效期；不传 = 默认 90 天，0 = 永不过期。
+ */
+export function startDevicePairing(tokenTtlDays?: number): Promise<PairingInfo> {
+  return invokeOrApi<PairingInfo>(
+    "device_access_pairing_start",
+    tokenTtlDays === undefined ? undefined : { tokenTtlDays },
+    DESKTOP_ONLY,
+  );
 }
 
 export function cancelDevicePairing(): Promise<void> {

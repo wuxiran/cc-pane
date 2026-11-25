@@ -34,6 +34,18 @@ const multiAccountProvider: Provider = {
   ],
 };
 
+const loginAccountProvider: Provider = {
+  id: "p-login",
+  name: "Anthropic Login",
+  providerType: "anthropic",
+  isDefault: false,
+  defaultAccountId: "acc-key",
+  accounts: [
+    { id: "acc-key", name: "密钥号", kind: "api_key" },
+    { id: "acc-login", name: "登录号", kind: "login", cliTool: "claude" },
+  ],
+};
+
 const singleAccountProvider: Provider = {
   id: "p-single",
   name: "Single Key",
@@ -59,7 +71,7 @@ function savedProfileFromDraft(draft: LaunchProfileDraft): LaunchProfile {
 function renderPanel(onSave: (draft: LaunchProfileDraft) => void) {
   mockTauriInvoke({
     list_launch_profiles: [],
-    list_providers: [multiAccountProvider, singleAccountProvider],
+    list_providers: [multiAccountProvider, singleAccountProvider, loginAccountProvider],
     list_workspaces: [],
     get_shared_mcp_status: [],
     list_skill_market_entries: [],
@@ -85,17 +97,17 @@ describe("运行配置 · 账号选择", () => {
     useWorkspacesStore.setState({ workspaces: [], loading: false });
   });
 
-  it("多账号供应商出现账号选择，保存的草稿带选中的 providerAccountId，摘要卡显示账号名", async () => {
+  it("中转站：多密钥账号的供应商逐个列出，保存的草稿带选中的 providerAccountId", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
     renderPanel((draft) => { savedDraft = draft; });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Anthropic Relay");
-    const accountSelect = await screen.findByRole("combobox", { name: "账号" });
-    expect(screen.getByText("账号：工作号（默认）")).toBeInTheDocument();
-    await selectOption(user, accountSelect, "个人号");
-    expect(screen.getByText("账号：个人号")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    const relaySelect = screen.getByRole("combobox", { name: tp("credentialKind.relay") });
+    expect(relaySelect).toHaveTextContent("Anthropic Relay · 工作号");
+    await selectOption(user, relaySelect, "Anthropic Relay · 个人号");
+    expect(relaySelect).toHaveTextContent("Anthropic Relay · 个人号");
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
@@ -104,13 +116,14 @@ describe("运行配置 · 账号选择", () => {
     });
   });
 
-  it("单账号供应商不出现账号选择，保存时显式带 null（字段不丢）", async () => {
+  it("中转站：单账号供应商只列供应商名，保存时显式带 null（字段不丢）", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
     renderPanel((draft) => { savedDraft = draft; });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Single Key");
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await selectOption(user, screen.getByRole("combobox", { name: tp("credentialKind.relay") }), "Single Key");
     expect(screen.queryByRole("combobox", { name: "账号" })).toBeNull();
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
@@ -118,16 +131,185 @@ describe("运行配置 · 账号选择", () => {
     expect(savedDraft).toHaveProperty("providerAccountId", null);
   });
 
-  it("换供应商后账号回到新供应商的默认账号", async () => {
+  it("切回 CLI 自带登录：清空供应商，下拉消失", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
     renderPanel((draft) => { savedDraft = draft; });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    const providerSelect = screen.getByRole("combobox", { name: tp("fieldProvider") });
-    await selectOption(user, providerSelect, "Anthropic Relay");
-    await selectOption(user, await screen.findByRole("combobox", { name: "账号" }), "个人号");
-    await selectOption(user, providerSelect, "Single Key");
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.cli") }));
+    expect(screen.queryByRole("combobox", { name: tp("credentialKind.relay") })).toBeNull();
+    await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
+
+    await waitFor(() => expect(savedDraft).not.toBeNull());
+    expect(savedDraft).toHaveProperty("providerId", null);
+    expect(savedDraft).toHaveProperty("providerAccountId", null);
+  });
+
+  it("从 Magpie 导入：列出条目，已存在的置灰，只导勾选的，导入后进中转站下拉", async () => {
+    const user = userEvent.setup();
+    const imported: Provider = { id: "p-mag", name: "Mag Relay", providerType: "anthropic", isDefault: false };
+    let providers: Provider[] = [singleAccountProvider];
+    let importedKeys: string[] | null = null;
+    const createdDrafts: LaunchProfileDraft[] = [];
+    mockTauriInvoke({
+      list_launch_profiles: [],
+      list_providers: () => providers,
+      preview_external_providers: {
+        available: true,
+        path: "/home/u/.config/magpie/providers.json",
+        candidates: [
+          { key: "magpie:mag:anthropic", name: "Mag Relay", providerType: "anthropic", baseUrl: "https://mag", hasKey: true, modelCount: 2, duplicate: false },
+          { key: "magpie:old:anthropic", name: "Old Relay", providerType: "anthropic", baseUrl: "https://old", hasKey: true, modelCount: 0, duplicate: true },
+          { key: "magpie:gem:gemini", name: "Gem", providerType: "gemini", baseUrl: "https://gem", hasKey: false, modelCount: 0, duplicate: false },
+        ],
+        skippedEmpty: 0,
+        skippedUnsupported: 1,
+        unsupportedLogins: 2,
+      },
+      import_external_providers: (_cmd: string, args?: Record<string, unknown>) => {
+        importedKeys = args?.keys as string[];
+        providers = [singleAccountProvider, imported];
+        return { imported: 1, skippedDuplicate: 0, skippedEmpty: 0, skippedUnsupported: 0 };
+      },
+      create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+        createdDrafts.push(args?.draft as LaunchProfileDraft);
+        return savedProfileFromDraft(args?.draft as LaunchProfileDraft);
+      },
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    await user.click(await screen.findByRole("button", { name: tp("importFromSource.magpie") }));
+    const dialog = await screen.findByRole("dialog");
+    const oldRow = await within(dialog).findByRole("checkbox", { name: /Old Relay/ });
+    expect(oldRow).toBeDisabled();
+    // 已存在的要说清在哪个智能体下
+    expect(within(dialog).getByTestId("import-duplicate-summary")).toHaveTextContent("Claude 1 条");
+    expect(dialog).toHaveTextContent(tp("importDialog.logins").replace("{{count}}", "2"));
+    // 默认勾上未导入的两条；取消 Gem，只导 Mag Relay
+    await user.click(within(dialog).getByRole("checkbox", { name: /Gem/ }));
+    await user.click(within(dialog).getByRole("button", { name: tp("importDialog.submit").replace("{{count}}", "1") }));
+
+    await waitFor(() => expect(importedKeys).toEqual(["magpie:mag:anthropic"]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // 导入的中转站在它的智能体下顺带建一条运行配置
+    expect(createdDrafts).toHaveLength(1);
+    expect(createdDrafts[0]).toMatchObject({ name: "Mag Relay", providerId: "p-mag", targetTools: ["claude"], isDefault: false });
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    await user.click(screen.getByRole("combobox", { name: tp("credentialKind.relay") }));
+    expect(within(await screen.findByRole("listbox")).getByRole("option", { name: "Mag Relay" })).toBeInTheDocument();
+  });
+
+  it("中转站已导入但没有运行配置：可勾选，只补建运行配置、不重复导入中转站", async () => {
+    const user = userEvent.setup();
+    const existing: Provider = { id: "p-old", name: "Old Relay", providerType: "open_ai", isDefault: false };
+    let importCalled = false;
+    const createdDrafts: LaunchProfileDraft[] = [];
+    mockTauriInvoke({
+      list_launch_profiles: [],
+      list_providers: [existing],
+      preview_external_providers: {
+        available: true,
+        path: "/home/u/.cc-switch/cc-switch.db",
+        candidates: [
+          { key: "cc_switch:open_ai:Old Relay:https://old", name: "Old Relay", providerType: "open_ai", baseUrl: "https://old", hasKey: true, modelCount: 0, duplicate: true },
+        ],
+        skippedEmpty: 0,
+        skippedUnsupported: 0,
+        unsupportedLogins: 0,
+      },
+      import_external_providers: () => {
+        importCalled = true;
+        return { imported: 0, skippedDuplicate: 0, skippedEmpty: 0, skippedUnsupported: 0 };
+      },
+      create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+        createdDrafts.push(args?.draft as LaunchProfileDraft);
+        return savedProfileFromDraft(args?.draft as LaunchProfileDraft);
+      },
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    await user.click(await screen.findByRole("button", { name: tp("importFromSource.cc_switch") }));
+    const dialog = await screen.findByRole("dialog");
+    const row = await within(dialog).findByRole("checkbox", { name: /Old Relay/ });
+    expect(row).toBeEnabled();
+    expect(row).toBeChecked();
+    expect(dialog).toHaveTextContent(tp("importDialog.needsProfile"));
+    await user.click(within(dialog).getByRole("button", { name: tp("importDialog.submit").replace("{{count}}", "1") }));
+
+    await waitFor(() => expect(createdDrafts).toHaveLength(1));
+    expect(importCalled).toBe(false);
+    expect(createdDrafts[0]).toMatchObject({ name: "Old Relay", providerId: "p-old", targetTools: ["codex"] });
+  });
+
+  it("来源不存在时弹窗说明找不到，导入按钮不可用", async () => {
+    const user = userEvent.setup();
+    mockTauriInvoke({
+      list_launch_profiles: [],
+      list_providers: [],
+      preview_external_providers: { available: false, path: "/home/u/.cc-switch/cc-switch.db", candidates: [], skippedEmpty: 0, skippedUnsupported: 0, unsupportedLogins: 0 },
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    await user.click(await screen.findByRole("button", { name: tp("importFromSource.cc_switch") }));
+    expect(await screen.findByTestId("import-source-missing")).toHaveTextContent("/home/u/.cc-switch/cc-switch.db");
+    expect(screen.getByRole("button", { name: tp("importDialog.submit").replace("{{count}}", "0") })).toBeDisabled();
+  });
+
+  it("OAuth：只列登录账号；选本机登录账号给出远端回落提示，保存时原样保留", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderPanel((draft) => { savedDraft = draft; });
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.oauth") }));
+    const oauthSelect = screen.getByRole("combobox", { name: tp("credentialKind.oauth") });
+    await user.click(oauthSelect);
+    const listbox = await screen.findByRole("listbox");
+    // 密钥账号不出现在 OAuth 里
+    expect(within(listbox).queryByRole("option", { name: /密钥号/ })).toBeNull();
+    await user.click(within(listbox).getByRole("option", { name: "Anthropic Login · 登录号" }));
+    expect(screen.getByTestId("profile-account-local-only-hint")).toHaveTextContent(tp("accountLocalOnlyFallback"));
+    await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
+
+    await waitFor(() => expect(savedDraft?.providerId).toBe("p-login"));
+    expect(savedDraft).toHaveProperty("providerAccountId", "acc-login");
+    expect(savedDraft).toHaveProperty("targetRuntime", null);
+  });
+
+  it("换中转站后账号回到新供应商的默认账号", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderPanel((draft) => { savedDraft = draft; });
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
+    const relaySelect = screen.getByRole("combobox", { name: tp("credentialKind.relay") });
+    await selectOption(user, relaySelect, "Anthropic Relay · 个人号");
+    await selectOption(user, relaySelect, "Single Key");
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => expect(savedDraft?.providerId).toBe("p-single"));

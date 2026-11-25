@@ -1,22 +1,20 @@
 import { useTranslation } from "react-i18next";
-import { FolderKanban, Layers3, Plus } from "lucide-react";
+import { Bot, FolderKanban, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { LaunchProfile } from "@/types";
-import type { Provider } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace } from "@/types/workspace";
 import {
-  launchEnvironmentLabel,
   profileDisplayName,
   profileMatchesTool,
-  runtimeLabel,
   SYSTEM_DEFAULT_PROFILE_ID,
   toolLabel,
 } from "./launchProfileHelpers";
+import LaunchProfileAgentList from "./LaunchProfileAgentList";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type LaunchProfileListMode = "profiles" | "workspaces";
@@ -28,16 +26,18 @@ interface LaunchProfileListAsideProps {
   workspaceContext: Workspace | null;
   listMode: LaunchProfileListMode;
   onListModeChange: (mode: LaunchProfileListMode) => void;
-  providers: Provider[];
   profiles: LaunchProfile[];
   filteredProfiles: LaunchProfile[];
   selectedId: string | null;
-  isSystemDefaultSelected: boolean;
   onCopySystemDefault: () => void;
   onSelectSystemDefault: () => void;
   onSelect: (profile: LaunchProfile) => void;
   onSelectWorkspaceProfile: (workspace: Workspace, profile: LaunchProfile) => void;
   onSelectWorkspace: (workspace: Workspace) => void;
+  /** 智能体视角里点某个 CLI（父级负责未保存守卫） */
+  onSelectTool: (tool: KnownCliTool) => void;
+  /** 工作空间视角（工作空间 × 智能体匹配的入口）：暂时隐藏，代码保留 */
+  showWorkspaceLens?: boolean;
 }
 
 export default function LaunchProfileListAside({
@@ -47,16 +47,16 @@ export default function LaunchProfileListAside({
   workspaceContext,
   listMode,
   onListModeChange,
-  providers,
   profiles,
   filteredProfiles,
   selectedId,
-  isSystemDefaultSelected,
   onCopySystemDefault,
   onSelectSystemDefault,
   onSelect,
   onSelectWorkspaceProfile,
   onSelectWorkspace,
+  onSelectTool,
+  showWorkspaceLens = false,
 }: LaunchProfileListAsideProps) {
   const { t } = useTranslation(["providers", "common"]);
 
@@ -96,6 +96,7 @@ export default function LaunchProfileListAside({
             </Select>
           </label>
 
+          {showWorkspaceLens && (
           <label className="min-w-0 space-y-1.5 text-xs">
             <span className="font-medium text-[var(--app-text-secondary)]">{t("workspaceListTab")}</span>
             <Select
@@ -119,6 +120,7 @@ export default function LaunchProfileListAside({
               </SelectContent>
             </Select>
           </label>
+          )}
 
           <Tooltip><TooltipTrigger asChild><Button
             size="icon-sm"
@@ -140,18 +142,12 @@ export default function LaunchProfileListAside({
         "w-72",
       )}
     >
+      {showWorkspaceLens && (
       <div className="shrink-0 border-b border-border px-3 py-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-semibold">{t("profileLibraryTitle")}</span>
-          <Button size="xs" variant="outline" onClick={onCopySystemDefault}>
-            <Plus size={12} /> {t("add")}
-          </Button>
-        </div>
-
         <div
           role="tablist"
           aria-label={t("profileListMode")}
-          className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[var(--app-hover)] p-1"
+          className="grid grid-cols-2 gap-1 rounded-md bg-[var(--app-hover)] p-1"
         >
           <button
             type="button"
@@ -161,11 +157,8 @@ export default function LaunchProfileListAside({
             className="flex h-7 min-w-0 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium text-[var(--app-text-secondary)] transition-colors data-[state=active]:bg-[var(--app-panel-bg)] data-[state=active]:text-[var(--app-text-primary)] data-[state=active]:shadow-sm"
             onClick={() => onListModeChange("profiles")}
           >
-            <Layers3 size={13} className="shrink-0" />
-            <span className="truncate">{t("savedProfilesTab")}</span>
-            <span className="tabular-nums text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-              {filteredProfiles.length}
-            </span>
+            <Bot size={13} className="shrink-0" />
+            <span className="truncate">{t("agentsTab")}</span>
           </button>
           <button
             type="button"
@@ -182,77 +175,12 @@ export default function LaunchProfileListAside({
             </span>
           </button>
         </div>
-
       </div>
+      )}
 
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
-        {listMode === "profiles" ? (
-          <>
-            <button
-              type="button"
-              className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-[var(--app-hover)]"
-              style={{
-                borderColor: isSystemDefaultSelected ? "var(--app-accent)" : "var(--app-border)",
-                background: isSystemDefaultSelected ? "color-mix(in srgb, var(--app-accent) 10%, transparent)" : "transparent",
-              }}
-              onClick={onSelectSystemDefault}
-            >
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                  {t("systemDefaultName", { tool: toolLabel(activeTool, t) })}
-                </span>
-                <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>
-              </div>
-              <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
-                {t("systemDefaultCardHint")}
-              </div>
-            </button>
-
-            <div className="mt-2 space-y-1.5">
-              {filteredProfiles.map((profile) => (
-                <button
-                  key={profile.id}
-                  type="button"
-                  data-current={selectedId === profile.id ? "true" : undefined}
-                  className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-[var(--app-hover)]"
-                  style={{
-                    borderColor: selectedId === profile.id ? "var(--app-accent)" : "var(--app-border)",
-                    background: selectedId === profile.id ? "color-mix(in srgb, var(--app-accent) 8%, transparent)" : "transparent",
-                  }}
-                  onClick={() => onSelect(profile)}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {profileDisplayName(profile)}
-                    </span>
-                    {profile.isDefault && (
-                      <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>
-                    )}
-                  </div>
-                  <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
-                    {providers.find((provider) => provider.id === profile.providerId)?.name ?? t("noProviderSpecified")}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
-                    <span>{launchEnvironmentLabel(profile.targetTools, activeTool, t)}</span>
-                    <span className="rounded border border-border px-1.5 py-0.5">
-                      {runtimeLabel(profile.targetRuntime ?? null, t)}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {!compact && filteredProfiles.length === 0 && (
-              <div className="mt-2 rounded-md border border-dashed border-[var(--app-border)] px-3 py-3">
-                <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-secondary)]">
-                  {t("listEmptyAll")}
-                </p>
-                <Button size="xs" variant="outline" className="mt-2" onClick={onCopySystemDefault}>
-                  <Plus size={12} /> {t("listEmptyAction")}
-                </Button>
-              </div>
-            )}
-          </>
+        {listMode === "profiles" || !showWorkspaceLens ? (
+          <LaunchProfileAgentList activeTool={activeTool} profiles={profiles} onSelectTool={onSelectTool} />
         ) : (
           <>
             <div className="space-y-1.5">

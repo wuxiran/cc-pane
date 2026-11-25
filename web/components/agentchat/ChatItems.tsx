@@ -19,6 +19,7 @@ import {
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatAttachmentList from "./ChatAttachmentList";
+import ChatHandoffDivider from "./ChatHandoffDivider";
 import type { OpenChatAttachment } from "./useChatFileActions";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -148,6 +149,7 @@ export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps
         </div>
       );
     case "notice":
+      if (item.handoff) return <ChatHandoffDivider handoff={item.handoff} text={item.text} />;
       if (item.divider) {
         return (
           <div

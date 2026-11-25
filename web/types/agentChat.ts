@@ -71,6 +71,10 @@ export interface AcpChatSnapshot {
   autoApproveKinds?: string[];
   exitCode?: number;
   error?: string;
+  /** 会话启动时应用的运行配置 id；缺失 = 系统默认。重启 / 续接沿用。 */
+  launchProfileId?: string;
+  /** 「Codex」自动改走 ACP 兼容模式的原因（unsupported / startFailed / remote）；缺失 = 未降级。 */
+  transportFallback?: string;
 }
 
 /** 客户端 `terminal/*` 能力开的终端输出快照（后端 `terminal_output` 事件）。 */
@@ -94,6 +98,33 @@ export interface AcpEngineInfo {
   label: string;
   available: boolean;
   requirement: string;
+  /** 可接收哪个 CLI 的运行配置（codex / claude）；缺失 = 此引擎不支持运行配置。 */
+  launchProfileCli?: string;
+}
+
+/** ACP 官方注册表条目（Rust AcpRegistryAgentInfo 的镜像）。 */
+export interface AcpRegistryAgentInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  repository: string | null;
+  website: string | null;
+  license: string | null;
+  iconUrl: string | null;
+  /** 当前平台可用的分发方式；null = 本机装不了 */
+  distribution: "npx" | "uvx" | "binary" | null;
+  /** 已被内置引擎覆盖时的内置 id */
+  builtInEngineId: string | null;
+  /** 已从注册表安装的版本 */
+  installedVersion: string | null;
+  featured: boolean;
+}
+
+export interface AcpRegistryListing {
+  agents: AcpRegistryAgentInfo[];
+  /** 拉取失败、退回本地缓存 */
+  fromCache: boolean;
 }
 
 /** 后端事件信封（`acp-chat-event`）。payload 形状由 kind 决定。 */
@@ -207,6 +238,10 @@ export interface AcpChatHistoryEntry {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** 本对话用过的引擎序列（按切换顺序，相邻去重；旧 meta 缺失时按 [engineId] 处理）。 */
+  engines?: string[];
+  /** 会话启动时应用的运行配置（续接时后端自动沿用）。 */
+  launchProfileId?: string;
 }
 
 /** 发送附件。image：data 为 base64（不带 dataURL 前缀）；file：只带
@@ -245,8 +280,17 @@ export type AgentChatItem =
   | { type: "image"; id: string; at: number; mimeType: string; data: string; parentToolCallId?: string }
   | { type: "tool_call"; id: string; at: number; call: AcpToolCall; parentToolCallId?: string }
   | { type: "plan"; id: string; at: number; entries: AcpPlanEntry[] }
-  /** divider：恢复的本地转写与新会话之间的分隔线（只读前缀的边界）。 */
-  | { type: "notice"; id: string; at: number; text: string; divider?: boolean };
+  /** divider：恢复的本地转写与新会话之间的分隔线（只读前缀的边界）。
+   * handoff：换引擎上下文交接的分隔线（text 是可读回退文案，旧数据没有该字段）。 */
+  | { type: "notice"; id: string; at: number; text: string; divider?: boolean; handoff?: AgentChatHandoff };
+
+/** 上下文交接分隔线：from/to 是「引擎 · 模型」展示名，engineId 用于图标映射。 */
+export interface AgentChatHandoff {
+  from: string;
+  to: string;
+  fromEngineId?: string;
+  toEngineId?: string;
+}
 
 /** 从 session/update 的 `_meta` 里取子 agent 归属（仅 claude-agent-acp 提供）。 */
 export function parentToolCallIdOf(update: AcpSessionUpdate["update"]): string | undefined {

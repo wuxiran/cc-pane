@@ -107,9 +107,7 @@ describe("ShortcutsSection", () => {
     );
 
     // 参数化文案里必须包含序号
-    const rows = document.querySelectorAll("span");
-    const texts = Array.from(rows).map((el) => el.textContent);
-    expect(texts.some((text) => text?.includes("3"))).toBe(true);
-    expect(texts.some((text) => text?.includes("2"))).toBe(true);
+    expect(screen.getByText(/^(切换到标签|Switch to Tab) 3$/)).toBeInTheDocument();
+    expect(screen.getByText(/^(切换到布局|Switch to Layout) 2$/)).toBeInTheDocument();
   });
 });

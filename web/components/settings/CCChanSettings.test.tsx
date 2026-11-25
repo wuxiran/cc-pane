@@ -80,13 +80,14 @@ describe("CCChanSettings", () => {
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
-  it("toggles autoStart / soundEnabled / windowVisible checkboxes", async () => {
+  it("toggles autoStart / soundEnabled / windowVisible / wander switches", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<CCChanSettings value={createValue()} onChange={onChange} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
+    const checkboxes = screen.getAllByRole("switch");
     expect(checkboxes).toHaveLength(4);
+    expect(screen.getByRole("switch", { name: "开机自动显示" })).toBe(checkboxes[0]);
 
     await user.click(checkboxes[0]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));

@@ -177,7 +177,7 @@ export default function HomeAgentPrompt() {
           kbd="Enter"
           disabled={!canSend}
           data-testid="home-agent-prompt-send"
-          className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent)] hover:text-white hover:opacity-90 disabled:opacity-35"
+          className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-[var(--primary-foreground)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-35"
           onClick={submit}
         >
           <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />

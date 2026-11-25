@@ -115,3 +115,13 @@ export interface DeployReport {
   manager: "systemd" | "nohup";
   warnings: string[];
 }
+
+/** 本机信息（`get_local_device_info`）：设置 → 设备与访问 → 本机卡片的标题与系统。 */
+export interface LocalDeviceInfo {
+  /** 给人看的机器名（macOS 为「电脑名称」）；取不到为 null。 */
+  hostname: string | null;
+  /** 操作系统（含版本）。 */
+  os: string;
+  /** 应用版本。 */
+  version: string;
+}

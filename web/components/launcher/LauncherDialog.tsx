@@ -177,6 +177,12 @@ export default function LauncherDialog() {
               ? t("errorOmpSshUnsupported")
             : issue?.code === "jcode_ssh_unsupported"
               ? t("errorJcodeSshUnsupported")
+            : issue?.code === "kiro_ssh_unsupported"
+              ? t("errorKiroSshUnsupported")
+            : issue?.code === "fx_ssh_unsupported"
+              ? t("errorFxSshUnsupported")
+            : issue?.code === "muse_ssh_unsupported"
+              ? t("errorMuseSshUnsupported")
             : t("errorResolveFailed", { code: issue?.code }),
       );
       return;

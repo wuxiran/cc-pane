@@ -1,18 +1,26 @@
+// 设置 → 设备与访问：本机 → 网络访问（Web 服务 / 登录认证 / 网络与远程）→ Tailscale →
+// 已授权的客户端 + MCP → 编排器（MCP 端点）→ 服务控制。Web 服务状态在此持有，本机卡与服务控制共用。
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SearchableSetting } from "./SettingsSearchContext";
 import WebAccessOrchestratorBlock from "./WebAccessOrchestratorBlock";
 import DeviceAccessPanel from "@/components/devices/DeviceAccessPanel";
+import CcpanesMcpCard from "./CcpanesMcpCard";
+import DeviceInfoSection from "./DeviceInfoSection";
+import WebAccessServiceSection, { type WebAccessServiceAction } from "./WebAccessServiceSection";
+import WebAccessTailscaleSection from "./WebAccessTailscaleSection";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
+import { RotateCcw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
-import type { OrchestratorSettings, TailscaleStatus, WebAccessSettings, WebAccessStatus } from "@/types";
+import type { OrchestratorSettings, WebAccessSettings, WebAccessStatus } from "@/types";
+import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./layout";
+
+const TEXT_FIELD_CLASS = "h-8 w-44 bg-[var(--app-content)] text-[length:var(--text-row)]";
+const NUMBER_FIELD_CLASS = "h-8 w-24 bg-[var(--app-content)] text-[length:var(--text-row)]";
 
 interface WebAccessSectionProps {
   value: WebAccessSettings;
@@ -37,8 +45,6 @@ export default function WebAccessSection({
   const { t } = useTranslation("settings");
   const [status, setStatus] = useState<WebAccessStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const [tailscale, setTailscale] = useState<TailscaleStatus | null>(null);
-  const [detectingTailscale, setDetectingTailscale] = useState(false);
   const [password, setPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
@@ -82,27 +88,7 @@ export default function WebAccessSection({
     }
   }
 
-  async function detectTailscale() {
-    setDetectingTailscale(true);
-    try {
-      setTailscale(await settingsService.detectTailscaleStatus());
-    } catch (error) {
-      toastErr(t("webAccessSection.errors.tailscaleDetectionFailed", { error: String(error) }));
-    } finally {
-      setDetectingTailscale(false);
-    }
-  }
-
-  async function copyText(text: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toastOk(t("webAccessSection.errors.copied", { label }));
-    } catch (error) {
-      toastErr(t("webAccessSection.errors.copyFailed", { error: String(error) }));
-    }
-  }
-
-  async function handleAction(action: "start" | "stop" | "restart" | "open") {
+  async function handleAction(action: WebAccessServiceAction) {
     try {
       if (action === "start") setStatus(await settingsService.startWebAccess());
       if (action === "stop") setStatus(await settingsService.stopWebAccess());
@@ -113,176 +99,133 @@ export default function WebAccessSection({
     }
   }
 
+  const mutedOrAccent = (ok: boolean, text: string) =>
+    ok ? text : <span style={{ color: "var(--app-accent)" }}>{text}</span>;
+
   return (
-    <div className="flex flex-col gap-4">
+    <>
+      <DeviceInfoSection status={status} />
+
       <SearchableSetting sectionId="web-access-server">
-      <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <Label htmlFor="web-access-enabled">{t("webAccessSection.startupEnabled")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("webAccessSection.startupEnabledHint")}
-          </p>
-        </div>
-        <input
-          id="web-access-enabled"
-          type="checkbox"
-          checked={value.enabled}
-          onChange={(event) => update("enabled", event.target.checked)}
-          className="w-4 h-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
-
-      <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-        <FormField label={t("webAccessSection.port")} className="flex flex-col gap-1">
-          {({ id }) => (
-            <Input id={id} type="number" min={1} max={65535} value={value.port}
-              onChange={(event) => update("port", Number(event.target.value))} />
-          )}
-        </FormField>
-        <Button type="button" variant="secondary" size="sm" onClick={() => update("port", 18080)}>
-          <RotateCcw className="w-3.5 h-3.5 mr-1" />
-          {t("webAccessSection.reset")}
-        </Button>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div>
-          <Label htmlFor="web-access-auto-open">{t("webAccessSection.autoOpen")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("webAccessSection.autoOpenHint")}
-          </p>
-        </div>
-        <input id="web-access-auto-open" type="checkbox" checked={value.autoOpen}
-          onChange={(event) => update("autoOpen", event.target.checked)}
-          className="w-4 h-4 cursor-default" style={{ accentColor: "var(--app-accent)" }} />
-      </div>
-      </div>
+        <SettingsSection title={t("webAccessGroups.server")}>
+          <SettingsSwitchRow
+            id="web-access-enabled"
+            title={t("webAccessSection.startupEnabled")}
+            description={t("webAccessSection.startupEnabledHint")}
+            checked={value.enabled}
+            onCheckedChange={(checked) => update("enabled", checked)}
+          />
+          <SettingsRow
+            title={t("webAccessSection.port")}
+            htmlFor="web-access-port"
+            control={(
+              <>
+                <Input id="web-access-port" type="number" min={1} max={65535} value={value.port}
+                  className={NUMBER_FIELD_CLASS} onChange={(event) => update("port", Number(event.target.value))} />
+                <Button type="button" variant="secondary" size="sm" onClick={() => update("port", 18080)}>
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  {t("webAccessSection.reset")}
+                </Button>
+              </>
+            )}
+          />
+          <SettingsSwitchRow
+            id="web-access-auto-open"
+            title={t("webAccessSection.autoOpen")}
+            description={t("webAccessSection.autoOpenHint")}
+            checked={value.autoOpen}
+            onCheckedChange={(checked) => update("autoOpen", checked)}
+          />
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="web-access-auth">
-      <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label htmlFor="web-access-auth-enabled">{t("webAccessSection.authEnabled")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("webAccessSection.authEnabledHint")}
-            </p>
-          </div>
-          <input
+        <SettingsSection title={t("webAccessGroups.auth")}>
+          <SettingsSwitchRow
             id="web-access-auth-enabled"
-            type="checkbox"
+            title={t("webAccessSection.authEnabled")}
+            description={t("webAccessSection.authEnabledHint")}
             checked={value.authEnabled}
-            onChange={(event) => update("authEnabled", event.target.checked)}
-            className="w-4 h-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
+            onCheckedChange={(checked) => update("authEnabled", checked)}
           />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label={t("webAccessSection.username")} className="flex flex-col gap-1">
-            {({ id }) => (
-              <Input id={id} value={value.username} onChange={(event) => update("username", event.target.value)} />
+          <SettingsRow
+            title={t("webAccessSection.username")}
+            htmlFor="web-access-username"
+            control={(
+              <Input id="web-access-username" className={TEXT_FIELD_CLASS} value={value.username}
+                onChange={(event) => update("username", event.target.value)} />
             )}
-          </FormField>
-          <FormField label={t("webAccessSection.idleLock")} className="flex flex-col gap-1">
-            {({ id }) => (
-              <Input id={id} type="number" min={0} max={1440} value={value.lockOnIdleMinutes}
-                onChange={(event) => update("lockOnIdleMinutes", Number(event.target.value))} />
+          />
+          <SettingsRow
+            title={t("webAccessSection.idleLock")}
+            htmlFor="web-access-idle-lock"
+            control={(
+              <Input id="web-access-idle-lock" type="number" min={0} max={1440} value={value.lockOnIdleMinutes}
+                className={NUMBER_FIELD_CLASS} onChange={(event) => update("lockOnIdleMinutes", Number(event.target.value))} />
             )}
-          </FormField>
-        </div>
-
-        <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-          <FormField
-            label={t(passwordConfigured ? "webAccessSection.updatePassword" : "webAccessSection.setPassword")}
-            className="flex flex-col gap-1"
-          >
-            {({ id }) => (
-              <Input id={id} type="password" value={password} onChange={(event) => setPassword(event.target.value)}
-                placeholder={t(passwordConfigured ? "webAccessSection.passwordPlaceholderConfigured" : "webAccessSection.passwordPlaceholder")} />
+          />
+          <SettingsRow
+            title={t(passwordConfigured ? "webAccessSection.updatePassword" : "webAccessSection.setPassword")}
+            htmlFor="web-access-password"
+            control={(
+              <>
+                <Input id="web-access-password" type="password" value={password} className={TEXT_FIELD_CLASS}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder={t(passwordConfigured ? "webAccessSection.passwordPlaceholderConfigured" : "webAccessSection.passwordPlaceholder")} />
+                <Button type="button" size="sm" onClick={handleSetPassword} disabled={savingPassword}>
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                  {t("webAccessSection.savePassword")}
+                </Button>
+              </>
             )}
-          </FormField>
-          <Button type="button" size="sm" onClick={handleSetPassword} disabled={savingPassword}>
-            <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-            {t("webAccessSection.savePassword")}
-          </Button>
-        </div>
-      </div>
+          />
+        </SettingsSection>
       </SearchableSetting>
 
       <SearchableSetting sectionId="web-access-network">
-      <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label htmlFor="web-access-allow-lan">{t("webAccessSection.allowLan")}</Label>
-            <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
-              {t(canUseLan ? "webAccessSection.allowLanEnabledHint" : "webAccessSection.allowLanRequiresAuthHint")}
-            </p>
-          </div>
-          <input
+        <SettingsSection title={t("webAccessGroups.network")}>
+          <SettingsSwitchRow
             id="web-access-allow-lan"
-            type="checkbox"
+            title={t("webAccessSection.allowLan")}
+            description={mutedOrAccent(
+              canUseLan,
+              t(canUseLan ? "webAccessSection.allowLanEnabledHint" : "webAccessSection.allowLanRequiresAuthHint"),
+            )}
             checked={value.allowLan}
             disabled={!canUseLan}
-            onChange={(event) => update("allowLan", event.target.checked)}
-            className="w-4 h-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
+            onCheckedChange={(checked) => update("allowLan", checked)}
           />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <Label htmlFor="web-access-remote-read-only">{t("webAccessSection.remoteReadOnly")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("webAccessSection.remoteReadOnlyHint")}
-            </p>
-          </div>
-          <input
+          <SettingsSwitchRow
             id="web-access-remote-read-only"
-            type="checkbox"
+            title={t("webAccessSection.remoteReadOnly")}
+            description={t("webAccessSection.remoteReadOnlyHint")}
             checked={value.remoteReadOnly}
-            onChange={(event) => update("remoteReadOnly", event.target.checked)}
-            className="w-4 h-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
+            onCheckedChange={(checked) => update("remoteReadOnly", checked)}
           />
-        </div>
-
-        {value.remoteReadOnly && (
-          <div className="flex items-center justify-between pl-4">
-            <div>
-              <Label htmlFor="web-access-remote-authenticated-write">{t("webAccessSection.remoteAuthenticatedWrite")}</Label>
-              <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
-                {t(
+          {value.remoteReadOnly && (
+            <SettingsSwitchRow
+              id="web-access-remote-authenticated-write"
+              title={t("webAccessSection.remoteAuthenticatedWrite")}
+              description={mutedOrAccent(
+                canUseLan,
+                t(
                   canUseLan
                     ? "webAccessSection.remoteAuthenticatedWriteHint"
                     : "webAccessSection.remoteAuthenticatedWriteRequiresAuthHint",
-                )}
-              </p>
-            </div>
-            <input
-              id="web-access-remote-authenticated-write"
-              type="checkbox"
+                ),
+              )}
               checked={value.remoteAuthenticatedWrite}
               disabled={!canUseLan}
-              onChange={(event) => update("remoteAuthenticatedWrite", event.target.checked)}
-              className="w-4 h-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
+              onCheckedChange={(checked) => update("remoteAuthenticatedWrite", checked)}
             />
-          </div>
-        )}
-
-        <FormField
-          label={t("webAccessSection.ipWhitelist")}
-          hint={t("webAccessSection.ipWhitelistHint")}
-          className="flex flex-col gap-1"
-          hintClassName="text-xs m-0 text-[var(--app-text-tertiary)]"
-        >
-          {({ id, hintId }) => (
+          )}
+          <SettingsRow
+            title={t("webAccessSection.ipWhitelist")}
+            description={t("webAccessSection.ipWhitelistHint")}
+            htmlFor="web-access-ip-whitelist"
+          >
             <textarea
-              id={id}
-              aria-describedby={hintId}
+              id="web-access-ip-whitelist"
               value={whitelistText}
               onChange={(event) => update("ipWhitelist", normalizeWhitelistText(event.target.value))}
               rows={3}
@@ -294,15 +237,11 @@ export default function WebAccessSection({
                 color: "var(--app-text-primary)",
               }}
             />
-          )}
-        </FormField>
-      </div>
+          </SettingsRow>
+        </SettingsSection>
       </SearchableSetting>
 
-      <WebAccessOrchestratorBlock
-        orchestrator={orchestrator}
-        onOrchestratorChange={onOrchestratorChange}
-      />
+      {isTauriRuntime() && <WebAccessTailscaleSection port={value.port} />}
 
       {isTauriRuntime() && (
         <DeviceAccessPanel
@@ -310,124 +249,19 @@ export default function WebAccessSection({
           onAllowDevicesChange={(allow) => update("allowDevices", allow)}
         />
       )}
+      {isTauriRuntime() && <CcpanesMcpCard variant="section" />}
 
-      {isTauriRuntime() && (
-        <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>{t("webAccessSection.tailscale.title")}</Label>
-              <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("webAccessSection.tailscale.description")}
-              </p>
-            </div>
-            <Button type="button" variant="secondary" size="sm" onClick={() => void detectTailscale()} disabled={detectingTailscale}>
-              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${detectingTailscale ? "animate-spin" : ""}`} />
-              {t("webAccessSection.tailscale.detect")}
-            </Button>
-          </div>
-          {tailscale && !tailscale.installed && (
-            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              {t("webAccessSection.tailscale.cliNotFound")}
-            </p>
-          )}
-          {tailscale?.installed && tailscale.backendState !== "Running" && (
-            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              {t("webAccessSection.tailscale.notRunning", {
-                state: tailscale.backendState
-                  ? t("webAccessSection.tailscale.stateSuffix", { state: tailscale.backendState })
-                  : "",
-              })} <code>tailscale up</code> {t("webAccessSection.tailscale.login")}
-            </p>
-          )}
-          {tailscale?.installed && tailscale.backendState === "Running" && (
-            <div className="flex flex-col gap-2">
-              <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-                <code
-                  className="px-2 py-1.5 rounded-md text-[length:var(--text-small)] font-mono overflow-x-auto whitespace-nowrap"
-                  style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
-                >
-                  {`tailscale serve --bg --https=443 http://127.0.0.1:${value.port}`}
-                </code>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    void copyText(
-                      `tailscale serve --bg --https=443 http://127.0.0.1:${value.port}`,
-                      t("webAccessSection.tailscale.command"),
-                    )
-                  }
-                >
-                  {t("webAccessSection.tailscale.copyCommand")}
-                </Button>
-              </div>
-              {tailscale.dnsName && (
-                <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-                  <code
-                    className="px-2 py-1.5 rounded-md text-[length:var(--text-small)] font-mono overflow-x-auto whitespace-nowrap"
-                    style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
-                  >
-                    {`https://${tailscale.dnsName}`}
-                  </code>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      void copyText(`https://${tailscale.dnsName}`, t("webAccessSection.tailscale.address"))
-                    }
-                  >
-                    {t("webAccessSection.tailscale.copyAddress")}
-                  </Button>
-                </div>
-              )}
-              <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("webAccessSection.tailscale.tailnetHint")} <code>tailscale serve reset</code>
-                {t("webAccessSection.tailscale.tailnetHintEnd")}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      <WebAccessOrchestratorBlock
+        orchestrator={orchestrator}
+        onOrchestratorChange={onOrchestratorChange}
+      />
 
-      <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <div className="flex items-center justify-between">
-          <div className="text-xs" style={{ color: "var(--app-text-secondary)" }}>
-            {status
-              ? `${t(status.running ? "webAccessSection.status.running" : "webAccessSection.status.stopped")} · ${status.url} · ${status.bindHost}:${status.port}`
-              : t("webAccessSection.status.unread")}
-          </div>
-          <Button type="button" variant="ghost" size="sm" onClick={refreshStatus} disabled={loadingStatus}>
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingStatus ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("open")}>
-            <ExternalLink className="w-3.5 h-3.5 mr-1" />
-            {t("webAccessSection.openWeb")}
-          </Button>
-          {isTauriRuntime() && (
-            <>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("start")}>
-                <Wifi className="w-3.5 h-3.5 mr-1" />
-                {t("webAccessSection.start")}
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("restart")}>
-                <RefreshCw className="w-3.5 h-3.5 mr-1" />
-                {t("webAccessSection.restart")}
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("stop")}>
-                <Square className="w-3.5 h-3.5 mr-1" />
-                {t("webAccessSection.stop")}
-              </Button>
-            </>
-          )}
-        </div>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("webAccessSection.restartHint")}
-        </p>
-      </div>
-    </div>
+      <WebAccessServiceSection
+        status={status}
+        loadingStatus={loadingStatus}
+        onRefresh={() => void refreshStatus()}
+        onAction={handleAction}
+      />
+    </>
   );
 }

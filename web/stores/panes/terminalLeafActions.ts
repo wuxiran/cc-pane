@@ -48,7 +48,7 @@ export type TerminalLeafActions = Pick<
   | "setTerminalRestoreBlocked"
 >;
 
-export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLeafActions {
+export function createTerminalLeafActions({ set, get }: PanesStoreAccess): TerminalLeafActions {
   return {
     updateTabSession: (_paneId, tabId, sessionId, terminalPaneId) => {
       set((state) => {
@@ -116,6 +116,9 @@ export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLe
         if (changed) notifyTerminalLayoutChanged("provider-account.update");
       }).catch((error: unknown) => {
         console.warn("[panes] failed to read the resolved provider account:", error);
+      }).finally(() => {
+        // 供应商/账号对齐到后端解析结果之后，再拍运行配置快照（凭证要用实际值）。
+        void get().captureTerminalLaunchProfileSnapshot(tabId, terminalPaneId, launchId);
       });
     },
 

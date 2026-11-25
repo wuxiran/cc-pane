@@ -135,7 +135,7 @@ try {
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('cc-panes:settings-navigate', { detail: { paneId: 'provider-credentials' } })));
   const toolTabs = page.getByRole('tablist', { name: '选择 CLI', exact: true });
   await toolTabs.waitFor({ state: 'visible' });
-  const expectedTools = ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'cursor', 'grok', 'pi', 'omp', 'jcode'];
+  const expectedTools = ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'cursor', 'grok', 'pi', 'omp', 'jcode', 'kiro', 'antigravity', 'fx', 'muse'];
   for (const tool of expectedTools) {
     const tab = toolTabs.locator(`[data-cli-tool="${tool}"]`);
     await tab.waitFor({ state: 'visible' });

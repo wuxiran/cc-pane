@@ -134,6 +134,35 @@
       "promptFallback": false
     }
   },
+  "fx": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
   "gemini": {
     "mcp": {
       "ccpanes": "projectFile",
@@ -261,6 +290,64 @@
     },
     "skills": {
       "mount": "skillsDir",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "kiro": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
+      "nativeSources": [],
+      "promptFallback": false
+    }
+  },
+  "muse": {
+    "mcp": {
+      "ccpanes": "none",
+      "ctlProxy": false,
+      "isolation": "none",
+      "launchIdentity": false,
+      "remoteHeaders": false,
+      "shared": false,
+      "transports": [],
+      "workspace": false
+    },
+    "runtimes": {
+      "ssh": {
+        "launch": false,
+        "mcp": "none",
+        "skills": "none"
+      },
+      "wsl": {
+        "launch": true,
+        "mcp": "none",
+        "skills": "none"
+      }
+    },
+    "skills": {
+      "mount": "none",
       "nativeSources": [],
       "promptFallback": false
     }

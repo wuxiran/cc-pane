@@ -27,7 +27,8 @@ import { useDialogStore } from "@/stores/useDialogStore";
 import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
 import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
-import { deriveWorkspaceTerminals } from "./workspaceTerminals";
+import { collectLayoutAgentChatTabs, collectLayoutResumeIds, deriveWorkspaceTerminals } from "./workspaceTerminals";
+import { useAgentChatRowIndex } from "./useAgentChatRowIndex";
 import WorkspaceTerminalList from "./WorkspaceTerminalList";
 import { useFirstPromptIndex } from "@/hooks/useFirstPromptIndex";
 import { useCliTools } from "@/hooks/useCliTools";
@@ -150,16 +151,18 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const rootPane = usePanesStore((s) => s.rootPane);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
-  const firstPrompts = useFirstPromptIndex(true);
+  const layoutSlice = useMemo(
+    () => (layouts && rootPane ? { layouts, rootPane, currentLayoutId } : null),
+    [layouts, rootPane, currentLayoutId],
+  );
+  const resumeIds = useMemo(() => (layoutSlice ? collectLayoutResumeIds(layoutSlice) : []), [layoutSlice]);
+  const firstPrompts = useFirstPromptIndex(true, resumeIds);
+  const chatTabs = useMemo(() => (layoutSlice ? collectLayoutAgentChatTabs(layoutSlice) : []), [layoutSlice]);
+  const agentChats = useAgentChatRowIndex(chatTabs);
   const workspaceTerminals = useMemo(() => {
-    if (!layouts || !rootPane) return null;
-    return deriveWorkspaceTerminals(
-      { layouts, rootPane, currentLayoutId },
-      workspaces,
-      statusMap,
-      firstPrompts,
-    );
-  }, [layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
+    if (!layoutSlice) return null;
+    return deriveWorkspaceTerminals(layoutSlice, workspaces, statusMap, firstPrompts, agentChats);
+  }, [layoutSlice, workspaces, statusMap, firstPrompts, agentChats]);
   // 默认工作空间与 Agent Chat 工作空间不进列表：它们是「没选项目时会话 / 新对话落在哪」的约定目录，
   // 不是用户要管理的条目。例外：Agent Chat 工作空间里加过项目时照常列出，否则那些项目没有入口。
   const listedWorkspaces = useMemo(

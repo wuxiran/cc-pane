@@ -90,11 +90,19 @@ export const YOLO_INHERENT_CLI_TOOLS: ReadonlySet<CliTool> = new Set<CliTool>(["
 
 const PI_FAMILY_LIKE = (cliTool: CliTool) => cliTool === "pi" || cliTool === "omp" || cliTool === "jcode";
 
+/**
+ * 只做裸启动的终端 CLI（Kiro / fx / Muse）：适配器 supports_yolo / supports_mcp 都是 false，
+ * 既没有 YOLO flag 也没有 MCP 可禁，草稿里两者一律清零（与 cc-cli-adapters 保守能力位对齐）。
+ */
+const BARE_TERMINAL_CLI_TOOLS: ReadonlySet<CliTool> = new Set<CliTool>(["kiro", "fx", "muse"]);
+
 /** 切 CLI 时的约束：Pi 家族 / jcode 不支持禁 MCP 的旧语义清零；自带全自动的 CLI 清掉 yolo。 */
 function cliConstraintPatch(cliTool: CliTool): Partial<LauncherDraft> {
   return {
-    ...(PI_FAMILY_LIKE(cliTool) ? { skipMcp: false } : {}),
-    ...(YOLO_INHERENT_CLI_TOOLS.has(cliTool) ? { yolo: undefined } : {}),
+    ...(PI_FAMILY_LIKE(cliTool) || BARE_TERMINAL_CLI_TOOLS.has(cliTool) ? { skipMcp: false } : {}),
+    ...(YOLO_INHERENT_CLI_TOOLS.has(cliTool) || BARE_TERMINAL_CLI_TOOLS.has(cliTool)
+      ? { yolo: undefined }
+      : {}),
   };
 }
 
@@ -125,7 +133,10 @@ export type BuildPendingLaunchResult =
               | "provider_required"
               | "pi_ssh_unsupported"
               | "omp_ssh_unsupported"
-              | "jcode_ssh_unsupported";
+              | "jcode_ssh_unsupported"
+              | "kiro_ssh_unsupported"
+              | "fx_ssh_unsupported"
+              | "muse_ssh_unsupported";
           };
     };
 
@@ -176,6 +187,15 @@ export function buildPendingLaunch(
   }
   if (effectiveDraft.cliTool === "jcode" && options.ssh) {
     return { launch: null, issue: { code: "jcode_ssh_unsupported" } };
+  }
+  if (effectiveDraft.cliTool === "kiro" && options.ssh) {
+    return { launch: null, issue: { code: "kiro_ssh_unsupported" } };
+  }
+  if (effectiveDraft.cliTool === "fx" && options.ssh) {
+    return { launch: null, issue: { code: "fx_ssh_unsupported" } };
+  }
+  if (effectiveDraft.cliTool === "muse" && options.ssh) {
+    return { launch: null, issue: { code: "muse_ssh_unsupported" } };
   }
   const appendSystemPrompt = effectiveDraft.appendSystemPrompt.trim() || undefined;
   const initialPrompt = effectiveDraft.initialPrompt.trim() || undefined;

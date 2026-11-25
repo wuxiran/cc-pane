@@ -16,8 +16,12 @@ export function isLocalCodexPath(value: string): boolean {
     && (/^\/(?!\/)/.test(value) || /^[A-Za-z]:[\\/]/.test(value));
 }
 
+/**
+ * 引擎列表里只有一个「Codex」（id 仍是 codex-app-server，原生 App Server 优先、起不来自动改走 ACP）；
+ * 旧 id `codex` 只出现在历史会话 / 降级会话上，标注为 ACP 兼容模式。
+ */
 export function codexEngineLabel(id: string, fallback = id): string {
-  return id === "codex" ? "Codex (ACP)" : id === CODEX_APP_SERVER_ENGINE ? "Codex App Server" : fallback;
+  return id === "codex" ? "Codex (ACP)" : id === CODEX_APP_SERVER_ENGINE ? "Codex" : fallback;
 }
 
 /** A task can originate in any local CLI/Agent, independently of its engine. */

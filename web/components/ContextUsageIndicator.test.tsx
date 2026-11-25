@@ -28,11 +28,11 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: PropsWithChildren) => <div>{children}</div>,
 }));
 
-const { navigateToSettingsMock } = vi.hoisted(() => ({
-  navigateToSettingsMock: vi.fn(),
+const { openProvidersViewMock } = vi.hoisted(() => ({
+  openProvidersViewMock: vi.fn(),
 }));
-vi.mock("@/components/settings/settingsNavigation", () => ({
-  navigateToSettings: navigateToSettingsMock,
+vi.mock("@/stores/useActivityBarStore", () => ({
+  useActivityBarStore: { getState: () => ({ openProvidersView: openProvidersViewMock }) },
 }));
 
 function snapshot(overrides: Partial<ContextUsageSnapshot> = {}): ContextUsageSnapshot {
@@ -72,13 +72,16 @@ describe("ContextUsageIndicator", () => {
     useContextUsageStore.setState({ sessions: new Map() });
   });
 
-  it.each(["waiting", "error"] as const)("shows unknown instead of old 81 percent while %s", (status) => {
-    setSnapshot(snapshot({ status, usedTokens: null, usedPercentage: null, agentSessionId: null }),
-      snapshot({ usedPercentage: 81, agentSessionId: "old-agent" }));
-    render(<ContextUsageIndicator />);
-    expect(screen.queryByText("81%")).not.toBeInTheDocument();
-    expect(screen.getByText("未知")).toBeInTheDocument();
-  });
+  it.each([["waiting", "0%"], ["error", "未知"]] as const)(
+    "does not show old 81 percent while %s",
+    (status, expected) => {
+      setSnapshot(snapshot({ status, usedTokens: null, usedPercentage: null, agentSessionId: null }),
+        snapshot({ usedPercentage: 81, agentSessionId: "old-agent" }));
+      render(<ContextUsageIndicator />);
+      expect(screen.queryByText("81%")).not.toBeInTheDocument();
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    },
+  );
 
   it("reads the snapshot for an explicitly supplied grid terminal", () => {
     const gridSnapshot = snapshot({
@@ -123,9 +126,9 @@ describe("ContextUsageIndicator", () => {
     expect(screen.queryByText(/窗口来源/)).not.toBeInTheDocument();
   });
 
-  it("WINDOW_UNKNOWN 提示文案包含可点击的「去 Provider 设置」按钮，点击后跳到 provider pane", async () => {
+  it("WINDOW_UNKNOWN 提示文案包含可点击的「去 Provider 设置」按钮，点击后打开供应商视图的凭证页", async () => {
     const user = userEvent.setup();
-    navigateToSettingsMock.mockClear();
+    openProvidersViewMock.mockClear();
     setSnapshot(snapshot());
     render(<ContextUsageIndicator />);
 
@@ -133,7 +136,7 @@ describe("ContextUsageIndicator", () => {
     expect(link).toBeInTheDocument();
     await user.click(link);
 
-    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "provider" });
+    expect(openProvidersViewMock).toHaveBeenCalledWith("providers");
   });
 
   it("renders a compact usage summary", () => {

@@ -33,7 +33,28 @@ pub struct ResolvedTerminalPathLink {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalPathScope {
     ProjectOnly,
-    ExplicitAbsoluteDirectory,
+    /// 桌面端：用户点的是**显式绝对路径**（含本机 `~/…`）时，项目外的文件和目录都放行，
+    /// 由前端确认框按 `outside_project_root` 出警示。相对路径仍不许越出项目根。
+    ExplicitAbsolute,
+}
+
+/// 本机会话里把 `~` / `~/…` 展开成用户主目录。WSL 的 `~` 指发行版里的家目录，
+/// 宿主机这边无从得知，不展开（保持原样 → 按相对路径处理后找不到即不可用）。
+fn expand_home<'a>(raw_path: &'a str, runtime_kind: &str) -> std::borrow::Cow<'a, str> {
+    if runtime_kind != "local" {
+        return raw_path.into();
+    }
+    let rest = if raw_path == "~" {
+        Some("")
+    } else {
+        raw_path
+            .strip_prefix("~/")
+            .or_else(|| raw_path.strip_prefix("~\\"))
+    };
+    match (rest, dirs::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest).to_string_lossy().into_owned().into(),
+        _ => raw_path.into(),
+    }
 }
 
 fn coded(code: &str, message: &str) -> AppError {
@@ -210,6 +231,8 @@ fn resolve_terminal_path_link_with_scope(
         ));
     }
 
+    let expanded = expand_home(raw_path, &context.runtime_kind);
+    let raw_path = expanded.as_ref();
     let root = std::fs::canonicalize(&context.project_path).map_err(|_| {
         coded(
             "TERMINAL_PATH_CONTEXT_UNAVAILABLE",
@@ -240,11 +263,10 @@ fn resolve_terminal_path_link_with_scope(
             "The terminal path type is unsupported",
         ));
     };
-    let explicitly_external_directory = scope == TerminalPathScope::ExplicitAbsoluteDirectory
-        && kind == TerminalPathKind::Directory
+    let explicitly_external = scope == TerminalPathScope::ExplicitAbsolute
         && raw_path_is_explicitly_external(raw_path, &root);
     let outside_project_root = !path_is_within(&target, &root);
-    if outside_project_root && !explicitly_external_directory {
+    if outside_project_root && !explicitly_external {
         return Err(coded(
             "TERMINAL_PATH_OUTSIDE_ROOT",
             "The terminal path is outside the session project",
@@ -270,11 +292,7 @@ pub fn resolve_terminal_path_link_for_desktop(
     context: &TerminalLinkContext,
     raw_path: &str,
 ) -> AppResult<ResolvedTerminalPathLink> {
-    resolve_terminal_path_link_with_scope(
-        context,
-        raw_path,
-        TerminalPathScope::ExplicitAbsoluteDirectory,
-    )
+    resolve_terminal_path_link_with_scope(context, raw_path, TerminalPathScope::ExplicitAbsolute)
 }
 
 #[cfg(all(test, windows))]

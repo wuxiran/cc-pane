@@ -9,6 +9,7 @@ import {
   FolderOpen,
   GitFork,
   Hash,
+  ListTodo,
   MoreHorizontal,
   PanelsTopLeft,
   RefreshCw,
@@ -26,6 +27,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { lazyWithRetry } from "@/lib/lazyRetry";
+import { useTaskQueuePopoverStore } from "@/stores/useTaskQueuePopoverStore";
 import type {
   TerminalSessionMenu,
   TerminalSessionMenuState,
@@ -106,6 +108,8 @@ export default function TerminalContextMenu({
   const [hasSession, setHasSession] = useState(false);
   const [sessionState, setSessionState] = useState(NO_SESSION_STATE);
   const [forkOpen, setForkOpen] = useState(false);
+  // 任务队列入口（原在状态栏）：仅当本会话挂着队列面板时出现
+  const [queueSessionId, setQueueSessionId] = useState<string | null>(null);
 
   if (!enabled) {
     return <>{children}</>;
@@ -119,6 +123,10 @@ export default function TerminalContextMenu({
           setHasSelection(getSelection().length > 0);
           setHasSession(Boolean(getSessionId()));
           setSessionState(sessionMenu?.getState() ?? NO_SESSION_STATE);
+          const sessionId = getSessionId();
+          setQueueSessionId(
+            sessionId && useTaskQueuePopoverStore.getState().mounted.has(sessionId) ? sessionId : null,
+          );
         }
       }}
     >
@@ -138,6 +146,14 @@ export default function TerminalContextMenu({
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => setForkOpen(true)}>
               <GitFork /> {t("terminalForkSession")}
+            </ContextMenuItem>
+          </>
+        )}
+        {queueSessionId && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => useTaskQueuePopoverStore.getState().request(queueSessionId)}>
+              <ListTodo /> {t("terminalTaskQueue")}
             </ContextMenuItem>
           </>
         )}

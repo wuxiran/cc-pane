@@ -39,6 +39,8 @@ impl LaunchProfileService {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow!("Launch profile name cannot be empty"))?
             .to_string();
+        let native_overrides =
+            crate::services::native_config::normalize_overrides(draft.native_overrides)?;
         let mut profile = LaunchProfile {
             id: uuid::Uuid::new_v4().to_string(),
             alias: Self::normalize_alias(draft.alias, &name),
@@ -52,10 +54,12 @@ impl LaunchProfileService {
             provider_id: draft.provider_id,
             adapter_options: draft.adapter_options,
             target_tools: Self::normalize_target_tools(draft.target_tools),
-            target_runtime: Self::normalize_runtime(draft.target_runtime),
+            // 运行配置不区分运行位置：一份配置在本机 / WSL / SSH 通用，旧字段一律不落盘。
+            target_runtime: None,
             yolo_mode: draft.yolo_mode,
             mcp_policy: draft.mcp_policy,
             skill_policy: draft.skill_policy,
+            native_overrides,
             is_default: draft.is_default,
             created_at: now.clone(),
             updated_at: now,
@@ -65,12 +69,7 @@ impl LaunchProfileService {
                 profile.is_default = true;
             }
             if profile.is_default {
-                Self::clear_overlapping_defaults(
-                    config,
-                    &profile.id,
-                    &profile.target_tools,
-                    profile.target_runtime.as_deref(),
-                );
+                Self::clear_overlapping_defaults(config, &profile.id, &profile.target_tools);
             }
             config.profiles.push(profile.clone());
             Ok(profile)
@@ -92,14 +91,14 @@ impl LaunchProfileService {
                 .ok_or_else(|| anyhow!("Launch profile name cannot be empty"))?
                 .to_string();
             let target_tools = Self::normalize_target_tools(draft.target_tools);
-            let target_runtime = Self::normalize_runtime(draft.target_runtime);
+            let native_overrides = draft
+                .native_overrides
+                .map(|overrides| {
+                    crate::services::native_config::normalize_overrides(Some(overrides))
+                })
+                .transpose()?;
             if draft.is_default {
-                Self::clear_overlapping_defaults(
-                    config,
-                    id,
-                    &target_tools,
-                    target_runtime.as_deref(),
-                );
+                Self::clear_overlapping_defaults(config, id, &target_tools);
             }
             let mut profile = config.profiles[pos].clone();
             profile.alias = Self::normalize_alias(draft.alias, &name);
@@ -112,10 +111,13 @@ impl LaunchProfileService {
             profile.provider_id = draft.provider_id;
             profile.adapter_options = draft.adapter_options;
             profile.target_tools = target_tools;
-            profile.target_runtime = target_runtime;
+            profile.target_runtime = None;
             profile.yolo_mode = draft.yolo_mode;
             profile.mcp_policy = draft.mcp_policy;
             profile.skill_policy = draft.skill_policy;
+            if let Some(native_overrides) = native_overrides {
+                profile.native_overrides = native_overrides;
+            }
             profile.is_default = draft.is_default;
             profile.updated_at = chrono::Utc::now().to_rfc3339();
             config.profiles[pos] = profile.clone();
@@ -129,15 +131,11 @@ impl LaunchProfileService {
                 .profiles
                 .iter()
                 .find(|profile| profile.id == id && profile.is_default)
-                .map(|profile| (profile.target_tools.clone(), profile.target_runtime.clone()));
+                .map(|profile| profile.target_tools.clone());
             config.profiles.retain(|profile| profile.id != id);
-            if let Some((target_tools, target_runtime)) = removed_default_target {
+            if let Some(target_tools) = removed_default_target {
                 let overlaps = |profile: &LaunchProfile| {
                     Self::target_tools_overlap(&profile.target_tools, &target_tools)
-                        && Self::target_runtime_overlap(
-                            profile.target_runtime.as_deref(),
-                            target_runtime.as_deref(),
-                        )
                 };
                 if !config
                     .profiles
@@ -194,13 +192,13 @@ impl LaunchProfileService {
 
     pub fn set_default_profile(&self, id: &str) -> Result<()> {
         self.mutate_config(|config| {
-            let (target_tools, target_runtime) = config
+            let target_tools = config
                 .profiles
                 .iter()
                 .find(|profile| profile.id == id)
-                .map(|profile| (profile.target_tools.clone(), profile.target_runtime.clone()))
+                .map(|profile| profile.target_tools.clone())
                 .ok_or_else(|| anyhow!("Launch profile '{}' not found", id))?;
-            Self::clear_overlapping_defaults(config, id, &target_tools, target_runtime.as_deref());
+            Self::clear_overlapping_defaults(config, id, &target_tools);
             if let Some(profile) = config.profiles.iter_mut().find(|profile| profile.id == id) {
                 profile.is_default = true;
                 profile.updated_at = chrono::Utc::now().to_rfc3339();

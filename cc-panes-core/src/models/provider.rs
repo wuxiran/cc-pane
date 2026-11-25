@@ -79,6 +79,13 @@ pub struct ProviderModel {
     /// 与 `context_window_tokens` 互补：前者控制注入时形态，后者控制 context 解析。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_size: Option<String>,
+    /// 在下拉中隐藏：启动档 / 启动器的模型下拉不再列出它，但已引用它的启动档仍能解析。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// 默认账号的固定 id 与名字（旧供应商迁移后落在这个账号上）。
@@ -436,6 +443,10 @@ pub struct Provider {
     /// 来源（缺省 = 手动）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<ProviderOrigin>,
+    /// 原生 CLI 配置覆盖片段：CLI id（`codex` / `claude`）→ 原文（Codex 为 TOML、Claude 为 JSON）。
+    /// 保存原文以保留用户格式；合并规则见 `services::native_config`。
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub native_overrides: std::collections::BTreeMap<String, String>,
 }
 
 impl Provider {
@@ -807,6 +818,25 @@ mod tests {
         let value = serde_json::to_value(provider).expect("provider should serialize");
 
         assert_eq!(value, input);
+    }
+
+    #[test]
+    fn provider_model_hidden_defaults_false_and_is_skipped_when_false() {
+        let model: super::ProviderModel =
+            serde_json::from_value(json!({ "id": "m" })).expect("legacy model");
+        assert!(!model.hidden);
+        assert!(serde_json::to_value(&model)
+            .unwrap()
+            .get("hidden")
+            .is_none());
+
+        let hidden: super::ProviderModel =
+            serde_json::from_value(json!({ "id": "m", "hidden": true })).expect("hidden model");
+        assert!(hidden.hidden);
+        assert_eq!(
+            serde_json::to_value(&hidden).unwrap()["hidden"],
+            json!(true)
+        );
     }
 
     #[test]

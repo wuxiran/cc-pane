@@ -67,6 +67,9 @@
   "errorPiSshUnsupported": "Pi runs only in a local or WSL environment",
   "errorOmpSshUnsupported": "Oh My Pi runs only in a local or WSL environment",
   "errorJcodeSshUnsupported": "Jcode runs only in a local or WSL environment",
+  "errorKiroSshUnsupported": "Kiro CLI runs only in a local or WSL environment",
+  "errorFxSshUnsupported": "fx runs only in a local or WSL environment",
+  "errorMuseSshUnsupported": "Muse Code runs only in a local or WSL environment",
   "errorResolveFailed": "Failed to resolve launch options ({{code}}); check workspace environment settings",
   "scenario": {
     "default": "Default",

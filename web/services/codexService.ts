@@ -7,6 +7,9 @@ export interface CodexSession {
   modified_at: number;
   file_path: string;
   description: string;
+  /** 会话所在的登录账号（默认目录里的会话没有）。 */
+  account_id?: string;
+  account_name?: string;
 }
 
 export const codexService = {

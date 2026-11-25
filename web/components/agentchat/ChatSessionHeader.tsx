@@ -24,9 +24,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { codexEngineLabel } from "@/lib/codexIntegration";
+import LaunchProfileBadge from "@/components/LaunchProfileBadge";
+import { useChatLaunchProfileSnapshot } from "./useChatLaunchProfileSnapshot";
 
 export interface ChatSessionHeaderProps {
   engineLabel: string;
+  /** 会话启动时应用的运行配置（snapshot.launchProfileId）；缺失 = 系统默认，不显示。只读。 */
+  launchProfileId?: string;
+  /** 所属标签 id：运行配置快照记在标签上（配置被删后仍显示原名）。 */
+  chatTabId?: string;
   /** 引擎名右侧的工作空间/目录 chip（StartProjectMenu trigger），由父组件注入。 */
   workspaceMenu?: ReactNode;
   extraMenuItems?: ReactNode;
@@ -50,6 +56,8 @@ export interface ChatSessionHeaderProps {
 
 export default function ChatSessionHeader({
   engineLabel,
+  launchProfileId,
+  chatTabId,
   workspaceMenu,
   extraMenuItems,
   generating,
@@ -73,6 +81,7 @@ export default function ChatSessionHeader({
   const { t: runtimeT } = useTranslation("agentRuntime");
   const { t: reviewT } = useTranslation("review");
   const runtimeTools = useChatRuntimeTools();
+  const launchProfileSnapshot = useChatLaunchProfileSnapshot(chatTabId, launchProfileId);
   return (
     <div className="agent-chat-header flex min-h-12 shrink-0 items-center gap-3 px-5 py-2">
       <div className="agent-chat-header-identity flex min-w-0 items-center gap-2.5">
@@ -85,6 +94,11 @@ export default function ChatSessionHeader({
             {workspaceMenu}
           </div>
         ) : null}
+        <LaunchProfileBadge
+          session={{ launchProfileId, launchProfileSnapshot }}
+          mode="chat"
+          className="max-w-40 text-xs"
+        />
         {generating ? (
           <span className="agent-chat-header-status flex shrink-0 items-center gap-1.5 text-xs text-[var(--app-text-tertiary)]">
             <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}

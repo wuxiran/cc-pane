@@ -17,10 +17,15 @@ import { providerService } from "@/services/providerService";
 
 // 运行配置面板与 Provider 表单都是重组件，桩掉并回显关键 props
 vi.mock("./LaunchProfilesPanel", () => ({
-  default: ({ tool, onDirtyChange }: { tool?: string; onDirtyChange?: (dirty: boolean) => void }) => (
+  default: ({ tool, onDirtyChange, onManageCredentials }: {
+    tool?: string;
+    onDirtyChange?: (dirty: boolean) => void;
+    onManageCredentials?: () => void;
+  }) => (
     <div data-testid="launch-profiles">
       {tool}
       <button type="button" onClick={() => onDirtyChange?.(true)}>mark-profile-dirty</button>
+      <button type="button" onClick={() => onManageCredentials?.()}>manage-credentials</button>
     </div>
   ),
 }));
@@ -138,11 +143,9 @@ function setupStores(providers: Provider[] = []) {
   return actions;
 }
 
-// 子页切换已改为统一 header 的 SegmentedTabs（role=tab）
+// 顶部不再有子页标签：凭证页从运行配置凭证行的「管理凭证」进入
 async function switchToProvidersList(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(
-    screen.getByRole("tab", { name: i18n.t("settings:providerCredentialsTab") })
-  );
+  await user.click(screen.getByRole("button", { name: "manage-credentials" }));
 }
 
 async function selectCli(
@@ -221,6 +224,18 @@ describe("ProvidersPanel", () => {
     // 展示 System 条目 + 空态引导文案。
     expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
     expect(screen.getByText(i18n.t("settings:emptyDesc"))).toBeInTheDocument();
+  });
+
+  it("has no top view tabs; the credential page offers a back button to launch profiles", async () => {
+    const user = userEvent.setup();
+    setupStores();
+    render(<ProvidersPanel />);
+
+    expect(screen.queryByRole("tab", { name: i18n.t("settings:providerCredentialsTab") })).not.toBeInTheDocument();
+    await switchToProvidersList(user);
+    expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: i18n.t("settings:launchProfilesTab") }));
+    expect(screen.getByTestId("launch-profiles")).toBeInTheDocument();
   });
 
   it("asks before switching top views when a launch profile is dirty", async () => {

@@ -6,6 +6,24 @@
   "searchLabel": "搜索设置",
   "searchPlaceholder": "搜索字体、通知、快捷键…",
   "clearSearch": "清除搜索",
+  "searchShortcutHint": "按 / 搜索",
+  "breadcrumbLabel": "当前位置",
+  "generalGroups": {
+    "files": "文件与搜索",
+    "data": "数据与存储"
+  },
+  "terminalGroups": {
+    "display": "显示",
+    "colors": "颜色",
+    "features": "功能",
+    "session": "会话"
+  },
+  "wallpaperGroups": {
+    "effects": "显示效果",
+    "video": "视频",
+    "music": "背景音乐",
+    "musicFile": "音乐文件"
+  },
   "searchEmpty": "没有匹配的设置",
   "searchCommandGroup": "设置",
   "searchLayers": {
@@ -36,11 +54,18 @@
     "notification": "通知 提醒 退出 等待输入",
     "imBridge": "IM 推送 钉钉 企业微信 飞书 机器人 群机器人 webhook dingtalk wecom lark feishu 外推 消息",
     "screenshot": "截图 屏幕 快捷键 保留",
-    "voice": "语音 录音 转写 麦克风 whisper 自定义",
+    "voice": "语音 录音 转写 麦克风 whisper 自定义 词典 语气词 听写 本机 离线 本地模型 sherpa SenseVoice Qwen3",
     "ccchan": "cc酱 宠物 伙伴 浮窗",
     "experimental": "实验 预览 测试 beta feature flag 性能记录 卡顿 诊断",
+    "agentChat": "agent chat ACP codex app server 兼容模式 桥 引擎 对话",
     "about": "版本 更新 日志 卸载 清理",
-    "island": "灵动岛 刘海 dynamic island 置顶 胶囊 状态 审批 额度"
+    "island": "灵动岛 刘海 dynamic island 置顶 胶囊 状态 审批 额度",
+    "deviceInfo": "本机 设备 主机 版本 更新 系统",
+    "deviceClients": "客户端 设备 配对 授权 撤销 移除 手机",
+    "deviceMcp": "MCP 外部 应用 token 端点",
+    "tailscale": "Tailscale 远程 tailnet",
+    "webService": "Web 服务 启动 停止 重启 打开 浏览器",
+    "orchestrator": "编排器 MCP 端点 监听 YOLO"
   },
   "groups": {
     "application": "应用",
@@ -57,7 +82,10 @@
       "title": "工具"
     },
     "system": {
-      "title": "系统与连接"
+      "title": "系统"
+    },
+    "devices": {
+      "title": "设备与访问"
     },
     "advanced": {
       "title": "高级"
@@ -120,6 +148,12 @@
   "setupGuide": {
     "title": "上手清单",
     "description": "回访黄金五分钟路径，查看核心并行协作工作流的真实完成度。"
+  },
+  "agentChat": {
+    "title": "Agent Chat",
+    "description": "结构化 agent 对话（ACP 引擎与 Codex）。",
+    "codexForceAcp": "Codex 始终使用 ACP 兼容模式",
+    "codexForceAcpDesc": "新的 Codex 对话改用 codex-acp 桥，不再尝试原生 App Server。默认关闭：Codex 优先用 App Server，起不来时自动改用 ACP 兼容模式。已有对话沿用启动时的传输方式。"
   },
   "experimental": {
     "title": "实验性功能",
@@ -300,7 +334,7 @@
     "ipWhitelist": "IP 白名单",
     "ipWhitelistHint": "留空表示允许任意局域网客户端；多条用换行或逗号分隔。",
     "orchestrator": {
-      "title": "MCP 编排服务监听",
+      "title": "编排器（MCP 端点）",
       "description": "CC-Panes 内置 orchestrator（供 CLI 的 ccpanes MCP 工具回连）。修改后重启应用生效。",
       "bindMode": "监听范围",
       "bindModes": {
@@ -317,11 +351,20 @@
           "hint": "始终 0.0.0.0（局域网可见，凭随机端口 + token 防护）。"
         }
       },
-      "currentListen": "当前实际监听 {{address}}（{{reason}}）"
+      "currentListen": "当前实际监听 {{address}}（{{reason}}）",
+      "rotate": {
+        "title": "访问令牌",
+        "description": "CLI 会话与外部 MCP 客户端用它连接编排器。怀疑泄露时可更换。",
+        "button": "更换令牌",
+        "confirm": "更换编排器访问令牌？\n\n• 旧令牌立即失效，新令牌会保存，重启后继续使用。\n• 在其他应用里手动配置过旧地址 / 旧令牌的 MCP 客户端，需要改成「在其他应用中使用（MCP）」里的新地址。\n• 当前有 {{count}} 个终端会话在运行（另含打开着的 Agent Chat）。它们启动时拿到的是旧令牌（写在会话的环境变量和 MCP 配置里，无法热更新）：这些会话里的 CC-Panes MCP 工具调用和状态上报会失败，直到关闭并重新打开对应标签。经 cc-panes-ctl MCP 代理连接的会话会自动切到新令牌。\n• 之后新开的会话自动使用新令牌。",
+        "confirmUnknown": "更换编排器访问令牌？\n\n• 旧令牌立即失效，新令牌会保存，重启后继续使用。\n• 手动配置过旧令牌的外部 MCP 客户端需要改成新地址。\n• 正在运行的会话（含 Agent Chat）启动时拿到的是旧令牌，无法热更新：它们的 CC-Panes MCP 工具调用和状态上报会失败，直到关闭并重新打开对应标签。\n• 之后新开的会话自动使用新令牌。",
+        "done": "已更换令牌。新开的会话会使用新令牌。",
+        "failed": "更换令牌失败：{{error}}"
+      }
     },
     "tailscale": {
       "title": "Tailscale 远程访问（推荐）",
-      "description": "通过 Tailscale Serve 从你自己的设备安全访问 Web 端：无需开局域网、服务保持仅本机监听。CC-Panes 只做只读检测，不代执行、不保存任何 Tailscale 凭证。",
+      "description": "通过 Tailscale Serve 从你自己的设备安全访问 Web 端：无需开局域网、服务保持仅本机监听。检测是只读的；只有你点击「一键开启 / 关闭」时才会执行 tailscale serve，CC-Panes 不保存任何 Tailscale 凭证。",
       "detect": "检测",
       "cliNotFound": "未检测到 tailscale CLI。安装后再来：https://tailscale.com/download",
       "notRunning": "Tailscale 已安装但未运行{{state}}。请先在终端执行",
@@ -332,7 +375,25 @@
       "address": "访问地址",
       "copyAddress": "复制地址",
       "tailnetHint": "在终端执行上面的命令后，用 tailnet 内任意设备访问该地址。建议同时启用「账号密码登录」和「远程只读模式」；经 Tailscale 访问会按远程来源处理。取消发布请执行",
-      "tailnetHintEnd": "。"
+      "tailnetHintEnd": "。",
+      "serve": {
+        "on": "已发布到 tailnet：",
+        "off": "尚未通过 Tailscale Serve 发布。",
+        "enable": "一键开启",
+        "disable": "关闭",
+        "enabled": "已通过 Tailscale Serve 发布",
+        "disabled": "已关闭 Tailscale Serve",
+        "hint": "只有点击按钮时才会执行 tailscale serve：开启 = 把 tailnet 的 HTTPS 443 转发到本机 Web 服务；关闭只撤掉这一条。需要先设置访问密码。",
+        "errors": {
+          "notInstalled": "未找到 tailscale CLI，请先安装 Tailscale：https://tailscale.com/download",
+          "notRunning": "Tailscale 未连接（{{state}}），请先在终端执行 tailscale up 登录。",
+          "needsApproval": "你的 tailnet 还没有开启 Serve，需要管理员批准。在浏览器打开下面的链接开启后再试：{{url}}",
+          "needsApprovalNoUrl": "你的 tailnet 还没有开启 Serve，需要管理员在 Tailscale 后台开启 HTTPS / Serve 后再试。",
+          "permissionDenied": "没有权限修改 Tailscale Serve 配置。Linux 上可执行 sudo tailscale set --operator=$USER 后重试。详情：{{detail}}",
+          "passwordRequired": "经 Tailscale Serve 进来的访问按远程处理，请先在「登录认证」里设置访问密码。",
+          "failed": "tailscale serve 执行失败：{{detail}}"
+        }
+      }
     },
     "status": {
       "running": "运行中",
@@ -395,9 +456,9 @@
   "resetDone": "已恢复默认设置（需点击保存生效）",
   "autoSaved": "已自动保存 {{time}}",
   "autoSaveHint": "更改即时自动保存",
-  "resetSection": "重置本组",
+  "resetSection": "恢复本页默认",
   "resetSectionConfirm": "再点一次确认",
-  "sectionResetDone": "本组已重置为默认值",
+  "sectionResetDone": "本页已恢复默认值",
   "generalTitle": "通用设置",
   "closeToTray": "关闭窗口时最小化到托盘",
   "traySectionTitle": "系统托盘",
@@ -498,10 +559,8 @@
   "shellAutoDetect": "留空则自动检测",
   "voiceTitle": "语音输入",
   "voiceDesc": "每个终端窗格可录音，识别完成后把文字写入对应终端，不自动提交。",
-  "voiceEnable": "启用语音输入",
   "voiceShowFloatingButton": "在终端显示悬浮按钮",
   "voiceShowFloatingButtonDesc": "关闭后终端右下角不再显示麦克风按钮；语音快捷键仍然可用。",
-  "voiceProvider": "语音服务",
   "voiceProviderDashscope": "DashScope / Qwen-ASR",
   "voiceProviderMimo": "小米 MiMo",
   "voiceDashscopeApiKey": "DashScope API Key",
@@ -523,15 +582,113 @@
   "voiceLimitHint": "当前使用 Qwen-ASR OpenAI 兼容同步接口，适合短语音；后端会拒绝超过 10MB 的音频。",
   "voiceMimoHint": "小米 MiMo 使用开放平台音频理解接口，录音会在本地转成 WAV 后以 Base64 发送；建议使用 mimo-v2.5 或 mimo-v2-omni。",
   "voiceProviderCustom": "自定义（OpenAI 兼容）",
+  "voiceProviderLocal": "本机转写（离线）",
+  "voiceManageLocalModels": "管理本机模型",
+  "voiceLocalDialogTitle": "本机转写",
+  "voiceLocalHint": "在这台电脑上用 sherpa-onnx 识别，音频不离开本机，不需要 API Key。首次使用要下载识别引擎和一个模型。",
+  "voiceLocalModel": "模型",
+  "voiceLocalSenseVoice": "SenseVoice Small",
+  "voiceLocalSenseVoiceDesc": "速度快，几秒的话一秒内出结果。支持中文、粤语、英语、日语、韩语，自带标点；不支持词典。",
+  "voiceLocalQwen3": "Qwen3-ASR 0.6B",
+  "voiceLocalQwen3Desc": "识别更准、标点更完整，会用上你的词典；体积大，转写要多等几秒。",
+  "voiceLocalDownload": "下载（{{size}}）",
+  "voiceLocalDownloading": "正在下载{{part}}：{{received}} / {{total}}",
+  "voiceLocalPartEngine": "识别引擎",
+  "voiceLocalPartModel": "模型",
+  "voiceLocalExtracting": "正在解压…",
+  "voiceLocalCancel": "取消下载",
+  "voiceLocalInstalled": "已下载",
+  "voiceLocalRemove": "删除 {{name}}",
+  "voiceLocalFailed": "下载失败：{{error}}",
+  "voiceLocalRetry": "重试下载",
+  "voiceLocalUnsupported": "当前系统暂不支持本机转写。",
+  "voiceLocalSource": "引擎和模型来自 k2-fsa/sherpa-onnx 的 GitHub 发布页，下载后校验 SHA256，走设置里的网络代理，中断后可以续传。",
+  "voiceLocalDirectory": "保存位置：{{path}}",
+  "voiceLocalReady": "{{model}}，已就绪，音频不离开本机。",
+  "voiceLocalNotReady": "还没下载本机模型，点右边的按钮下载。",
+  "voiceDictionaryLocalUnsupported": "当前本机模型 SenseVoice 不支持词典；换成 Qwen3-ASR 或云端服务后才会用上。",
   "voiceCustomApiKey": "API Key（本地服务可留空）",
   "voiceCustomBaseUrl": "Base URL",
   "voiceCustomPreferWav": "录音先转 WAV 再发送",
   "voiceCustomPreferWavDesc": "目标服务不支持 WebM 时开启，例如 whisper.cpp server。",
   "voiceCustomHint": "标准 /v1/audio/transcriptions multipart 接口，兼容 whisper.cpp server、faster-whisper、Groq、OpenAI 等；API Key 留空表示无鉴权的本地服务。语种支持以目标服务为准。",
+  "voiceGroupTranscription": "转写",
+  "voiceGroupInput": "输入",
+  "voiceGroupDictionary": "词典",
+  "voiceGroupAdvanced": "其他",
+  "voiceTranscribeWith": "转写服务",
+  "voiceTranscribeWithDesc": "把语音转成文字的服务。选「关闭」即停用语音输入，麦克风按钮也会隐藏。",
+  "voiceTranscribeWithKeyMissing": "还没填 API Key，点右边的钥匙按钮配置。",
+  "voiceOff": "关闭",
+  "voiceManageConnection": "配置密钥与地址",
+  "voiceProviderDialogTitle": "配置 {{name}}",
+  "voiceDone": "完成",
+  "voiceLanguageDesc": "自动识别适合中英混说；固定语种通常更准。",
+  "voiceRemoveFillerWords": "去掉语气词",
+  "voiceRemoveFillerWordsDesc": "去掉转写里的「嗯」「呃」「um」「uh」。",
+  "voiceTestTitle": "试一下",
+  "voiceTestDesc": "说一句话，用当前配置转写，结果只显示在这里。",
+  "voiceTestDesktopOnly": "只能在桌面版里试转写。",
+  "voiceTestTranscription": "录一句",
+  "voiceTestSaySomething": "说完点「停止」",
+  "voiceTestTranscribing": "转写中…",
+  "voiceTestResult": "试转写结果",
+  "voiceTestNoSpeech": "没识别到内容，再试一次。",
+  "voiceTestClose": "关闭试转写",
+  "voiceMicrophone": "麦克风",
+  "voiceMicrophoneDesc": "语音输入使用列表里第一个已连接的麦克风，拖动或用箭头调整顺序。",
+  "voiceRefreshMicrophones": "刷新麦克风列表",
+  "voiceMicrophoneOrder": "麦克风，优先的在前",
+  "voiceMicrophoneSystemDefault": "系统默认",
+  "voiceMicrophoneUnnamed": "未命名麦克风（授权后显示名称）",
+  "voiceMicrophoneInUse": "使用中",
+  "voiceMicrophoneNotConnected": "未连接",
+  "voiceMicrophoneDrag": "拖动 {{name}} 调整顺序",
+  "voiceMicrophoneMoveUp": "上移 {{name}}",
+  "voiceMicrophoneMoveDown": "下移 {{name}}",
+  "voiceMicrophoneForget": "移除 {{name}}",
+  "voiceMicrophoneTest": "测试麦克风",
+  "voiceMicrophoneTestDesc": "录 10 秒再回放，音频只留在本机。",
+  "voiceRecord": "录音",
+  "voiceRecordAgain": "重新录",
+  "voiceStop": "停止",
+  "voiceOpeningMicrophone": "正在打开麦克风…",
+  "voiceDiscardRecording": "丢弃录音",
+  "voicePlayRecording": "播放录音",
+  "voicePausePlayback": "暂停",
+  "voicePlaybackPosition": "播放进度",
+  "voicePlaybackFailed": "这段录音放不出来，重新录一次。",
+  "voiceInputLevel": "输入音量",
+  "voiceMicUnsupported": "当前环境不支持录音。",
+  "voiceMicDenied": "没有麦克风权限，请在系统设置 › 隐私与安全性 › 麦克风里允许 CC-Panes。",
+  "voiceMicNotFound": "没找到麦克风。",
+  "voiceMicEmpty": "没录到声音，再试一次。",
+  "voiceMicFailed": "打不开麦克风，再试一次。",
+  "voiceDictionary": "你的词典",
+  "voiceDictionaryDesc": "人名、项目名、术语等，转写时提示给服务，按这里的写法拼。",
+  "voiceDictionaryAdd": "添加词条",
+  "voiceDictionaryPlaceholder": "输入词条，用逗号分隔",
+  "voiceDictionaryAddButton": "添加",
+  "voiceDictionaryEntries": "词典词条",
+  "voiceDictionaryRemove": "删除 {{word}}",
+  "voiceDictionaryTooLong": "每个词条最多 {{max}} 个字符。",
+  "voiceDictionaryFull": "词典最多 {{max}} 条。",
+  "voiceMaxRecordSecondsDesc": "单次录音到时自动停止并转写（1–300 秒）。",
+  "voiceSecondsUnit": "秒",
   "shortcutsTitle": "快捷键设置",
   "shortcutsHint": "点击快捷键后按下新组合键进行修改，按 Esc 取消",
   "pressNewKey": "按下新快捷键...",
   "shortcutConflict": "快捷键 {{combo}} 已被「{{label}}」使用",
+  "proxyGroups": {
+    "server": "代理服务器"
+  },
+  "webAccessGroups": {
+    "server": "Web 服务",
+    "auth": "登录认证",
+    "network": "网络与远程",
+    "service": "服务控制",
+    "refreshStatus": "刷新状态"
+  },
   "proxyTitle": "代理设置",
   "enableProxy": "启用代理",
   "proxyType": "代理类型",
@@ -612,6 +769,8 @@
   "defaultProviderModel": "默认模型",
   "setDefaultProviderModel": "设为默认模型",
   "removeProviderModel": "移除模型",
+  "hideProviderModelInDropdown": "在下拉中隐藏",
+  "showProviderModelInDropdown": "在下拉中显示",
   "providerModelIdRequired": "模型 ID 不能为空",
   "providerModelIdsUnique": "同一个供应商中的模型 ID 不能重复",
   "providerDeleted": "供应商已删除",
@@ -714,6 +873,11 @@
   "cleanupReportSkipped": "已跳过",
   "cleanupReportFailed": "失败",
   "cleanupCancel": "取消",
+  "aboutGroups": {
+    "maintenance": "更新与维护",
+    "checkUpdateDesc": "手动检查是否有新版本可用。",
+    "openLogDirDesc": "排查问题或反馈 bug 时，可附上这里的日志文件。"
+  },
   "updateAvailable": "发现新版本 v{{version}}，点击更新",
   "newVersionAvailable": "新版本 v{{version}} 已可用",
   "updateCheckFailed": "上次检查更新失败（{{time}}）：{{reason}}",
@@ -900,6 +1064,9 @@
   "tabGrok": "Grok",
   "tabJcode": "Jcode",
   "tabAntigravity": "Antigravity",
+  "tabKiro": "Kiro",
+  "tabFx": "fx",
+  "tabMuse": "Muse",
   "cliInstalled": "已安装",
   "cliNotInstalled": "未安装",
   "cliToolSelect": "选择 CLI",
@@ -1527,5 +1694,87 @@
   "imInboundNeedsNumericChatId": "接收消息需要数字 Chat ID（例如 123456789 或 -100…），@用户名 可被改名抢注，不会被接收。",
   "imInboundDefaultBotFirst": "第一个 Bot",
   "islandTitle": "灵动岛",
-  "islandDesc": "屏幕顶部的会话状态胶囊：谁在跑、谁在等你、额度还剩多少。"
+  "islandDesc": "屏幕顶部的会话状态胶囊：谁在跑、谁在等你、额度还剩多少。",
+  "browserImport": {
+    "title": "浏览器",
+    "description": "内置浏览器的登录状态与数据。",
+    "keywords": "浏览器 内置浏览器 Chrome 导入 登录 cookie cookies 登录状态 Brave Edge Arc 钥匙串",
+    "importTitle": "从其它浏览器导入登录状态",
+    "importHint": "把本机 Chrome 等浏览器某个配置的 cookies 一次性拷贝到内置浏览器，之后两边登录状态各自独立。",
+    "loading": "正在查找本机浏览器…",
+    "noSources": "没有找到可导入的浏览器（支持 Chrome、Brave、Edge、Arc、Chromium）。",
+    "browser": "浏览器",
+    "profile": "配置",
+    "noteQuit": "导入前请先完全退出 {{browser}}，否则最近的登录可能还没写入磁盘。",
+    "noteKeychain": "macOS 会弹出钥匙串授权框，请选择「允许」以解密 cookies。",
+    "noteOneTime": "这是一次性拷贝，之后在任一边登录 / 退出都不会同步到另一边。",
+    "noteRelogin": "部分站点会校验设备或绑定会话，导入后仍可能需要重新登录。",
+    "importButton": "从 {{browser}} 导入",
+    "importing": "正在导入…",
+    "result": "已导入 {{imported}} 个 cookie，覆盖 {{domains}} 个站点。",
+    "resultFailed": "另有 {{failed}} 个无法解密，已跳过。",
+    "errors": {
+      "BROWSER_IMPORT_UNSUPPORTED_PLATFORM": "当前平台暂不支持导入：目前仅支持 macOS（Windows 上 Chromium 系浏览器使用应用绑定加密，无法读取）。",
+      "BROWSER_IMPORT_SOURCE_NOT_FOUND": "未找到该浏览器或配置，请确认已安装并至少打开过一次。",
+      "BROWSER_IMPORT_KEYCHAIN_DENIED": "钥匙串授权被拒绝，无法解密 cookies。重试时请在系统弹窗中选择「允许」。",
+      "BROWSER_IMPORT_KEYCHAIN_NOT_FOUND": "钥匙串里没有找到该浏览器的加密密钥（Safe Storage）。",
+      "BROWSER_IMPORT_READ_FAILED": "读取浏览器 cookies 数据库失败，请退出该浏览器后重试。",
+      "BROWSER_IMPORT_NO_WEBVIEW": "内置浏览器尚未就绪，请稍后重试。"
+    }
+  },
+  "deviceAccess": {
+    "local": {
+      "title": "本机",
+      "os": "操作系统",
+      "version": "应用版本",
+      "webUrl": "本机 Web 地址",
+      "webUrlHint": "可在浏览器中打开本机 Web 端。",
+      "update": "更新",
+      "upToDate": "已是最新版本",
+      "updateAvailable": "发现新版本 v{{version}}",
+      "checking": "正在检查更新…",
+      "checkFailed": "检查更新失败，可稍后重试。",
+      "notChecked": "尚未检查",
+      "desktopOnly": "仅桌面端支持检查更新"
+    },
+    "mcpTitle": "在其他应用中使用（MCP）",
+    "clientsTitle": "已授权的客户端",
+    "clientsDescription": "用配对码换到令牌的设备可以访问本机。",
+    "activity": {
+      "online": "在线",
+      "minutes": "最后在线 {{count}} 分钟前",
+      "hours": "最后在线 {{count}} 小时前",
+      "days": "最后在线 {{count}} 天前",
+      "never": "尚未连接过",
+      "ip": "IP {{ip}}"
+    },
+    "expiry": {
+      "label": "有效期",
+      "days": "{{count}} 天",
+      "never": "永不过期",
+      "neverShort": "永不过期",
+      "until": "有效期至 {{date}}",
+      "expired": "已过期"
+    },
+    "webSessions": {
+      "title": "网页登录会话",
+      "description": "用账号密码登录本机 Web 端的浏览器（会话只保存在 Web 服务内存里，服务重启后全部失效）。",
+      "empty": "没有网页登录会话。",
+      "notRunning": "Web 服务未运行，没有网页登录会话。",
+      "loadFailed": "读取网页登录会话失败：{{error}}",
+      "current": "本会话",
+      "unknownBrowser": "未知浏览器",
+      "createdAt": "登录于 {{date}}",
+      "revoke": "注销",
+      "revokeConfirm": "注销这个网页登录会话？该浏览器需要重新登录，已打开的终端会断开。"
+    },
+    "revokeOthers": {
+      "title": "撤销其他全部",
+      "description": "移除所有已配对设备，并注销所有其他网页登录会话。",
+      "nothing": "没有其他可撤销的访问。",
+      "button": "撤销其他全部",
+      "confirm": "撤销其他全部访问？\n\n将移除 {{devices}} 台已配对设备，并注销 {{sessions}} 个网页登录会话。它们需要重新配对 / 重新登录才能再访问本机。\n\n本机桌面应用不受影响。",
+      "done": "已移除 {{devices}} 台设备，注销 {{sessions}} 个网页登录会话"
+    }
+  }
 }

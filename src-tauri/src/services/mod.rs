@@ -6,6 +6,7 @@ mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
 pub mod bot_service;
+pub mod browser_cookie_import;
 mod browser_service;
 pub mod bundled_skills;
 pub mod heavy_command_recorder;
@@ -18,6 +19,7 @@ mod mcp_market;
 pub(crate) mod notification_preferences;
 mod notification_service;
 pub mod orchestrator_service;
+mod orchestrator_token;
 pub mod performance_recorder;
 mod pi_rpc_event_bridge;
 pub(crate) mod process_guard;
@@ -40,6 +42,7 @@ mod terminal_daemon_output_cursor;
 pub mod tray_menu;
 mod tray_refresh;
 mod turn_notify_registry;
+pub mod voice_local;
 pub mod voice_service;
 mod web_access_lifecycle;
 
@@ -67,6 +70,7 @@ pub use mcp_market::{McpMarketResult, McpMarketService};
 pub use notification_service::NotificationService;
 pub use notification_service::{NotificationRequest, NotificationTriggerResult};
 pub use orchestrator_service::{OrchestratorService, StartLocks};
+pub use orchestrator_token::OrchestratorToken;
 pub use pi_rpc_event_bridge::{PiRpcEventBridge, PI_RPC_EVENT};
 pub use resume_binding_service::{
     apply_launch_failure, bind_resume_id, is_launch_failure_warning, LaunchFailurePayload,
@@ -76,7 +80,10 @@ pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;
 pub use skill_market_catalog::CATEGORY_IDS as SKILL_MARKET_CATEGORY_IDS;
 pub use skill_market_service::{SkillMarketEntry, SkillMarketService};
-pub use tailscale_service::{detect_tailscale, TailscaleStatus};
+pub use tailscale_service::{
+    detect_tailscale, tailscale_serve_disable, tailscale_serve_enable, tailscale_serve_status,
+    TailscaleServeError, TailscaleServeStatus, TailscaleStatus,
+};
 pub use task_queue_worker::TaskQueueWorker;
 pub use terminal_backend_state::{TerminalBackendKind, TerminalBackendState};
 pub use terminal_daemon_bridge_reliability::BridgeStats;

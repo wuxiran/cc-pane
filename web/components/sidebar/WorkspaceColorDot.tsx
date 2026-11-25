@@ -12,6 +12,11 @@ const COLOR_VARIABLES: Record<WorkspaceColor, string> = {
   gray: "var(--app-tag-gray)",
 };
 
+/** 工作空间颜色预设对应的 CSS 变量；未设颜色时回落灰色标签色。 */
+export function workspaceColorVar(color: WorkspaceColor | undefined): string {
+  return color ? COLOR_VARIABLES[color] : COLOR_VARIABLES.gray;
+}
+
 interface WorkspaceColorDotProps {
   color: WorkspaceColor;
   size?: "sm" | "md";

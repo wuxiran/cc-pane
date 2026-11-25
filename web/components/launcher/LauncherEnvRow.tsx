@@ -1,14 +1,15 @@
 // 运行环境 segmented：local / wsl / ssh。手动目录来源时锁 local（无工作空间上下文可解析远端路径）。
 import { useTranslation } from "react-i18next";
 import type { CliTool, WorkspaceLaunchEnvironment } from "@/types";
+import { isLocalWslOnlyCliTool } from "@/utils/cliTool";
 
 const ENVIRONMENTS: WorkspaceLaunchEnvironment[] = ["local", "wsl", "ssh"];
 
-/** The Pi family and jcode keep their installation and native auth on the local/WSL host. */
+/** Pi 家族、jcode 与未实机验证的终端 CLI（kiro/fx/muse）只在本机/WSL 启动。 */
 export function getLauncherEnvironmentOptions(
   cliTool: CliTool | undefined,
 ): WorkspaceLaunchEnvironment[] {
-  return cliTool === "pi" || cliTool === "omp" || cliTool === "jcode"
+  return isLocalWslOnlyCliTool(cliTool)
     ? ENVIRONMENTS.filter((environment) => environment !== "ssh")
     : ENVIRONMENTS;
 }

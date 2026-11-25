@@ -101,12 +101,15 @@ impl AcpChatService {
         session.emit_state().await;
         match session.handshake(&spec).await {
             Ok(snapshot) => {
-                self.write_chat_meta(
-                    snapshot.acp_session_id.as_deref().unwrap_or_default(),
-                    ENGINE,
-                    &spec.cwd,
-                    None,
-                );
+                let id = snapshot.acp_session_id.as_deref().unwrap_or_default();
+                self.write_chat_meta(id, ENGINE, &spec.cwd, None);
+                // thread/resume 回放只有本线程正文；换引擎交接等继承段另推（同 ACP loadSession）。
+                if spec.fork_acp_session_id.is_none() && spec.resume_acp_session_id.is_some() {
+                    if let Some(payload) = super::transcript::inherited_restore(&self.chats_dir, id)
+                    {
+                        session.emit_live("transcript_restore", payload);
+                    }
+                }
                 Ok(snapshot)
             }
             Err(error) => {
@@ -133,6 +136,9 @@ impl AcpChatService {
             request_timeout: Duration::from_secs(30),
             ..Default::default()
         };
+        // 运行配置叠加层（供应商路由 / 登录账号 CODEX_HOME / 密钥）：只进子进程环境。
+        options.env_remove = spec.env_remove.clone();
+        options.env.extend(spec.env.iter().cloned());
         if let Some(ctl) = self.ctl_env_path() {
             options
                 .env
@@ -172,6 +178,8 @@ impl Session {
             auto_approve_kinds: spec.auto_approve_kinds.clone(),
             exit_code: None,
             error: None,
+            launch_profile_id: spec.launch_profile_id.clone(),
+            transport_fallback: spec.transport_fallback.clone(),
         };
         Self {
             chat_id: chat_id.into(),

@@ -24,6 +24,10 @@ import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from ".
 import LayoutViewMenu from "./LayoutViewMenu";
 import LayoutPresetPicker from "./LayoutPresetPicker";
 import SortableLayoutTab from "./SortableLayoutTab";
+import LayoutGroupChip from "./LayoutGroupChip";
+import LayoutAllMenu from "./LayoutAllMenu";
+import PinnedLayoutTab from "./PinnedLayoutTab";
+import { buildLayoutStripEntries } from "./layoutStripGroups";
 import LayoutTabStrip from "./LayoutTabStrip";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
@@ -42,6 +46,12 @@ export default function LayoutTopBar() {
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const density = useLayoutUiStore((s) => s.layoutBarDensity);
   const setDensity = useLayoutUiStore((s) => s.setLayoutBarDensity);
+  const collapsedGroups = useLayoutUiStore((s) => s.collapsedLayoutGroups);
+  const setGroupCollapsed = useLayoutUiStore((s) => s.setLayoutGroupCollapsed);
+  const pinnedIds = useLayoutUiStore((s) => s.pinnedLayoutIds);
+  const pinnedSide = useLayoutUiStore((s) => s.pinnedLayoutSide);
+  const setLayoutPinned = useLayoutUiStore((s) => s.setLayoutPinned);
+  const setPinnedSide = useLayoutUiStore((s) => s.setPinnedLayoutSide);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -57,6 +67,40 @@ export default function LayoutTopBar() {
   const currentLayoutStarred =
     layouts.find((layout) => layout.id === currentLayoutId)?.kind === "starred";
   const matchedPreset = currentLayoutStarred ? null : matchLayoutPreset(liveRootPane);
+  // 按工作空间成组（Chrome 标签组式）；折叠的组只剩组头，当前布局仍紧跟组头显示。
+  // 固定的布局缩成图标常驻一端（不随卡片区滚动、不参与分组）。
+  const pinnedLayouts = stripLayouts.filter((layout) => pinnedIds.includes(layout.id));
+  const scrollingLayouts = stripLayouts.filter((layout) => !pinnedIds.includes(layout.id));
+  const stripEntries = buildLayoutStripEntries(scrollingLayouts, {
+    currentLayoutId,
+    liveRootPane,
+    collapsedGroups,
+  });
+  const visibleLayoutIds = stripEntries.flatMap((entry) => entry.type === "layout" ? [entry.layout.id] : []);
+
+  const pinnedZone = pinnedLayouts.length > 0 ? (
+    <div
+      data-testid="layout-pinned-zone"
+      data-side={pinnedSide}
+      className={`flex flex-shrink-0 items-center gap-0.5 ${pinnedSide === "left" ? "pr-1" : "pl-1"}`}
+      style={{ [pinnedSide === "left" ? "borderRight" : "borderLeft"]: "1px solid var(--app-border)" }}
+    >
+      {pinnedLayouts.map((layout) => (
+        <PinnedLayoutTab
+          key={layout.id}
+          layout={layout}
+          tree={layout.id === currentLayoutId ? liveRootPane : layout.rootPane}
+          selected={layout.id === currentLayoutId}
+          density={density}
+          statusMap={statusMap}
+          side={pinnedSide}
+          onSelect={() => selectLayout(layout.id)}
+          onUnpin={() => setLayoutPinned(layout.id, false)}
+          onMoveSide={setPinnedSide}
+        />
+      ))}
+    </div>
+  ) : null;
 
   function selectLayout(layoutId: string) {
     setAppViewMode("panes");
@@ -114,12 +158,29 @@ export default function LayoutTopBar() {
       aria-label={t("layouts")}
       data-density={density}
     >
+      {pinnedSide === "left" ? pinnedZone : null}
+
       <LayoutTabStrip
         activeLayoutId={currentLayoutId}
-        revealKey={JSON.stringify([density, editingId, stripLayouts.map((layout) => layout.id)])}
+        revealKey={JSON.stringify([density, editingId, visibleLayoutIds])}
       >
-        <SortableContext items={stripLayouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
-          {stripLayouts.map((layout) => {
+        <SortableContext items={visibleLayoutIds} strategy={horizontalListSortingStrategy}>
+          {stripEntries.map((entry) => {
+            if (entry.type === "group") {
+              return (
+                <LayoutGroupChip
+                  key={`group:${entry.group.key}`}
+                  group={entry.group}
+                  density={density}
+                  currentLayoutId={currentLayoutId}
+                  liveRootPane={liveRootPane}
+                  statusMap={statusMap}
+                  onToggle={(collapsed) => setGroupCollapsed(entry.group.key, collapsed)}
+                  onSelectLayout={selectLayout}
+                />
+              );
+            }
+            const { layout, group } = entry;
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
             // tabCount 是**全类型** tab 总数，与下方类型计数桁各桁之和一致——
@@ -172,15 +233,27 @@ export default function LayoutTopBar() {
                 onRequestDelete={() => requestDelete(layout)}
                 onToggleDensity={() => setDensity(density === "comfortable" ? "compact" : "comfortable")}
                 onJumpToTab={(paneId, tabId) => jumpToTab(layout.id, paneId, tabId)}
+                groupKey={group?.key ?? null}
+                onCollapseGroup={group ? () => setGroupCollapsed(group.key, true) : undefined}
+                onPin={() => setLayoutPinned(layout.id, true)}
               />
             );
           })}
         </SortableContext>
       </LayoutTabStrip>
 
+      {pinnedSide === "right" ? pinnedZone : null}
+
       {/* 工具组固定在右端：竖线与卡片区分隔，卡片溢出滚动时它不跟着动。 */}
       <div data-testid="layout-tools" className="flex flex-shrink-0 items-center gap-1 self-stretch">
         <span aria-hidden="true" className="mx-0.5 h-4 w-px flex-shrink-0" style={{ background: "var(--app-border)" }} />
+        <LayoutAllMenu
+          layouts={stripLayouts}
+          currentLayoutId={currentLayoutId}
+          liveRootPane={liveRootPane}
+          statusMap={statusMap}
+          onSelect={selectLayout}
+        />
         <LayoutViewMenu />
         {/* 舒适档：星标 / 预设纯图标上下叠放；紧凑档同一组并排。 */}
         <div

@@ -231,6 +231,7 @@ fn draft(name: &str, is_default: bool) -> LaunchProfileDraft {
         yolo_mode: false,
         mcp_policy: LaunchProfileMcpPolicy::default(),
         skill_policy: LaunchProfileSkillPolicy::default(),
+        native_overrides: Default::default(),
         is_default,
     }
 }

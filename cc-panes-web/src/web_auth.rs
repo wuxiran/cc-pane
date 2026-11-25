@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
@@ -21,6 +21,89 @@ use crate::state::AppState;
 
 const SESSION_COOKIE: &str = "ccp_web_session";
 const SESSION_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+
+/// 桌面端（拉起本进程的 CC-Panes）用来管理网页登录会话的控制令牌，经环境变量下发、
+/// 启动时立即从环境里删掉（不让本进程派生的终端继承）。
+pub const CONTROL_TOKEN_ENV: &str = "CCPANES_WEB_CONTROL_TOKEN";
+pub const CONTROL_TOKEN_HEADER: &str = "x-ccpanes-control-token";
+static CONTROL_TOKEN: OnceLock<String> = OnceLock::new();
+
+/// 在 `main()` 里、tokio runtime 起来之前（单线程）调用：读取并清除控制令牌环境变量。
+pub fn install_control_token_from_env() {
+    if let Ok(token) = std::env::var(CONTROL_TOKEN_ENV) {
+        std::env::remove_var(CONTROL_TOKEN_ENV);
+        let token = token.trim().to_string();
+        if token.len() >= 32 {
+            let _ = CONTROL_TOKEN.set(token);
+        }
+    }
+}
+
+/// 测试用：安装控制令牌（进程级，只能设一次；重复设同值无副作用）。
+#[cfg(test)]
+pub fn install_control_token_for_test(token: &str) {
+    let _ = CONTROL_TOKEN.set(token.to_string());
+}
+
+/// 控制令牌只能用于网页会话管理接口，不是通用凭据。
+fn control_path_allowed(path: &str) -> bool {
+    path == "/api/auth/sessions"
+        || path.starts_with("/api/auth/sessions/")
+        || path == "/api/auth/revoke-others"
+}
+
+fn control_token_matches(candidate: &str) -> bool {
+    CONTROL_TOKEN.get().is_some_and(|expected| {
+        cc_panes_core::services::device_token_service::constant_time_eq(
+            expected.as_bytes(),
+            candidate.trim().as_bytes(),
+        )
+    })
+}
+
+/// 由控制令牌鉴权的请求（桌面端）：不对应任何网页会话或设备令牌。
+#[derive(Debug, Clone, Copy)]
+pub struct ControlAuth;
+
+/// 一个网页登录会话。键是 cookie 明文，对外只暴露它的 SHA-256。
+struct WebSession {
+    last_seen: Instant,
+    created_at: chrono::DateTime<chrono::Utc>,
+    last_activity_at: chrono::DateTime<chrono::Utc>,
+    ip: Option<String>,
+    user_agent: Option<String>,
+}
+
+impl WebSession {
+    fn new(ip: Option<String>, user_agent: Option<String>) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            last_seen: Instant::now(),
+            created_at: now,
+            last_activity_at: now,
+            ip,
+            user_agent,
+        }
+    }
+}
+
+/// 会话列表条目（不含 cookie 明文）。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSessionInfo {
+    /// cookie 的 SHA-256（十六进制）：可用来吊销，不能用来登录。
+    pub id: String,
+    pub created_at: String,
+    pub last_activity_at: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    /// 是否是发起本次请求的会话
+    pub current: bool,
+}
+
+fn session_id(token: &str) -> String {
+    cc_panes_core::services::device_token_service::sha256_hex(token)
+}
 
 /// 请求来源分类（access_control 中间件写入 request extensions）。
 ///
@@ -120,7 +203,7 @@ pub async fn read_only_guard(
 
 pub struct WebAuthStore {
     revocations: tokio::sync::watch::Sender<u64>,
-    sessions: Mutex<HashMap<String, Instant>>,
+    sessions: Mutex<HashMap<String, WebSession>>,
     /// 其他 CC-Panes 设备的 Bearer 令牌（docs/111-multi-device.md）
     device_tokens: Option<Arc<DeviceTokenService>>,
     /// headless / `--require-token`：未配置密码时也不放行任何未鉴权请求（含回环）。
@@ -163,6 +246,14 @@ impl WebAuthStore {
             .is_some_and(|tokens| tokens.verify(token).is_some())
     }
 
+    /// 校验设备令牌并记录最后在线时间 / IP（节流落盘，见 `DeviceTokenService::touch`）。
+    pub fn verify_device_token_from(&self, token: &str, ip: Option<IpAddr>) -> bool {
+        let ip = ip.map(|ip| ip.to_string());
+        self.device_tokens
+            .as_ref()
+            .is_some_and(|tokens| tokens.verify_and_touch(token, ip.as_deref()).is_some())
+    }
+
     /// 未配置密码时，是否仍需拒绝未鉴权请求。
     fn locked_without_password(&self, settings: &WebAccessSettings) -> bool {
         self.require_auth && !settings.auth_required()
@@ -173,36 +264,102 @@ impl WebAuthStore {
 
     pub fn session_is_valid(&self, token: &str, idle_timeout: Option<Duration>) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.get(token).is_some_and(|last| {
-            let age = last.elapsed();
+        sessions.get(token).is_some_and(|session| {
+            let age = session.last_seen.elapsed();
             age <= SESSION_TTL && idle_timeout.is_none_or(|limit| age <= limit)
         })
     }
 
+    #[cfg(test)]
     pub fn create_session(&self) -> String {
+        self.create_session_with(None, None)
+    }
+
+    /// 登录成功时建会话，记下来源 IP 与 User-Agent 供「网页登录会话」列表展示。
+    pub fn create_session_with(&self, ip: Option<String>, user_agent: Option<String>) -> String {
         let token = generate_token();
         self.sessions
             .lock()
             .unwrap_or_else(|err| err.into_inner())
-            .insert(token.clone(), Instant::now());
+            .insert(token.clone(), WebSession::new(ip, user_agent));
         token
+    }
+
+    /// 仍有效的会话（TTL 与闲置锁定都未到期），按最近活动倒序。
+    pub fn list_sessions(
+        &self,
+        current: Option<&str>,
+        idle_timeout: Option<Duration>,
+    ) -> Vec<WebSessionInfo> {
+        let sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+        let mut list: Vec<WebSessionInfo> = sessions
+            .iter()
+            .filter(|(_, session)| {
+                let age = session.last_seen.elapsed();
+                age <= SESSION_TTL && idle_timeout.is_none_or(|limit| age <= limit)
+            })
+            .map(|(token, session)| WebSessionInfo {
+                id: session_id(token),
+                created_at: session.created_at.to_rfc3339(),
+                last_activity_at: session.last_activity_at.to_rfc3339(),
+                ip: session.ip.clone(),
+                user_agent: session.user_agent.clone(),
+                current: current == Some(token.as_str()),
+            })
+            .collect();
+        list.sort_by(|a, b| b.last_activity_at.cmp(&a.last_activity_at));
+        list
+    }
+
+    /// 按 id（cookie 的 SHA-256）吊销一个会话；返回是否找到。
+    pub fn revoke_session_by_id(&self, id: &str) -> bool {
+        let removed = {
+            let mut sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+            let before = sessions.len();
+            sessions.retain(|token, _| session_id(token) != id);
+            before != sessions.len()
+        };
+        if removed {
+            self.notify_revocation();
+        }
+        removed
+    }
+
+    /// 吊销除 `keep` 以外的全部会话，返回吊销数量。
+    pub fn revoke_sessions_except(&self, keep: Option<&str>) -> usize {
+        let removed = {
+            let mut sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+            let before = sessions.len();
+            sessions.retain(|token, _| Some(token.as_str()) == keep);
+            before - sessions.len()
+        };
+        if removed > 0 {
+            self.notify_revocation();
+        }
+        removed
+    }
+
+    fn notify_revocation(&self) {
+        self.revocations
+            .send_modify(|version| *version = version.wrapping_add(1));
     }
 
     pub fn validate_session(&self, token: &str, idle_timeout: Option<Duration>) -> bool {
         let mut sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
         let now = Instant::now();
-        sessions.retain(|_, last_seen| now.duration_since(*last_seen) <= SESSION_TTL);
+        sessions.retain(|_, session| now.duration_since(session.last_seen) <= SESSION_TTL);
 
-        let Some(last_seen) = sessions.get_mut(token) else {
+        let Some(session) = sessions.get_mut(token) else {
             return false;
         };
 
-        if idle_timeout.is_some_and(|timeout| now.duration_since(*last_seen) > timeout) {
+        if idle_timeout.is_some_and(|timeout| now.duration_since(session.last_seen) > timeout) {
             sessions.remove(token);
             return false;
         }
 
-        *last_seen = now;
+        session.last_seen = now;
+        session.last_activity_at = chrono::Utc::now();
         true
     }
 
@@ -211,8 +368,7 @@ impl WebAuthStore {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .remove(token);
-        self.revocations
-            .send_modify(|version| *version = version.wrapping_add(1));
+        self.notify_revocation();
     }
 }
 
@@ -282,7 +438,12 @@ pub async fn status(State(state): State<AppState>, request: Request<Body>) -> Js
     })
 }
 
-pub async fn login(State(state): State<AppState>, Json(request): Json<LoginRequest>) -> Response {
+pub async fn login(
+    State(state): State<AppState>,
+    connect_info: Option<axum::Extension<axum::extract::ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    Json(request): Json<LoginRequest>,
+) -> Response {
     let settings = state.settings_service.get_settings().web_access;
     if !settings.auth_required() {
         return Json(LoginResponse {
@@ -300,7 +461,13 @@ pub async fn login(State(state): State<AppState>, Json(request): Json<LoginReque
         );
     }
 
-    let token = state.web_auth.create_session();
+    let peer = connect_info.map(|axum::Extension(info)| info.0.ip());
+    let ip = client_ip(peer, &headers).map(|ip| ip.to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.chars().take(256).collect::<String>());
+    let token = state.web_auth.create_session_with(ip, user_agent);
     let mut response = Json(LoginResponse {
         authenticated: true,
     })
@@ -341,10 +508,34 @@ pub async fn access_control(
         .get::<axum::extract::connect_info::ConnectInfo<SocketAddr>>()
         .map(|info| info.0.ip());
 
+    // 控制令牌：只认本机直连（回环且无代理转发头）的桌面端，只放行会话管理接口。
+    if let Some(candidate) = request
+        .headers()
+        .get(CONTROL_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+    {
+        let direct_local = remote_ip.is_some_and(|ip| ip.is_loopback())
+            && classify_origin(remote_ip, request.headers()) == RequestOrigin::Local;
+        if !direct_local
+            || !control_path_allowed(request.uri().path())
+            || !control_token_matches(candidate)
+        {
+            return json_error(
+                StatusCode::UNAUTHORIZED,
+                "INVALID_CONTROL_TOKEN",
+                "Control token is invalid or not allowed here",
+            );
+        }
+        request.extensions_mut().insert(RequestOrigin::Local);
+        request.extensions_mut().insert(ControlAuth);
+        return next.run(request).await;
+    }
+
     // 设备令牌：已配对的 CC-Panes 设备视同本机主人（不受远程只读限制），
     // 但仍受局域网开关和 IP 白名单约束。带了 Bearer 却无效时直接拒绝，不回落到 cookie。
     if let Some(token) = device_token_from_request(&request) {
-        if !state.web_auth.verify_device_token(&token) {
+        let peer = client_ip(remote_ip, request.headers());
+        if !state.web_auth.verify_device_token_from(&token, peer) {
             return json_error(
                 StatusCode::UNAUTHORIZED,
                 "INVALID_DEVICE_TOKEN",
@@ -403,6 +594,22 @@ pub async fn access_control(
             "Web session is locked or not authenticated",
         )
     }
+}
+
+/// 展示用的客户端 IP：回环且带 `x-forwarded-for`（Tailscale Serve 等本机反代）时取转发头的
+/// 第一个地址，否则取对端地址。只用于展示，不参与任何鉴权判断。
+pub(crate) fn client_ip(peer: Option<IpAddr>, headers: &HeaderMap) -> Option<IpAddr> {
+    if peer.is_some_and(|ip| ip.is_loopback()) {
+        let forwarded = headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .and_then(|value| value.trim().parse::<IpAddr>().ok());
+        if forwarded.is_some() {
+            return forwarded;
+        }
+    }
+    peer
 }
 
 pub(crate) fn idle_timeout(
@@ -494,7 +701,7 @@ pub(crate) fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {
     (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then(|| token.to_string())
 }
 
-fn session_from_request(request: &Request<Body>) -> Option<String> {
+pub(crate) fn session_from_request(request: &Request<Body>) -> Option<String> {
     session_from_headers(request.headers())
 }
 

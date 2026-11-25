@@ -15,21 +15,31 @@ export function coerceCliTool(tool?: string | null): KnownCliTool | null {
   return CLI_TOOL_TAB_IDS.has(tool) ? (tool as KnownCliTool) : null;
 }
 
-/** 无 YOLO 语义、SSH 启动面未放开的 CLI（Pi 家族 + jcode，见 docs/102）。 */
-const LOCAL_WSL_ONLY_CLI_TOOLS = new Set<string>(["pi", "omp", "jcode"]);
+/**
+ * 无 YOLO 语义、SSH 启动面未放开的 CLI 及其 SSH 拒绝文案键（providers 命名空间）。
+ * Pi 家族 + jcode 见 docs/102；Kiro / fx / Muse 未实机验证，
+ * 适配器 supports_yolo=false，SSH 同样不放开（Antigravity 支持 SSH 与 YOLO，不在此列）。
+ */
+const LOCAL_WSL_ONLY_SSH_UNSUPPORTED_KEYS = {
+  pi: "piSshRuntimeUnsupported",
+  omp: "ompSshRuntimeUnsupported",
+  jcode: "jcodeSshRuntimeUnsupported",
+  kiro: "kiroSshRuntimeUnsupported",
+  fx: "fxSshRuntimeUnsupported",
+  muse: "museSshRuntimeUnsupported",
+} as const;
+
+export type LocalWslOnlyCliTool = keyof typeof LOCAL_WSL_ONLY_SSH_UNSUPPORTED_KEYS;
 
 export function isLocalWslOnlyCliTool(tool?: string | null): boolean {
-  return LOCAL_WSL_ONLY_CLI_TOOLS.has(tool ?? "");
+  return Object.prototype.hasOwnProperty.call(LOCAL_WSL_ONLY_SSH_UNSUPPORTED_KEYS, tool ?? "");
 }
 
 /** local/WSL-only CLI 选中 SSH 运行环境时的拒绝文案键（providers 命名空间）。 */
 export function localWslOnlySshUnsupportedKey(
   tool?: string | null,
-): "piSshRuntimeUnsupported" | "ompSshRuntimeUnsupported" | "jcodeSshRuntimeUnsupported" | null {
-  switch (tool) {
-    case "pi": return "piSshRuntimeUnsupported";
-    case "omp": return "ompSshRuntimeUnsupported";
-    case "jcode": return "jcodeSshRuntimeUnsupported";
-    default: return null;
-  }
+): (typeof LOCAL_WSL_ONLY_SSH_UNSUPPORTED_KEYS)[LocalWslOnlyCliTool] | null {
+  return isLocalWslOnlyCliTool(tool)
+    ? LOCAL_WSL_ONLY_SSH_UNSUPPORTED_KEYS[tool as LocalWslOnlyCliTool]
+    : null;
 }

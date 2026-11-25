@@ -54,6 +54,7 @@ export { layoutSwitcherService } from "./layoutSwitcherService";
 export { providerService } from "./providerService";
 export { loginAccountService } from "./loginAccountService";
 export { launchProfileService } from "./launchProfileService";
+export { nativeConfigService } from "./nativeConfigService";
 export { quickCommandService } from "./quickCommandService";
 export { todoService } from "./todoService";
 export { specService } from "./specService";
@@ -98,6 +99,7 @@ export { sshFileService } from "./sshFileService";
 export { selfChatService } from "./selfChatService";
 export { screenshotService } from "./screenshotService";
 export { voiceService } from "./voiceService";
+export type { LocalVoiceInstallProgress, LocalVoiceModelStatus, LocalVoiceStatus } from "./voiceService";
 export {
   checkForAppUpdates,
   checkForAvailableUpdate,

@@ -91,7 +91,7 @@ export default function SkillLibrarySection({
   const groupTitle = (group: LibrarySkillGroup) => (group.kind === "local" ? t("skillLibrary.groupLocal") : group.label);
 
   return (
-    <section className="mb-6" aria-label={t("skillLibrary.inLibrary")} data-testid="skill-library-section">
+    <section className="mb-5" aria-label={t("skillLibrary.inLibrary")} data-testid="skill-library-section">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="mr-auto text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("skillLibrary.inLibrary")}</h2>
         {tracked && (
@@ -119,10 +119,10 @@ export default function SkillLibrarySection({
         </div>
       )}
       {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-4 py-6 text-center" style={{ borderColor: "var(--app-border)" }} data-testid="skill-library-empty">
-          <p className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>{t("skillLibrary.emptyTitle")}</p>
-          <p className="mt-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.emptyHint")}</p>
-        </div>
+        <p className="flex flex-wrap gap-x-2 text-xs" style={{ color: "var(--app-text-tertiary)" }} data-testid="skill-library-empty">
+          <span>{t("skillLibrary.emptyTitle")}</span>
+          <span>{t("skillLibrary.emptyHint")}</span>
+        </p>
       ) : groups.length === 0 ? (
         <p className="py-4 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("skillLibrary.noMatch", { query })}</p>
       ) : (

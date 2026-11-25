@@ -63,6 +63,9 @@ define_cli_tools! {
     Omp => "omp",
     Jcode => "jcode",
     Antigravity => "antigravity",
+    Kiro => "kiro",
+    Fx => "fx",
+    Muse => "muse",
 }
 
 impl<'de> Deserialize<'de> for CliTool {

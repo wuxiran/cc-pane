@@ -6,7 +6,6 @@ import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
 import { ThemeEditor } from "@/components/theme/ThemeEditor";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { isTauriRuntime } from "@/services/runtime";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -28,6 +27,12 @@ import {
   THEME_SHAPES,
 } from "@/theme/themeShapes";
 import type { ThemeSettings } from "@/types/settings";
+import {
+  SettingsBlock,
+  SettingsNavRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "./layout";
 
 interface ThemeSectionProps {
   view?: "theme" | "shape" | "all";
@@ -107,7 +112,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
                   "shape-control group relative min-w-0 rounded-md border p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
                   selected
                     ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
-                    : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
+                    : "border-[var(--app-border)] bg-[var(--app-content)] hover:bg-[var(--app-hover)]",
                 )}
               >
                 <PresetSwatches preset={preset} size="card" />
@@ -125,227 +130,198 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
     );
   }
 
-  return (
-    <div className="flex flex-col gap-7">
-      {view !== "shape" && <section
-        className="space-y-4"
-        aria-labelledby="theme-color-heading"
-        data-settings-section="theme-color"
-      >
-        <div>
-          <h2 id="theme-color-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
-            {t("theme.colorTitle")}
-          </h2>
-        </div>
-
-        {renderGroup("dark")}
-        {renderGroup("light")}
-        {!showAllPresets && (
-          <Button variant="ghost" size="sm" onClick={() => setShowAllPresets(true)}>
-            {t("theme.showAllPresets", { count: THEME_PRESETS.length })}
-          </Button>
+  function renderShapeCard(shape: (typeof THEME_SHAPES)[number]) {
+    const selected = selectedShape === shape.code;
+    const name = t(`theme.shapes.${shape.code}.name` as never);
+    const description = t(shape.descriptionKey as never);
+    return (
+      <button
+        key={shape.code}
+        type="button"
+        aria-pressed={selected}
+        onClick={() => selectShape(shape.code)}
+        className={cn(
+          "shape-control relative flex min-h-[170px] min-w-0 flex-col border p-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+          selected
+            ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
+            : "border-[var(--app-border)] bg-[var(--app-content)] hover:bg-[var(--app-hover)]",
         )}
-
-        <section className="space-y-2" aria-labelledby="theme-group-system">
-          <h3 id="theme-group-system" className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">
-            {t("theme.groups.system")}
-          </h3>
-          <button
-            type="button"
-            aria-pressed={preference === "system"}
-            onClick={() => selectTheme("system")}
-            className={cn(
-              "shape-control w-[calc(50%-0.375rem)] min-w-0 rounded-md border p-2 text-left outline-none transition-colors sm:w-[calc(33.333%-0.5rem)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
-              preference === "system"
-                ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
-                : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
+      >
+        <MiniUiPreview shape={shape.code} />
+        <span className="mt-2.5 flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[length:var(--text-small)] font-semibold text-[var(--app-text-primary)]">
+            {name}
+          </span>
+          {selected && <Check aria-hidden="true" className="ml-auto size-3.5 shrink-0 text-[var(--app-accent)]" />}
+        </span>
+        <span className="mt-1 text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
+          {description}
+        </span>
+        {(shape.isDefault || shape.traits.translucent) && (
+          <span className="mt-2 flex flex-wrap gap-1.5">
+            {shape.isDefault && (
+              <span className="rounded-sm bg-[var(--app-active-bg)] px-1.5 py-0.5 text-[length:var(--text-micro)] font-medium text-[var(--app-accent)]">
+                {t("theme.defaultBadge")}
+              </span>
             )}
-          >
-            <SystemThemePreview selected={preference === "system"} />
-            <span className="mt-2 block truncate text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
-              {t("theme.followSystem")}
-            </span>
-          </button>
-        </section>
-      </section>}
+            {shape.traits.translucent && (
+              <span className="rounded-sm bg-[var(--app-hover)] px-1.5 py-0.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
+                {t("theme.wallpaperBadge")}
+              </span>
+            )}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      {view !== "shape" && (
+        <SettingsSection title={t("theme.colorTitle")} sectionId="theme-color">
+          <SettingsBlock className="flex flex-col gap-4">
+            {renderGroup("dark")}
+            {renderGroup("light")}
+            <section className="space-y-2" aria-labelledby="theme-group-system">
+              <h3 id="theme-group-system" className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">
+                {t("theme.groups.system")}
+              </h3>
+              <button
+                type="button"
+                aria-pressed={preference === "system"}
+                onClick={() => selectTheme("system")}
+                className={cn(
+                  "shape-control w-[calc(50%-0.375rem)] min-w-0 rounded-md border p-2 text-left outline-none transition-colors sm:w-[calc(33.333%-0.5rem)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+                  preference === "system"
+                    ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
+                    : "border-[var(--app-border)] bg-[var(--app-content)] hover:bg-[var(--app-hover)]",
+                )}
+              >
+                <SystemThemePreview selected={preference === "system"} />
+                <span className="mt-2 block truncate text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
+                  {t("theme.followSystem")}
+                </span>
+              </button>
+            </section>
+            {!showAllPresets && (
+              <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowAllPresets(true)}>
+                {t("theme.showAllPresets", { count: THEME_PRESETS.length })}
+              </Button>
+            )}
+          </SettingsBlock>
+          {/* 终端配色跨页链接：外观是一站式入口，终端主题留在终端页（批 5） */}
+          <SettingsNavRow
+            title={t("theme.terminalThemeLink")}
+            description={t("theme.terminalThemeHint")}
+            onClick={() => navigateToSettings({ paneId: "terminal", targetSectionId: "terminal-root" })}
+          />
+        </SettingsSection>
+      )}
 
       {view !== "shape" && <ThemeEditor />}
 
-      {/* 终端配色跨页链接：外观是一站式入口，终端主题留在终端页（批 5） */}
-      {view !== "shape" && (
-        <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("theme.terminalThemeHint")}
-          {" "}
-          <button
-            type="button"
-            className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-            style={{ color: "var(--app-accent)" }}
-            onClick={() => navigateToSettings({ paneId: "terminal", targetSectionId: "terminal-root" })}
-          >
-            {t("theme.terminalThemeLink")}
-          </button>
-        </p>
+      {view !== "shape" && isTauriRuntime() && (
+        <SettingsSection title={t("theme.system.title")} sectionId="theme-system">
+          <SettingsSwitchRow
+            id="theme-system-accent"
+            title={t("theme.system.accent")}
+            checked={value.systemAccent === true}
+            onCheckedChange={(checked) => onChange({ ...value, systemAccent: checked })}
+          />
+          {materialSupported && (
+            <SettingsSwitchRow
+              id="theme-system-material"
+              title={t("theme.system.material")}
+              checked={value.systemMaterial ?? materialDefault}
+              onCheckedChange={(checked) => onChange({ ...value, systemMaterial: checked })}
+            />
+          )}
+        </SettingsSection>
       )}
 
-      {view !== "theme" && <section
-        className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}
-        aria-labelledby="theme-shape-heading"
-        data-settings-section="theme-shape"
-      >
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
-          <div className="min-w-0">
-            <h2 id="theme-shape-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
-              {t("theme.shapeTitle")}
-            </h2>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={selectedShape === DEFAULT_THEME_SHAPE}
-            onClick={restoreDefaultShape}
-          >
-            <RotateCcw aria-hidden="true" />
-            {t("theme.restoreDefault")}
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {THEME_SHAPES.filter(
-            (shape) =>
-              showAllShapes
-              || FEATURED_THEME_SHAPES.includes(shape.code)
-              || selectedShape === shape.code,
-          ).map((shape) => {
-            const selected = selectedShape === shape.code;
-            const name = t(`theme.shapes.${shape.code}.name` as never);
-            const description = t(shape.descriptionKey as never);
-            return (
-              <button
-                key={shape.code}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => selectShape(shape.code)}
-                className={cn(
-                  "shape-control relative flex min-h-[170px] min-w-0 flex-col border p-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
-                  selected
-                    ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
-                    : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
-                )}
-              >
-                <MiniUiPreview shape={shape.code} />
-                <span className="mt-2.5 flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 truncate text-[length:var(--text-small)] font-semibold text-[var(--app-text-primary)]">
-                    {name}
-                  </span>
-                  {selected && <Check aria-hidden="true" className="ml-auto size-3.5 shrink-0 text-[var(--app-accent)]" />}
-                </span>
-                <span className="mt-1 text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
-                  {description}
-                </span>
-                {(shape.isDefault || shape.traits.translucent) && (
-                  <span className="mt-2 flex flex-wrap gap-1.5">
-                    {shape.isDefault && (
-                      <span className="rounded-sm bg-[var(--app-active-bg)] px-1.5 py-0.5 text-[length:var(--text-micro)] font-medium text-[var(--app-accent)]">
-                        {t("theme.defaultBadge")}
-                      </span>
-                    )}
-                    {shape.traits.translucent && (
-                      <span className="rounded-sm bg-[var(--app-hover)] px-1.5 py-0.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
-                        {t("theme.wallpaperBadge")}
-                      </span>
-                    )}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {!showAllShapes && (
-          <Button variant="ghost" size="sm" onClick={() => setShowAllShapes(true)}>
-            {t("theme.showAllShapes", { count: THEME_SHAPES.length })}
-          </Button>
-        )}
-
-        {showBlurFallback && (
-          <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
-            {t("theme.blurFallback")}
-          </p>
-        )}
-      </section>}
-
-      {view !== "shape" && isTauriRuntime() && <section className="space-y-3 border-t border-[var(--app-border)] pt-6" data-settings-section="theme-system">
-        <h2 className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
-          {t("theme.system.title")}
-        </h2>
-        <label className="flex items-start gap-2 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
-          <Checkbox
-            checked={value.systemAccent === true}
-            onCheckedChange={(checked) => onChange({ ...value, systemAccent: checked === true })}
-          />
-          <span>{t("theme.system.accent")}</span>
-        </label>
-        {materialSupported && (
-          <label className="flex items-start gap-2 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
-            <Checkbox
-              checked={value.systemMaterial ?? materialDefault}
-              onCheckedChange={(checked) => onChange({ ...value, systemMaterial: checked === true })}
-            />
-            <span>{t("theme.system.material")}</span>
-          </label>
-        )}
-      </section>}
-
-      {view !== "theme" && <section
-        className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}
-        aria-labelledby="theme-density-heading"
-        data-settings-section="theme-density"
-      >
-        <div>
-          <h2 id="theme-density-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
-            {t("theme.density.title")}
-          </h2>
-          <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
-            {t("theme.density.description")}
-          </p>
-        </div>
-
-        <RadioGroup
-          value={density}
-          onValueChange={setDensity}
-          aria-label={t("theme.density.title")}
-          className="grid gap-2 sm:grid-cols-2"
-        >
-          {(["comfortable", "compact"] as const).map((option) => (
-            <Label
-              key={option}
-              htmlFor={`theme-density-${option}`}
-              className={cn(
-                "shape-control flex cursor-default items-start gap-2.5 rounded-md border p-3 transition-colors",
-                density === option
-                  ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
-                  : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
-              )}
+      {view !== "theme" && (
+        <SettingsSection
+          title={t("theme.shapeTitle")}
+          sectionId="theme-shape"
+          actions={(
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={selectedShape === DEFAULT_THEME_SHAPE}
+              onClick={restoreDefaultShape}
             >
-              <RadioGroupItem
-                id={`theme-density-${option}`}
-                value={option}
-                className="mt-0.5"
-              />
-              <span className="min-w-0">
-                <span className="block text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
-                  {t(`theme.density.options.${option}.name` as never)}
-                </span>
-                <span className="mt-0.5 block text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
-                  {t(`theme.density.options.${option}.description` as never)}
-                </span>
-              </span>
-            </Label>
-          ))}
-        </RadioGroup>
-      </section>}
-    </div>
+              <RotateCcw aria-hidden="true" />
+              {t("theme.restoreDefault")}
+            </Button>
+          )}
+        >
+          <SettingsBlock className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {THEME_SHAPES.filter(
+                (shape) =>
+                  showAllShapes
+                  || FEATURED_THEME_SHAPES.includes(shape.code)
+                  || selectedShape === shape.code,
+              ).map((shape) => renderShapeCard(shape))}
+            </div>
+            {!showAllShapes && (
+              <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowAllShapes(true)}>
+                {t("theme.showAllShapes", { count: THEME_SHAPES.length })}
+              </Button>
+            )}
+            {showBlurFallback && (
+              <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
+                {t("theme.blurFallback")}
+              </p>
+            )}
+          </SettingsBlock>
+        </SettingsSection>
+      )}
+
+      {view !== "theme" && (
+        <SettingsSection
+          title={t("theme.density.title")}
+          description={t("theme.density.description")}
+          sectionId="theme-density"
+        >
+          <SettingsBlock>
+            <RadioGroup
+              value={density}
+              onValueChange={setDensity}
+              aria-label={t("theme.density.title")}
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              {(["comfortable", "compact"] as const).map((option) => (
+                <Label
+                  key={option}
+                  htmlFor={`theme-density-${option}`}
+                  className={cn(
+                    "shape-control flex cursor-default items-start gap-2.5 rounded-md border p-3 transition-colors",
+                    density === option
+                      ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
+                      : "border-[var(--app-border)] bg-[var(--app-content)] hover:bg-[var(--app-hover)]",
+                  )}
+                >
+                  <RadioGroupItem
+                    id={`theme-density-${option}`}
+                    value={option}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
+                      {t(`theme.density.options.${option}.name` as never)}
+                    </span>
+                    <span className="mt-0.5 block text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
+                      {t(`theme.density.options.${option}.description` as never)}
+                    </span>
+                  </span>
+                </Label>
+              ))}
+            </RadioGroup>
+          </SettingsBlock>
+        </SettingsSection>
+      )}
+    </>
   );
 }

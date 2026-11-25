@@ -4,8 +4,8 @@ import { CLI_TOOL_TABS } from "@/types/provider";
 /**
  * 各 CLI 的品牌标（24×24，currentColor）。
  * Claude / Codex / Gemini / Cursor / Kimi / OpenCode 取自 Simple Icons；
- * Grok / Pi / Oh My Pi / jcode / Antigravity 无收录，用可辨识的几何标
- * （Antigravity 取其 logo 的拱形「A」轮廓，非官方 SVG）。
+ * Grok / Pi / Oh My Pi / jcode / Antigravity / Kiro / fx / Muse 无收录，用可辨识的几何标
+ * （Antigravity 取其 logo 的拱形「A」轮廓，非官方 SVG；Kiro / fx / Muse 是首字母字形：K / F+x / M）。
  */
 const PATHS: Record<string, string> = {
   claude:
@@ -26,6 +26,9 @@ const PATHS: Record<string, string> = {
     "M8 4h8v2.2h-2.6v9.3c0 2.3-1.7 3.9-4.2 3.9c-1.6 0-2.9-.5-3.8-1.4l1.4-1.7c.6.6 1.4.9 2.3.9c1.1 0 1.8-.7 1.8-1.8V6.2H8z",
   antigravity:
     "M12 2.5c1.1 0 2 .6 2.5 1.6l7.1 14.6c.4.8.1 1.8-.7 2.2c-.8.4-1.8.1-2.2-.7L12 7.4l-6.7 12.8c-.4.8-1.4 1.1-2.2.7c-.8-.4-1.1-1.4-.7-2.2L9.5 4.1c.5-1 1.4-1.6 2.5-1.6",
+  kiro: "M5 3h2.6v7.6L14.8 3h3.4l-7.3 7.6L18.6 21h-3.2l-6.3-8.5l-1.5 1.5V21H5z",
+  fx: "M4 4h9v2.4H6.6v4.2H12V13H6.6v7H4zM13.2 11.5h2.8l1.7 2.6l1.7-2.6h2.8l-3.1 4.3l3.2 4.2h-2.8l-1.8-2.7l-1.8 2.7h-2.8l3.2-4.2z",
+  muse: "M3 20V4h2.6l6.4 8.6L18.4 4H21v16h-2.5V8.4l-6.5 8.6l-6.5-8.6V20z",
 };
 
 export const CLI_BRAND_ICON_TOOLS = CLI_TOOL_TABS.map((tab) => tab.id);

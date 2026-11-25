@@ -44,6 +44,8 @@ export interface CreateTabOptions {
   modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
+  /** 复制 / 撤销关闭沿用的启动运行配置快照（新启动不传，建好会话后再拍）。 */
+  launchProfileSnapshot?: Tab["launchProfileSnapshot"];
   workspacePath?: string;
   workspaceSnapshotId?: string;
   cliTool?: CliTool;
@@ -145,6 +147,7 @@ export interface ClosedTabSnapshot {
   modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
+  launchProfileSnapshot?: Tab["launchProfileSnapshot"];
   workspacePath?: string;
   workspaceSnapshotId?: string;
   launchClaude?: boolean;
@@ -300,6 +303,10 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
   updateTerminalLaunchId: (tabId: string, terminalPaneId: string, launchId: string) => void;
   /** 会话建好后，把后端解析出的「实际用的账号」记到 leaf 上，之后落盘 / 恢复 / 续接回到同一个账号。 */
   syncTerminalProviderAccount: (tabId: string, terminalPaneId: string, launchId: string) => void;
+  /** 拍下 leaf 本次启动实际用的运行配置快照（缺省 leaf = 当前活动格；launchId 变了就丢弃）。 */
+  captureTerminalLaunchProfileSnapshot: (tabId: string, terminalPaneId?: string, launchId?: string) => Promise<void>;
+  /** Agent Chat 等非终端标签：记下启动时的运行配置快照。 */
+  setTabLaunchProfileSnapshot: (tabId: string, snapshot: Tab["launchProfileSnapshot"]) => void;
   setTerminalLaunchError: (
     tabId: string,
     terminalPaneId: string,

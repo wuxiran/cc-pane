@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { toastWarn } from "@/lib/feedback";
 import { parseKeyEvent, formatKeyCombo, findConflict } from "@/stores";
 import type { ShortcutSettings } from "@/types";
+import { cn } from "@/lib/utils";
 import { SearchableSetting } from "./SettingsSearchContext";
+import { SettingsRow, SettingsSection } from "./layout";
 
 interface ShortcutsSectionProps {
   value: ShortcutSettings;
@@ -89,39 +91,35 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
   }
 
   return (
-    <div className="flex flex-col gap-3 outline-none" tabIndex={-1} onKeyDown={handleKeyDown}>
-      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-        {t("settings:shortcutsTitle")}
-      </h3>
-      <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("settings:shortcutsHint")}
-      </p>
-
+    // 键盘捕获挂在外层：编辑中的按键（含冲突提示）都由这里统一处理
+    <div className="outline-none" tabIndex={-1} onKeyDown={handleKeyDown}>
       <SearchableSetting sectionId="shortcuts-list">
-      <div className="flex flex-col gap-0.5">
-        {Object.entries(value.bindings).map(([action, combo]) => (
-          <div
-            key={action}
-            className="flex justify-between items-center py-1.5"
-            style={{ borderBottom: "1px solid var(--app-border)" }}
-          >
-            <span className="text-[length:var(--text-row)]" style={{ color: "var(--app-text-secondary)" }}>
-              {getActionLabel(action)}
-            </span>
-            <button
-              className="text-xs px-2.5 py-[3px] rounded font-mono min-w-[80px] text-center cursor-default transition-colors duration-[var(--dur-fast)]"
-              style={{
-                background: editingAction === action ? "var(--app-active-bg)" : "var(--app-hover)",
-                border: `1px solid ${editingAction === action ? "var(--app-accent)" : "var(--app-border)"}`,
-                color: editingAction === action ? "var(--app-accent)" : "var(--app-text-primary)",
-              }}
-              onClick={() => setEditingAction(action)}
-            >
-              {editingAction === action ? t("settings:pressNewKey") : formatKeyCombo(combo)}
-            </button>
-          </div>
-        ))}
-      </div>
+        <SettingsSection title={t("settings:shortcutsTitle")} description={t("settings:shortcutsHint")}>
+          {Object.entries(value.bindings).map(([action, combo]) => {
+            const editing = editingAction === action;
+            return (
+              <SettingsRow
+                key={action}
+                className="py-2"
+                title={getActionLabel(action)}
+                control={(
+                  <button
+                    type="button"
+                    className={cn(
+                      "shape-control min-w-[80px] cursor-default rounded-md border px-2.5 py-[3px] text-center font-mono text-xs transition-colors duration-[var(--dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+                      editing
+                        ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+                        : "border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-text-primary)]",
+                    )}
+                    onClick={() => setEditingAction(action)}
+                  >
+                    {editing ? t("settings:pressNewKey") : formatKeyCombo(combo)}
+                  </button>
+                )}
+              />
+            );
+          })}
+        </SettingsSection>
       </SearchableSetting>
     </div>
   );

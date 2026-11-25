@@ -153,24 +153,16 @@ describe("VoiceInputButton", () => {
     expect(toast.error).toHaveBeenCalledWith(tPanes("voiceNoSession"));
   });
 
-  it("points to settings when voice input is disabled", async () => {
+  it("is hidden when voice input is disabled", () => {
     setVoiceSettings({ enabled: false });
-    const user = userEvent.setup();
     renderButton();
-
-    await user.click(screen.getByRole("button"));
-
-    expect(toast.error).toHaveBeenCalledWith(tPanes("voiceEnableInSettings"));
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("requires the provider api key", async () => {
+  it("is hidden when the provider api key is missing", () => {
     setVoiceSettings({ dashscopeApiKey: "   " });
-    const user = userEvent.setup();
     renderButton();
-
-    await user.click(screen.getByRole("button"));
-
-    expect(toast.error).toHaveBeenCalledWith(tPanes("voiceApiKeyMissing"));
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("allows the custom provider to record with an empty api key", async () => {

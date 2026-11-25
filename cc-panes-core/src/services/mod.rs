@@ -34,6 +34,7 @@ pub mod device_token_service;
 mod drama_service;
 pub mod dsh_service;
 pub mod environment_check;
+pub mod external_provider_import;
 mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
@@ -50,6 +51,7 @@ pub mod library_space_service;
 pub mod login_account;
 pub mod mcp_config_service;
 mod memory_service;
+pub mod native_config;
 pub mod opencode_session_service;
 pub mod pi_rpc_service;
 pub(crate) mod pi_session_service;
@@ -67,6 +69,7 @@ mod provider_secret_service;
 mod provider_service;
 mod quick_command_service;
 mod rate_limit_snapshot;
+pub mod relay_gateway_probe;
 pub mod remote_terminal;
 pub mod resume_identity;
 mod runner_service;
@@ -120,7 +123,7 @@ pub mod wsl_cgroup_stats;
 pub mod wsl_discovery_service;
 
 pub use agent_transcript::{export_agent_transcript, read_agent_transcript};
-pub use cc_switch_import::CcSwitchImportReport;
+pub use cc_switch_import::{CcSwitchImportReport, ImportedProfileHints};
 pub use cursor_bridge_hub::CursorBridgeHub;
 pub use cursor_bridge_prompts::{
     build_context_prompt, build_do_prompt, normalize_cce_search_result, CCE_RESULT_MARKER,
@@ -136,9 +139,15 @@ pub use default_skill_service::{
 pub use device_service::{
     DeviceService, DeviceTokenStore, KeyringDeviceTokenStore, MemoryDeviceTokenStore,
 };
-pub use device_token_service::{DeviceTokenRecord, DeviceTokenService, PairingOutcome};
+pub use device_token_service::{
+    DeviceAccessEntry, DeviceTokenRecord, DeviceTokenService, PairingOutcome,
+    DEFAULT_DEVICE_TOKEN_TTL_DAYS,
+};
 pub use drama_service::DramaService;
 pub use dsh_service::DshService;
+pub use external_provider_import::{
+    ExternalProviderCandidateView, ExternalProviderPreview, ExternalProviderSource,
+};
 pub use external_skill_registry::{
     parse_skill_metadata, skill_frontmatter_field, ExternalSkillRegistry,
 };
@@ -176,8 +185,9 @@ pub use project_skill_service::{
     WorkspaceProjectSkill, PROJECT_SKILL_ROOTS,
 };
 pub use provider_resolver::{
-    managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
-    ProviderMode, ProviderResolutionInput, ProviderSource, ResolvedProviderPlan,
+    adapt_plan_for_runtime, managed_provider_conflict_env_keys, resolve_provider_plan,
+    validate_provider_runtime, ProviderMode, ProviderResolutionInput, ProviderSource,
+    ResolvedProviderPlan,
 };
 pub use provider_secret_service::{
     account_env_secret_key, account_secret_key, provider_env_secret_key, ProviderSecretBackend,
@@ -231,6 +241,7 @@ pub use terminal_path_link_service::{
     resolve_terminal_path_link, resolve_terminal_path_link_for_desktop, ResolvedTerminalPathLink,
     TerminalLinkContext, TerminalPathKind,
 };
+pub use terminal_service::{codex_config_overrides_to_json, AgentChatLaunchOverlay};
 pub use terminal_service::{
     codex_rollout_exists, codex_rollout_exists_in, HeavyQueueStatus, KillReason, OrchestratorInfo,
     SessionStatusInfo, ShellInfo, TerminalService,

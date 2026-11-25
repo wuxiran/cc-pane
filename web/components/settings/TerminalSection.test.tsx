@@ -116,9 +116,9 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes[1]).toBeChecked();
-    await user.click(checkboxes[1]);
+    const contextUsage = screen.getByRole("switch", { name: /显示上下文使用量|Show context usage/i });
+    expect(contextUsage).toBeChecked();
+    await user.click(contextUsage);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showContextUsage: false }));
   });
@@ -132,6 +132,25 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoCloseCompletedTasks: true }));
     fireEvent.change(screen.getByLabelText(/^(光标颜色|Cursor color)$/i), { target: { value: "#ffffff" } });
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorColor: "#ffffff" }));
+  });
+
+  it("renders every boolean as a switch and emits cursorBlink changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    const blink = screen.getByRole("switch", { name: /光标闪烁|Cursor Blink/i });
+    expect(blink).toBeChecked();
+    await user.click(blink);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorBlink: false }));
+  });
+
+  it("disables orphan reaper controls while the daemon is off", () => {
+    render(<TerminalSection value={createValue({ daemonEnabled: false })} onChange={vi.fn()} />);
+
+    expect(screen.getByRole("switch", { name: /永不回收孤儿会话|Never reclaim orphaned sessions/i })).toBeDisabled();
+    expect(screen.getByDisplayValue("1440")).toBeDisabled();
   });
 
   it("emits terminal path link changes", async () => {
@@ -151,7 +170,7 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    const toggle = screen.getByRole("checkbox", { name: /auto-trust|自动信任/i });
+    const toggle = screen.getByRole("switch", { name: /auto-trust|自动信任/i });
     expect(toggle).not.toBeChecked();
     await user.click(toggle);
 
@@ -165,8 +184,7 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    // 顺序：cursorBlink → showContextUsage → showStatusBar → resumeIdBackfillEnabled
-    const showStatusBar = screen.getAllByRole("checkbox")[2];
+    const showStatusBar = screen.getByRole("switch", { name: /显示终端状态栏|Show terminal status bar/i });
     expect(showStatusBar).toBeChecked();
     await user.click(showStatusBar);
 
@@ -247,6 +265,7 @@ describe("TerminalSection", () => {
     const { container } = render(<TerminalSection value={createValue()} onChange={vi.fn()} />);
 
     expect(container.querySelector("#terminal-lower-session-priority")).toBeNull();
+    expect(screen.queryByRole("switch", { name: /降低会话进程优先级|Lower session process priority/i })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /降低会话进程优先级|Lower session process priority/i })).toBeNull();
   });
 
@@ -255,9 +274,9 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    // resumeIdBackfill 是专家项，收在「高级设置」折叠区里（批 5 设置分层）
-    await user.click(screen.getByRole("button", { name: /高级设置|Advanced/i }));
-    const backfill = screen.getByRole("checkbox", { name: /Resume ID 回填|legacy resume id backfill/i });
+    // resumeIdBackfill 是专家项，平铺在页尾「高级设置」分区（不再折叠）
+    expect(screen.getByRole("heading", { name: /高级设置|Advanced/i })).toBeInTheDocument();
+    const backfill = screen.getByRole("switch", { name: /Resume ID 回填|legacy resume id backfill/i });
     expect(backfill).not.toBeChecked();
     await user.click(backfill);
 

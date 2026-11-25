@@ -1,15 +1,14 @@
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Link2, Plus, Save, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Link2, Plus, Save, Star, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { CheckboxRow } from "@/components/ui/CheckboxRow";
 import type { LaunchProfile, LaunchProfileDraft, LaunchProfileResolution } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace } from "@/types/workspace";
-import { SummaryStat } from "./launchProfileParts";
-import { profileDisplayName, runtimeLabel, toolLabel } from "./launchProfileHelpers";
-import { useLaunchProfileAccountLabel } from "./useLaunchProfileAccountLabel";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { profileDisplayName, toolLabel } from "./launchProfileHelpers";
+import { HintIcon } from "./launchProfileParts";
 import LaunchProfileWorkspaceAccountRow from "./LaunchProfileWorkspaceAccountRow";
 
 interface LaunchProfileSummaryCardProps {
@@ -22,10 +21,6 @@ interface LaunchProfileSummaryCardProps {
   selectedProfileId: string | null;
   profiles: LaunchProfile[];
   preview: LaunchProfileResolution | null;
-  previewProviderLabel: string;
-  previewModelLabel: string;
-  previewMcpCount: number;
-  previewSkillCount: number;
   workspaces: Workspace[];
   workspacesLoading: boolean;
   workspaceContext: Workspace | null;
@@ -38,6 +33,10 @@ interface LaunchProfileSummaryCardProps {
   onSave: () => void;
   onSetDefault: () => void;
   onDelete: () => void;
+  /** 列表展开模式下：点行头收起 */
+  onCollapse?: () => void;
+  /** 标题即别名：给了就把标题渲染成可直接编辑的输入框（系统默认名称固定，不给） */
+  onRename?: (name: string) => void;
 }
 
 /** 运行配置页概要卡：标题+动作行、summary strip、warnings、工作空间绑定分组（纯展示，不碰 store） */
@@ -51,10 +50,6 @@ export default function LaunchProfileSummaryCard({
   selectedProfileId,
   profiles,
   preview,
-  previewProviderLabel,
-  previewModelLabel,
-  previewMcpCount,
-  previewSkillCount,
   workspaces,
   workspacesLoading,
   workspaceContext,
@@ -67,9 +62,10 @@ export default function LaunchProfileSummaryCard({
   onSave,
   onSetDefault,
   onDelete,
+  onCollapse,
+  onRename,
 }: LaunchProfileSummaryCardProps) {
   const { t } = useTranslation(["providers", "common"]);
-  const accountLabel = useLaunchProfileAccountLabel(draft, activeTool, isSystemDefaultSelected);
   const skillCompatibility = preview?.skillCompatibility ?? null;
   const deliveryModeLabels = {
     nativeCommand: t("skillDeliveryMode.nativeCommand"),
@@ -90,34 +86,62 @@ export default function LaunchProfileSummaryCard({
     ? compatibilityReasonLabels[skillCompatibility.reason]
     : null;
 
+  // 只在有能力缺口时展示跨 CLI Skill 诊断；全部就绪时它是噪音
+  const compatibilityIssue = skillCompatibility
+    && !(skillCompatibility.canUsePortableSkills
+      && skillCompatibility.canControlOrchestration
+      && skillCompatibility.canReportResult);
+  const showWarnings = !isNewProfile && (preview?.warnings.length ?? 0) > 0;
+
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
+    <>
+    {/* 吸顶行头：标题 + 动作。外层卡片由列表提供（展开的那一行），这里不再自带卡片 */}
+    <div className="sticky top-0 z-10 rounded-t-lg bg-[var(--app-panel-bg)]">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
-              {currentTitle}
-            </h2>
+            {onCollapse && (
+              <button
+                type="button"
+                aria-expanded
+                aria-label={t("profileRowCollapse")}
+                className="-ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                onClick={onCollapse}
+              >
+                <ChevronDown size={14} />
+              </button>
+            )}
+            {onRename ? (
+              <input
+                aria-label={t("fieldAlias")}
+                className="min-w-0 max-w-md flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 -ml-1.5 text-[length:var(--text-title)] font-semibold outline-none transition-colors hover:border-[var(--app-border)] focus:border-[var(--app-accent)]"
+                style={{ color: "var(--app-text-primary)" }}
+                value={draft.alias ?? draft.name ?? ""}
+                placeholder={currentTitle}
+                onChange={(event) => onRename(event.target.value)}
+              />
+            ) : (
+              <h2 className="truncate text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+                {currentTitle}
+              </h2>
+            )}
             {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>}
             {!isSystemDefaultSelected && (
               <Badge variant="outline" className="text-[length:var(--text-micro)]">{toolLabel(activeTool, t)}</Badge>
             )}
-            <Badge variant="outline" className="text-[length:var(--text-micro)]">{runtimeLabel(draft.targetRuntime ?? null, t)}</Badge>
+            {isSystemDefaultSelected && draft.description ? <HintIcon text={draft.description} /> : null}
           </div>
         </div>
 
-        {/* 按钮优先级（docs/46 §6）：仅「保存」为主按钮，绑定/复制恒 outline，删除走 ghost+危险前景 */}
-        <div className="flex flex-wrap gap-1.5">
+        {/* 按钮优先级（docs/46 §6）：仅「保存」为主按钮；设默认/删除降为图标按钮 */}
+        <div className="flex items-center gap-1.5">
           {isSystemDefaultSelected ? (
             <>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={!selectedProfileId}
-                onClick={onToggleWorkspaceBindingOpen}
-              >
-                <Link2 size={14} /> {selectedProfileId ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
-              </Button>
+              {selectedProfileId && (
+                <Button size="xs" variant="outline" onClick={onToggleWorkspaceBindingOpen}>
+                  <Link2 size={14} /> {t("workspaceBindingCount", { count: boundWorkspaces.length })}
+                </Button>
+              )}
               <Button size="xs" variant="outline" onClick={onCopySystemDefault}>
                 <Plus size={14} /> {t("copyAsProfile")}
               </Button>
@@ -127,23 +151,24 @@ export default function LaunchProfileSummaryCard({
             </>
           ) : (
             <>
-              {selectedProfile && !selectedProfile.isDefault && (
-                <Button size="xs" variant="outline" onClick={onSetDefault}>
-                  <Star size={14} /> {t("setAsDefault")}
+              {selectedProfile && (
+                <Button size="xs" variant="outline" onClick={onToggleWorkspaceBindingOpen}>
+                  <Link2 size={14} /> {t("workspaceBindingCount", { count: boundWorkspaces.length })}
                 </Button>
               )}
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={!selectedProfile}
-                onClick={onToggleWorkspaceBindingOpen}
-              >
-                <Link2 size={14} /> {selectedProfile ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
-              </Button>
+              {selectedProfile && !selectedProfile.isDefault && (
+                <IconTooltipButton label={t("setAsDefault")} onClick={onSetDefault} className="h-7 w-7">
+                  <Star size={14} />
+                </IconTooltipButton>
+              )}
               {selectedProfile && (
-                <Button size="xs" variant="ghost" className="text-[var(--app-status-danger)]" onClick={onDelete}>
-                  <Trash2 size={14} /> {t("common:delete")}
-                </Button>
+                <IconTooltipButton
+                  label={t("common:delete")}
+                  onClick={onDelete}
+                  className="h-7 w-7 text-[var(--app-status-danger)] hover:text-[var(--app-status-danger)]"
+                >
+                  <Trash2 size={14} />
+                </IconTooltipButton>
               )}
               <Button size="xs" onClick={onSave}>
                 <Save size={14} /> {isNewProfile ? t("saveAsProfile") : t("common:save")}
@@ -152,59 +177,43 @@ export default function LaunchProfileSummaryCard({
           )}
         </div>
       </div>
+    </div>
 
-      {/* summary strip：无边框 stat 组 + 竖分隔线，替代四个「假输入框」 */}
-      <div className="mx-4 grid grid-cols-2 divide-x divide-[var(--app-border)]/60 border-t border-[var(--app-border)]/60 md:grid-cols-4">
-        <SummaryStat label={t("fieldProviderModel")} value={`${previewProviderLabel} / ${previewModelLabel}`} meta={accountLabel} />
-        <SummaryStat label="MCP" value={t("enabledCount", { count: previewMcpCount })} />
-        <SummaryStat label="Skill" value={t("enabledCount", { count: previewSkillCount })} />
-        <SummaryStat
-          label={t("workspace")}
-          value={selectedProfileId ? t("boundCount", { count: boundWorkspaces.length }) : t("notSaved")}
-          meta={workspaceContext ? workspaceContext.name : undefined}
-        />
-      </div>
+    {(compatibilityIssue || showWarnings || (!isNewProfile && workspaceContext) || (workspaceBindingOpen && selectedProfileId)) && (
+    <div>
+      {!isNewProfile && workspaceContext && (
+        <div className="px-4 pt-2.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
+          <span>
+            {t("previewBoundProfile")}
+            {workspaceContext.launchProfileId ? profileDisplayName(profiles.find((p) => p.id === workspaceContext.launchProfileId) ?? { name: workspaceContext.launchProfileId, alias: null }) : t("notBound")}
+          </span>
+          <LaunchProfileWorkspaceAccountRow workspace={workspaceContext} />
+        </div>
+      )}
 
-      {skillCompatibility && (
+      {compatibilityIssue && skillCompatibility && (
         <div
           data-testid="skill-compatibility"
-          className="mx-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--app-border)]/60 py-2 text-xs"
+          className="mx-4 mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-xs text-[var(--app-status-warning)]"
         >
-          <span className="font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("skillCompatibility")}</span>
-          <span style={{ color: "var(--app-text-primary)" }}>
-            {deliveryModesLabel || t("skillDeliveryMode.none")}
-          </span>
-          <Badge variant={skillCompatibility.canUsePortableSkills ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
-            {skillCompatibility.canUsePortableSkills ? t("portableSkillReady") : t("portableSkillUnavailable")}
-          </Badge>
-          <Badge variant={skillCompatibility.canControlOrchestration ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
-            {skillCompatibility.canControlOrchestration ? t("orchestrationReady") : t("orchestrationUnavailable")}
-          </Badge>
-          <Badge variant={skillCompatibility.canReportResult ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
-            {skillCompatibility.canReportResult ? t("resultReportingReady") : t("resultReportingUnavailable")}
-          </Badge>
-          {compatibilityReason && (
-            <span style={{ color: "var(--app-text-tertiary)" }}>{compatibilityReason}</span>
-          )}
+          <AlertTriangle size={13} className="shrink-0" />
+          <span className="font-medium">{t("skillCompatibility")}</span>
+          <span>{deliveryModesLabel || t("skillDeliveryMode.none")}</span>
+          {([
+            [skillCompatibility.canUsePortableSkills, "portableSkillReady", "portableSkillUnavailable"],
+            [skillCompatibility.canControlOrchestration, "orchestrationReady", "orchestrationUnavailable"],
+            [skillCompatibility.canReportResult, "resultReportingReady", "resultReportingUnavailable"],
+          ] as const).map(([ok, readyKey, missingKey]) => (
+            <Badge key={readyKey} variant={ok ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
+              {t(ok ? readyKey : missingKey)}
+            </Badge>
+          ))}
+          {compatibilityReason && <span>{compatibilityReason}</span>}
         </div>
       )}
 
-      {/* 原「生效预览」卡并入：上下文提示 + 解析 warnings（色+形冗余） */}
-      {!isNewProfile && (
-        <div className="px-4 pb-2 pt-1 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
-          {workspaceContext && (
-            <span>
-              {t("previewBoundProfile")}
-              {workspaceContext.launchProfileId ? profileDisplayName(profiles.find((p) => p.id === workspaceContext.launchProfileId) ?? { name: workspaceContext.launchProfileId, alias: null }) : t("notBound")}
-            </span>
-          )}
-          {workspaceContext && <LaunchProfileWorkspaceAccountRow workspace={workspaceContext} />}
-          {workspaces.length === 0 && <span>{t("previewCreateWorkspaceHint")}</span>}
-          {!workspaceContext && workspaces.length > 0 && <span>{t("previewSelectWorkspaceHint")}</span>}
-        </div>
-      )}
-      {!isNewProfile && preview?.warnings.length ? (
-        <div className="mx-4 mb-1 space-y-1.5">
+      {showWarnings && preview ? (
+        <div className="mx-4 mt-2.5 space-y-1.5">
           {preview.warnings.map((warning) => (
             <div
               key={warning}
@@ -257,6 +266,9 @@ export default function LaunchProfileSummaryCard({
           )}
         </div>
       )}
-    </Card>
+      <div className="h-2.5" />
+    </div>
+    )}
+    </>
   );
 }

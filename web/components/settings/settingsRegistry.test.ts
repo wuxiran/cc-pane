@@ -23,7 +23,7 @@ describe("settings registry", () => {
     expect(assignedPaneIds).toHaveLength(paneIds.length);
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
     expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
-    expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
+    expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "devices", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
   });
 
   it("applies desktop and platform availability from the registry", () => {
@@ -46,7 +46,7 @@ describe("settings registry", () => {
     )];
 
     expect(commandPaneIds).toEqual(visiblePaneIds);
-    expect(visiblePages).toHaveLength(10);
+    expect(visiblePages).toHaveLength(11);
     expect(visiblePages.every((page) =>
       page.paneIds.some((paneId) => visiblePaneIds.includes(paneId))
     )).toBe(true);
@@ -64,10 +64,31 @@ describe("settings registry", () => {
       "wallpaper",
     ]);
     expect(getSettingsPanesForPage("ai-tools").map((pane) => pane.id)).toEqual([
-      "provider",
-      "provider-credentials",
       "cli-launchers",
+      "agent-chat",
       "quick-commands",
+    ]);
+  });
+
+  it("hosts web access on the devices page right after system, with every section searchable", () => {
+    const pageIds = SETTINGS_PAGES.map((page) => page.id);
+    expect(pageIds.indexOf("devices")).toBe(pageIds.indexOf("system") + 1);
+    expect(getSettingsPanesForPage("devices").map((pane) => pane.id)).toEqual(["web-access"]);
+    expect(SETTINGS_PAGES.find((page) => page.id === "system")?.paneIds).not.toContain("web-access");
+
+    const webAccess = SETTINGS_PANES.find((pane) => pane.id === "web-access");
+    expect(webAccess?.page).toBe("devices");
+    expect(webAccess?.searchEntries.map((entry) => entry.targetSectionId)).toEqual([
+      "web-access-root",
+      "web-access-device",
+      "web-access-server",
+      "web-access-auth",
+      "web-access-network",
+      "web-access-tailscale",
+      "web-access-clients",
+      "web-access-mcp",
+      "web-access-orchestrator",
+      "web-access-service",
     ]);
   });
 

@@ -73,9 +73,9 @@ describe("ActivityBar", () => {
   it("实验功能全关（release 默认）时只有常驻入口", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer + resources + 设备(ssh)/todo + 添加模块 + settings（SSH 机器与设备已合并为一个入口）
-    //（files 与 sessions 图标已移除；通讯录从资源管理器标题旁移到这里，多一个常驻入口）
-    expect(container.querySelectorAll("button")).toHaveLength(9);
+    // Home + explorer + providers + resources + 设备(ssh)/todo + 添加模块 + settings（SSH 机器与设备已合并为一个入口）
+    //（files 与 sessions 图标已移除；通讯录从资源管理器标题旁移到这里，多一个常驻入口；供应商独立入口在工作空间下方）
+    expect(container.querySelectorAll("button")).toHaveLength(10);
     fireEvent.click(screen.getByRole("button", { name: /联系人|通讯录|Contacts/ }));
     expect(useActivityBarStore.getState().activeView).toBe("contacts");
     expect(container.querySelector('[data-module-id="devices"]')).toBeNull();
@@ -98,7 +98,7 @@ describe("ActivityBar", () => {
     setExperimental({ librarySpace: true });
     const user = userEvent.setup();
     const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(10);
+    expect(container.querySelectorAll("button")).toHaveLength(11);
     await user.click(screen.getByRole("button", { name: "创建资料空间" }));
     expect(await screen.findByRole("button", { name: "创建并打开素材助手" })).toBeInTheDocument();
   });
@@ -158,6 +158,17 @@ describe("ActivityBar", () => {
     const state = useActivityBarStore.getState();
     expect(state.appViewMode).toBe("panes");
     expect(state.activeView).toBe("explorer");
+  });
+
+  it("工作空间下方的供应商入口在 providers 与 panes 之间切换", async () => {
+    const user = userEvent.setup();
+    const { container } = renderBar();
+    // 索引 2 = providers（紧跟 explorer）
+    const providersBtn = container.querySelectorAll("button")[2];
+    await user.click(providersBtn);
+    expect(useActivityBarStore.getState().appViewMode).toBe("providers");
+    await user.click(providersBtn);
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
   it("keeps orchestration out of the activity bar even with running tasks", () => {

@@ -100,17 +100,17 @@ describe("GeneralSection", () => {
     vi.restoreAllMocks();
   });
 
-  it("toggles closeToTray and autoStart checkboxes", async () => {
+  it("toggles closeToTray and autoStart switches", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<GeneralSection value={createValue()} onChange={onChange} />);
 
     await user.click(
-      screen.getByRole("checkbox", { name: /关闭窗口时最小化到托盘|Minimize to tray on close/i }),
+      screen.getByRole("switch", { name: /关闭窗口时最小化到托盘|Minimize to tray on close/i }),
     );
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ closeToTray: false }));
 
-    await user.click(screen.getByRole("checkbox", { name: /开机自启|Start on boot/i }));
+    await user.click(screen.getByRole("switch", { name: /开机自启|Start on boot/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));
   });
 
@@ -127,7 +127,7 @@ describe("GeneralSection", () => {
     );
 
     await user.click(
-      screen.getByRole("checkbox", {
+      screen.getByRole("switch", {
         name: /启用 Local History 文件监听|Enable Local History file watching/i,
       }),
     );
@@ -143,7 +143,7 @@ describe("GeneralSection", () => {
     const onChange = vi.fn();
     render(<GeneralSection value={createValue()} onChange={onChange} />);
 
-    await user.click(screen.getByRole("checkbox", { name: /状态栏显示系统资源|Show system resources in the status bar/i }));
+    await user.click(screen.getByRole("switch", { name: /状态栏显示系统资源|Show system resources in the status bar/i }));
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showSystemResources: false }));
   });
@@ -160,7 +160,7 @@ describe("GeneralSection", () => {
       />,
     );
 
-    await user.click(screen.getByRole("checkbox", { name: /有新版本时提示|Notify me about new versions/i }));
+    await user.click(screen.getByRole("switch", { name: /有新版本时提示|Notify me about new versions/i }));
 
     expect(onUpdateNotifyEnabledChange).toHaveBeenCalledWith(false);
   });
@@ -177,7 +177,7 @@ describe("GeneralSection", () => {
       />,
     );
 
-    await user.click(screen.getByRole("checkbox", { name: /功能提示|Feature tips/i }));
+    await user.click(screen.getByRole("switch", { name: /功能提示|Feature tips/i }));
 
     expect(onFeatureTipsEnabledChange).toHaveBeenCalledWith(false);
   });
@@ -338,16 +338,16 @@ describe("GeneralSection", () => {
 
       expect(screen.getByText(/系统托盘|System Tray/i)).toBeInTheDocument();
       expect(
-        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+        screen.getByRole("switch", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
       ).toBeChecked();
       expect(
         screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
       ).toHaveTextContent("5");
       expect(
-        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+        screen.getByRole("switch", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
       ).toBeChecked();
       expect(
-        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+        screen.getByRole("switch", { name: /退出前确认|Confirm before quitting/i }),
       ).toBeChecked();
     });
 
@@ -357,21 +357,21 @@ describe("GeneralSection", () => {
       render(<GeneralSection value={createValue()} onChange={onChange} />);
 
       await user.click(
-        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+        screen.getByRole("switch", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
       );
       expect(onChange).toHaveBeenLastCalledWith(
         expect.objectContaining({ trayShowSessionStatus: false }),
       );
 
       await user.click(
-        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+        screen.getByRole("switch", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
       );
       expect(onChange).toHaveBeenLastCalledWith(
         expect.objectContaining({ trayTooltipSummary: false }),
       );
 
       await user.click(
-        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+        screen.getByRole("switch", { name: /退出前确认|Confirm before quitting/i }),
       );
       expect(onChange).toHaveBeenLastCalledWith(
         expect.objectContaining({ trayConfirmQuit: false }),
@@ -405,16 +405,16 @@ describe("GeneralSection", () => {
       render(<GeneralSection value={legacyValue as unknown as GeneralSettings} onChange={vi.fn()} />);
 
       expect(
-        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+        screen.getByRole("switch", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
       ).toBeChecked();
       expect(
         screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
       ).toHaveTextContent("5");
       expect(
-        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+        screen.getByRole("switch", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
       ).toBeChecked();
       expect(
-        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+        screen.getByRole("switch", { name: /退出前确认|Confirm before quitting/i }),
       ).toBeChecked();
     });
 

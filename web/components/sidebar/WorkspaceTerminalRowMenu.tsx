@@ -1,4 +1,5 @@
 // 侧栏「运行中的终端」行的右键菜单：重命名 / 置顶 / 分叉 / 复制 / 新窗口打开 / 关闭。
+// leadingItems：调用方追加在最前面的项（任务视图的「在此项目新开 ▸」）。
 // 动作全部复用标签上的既有实现：置顶 = 固定标签（同时排到列表最前），关闭走 close-tab 事件
 // （与点 × 同一条路径：pinned 保护、忙碌确认、会话回收都在 Panel 里）。
 import { Suspense, useState } from "react";
@@ -30,6 +31,8 @@ interface Props {
   tabId: string;
   children: React.ReactNode;
   onRename: () => void;
+  /** 追加在菜单最前面的项（自带分隔线） */
+  leadingItems?: React.ReactNode;
 }
 
 function locate(tabId: string) {
@@ -56,7 +59,7 @@ async function copyText(text: string, okLabel: string, failLabel: (error: string
   }
 }
 
-export default function WorkspaceTerminalRowMenu({ tabId, children, onRename }: Props) {
+export default function WorkspaceTerminalRowMenu({ tabId, children, onRename, leadingItems }: Props) {
   const { t } = useTranslation("sidebar");
   const [tab, setTab] = useState<Tab | null>(null);
   const [forkOpen, setForkOpen] = useState(false);
@@ -81,6 +84,12 @@ export default function WorkspaceTerminalRowMenu({ tabId, children, onRename }: 
             // 关闭时不把焦点还给行按钮：选「重命名」后行已换成输入框，抢回焦点会立刻 blur 掉编辑
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
+            {leadingItems && (
+              <>
+                {leadingItems}
+                <ContextMenuSeparator />
+              </>
+            )}
             <ContextMenuItem onSelect={onRename}>
               <Pencil /> {t("terminalRowMenu.rename")}
             </ContextMenuItem>

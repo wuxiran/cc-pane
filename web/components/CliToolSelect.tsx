@@ -37,6 +37,9 @@ export const CLI_COLOR_VAR: Record<string, string> = {
   grok: "var(--app-cli-grok)",
   jcode: "var(--app-cli-jcode)",
   antigravity: "var(--app-cli-antigravity)",
+  kiro: "var(--app-cli-kiro)",
+  fx: "var(--app-cli-fx)",
+  muse: "var(--app-cli-muse)",
 };
 
 export default function CliToolSelect({

@@ -41,7 +41,7 @@ describe("ProxySection", () => {
   it("hides proxy detail fields when disabled", () => {
     render(<ProxySection value={createValue({ enabled: false })} onChange={vi.fn()} />);
 
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("switch")).not.toBeChecked();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
@@ -51,7 +51,7 @@ describe("ProxySection", () => {
     const onChange = vi.fn();
     render(<ProxySection value={createValue({ enabled: false })} onChange={onChange} />);
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("switch"));
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });

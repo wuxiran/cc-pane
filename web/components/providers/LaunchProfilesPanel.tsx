@@ -1,30 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Card } from "@/components/ui/card";
 import { useTranslation } from "react-i18next";
-import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import type { LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
-import { isLocalWslOnlyCliTool, localWslOnlySshUnsupportedKey } from "@/utils/cliTool";
 import type { KnownCliTool } from "@/types/terminal";
 import LaunchProfileBasicsCard from "./LaunchProfileBasicsCard";
+import LaunchProfileRow, { LaunchProfileAddRow, useProfileRowSummary } from "./LaunchProfileRow";
 import LaunchProfileListAside, {
   type LaunchProfileListMode,
 } from "./LaunchProfileListAside";
 import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
+import LaunchProfileNativeConfigCard from "./LaunchProfileNativeConfigCard";
 import LaunchProfileSkillCard from "./LaunchProfileSkillCard";
 import LaunchProfileSummaryCard from "./LaunchProfileSummaryCard";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
+import ProviderImportDialog from "./ProviderImportDialog";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import type { ExternalProviderSource } from "@/types/provider";
 import { useLaunchProfileUnsavedChanges } from "./useLaunchProfileUnsavedChanges";
 import { useLaunchProfileNavigation } from "./useLaunchProfileNavigation";
 import { useLaunchProfileDraft } from "./useLaunchProfileDraft";
 import { useExternalSkills } from "./useExternalSkills";
 import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
-import { profileProviderFields } from "./launchProfileAccounts";
+import { useLaunchProfileActions } from "./useLaunchProfileActions";
 import {
   SYSTEM_DEFAULT_PROFILE_ID,
   WORKSPACE_FILTER_ALL,
   draftDisplayName,
+  profileDisplayName,
   profileMatchesTool,
   systemDefaultLaunchProfileDraft,
   toDraft,
@@ -43,9 +49,14 @@ interface LaunchProfilesPanelProps {
   initialTool?: KnownCliTool;
   /** 受控 CLI（chips 已上移到 ProviderPagesHeader，由父级切换后经此同步进来） */
   tool?: KnownCliTool;
+  /** 当前上下文（活动终端 / 工作空间）推断的运行位置：只用于解析预览，配置本身不区分运行位置 */
   initialRuntime?: LaunchProfileRuntime;
   onActiveToolChange?: (tool: KnownCliTool) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 凭证行「管理凭证」：跳到供应商凭证页（凭证页不再作为顶部标签常驻） */
+  onManageCredentials?: () => void;
+  /** 左栏工作空间视角，默认隐藏 */
+  showWorkspaceLens?: boolean;
 }
 
 export default function LaunchProfilesPanel({
@@ -55,15 +66,13 @@ export default function LaunchProfilesPanel({
   initialRuntime = null,
   onActiveToolChange,
   onDirtyChange,
+  onManageCredentials,
+  showWorkspaceLens = false,
 }: LaunchProfilesPanelProps) {
   const { tools: cliTools } = useCliTools();
   const { t } = useTranslation(["providers", "common"]);
   const profiles = useLaunchProfilesStore((s) => s.profiles);
   const loadProfiles = useLaunchProfilesStore((s) => s.load);
-  const createProfile = useLaunchProfilesStore((s) => s.create);
-  const updateProfile = useLaunchProfilesStore((s) => s.update);
-  const removeProfile = useLaunchProfilesStore((s) => s.remove);
-  const setDefaultProfile = useLaunchProfilesStore((s) => s.setDefault);
   const previewProfile = useLaunchProfilesStore((s) => s.preview);
   const providers = useProvidersStore((s) => s.providers);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
@@ -72,17 +81,17 @@ export default function LaunchProfilesPanel({
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const workspacesLoading = useWorkspacesStore((s) => s.loading);
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
-  const updateWorkspaceLaunchProfile = useWorkspacesStore((s) => s.updateWorkspaceLaunchProfile);
 
   const resolvedInitialTool = tool ?? initialTool ?? "claude";
   const [activeTool, setActiveTool] = useState<KnownCliTool>(resolvedInitialTool);
   const [selectedId, setSelectedId] = useState<string | null>(SYSTEM_DEFAULT_PROFILE_ID);
-  const { draft, setDraft, replaceDraft, userEditedRef } = useLaunchProfileDraft(() => systemDefaultLaunchProfileDraft(resolvedInitialTool, initialRuntime, t));
+  const { draft, setDraft, replaceDraft, userEditedRef } = useLaunchProfileDraft(() => systemDefaultLaunchProfileDraft(resolvedInitialTool, t));
   const [preview, setPreview] = useState<LaunchProfileResolution | null>(null);
   const [workspaceBindingOpen, setWorkspaceBindingOpen] = useState(false);
   const [bindingWorkspaceName, setBindingWorkspaceName] = useState<string | null>(null);
   const [workspaceFilterName, setWorkspaceFilterName] = useState(WORKSPACE_FILTER_ALL);
   const [listMode, setListMode] = useState<LaunchProfileListMode>("profiles");
+  const [importSource, setImportSource] = useState<ExternalProviderSource | null>(null);
   const externalSkills = useExternalSkills();
   const {
     profileSkillEditorOpen,
@@ -142,13 +151,13 @@ export default function LaunchProfilesPanel({
     const profile = profiles.find((item) => item.id === selectedId);
     if (!profile || !profileMatchesTool(profile, activeTool)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft(toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, t));
     }
   }, [activeTool, profiles, replaceDraft, selectedId, toolDefaultProfile]);
 
   useEffect(() => {
     if (selectedId === SYSTEM_DEFAULT_PROFILE_ID && !(toolDefaultProfile && userEditedRef.current)) {
-      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft(toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, t));
     }
   }, [activeTool, replaceDraft, selectedId, toolDefaultProfile, userEditedRef]);
 
@@ -174,20 +183,20 @@ export default function LaunchProfilesPanel({
             profileId: toolDefaultProfile.id,
             workspaceName: workspaceContext?.name ?? null,
             cliTool: activeTool,
-            runtimeKind: draft.targetRuntime ?? null,
+            runtimeKind: initialRuntime ?? null,
           }
         : {
           useSystemDefault: true,
           workspaceName: workspaceContext?.name ?? null,
           providerSelection: "none" as const,
           cliTool: activeTool,
-          runtimeKind: draft.targetRuntime ?? null,
+          runtimeKind: initialRuntime ?? null,
         }
       : {
           profileId: selectedId,
           workspaceName: workspaceContext?.name ?? null,
           cliTool: activeTool,
-          runtimeKind: draft.targetRuntime ?? null,
+          runtimeKind: initialRuntime ?? null,
         };
 
     previewProfile(request)
@@ -201,7 +210,7 @@ export default function LaunchProfilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeTool, draft.targetRuntime, previewProfile, profiles, selectedId, toolDefaultProfile, workspaceContext?.name]);
+  }, [activeTool, initialRuntime, previewProfile, profiles, selectedId, toolDefaultProfile, workspaceContext?.name]);
 
   const selectedProfile = useMemo(
     () => selectedId === SYSTEM_DEFAULT_PROFILE_ID
@@ -209,9 +218,8 @@ export default function LaunchProfilesPanel({
       : profiles.find((profile) => profile.id === selectedId) ?? null,
     [profiles, selectedId, toolDefaultProfile],
   );
-  const { discardGuard, requestDiscard } = useLaunchProfileUnsavedChanges({
+  const { discardGuard, requestDiscard, isDirty } = useLaunchProfileUnsavedChanges({
     activeTool,
-    initialRuntime,
     profiles,
     selectedId,
     toolDefaultProfile,
@@ -250,7 +258,7 @@ export default function LaunchProfilesPanel({
     if (selectedId === null || selectedId === SYSTEM_DEFAULT_PROFILE_ID) return;
     if (!filteredProfiles.some((profile) => profile.id === selectedId)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft(toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, t));
     }
   }, [activeTool, filteredProfiles, replaceDraft, selectedId, toolDefaultProfile]);
 
@@ -266,9 +274,9 @@ export default function LaunchProfilesPanel({
     setActiveTool(nextTool);
     onActiveToolChange?.(nextTool);
     setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    replaceDraft(systemDefaultLaunchProfileDraft(nextTool, draft.targetRuntime ?? null, t));
+    replaceDraft(systemDefaultLaunchProfileDraft(nextTool, t));
     resetTransientState();
-  }, [activeTool, draft.targetRuntime, onActiveToolChange, replaceDraft, resetTransientState]);
+  }, [activeTool, onActiveToolChange, replaceDraft, resetTransientState]);
 
   // chips 上移后 CLI 切换来自父级：受控 tool 变化时走同一条切换路径（选中/草稿/瞬态一并重置）
   useEffect(() => {
@@ -294,98 +302,11 @@ export default function LaunchProfilesPanel({
     setWorkspaceBindingOpen, setBindingWorkspaceName,
   });
 
-  const handleSave = useCallback(async () => {
-    try {
-      const sshUnsupportedKey = localWslOnlySshUnsupportedKey(activeTool);
-      if (sshUnsupportedKey && draft.targetRuntime === "ssh") {
-        toastErr(t(sshUnsupportedKey));
-        return;
-      }
-      const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
-      const nextDraft = {
-        ...draft,
-        name: draft.name?.trim() || alias,
-        alias,
-        ...profileProviderFields(draft, isSystemDefaultSelected, selectedDraftProvider, activeTool),
-        adapterOptions: activeTool === "pi"
-          ? { ...(draft.adapterOptions ?? {}), piTransport: "pty" as const }
-          : draft.adapterOptions ?? {},
-        yoloMode: isLocalWslOnlyCliTool(activeTool) ? false : draft.yoloMode,
-        isDefault: isSystemDefaultSelected ? true : draft.isDefault,
-        targetTools: [activeTool],
-        targetRuntime: draft.targetRuntime ?? null,
-      };
-      const profileToUpdate = isSystemDefaultSelected ? toolDefaultProfile : selectedProfile;
-      const saved = profileToUpdate
-        ? await updateProfile(profileToUpdate.id, nextDraft)
-        : await createProfile(nextDraft);
-      if (isSystemDefaultSelected) {
-        setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-        replaceDraft(toDraft(saved));
-        toastOk(t("toast.systemDefaultSaved"));
-        return;
-      }
-
-      if (!selectedProfile && workspaceContext) {
-        await updateWorkspaceLaunchProfile(workspaceContext.name, saved.id);
-      }
-      setSelectedId(saved.id);
-      replaceDraft(toDraft(saved));
-      toastOk(workspaceContext && !selectedProfile
-        ? t("toast.profileSavedBound", { name: workspaceContext.name })
-        : t("toast.profileSaved"));
-    } catch (error) {
-      toastErr(t("common:saveFailed", { error: String(error) }));
-    }
-  }, [activeTool, createProfile, draft, isSystemDefaultSelected, replaceDraft, selectedDraftProvider, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
-
-  const deleteSelectedProfile = useCallback(async () => {
-    if (!selectedProfile || isSystemDefaultSelected) return;
-    try {
-      for (const workspace of workspaces.filter((item) => item.launchProfileId === selectedProfile.id)) {
-        await updateWorkspaceLaunchProfile(workspace.name, null);
-      }
-      await removeProfile(selectedProfile.id);
-      setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
-      toastOk(t("toast.profileDeleted"));
-    } catch (error) {
-      toastErr(t("common:deleteFailed", { error: String(error) }));
-    }
-  }, [activeTool, isSystemDefaultSelected, removeProfile, replaceDraft, selectedProfile, t, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
-
-  const handleDelete = useCallback(() => {
-    if (!selectedProfile || isSystemDefaultSelected) return;
-    requestDiscard(() => { void deleteSelectedProfile(); });
-  }, [deleteSelectedProfile, isSystemDefaultSelected, requestDiscard, selectedProfile]);
-
-  const setDefaultProfileAction = useCallback(async () => {
-    if (!selectedProfile) return;
-    replaceDraft(toDraft(selectedProfile));
-    await setDefaultProfile(selectedProfile.id);
-    toastOk(t("toast.defaultProfileUpdated"));
-  }, [replaceDraft, selectedProfile, setDefaultProfile, t]);
-
-  const handleSetDefault = useCallback(() => {
-    if (!selectedProfile) return;
-    requestDiscard(() => { void setDefaultProfileAction(); });
-  }, [requestDiscard, selectedProfile, setDefaultProfileAction]);
-
-  const handleToggleWorkspaceBinding = useCallback(async (workspaceName: string, checked: boolean) => {
-    if (!selectedProfileId) {
-      toastInfo(t("toast.saveProfileFirst"));
-      return;
-    }
-    setBindingWorkspaceName(workspaceName);
-    try {
-      await updateWorkspaceLaunchProfile(workspaceName, checked ? selectedProfileId : null);
-      toastOk(checked ? t("toast.boundTo", { name: workspaceName }) : t("toast.unboundFrom", { name: workspaceName }));
-    } catch (error) {
-      toastErr(t("toast.workspaceBindFailed", { error: String(error) }));
-    } finally {
-      setBindingWorkspaceName(null);
-    }
-  }, [selectedProfileId, t, updateWorkspaceLaunchProfile]);
+  const { handleSave, handleDelete, handleSetDefault, handleToggleWorkspaceBinding } = useLaunchProfileActions({
+    activeTool, draft, isSystemDefaultSelected, selectedDraftProvider, selectedProfile, selectedProfileId,
+    toolDefaultProfile, workspaceContext, workspaces, translate: t, requestDiscard, replaceDraft,
+    setSelectedId, setBindingWorkspaceName,
+  });
 
   const setMcpMode = (mode: LaunchProfileDraft["mcpPolicy"]["mode"]) => {
     setDraft((current) => nextMcpMode(current, mode, servers));
@@ -400,15 +321,40 @@ export default function LaunchProfilesPanel({
     setDraft((current) => nextToggleExternalSource(current, kind, included));
   };
 
-  const previewProviderLabel = isSystemDefaultSelected
-    ? t("previewSystemProvider")
-    : preview?.providerName ?? t("noProviderSpecified");
-  const previewModelLabel = isSystemDefaultSelected
-    ? t("nativeCliDefaultModel")
-    : preview?.modelLabel ?? preview?.modelId ?? selectedProviderDefaultModel?.label
-      ?? selectedProviderDefaultModel?.id ?? t("nativeCliDefaultModel");
-  const previewMcpCount = preview?.mcpServers.filter((server) => server.enabled).length ?? 0;
-  const previewSkillCount = preview?.skills.filter((skill) => skill.enabled).length ?? 0;
+  // 列表：系统默认 + 已保存 + 新建中的草稿；只有选中的那一行展开，其余收成一行摘要
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => { setExpanded(true); }, [selectedId]);
+  const rowSummary = useProfileRowSummary(providers, activeTool);
+  const rows = useMemo(() => {
+    const systemSource = toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, t);
+    return [
+      {
+        key: SYSTEM_DEFAULT_PROFILE_ID,
+        label: t("systemDefaultShort"),
+        isDefault: false,
+        active: selectedId === SYSTEM_DEFAULT_PROFILE_ID,
+        source: selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemSource,
+        onSelect: handleSelectSystemDefault,
+      },
+      ...profilesForActiveTool.map((profile) => ({
+        key: profile.id,
+        label: profileDisplayName(profile),
+        isDefault: profile.isDefault,
+        active: selectedId === profile.id,
+        source: selectedId === profile.id ? draft : toDraft(profile),
+        onSelect: () => handleSelect(profile),
+      })),
+      ...(selectedId === null ? [{
+        key: "new-draft",
+        label: `${draftDisplayName(draft, t)} · ${t("profileRowNew")}`,
+        isDefault: false,
+        active: true,
+        source: draft,
+        onSelect: () => {},
+      }] : []),
+    ];
+  }, [activeTool, draft, handleSelect, handleSelectSystemDefault, profilesForActiveTool, selectedId, t, toolDefaultProfile]);
+
   const currentTitle = isSystemDefaultSelected ? t("systemDefaultName", { tool: toolLabel(activeTool, t) }) : isNewProfile ? draftDisplayName(draft, t) : draftDisplayName(draft, t);
 
   return (
@@ -422,20 +368,37 @@ export default function LaunchProfilesPanel({
           workspaceContext={workspaceContext}
           listMode={listMode}
           onListModeChange={handleListModeChange}
-          providers={providers}
           profiles={profiles}
           filteredProfiles={profilesForActiveTool}
           selectedId={selectedId}
-          isSystemDefaultSelected={isSystemDefaultSelected}
           onCopySystemDefault={handleCopySystemDefault}
           onSelectSystemDefault={handleSelectSystemDefault}
           onSelect={handleSelect}
           onSelectWorkspaceProfile={handleSelectWorkspaceProfile}
           onSelectWorkspace={handleSelectWorkspace}
+          // 受控时交给父级（它持有未保存守卫，再经 tool prop 回流）；独立使用时自己守卫
+          showWorkspaceLens={showWorkspaceLens}
+          onSelectTool={(nextTool) => (onActiveToolChange
+            ? onActiveToolChange(nextTool)
+            : requestDiscard(() => handleToolChange(nextTool)))}
         />
 
         <main className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
-          <div className={`w-full space-y-2.5 ${compact ? "py-3" : "mx-auto max-w-5xl px-3 py-3"}`}>
+          <div className={`w-full space-y-2.5 ${compact ? "pb-3" : "max-w-[1200px] px-4 pb-4"}`}>
+            {/* 列表顶部：从外部工具导入中转站（预览 → 勾选 → 一次导入），导入后直接出现在凭证的「中转站」里 */}
+            {!compact && (
+              <div className="flex items-center justify-end gap-1.5 pt-1">
+                {(["cc_switch", "magpie"] as const).map((source) => (
+                  <Button key={source} size="xs" variant="outline" onClick={() => setImportSource(source)}>
+                    <Download size={13} /> {t(`importFromSource.${source}`)}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {/* 展开的那一行：行头（标题+动作）与基础 / MCP / Skill 同在一张卡里，分隔线隔开 */}
+            <div aria-label={t("profileList")} className="space-y-2">
+            {rows.map((row) => (row.active && (expanded || compact) ? (
+            <Card key={row.key} data-testid="launch-profile-expanded" className="divide-y divide-[var(--app-border)]/60">
             <LaunchProfileSummaryCard
               draft={draft}
               activeTool={activeTool}
@@ -446,10 +409,6 @@ export default function LaunchProfilesPanel({
               selectedProfileId={selectedProfileId}
               profiles={profiles}
               preview={preview}
-              previewProviderLabel={previewProviderLabel}
-              previewModelLabel={previewModelLabel}
-              previewMcpCount={previewMcpCount}
-              previewSkillCount={previewSkillCount}
               workspaces={workspaces}
               workspacesLoading={workspacesLoading}
               workspaceContext={workspaceContext}
@@ -462,6 +421,8 @@ export default function LaunchProfilesPanel({
               onSave={handleSave}
               onSetDefault={handleSetDefault}
               onDelete={handleDelete}
+              onCollapse={compact ? undefined : () => setExpanded(false)}
+              onRename={isSystemDefaultSelected ? undefined : (name) => setDraft((current) => ({ ...current, alias: name, name }))}
             />
 
             <LaunchProfileBasicsCard
@@ -476,6 +437,7 @@ export default function LaunchProfilesPanel({
               selectedProfileEffort={selectedProfileEffort}
               yoloConfirmOpen={yoloConfirmOpen}
               setYoloConfirmOpen={setYoloConfirmOpen}
+              onManageCredentials={onManageCredentials}
             />
 
             <LaunchProfileMcpCard
@@ -483,6 +445,8 @@ export default function LaunchProfilesPanel({
               setDraft={setDraft}
               activeTool={activeTool}
               setMcpMode={setMcpMode}
+              effective={preview ? preview.mcpServers.filter((server) => server.enabled) : null}
+              effectiveStale={isDirty}
             />
 
             <LaunchProfileSkillCard
@@ -501,11 +465,28 @@ export default function LaunchProfilesPanel({
               saveProfileSkill={saveProfileSkill}
               toggleProfileSkill={toggleProfileSkill}
               deleteProfileSkill={deleteProfileSkill}
+              effective={preview ? preview.skills.filter((skill) => skill.enabled) : null}
+              effectiveStale={isDirty}
             />
+            <LaunchProfileNativeConfigCard draft={draft} setDraft={setDraft} activeTool={activeTool} />
+            </Card>
+            ) : compact ? null : (
+              <LaunchProfileRow
+                key={row.key}
+                label={row.label}
+                summary={rowSummary(row.source)}
+                isDefault={row.isDefault}
+                current={row.active}
+                onClick={row.active ? () => setExpanded(true) : row.onSelect}
+              />
+            )))}
+            {!compact && <LaunchProfileAddRow onClick={handleCopySystemDefault} />}
+            </div>
           </div>
         </main>
       </div>
     </div>
+    <ProviderImportDialog source={importSource} onClose={() => setImportSource(null)} />
     <UnsavedChangesDialog
       open={discardGuard.confirmOpen}
       onCancel={discardGuard.cancel}

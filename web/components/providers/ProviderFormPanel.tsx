@@ -30,12 +30,13 @@ import {
 } from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 import CodexWireApiField from "./CodexWireApiField";
+import { ProviderNativeOverrideSection } from "./NativeOverrideEditor";
 import EndpointsField from "./accounts/EndpointsField";
 import ProviderAccountSections from "./accounts/ProviderAccountSections";
 import { applyPersistedAccountChange } from "./accounts/drafts";
 import type { PersistedAccountChange } from "./accounts/ProviderAccountsSection";
 import { moveEndpointsToPrimary, primaryEndpointKind } from "./accounts/endpoints";
-import { accountFormProblem, buildProviderPayload, normalizeFormModels } from "./accounts/providerPayload";
+import { prepareProviderSave } from "./accounts/providerSave";
 const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
 interface ProviderFormPanelProps {
   editProvider?: Provider | null;
@@ -179,11 +180,8 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
   }
 
   async function handleSave() {
-    if (!form.name.trim()) { toastErr(t("nameRequired")); return; }
-    const normalized = normalizeFormModels(form);
-    if ("errorKey" in normalized) { toastErr(t(normalized.errorKey)); return; }
-    const problem = accountFormProblem(form, manageAccounts);
-    if (problem) { toastErr(t(`providers:${problem.key}` as "providers:providerAccounts.env.problem.needs_refill", problem.params)); return; }
+    const prepared = prepareProviderSave(form, { saveAsUpdate, manageAccounts, editProvider, providers, newId: () => crypto.randomUUID() });
+    if ("problem" in prepared) { toastErr(t(prepared.problem.key as "settings:nameRequired", prepared.problem.params)); return; }
     try {
       // 如果 config_profile 且 JSON 文件有修改，先写回文件
       if (isConfigJsonFile && configFileIsDirty) {
@@ -191,21 +189,11 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         setConfigFileOriginal(configFileContent);
         toastOk(t("jsonFileSaved"));
       }
-
-      // 只有 update 路径复用既有 id；add 路径（含复制种子）一律重新生成，
-      // 防御调用方忘记换 id 时把复制写成覆盖原 Provider。
-      const existing = saveAsUpdate ? providers.find((p) => p.id === editProvider.id) : undefined;
-      const provider = buildProviderPayload(form, {
-        id: saveAsUpdate ? editProvider.id : crypto.randomUUID(),
-        models: normalized.models,
-        isDefault: existing?.isDefault ?? false,
-        manageAccounts,
-      });
       if (saveAsUpdate) {
-        await updateProvider(provider);
+        await updateProvider(prepared.provider);
         toastOk(t("providerUpdated"));
       } else {
-        await addProvider(provider);
+        await addProvider(prepared.provider);
         toastOk(t("providerAdded"));
       }
       (onSaved ?? onBack)();
@@ -502,13 +490,12 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
               onChange={updateForm}
               onPersisted={applyPersisted}
             />
-
             <ProviderModelsEditor
               models={form.models}
               defaultIndex={form.defaultModelIndex}
               onChange={(models, defaultModelIndex) => updateForm({ models, defaultModelIndex })}
             />
-
+            <ProviderNativeOverrideSection providerType={form.providerType} value={form.nativeOverrides} onChange={(nativeOverrides) => updateForm({ nativeOverrides })} />
             {/* 非 config_profile 类型的配置 JSON 编辑器 */}
             {form.providerType !== "config_profile" && (
               <div className="flex flex-col gap-1.5">

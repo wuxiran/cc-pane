@@ -491,7 +491,7 @@ pub async fn open_settings_window(
             tauri::window::Color(0xf6, 0xf7, 0xf9, 0xff),
         )
     };
-    let window =
+    let builder =
         WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))
             .title("Settings")
             .theme(Some(theme))
@@ -499,9 +499,17 @@ pub async fn open_settings_window(
             .inner_size(1040.0, 720.0)
             .min_inner_size(760.0, 520.0)
             .center()
-            .focused(true)
-            .build()
-            .map_err(|e| AppError::from(format!("Failed to create settings window: {e}")))?;
+            .focused(true);
+    // macOS：原生标题栏是一条独立的系统色带，暗色主题下顶部一道白边。与主窗口同口径
+    // 改成 Overlay（透明标题栏 + 内容铺满），红绿灯浮在内容上；前端设置窗口给它们
+    // 让出顶部拖拽带（SettingsSidebar 的 titlebarInset）。其他平台保持原生标题栏。
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    let window = builder
+        .build()
+        .map_err(|e| AppError::from(format!("Failed to create settings window: {e}")))?;
     // 从托盘打开时应用不在前台：被遮挡的 WKWebView 不绘制，窗口会一直白屏，必须主动激活。
     window
         .set_focus()

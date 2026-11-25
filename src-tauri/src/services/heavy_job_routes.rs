@@ -57,7 +57,8 @@ pub trait HeavyJobEnvironment: Send + Sync {
 }
 
 pub struct HeavyJobGateState {
-    token: String,
+    /// 与 orchestrator 共用的令牌句柄：「更换令牌」后旧令牌在这里同样立即失效。
+    token: crate::services::OrchestratorToken,
     gate: Mutex<HeavyJobGate>,
     notify: Notify,
     env: Arc<dyn HeavyJobEnvironment>,
@@ -66,18 +67,21 @@ pub struct HeavyJobGateState {
 }
 
 impl HeavyJobGateState {
-    pub fn new(token: String, env: Arc<dyn HeavyJobEnvironment>) -> Self {
+    pub fn new(
+        token: impl Into<crate::services::OrchestratorToken>,
+        env: Arc<dyn HeavyJobEnvironment>,
+    ) -> Self {
         Self::with_long_poll(token, env, LONG_POLL_MAX)
     }
 
     pub fn with_long_poll(
-        token: String,
+        token: impl Into<crate::services::OrchestratorToken>,
         env: Arc<dyn HeavyJobEnvironment>,
         long_poll_max: Duration,
     ) -> Self {
         let gate = HeavyJobGate::new(env.gate_config());
         Self {
-            token,
+            token: token.into(),
             gate: Mutex::new(gate),
             notify: Notify::new(),
             env,
@@ -213,7 +217,7 @@ impl HeavyJobGateState {
             .get("authorization")
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
-            .is_some_and(|token| token == self.token)
+            .is_some_and(|token| self.token.matches(token))
     }
 }
 
@@ -834,6 +838,23 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn rotated_orchestrator_token_is_enforced_immediately() {
+        let token = crate::services::OrchestratorToken::new(TOKEN);
+        let app = router(Arc::new(HeavyJobGateState::with_long_poll(
+            token.clone(),
+            RecordingEnv::with(GateConfig::disabled()),
+            Duration::from_millis(10),
+        )));
+        let (status, _) = post(&app, "/acquire", Some(TOKEN), acquire("a", false)).await;
+        assert_eq!(status, StatusCode::OK);
+        token.replace("rotated".to_string());
+        let (status, _) = post(&app, "/acquire", Some(TOKEN), acquire("a", false)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = post(&app, "/acquire", Some("rotated"), acquire("a", false)).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

@@ -46,3 +46,19 @@ export function deriveLayoutStatusSummary(
 
   return summary;
 }
+
+/** 折叠态只露一个状态符号：报错 > 等输入 > 运行中；都没有返回 null。 */
+export type UrgentLayoutStatus = {
+  bucket: "blocked" | "waitingInput" | "running";
+  status: TerminalStatusType;
+  count: number;
+};
+
+export function mostUrgentLayoutStatus(summary: LayoutStatusSummary): UrgentLayoutStatus | null {
+  if (summary.blocked > 0) return { bucket: "blocked", status: "error", count: summary.blocked };
+  if (summary.waitingInput > 0) {
+    return { bucket: "waitingInput", status: "waitingInput", count: summary.waitingInput };
+  }
+  if (summary.running > 0) return { bucket: "running", status: "active", count: summary.running };
+  return null;
+}

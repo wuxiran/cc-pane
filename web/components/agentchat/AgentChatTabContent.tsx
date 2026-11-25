@@ -36,6 +36,11 @@ import { groupChatItems, type ChatTurn } from "./chatTurns";
 import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
 import CodexMenuItems from "./CodexMenuItems";
+import ChatSelectionHandoff from "./ChatSelectionHandoff";
+import { lastAssistantReply } from "./codexHandoffPrompt";
+import { useTranscriptSelection } from "./useTranscriptSelection";
+import { codexHandoffWorkspace } from "@/lib/codexIntegration";
+import { isTauriRuntime } from "@/services/runtime";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import RemoteTargetChip from "./RemoteTargetChip";
 import { remoteLaunchOf } from "./remoteTarget";
@@ -70,7 +75,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [handoffCwd, setHandoffCwd] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<{ cwd: string; selection: string; lastReply: string } | null>(null);
   const forkSource = useRef<{ engineId: string; sessionId: string; cwd: string } | null>(null);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
@@ -87,6 +92,9 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
     [tab.id],
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // 选中 transcript 文字 → 浮出「交给 Codex 桌面」；「…」菜单入口同样带上选区。
+  const selectionHandoffCwd = !remote && isTauriRuntime() ? codexHandoffWorkspace(tab, effectiveCwd) : null;
+  const transcriptSelection = useTranscriptSelection(scrollRef, Boolean(selectionHandoffCwd));
   // 工具卡全局展开/折叠信号（seq 递增触发，各卡自行响应）。
   const [toolFold, setToolFold] = useState<{ seq: number; expanded: boolean }>({
     seq: 0,
@@ -251,7 +259,9 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
       remote: remoteLaunchOf(target),
       resumeAcpSessionId: current.acpSessionId,
       autoApproveKinds: current.autoApproveKinds,
+      launchProfileId: current.launchProfileId,
       firstPrompt: setup?.firstPrompt,
+      firstAttachments: setup?.firstAttachments,
       preamble: setup?.preamble,
     }).catch((error) => handleErrorSilent(error, "restart acp chat"));
   }, [tab.id, effectiveCwd, t, botId, botBootstrap.start]);
@@ -281,7 +291,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
   if (!snapshot && (!items || items.length === 0)) {
     return (
-      <div className="agent-chat-shell flex h-full min-w-0 flex-col overflow-hidden">
+      <div className="agent-chat-shell relative flex h-full min-w-0 flex-col overflow-hidden" data-agent-chat-drop-zone="">
         <EnginePicker
           chatId={tab.id}
           preferredEngineId={tab.agentEngineId}
@@ -309,6 +319,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
     <ChatSessionControls
       chatId={tab.id}
       snapshot={snapshot}
+      cwd={effectiveCwd}
       setupRecovery={setupRecovery}
       recoverySelections={recoverySelections}
       onRecoverySelect={(key, value) => setRecoverySelections((previous) => ({ ...previous, [key]: value }))}
@@ -316,14 +327,14 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   ) : null;
 
   return (
-    <section className="agent-chat-shell h-full min-w-0" data-density={compact ? "compact" : undefined}>
+    <section className="agent-chat-shell relative h-full min-w-0" data-agent-chat-drop-zone="" data-density={compact ? "compact" : undefined}>
     <div className="flex h-full flex-col overflow-hidden">
       {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
       {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={effectiveCwd} sourceSessionId={snapshot?.acpSessionId} /></Suspense>}
       {snapshot && !compact ? (
         <ChatSessionHeader
-          engineLabel={snapshot.engineId}
-          extraMenuItems={remote ? undefined : <CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={setHandoffCwd} />}
+          engineLabel={snapshot.engineId} launchProfileId={snapshot.launchProfileId} chatTabId={tab.id}
+          extraMenuItems={remote ? undefined : <CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={(cwd) => setHandoff({ cwd, selection: transcriptSelection.captureForMenu(), lastReply: lastAssistantReply(items ?? []) })} />}
           onHistory={runtimeTools?.openHistory}
           onCheckpoints={runtimeTools?.openCheckpoints}
           workspaceMenu={remote ? <RemoteTargetChip target={remote} />
@@ -412,6 +423,13 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
             ) : null}
           </div>
         </div>
+        <ChatSelectionHandoff
+          anchor={transcriptSelection.anchor}
+          onHandoff={(selection) => {
+            transcriptSelection.dismiss();
+            if (selectionHandoffCwd) setHandoff({ cwd: selectionHandoffCwd, selection, lastReply: lastAssistantReply(items ?? []) });
+          }}
+        />
         {!atBottom ? (
           <button
             type="button"
@@ -433,7 +451,7 @@ function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
       ) : null}
 
       <ChatPermissionQueue chatId={tab.id} />
-      {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.id} onClose={() => setHandoffCwd(null)} /></Suspense>}
+      {handoff && <Suspense fallback={null}><CodexHandoffDialog cwd={handoff.cwd} chatId={tab.id} selection={handoff.selection} lastReply={handoff.lastReply} onClose={() => setHandoff(null)} /></Suspense>}
       <ChatQuestionQueue chatId={tab.id} />
 
       {ended ? (

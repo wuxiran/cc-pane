@@ -38,9 +38,9 @@ describe("Codex target provenance", () => {
     expect(isLocalCodexPath("/project\n")).toBe(false);
   });
 
-  it("labels native and ACP separately", () => {
+  it("labels the unified Codex engine and legacy ACP sessions", () => {
     expect(codexEngineLabel("codex")).toBe("Codex (ACP)");
-    expect(codexEngineLabel("codex-app-server")).toBe("Codex App Server");
+    expect(codexEngineLabel("codex-app-server")).toBe("Codex");
     expect(codexEngineLabel("claude", "Claude Code")).toBe("Claude Code");
   });
 });

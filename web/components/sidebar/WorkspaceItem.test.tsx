@@ -495,7 +495,7 @@ describe("WorkspaceItem", () => {
     expect(screen.queryByRole("menuitem", { name: "Claude Plan" })).not.toBeInTheDocument();
   });
 
-  it("filters launch profiles by local and wsl runtime", async () => {
+  it("lists every launch profile regardless of legacy targetRuntime", async () => {
     const user = userEvent.setup();
     useLaunchProfilesStore.setState({
       profiles: [
@@ -510,10 +510,10 @@ describe("WorkspaceItem", () => {
     await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
 
     expect(await screen.findByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: /Codex WSL/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
   });
 
-  it("filters default Codex profiles with the workspace Codex CLI default environment", async () => {
+  it("does not hide profiles when the workspace Codex CLI default environment is WSL", async () => {
     const user = userEvent.setup();
     useLaunchProfilesStore.setState({
       profiles: [
@@ -532,7 +532,7 @@ describe("WorkspaceItem", () => {
     await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
 
     expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: /Codex Local/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
   });
 
   it("uses the Codex CLI default environment for favorite default actions", async () => {
@@ -564,7 +564,7 @@ describe("WorkspaceItem", () => {
     await user.hover(await screen.findByRole("menuitem", { name: "Codex CLI" }));
 
     expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: /Codex Local/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
   });
 
   it("launches a wsl-specific Codex profile from the WSL menu", async () => {

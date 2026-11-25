@@ -48,7 +48,8 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-export async function blobToAudioPayload(blob: Blob, preferWav: boolean): Promise<AudioPayload> {
+/** sampleRate：只在转 WAV 时生效，交给 AudioContext 解码时顺手重采样（本机识别用 16kHz） */
+export async function blobToAudioPayload(blob: Blob, preferWav: boolean, sampleRate?: number): Promise<AudioPayload> {
   if (!preferWav) {
     return {
       audioBase64: await blobToBase64(blob),
@@ -57,7 +58,7 @@ export async function blobToAudioPayload(blob: Blob, preferWav: boolean): Promis
   }
 
   try {
-    const wavBlob = await transcodeBlobToMonoWav(blob);
+    const wavBlob = await transcodeBlobToMonoWav(blob, sampleRate);
     return {
       audioBase64: await blobToBase64(wavBlob),
       mimeType: "audio/wav",
@@ -80,13 +81,13 @@ function isWavFallbackMimeType(mimeType: string): boolean {
   return WAV_FALLBACK_MIME_TYPES.has(baseType);
 }
 
-async function transcodeBlobToMonoWav(blob: Blob): Promise<Blob> {
+async function transcodeBlobToMonoWav(blob: Blob, sampleRate?: number): Promise<Blob> {
   const AudioContextCtor = window.AudioContext ?? (window as WebAudioWindow).webkitAudioContext;
   if (!AudioContextCtor) {
     throw new Error("AudioContext is unavailable");
   }
 
-  const audioContext = new AudioContextCtor();
+  const audioContext = sampleRate ? new AudioContextCtor({ sampleRate }) : new AudioContextCtor();
   try {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));

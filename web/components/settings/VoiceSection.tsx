@@ -1,252 +1,85 @@
+// 语音输入设置，版式参照 t3code：输入 / 转写 / 词典 / 其他 四组，
+// 每行左边标题说明、右边控件。转写服务选「关闭」即停用语音输入。
 import { useTranslation } from "react-i18next";
-import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-import { resolveVoiceProvider, VOICE_PROVIDERS, VOICE_PROVIDER_IDS } from "@/lib/voiceProviders";
+import { Switch } from "@/components/ui/switch";
+import { isLocalVoice } from "@/lib/voiceProviders";
 import type { VoiceSettings } from "@/types";
-import { SearchableSetting } from "./SettingsSearchContext";
+import DictionaryEditor from "./voice/DictionaryEditor";
+import MicrophoneSettings from "./voice/MicrophoneSettings";
+import TranscriptionSettings from "./voice/TranscriptionSettings";
+import { VoiceGroup, VoiceRow } from "./voice/VoiceSettingsLayout";
 
 interface VoiceSectionProps {
   value: VoiceSettings;
   onChange: (value: VoiceSettings) => void;
 }
 
-const LANGUAGE_OPTIONS = [
-  { value: "", labelKey: "voiceLanguageAuto" },
-  { value: "zh", labelKey: "voiceLanguageZh" },
-  { value: "yue", labelKey: "voiceLanguageYue" },
-  { value: "en", labelKey: "voiceLanguageEn" },
-  { value: "ja", labelKey: "voiceLanguageJa" },
-  { value: "ko", labelKey: "voiceLanguageKo" },
-] as const;
-
 export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
   const { t } = useTranslation("settings");
-  const capability = resolveVoiceProvider(value.provider);
-
-  function update<K extends keyof VoiceSettings>(key: K, next: VoiceSettings[K]) {
-    onChange({ ...value, [key]: next });
-  }
-
-  const selectClassName = "h-9 rounded-md px-2 text-[length:var(--text-row)] outline-none";
-  const selectStyle = {
-    border: "1px solid var(--app-border)",
-    background: "var(--app-content)",
-    color: "var(--app-text-primary)",
-  };
-
-  const languageSelect = (
-    <div className="flex flex-col gap-1">
-      <Label htmlFor="voice-language">{t("voiceLanguage")}</Label>
-      <select
-        id="voice-language"
-        aria-label={t("voiceLanguage")}
-        value={value.language ?? ""}
-        onChange={(event) => update("language", event.target.value || null)}
-        className={selectClassName}
-        style={selectStyle}
-      >
-        {LANGUAGE_OPTIONS.map((option) => (
-          <option key={option.value || "auto"} value={option.value}>
-            {t(option.labelKey)}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-
-  const maxRecordSecondsInput = (
-    <FormField label={t("voiceMaxRecordSeconds")} className="flex flex-col gap-1">
-      {({ id }) => (
-        <Input
-          id={id}
-          type="number"
-          min={1}
-          max={300}
-          value={value.maxRecordSeconds}
-          onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
-        />
-      )}
-    </FormField>
-  );
-
-  const modelInput = (
-    <FormField label={t("voiceModel")} className="flex flex-col gap-1">
-      {({ id }) => (
-        <Input
-          id={id}
-          value={value[capability.modelField]}
-          onChange={(event) => update(capability.modelField, event.target.value)}
-          placeholder={capability.modelPlaceholder}
-        />
-      )}
-    </FormField>
-  );
+  const update = <K extends keyof VoiceSettings>(key: K, next: VoiceSettings[K]) => onChange({ ...value, [key]: next });
 
   return (
-    <div className="flex flex-col gap-4">
-      <SearchableSetting sectionId="voice-enable">
-      <div className="flex flex-col gap-4">
-      <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-        <input
-          type="checkbox"
-          checked={value.enabled}
-          onChange={(event) => update("enabled", event.target.checked)}
-          className="h-4 w-4 cursor-default"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-        {t("voiceEnable")}
-      </label>
+    <div className="flex flex-col gap-5">
+      <VoiceGroup id="voice-transcription" title={t("voiceGroupTranscription")}>
+        <TranscriptionSettings value={value} onChange={onChange} />
+      </VoiceGroup>
 
-      <div className="flex flex-col gap-0.5">
-        <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <input
-            type="checkbox"
-            checked={value.showFloatingButton}
-            onChange={(event) => update("showFloatingButton", event.target.checked)}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-          {t("voiceShowFloatingButton", { defaultValue: "在终端显示悬浮按钮" })}
-        </label>
-        <p className="text-[length:var(--text-small)] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("voiceShowFloatingButtonDesc", {
-            defaultValue: "关闭后终端右下角不再显示麦克风按钮；语音快捷键仍然可用。",
-          })}
-        </p>
-      </div>
-      </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="voice-provider">
-      <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label id="voice-provider-label">{t("voiceProvider")}</Label>
-        <div className="flex flex-wrap gap-2" role="group" aria-labelledby="voice-provider-label">
-          {VOICE_PROVIDER_IDS.map((providerId) => {
-            const option = VOICE_PROVIDERS[providerId];
-            const active = capability.id === providerId;
-            return (
-              <button
-                key={providerId}
-                type="button"
-                onClick={() => update("provider", providerId)}
-                className={cn(
-                  "h-9 rounded-md border px-3 text-[length:var(--text-row)] font-medium transition-colors",
-                  active
-                    ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
-                    : "border-[var(--app-border)] bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]"
-                )}
-              >
-                {t(option.labelKey)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <FormField label={t(capability.apiKeyLabelKey)} className="flex flex-col gap-1">
-        {({ id }) => (
-          <Input
-            id={id}
-            type="password"
-            value={value[capability.apiKeyField]}
-            onChange={(event) => update(capability.apiKeyField, event.target.value)}
-            placeholder={
-              capability.apiKeyPlaceholderKey ? t(capability.apiKeyPlaceholderKey) : capability.apiKeyPlaceholder
-            }
-          />
-        )}
-      </FormField>
-
-      {capability.baseUrlField ? (
-        <div className="grid grid-cols-[1fr_180px] gap-3">
-          <FormField label={t(capability.baseUrlLabelKey ?? "voiceMimoBaseUrl")} className="flex flex-col gap-1">
-            {({ id }) => (
-              <Input
-                id={id}
-                value={value[capability.baseUrlField!]}
-                onChange={(event) => update(capability.baseUrlField!, event.target.value)}
-                placeholder={capability.baseUrlPlaceholder}
-              />
-            )}
-          </FormField>
-          {modelInput}
-        </div>
-      ) : null}
-      </div>
-      </SearchableSetting>
-
-      <SearchableSetting sectionId="voice-options">
-      <div className="flex flex-col gap-4">
-      {capability.showRegion ? (
+      {value.enabled ? (
         <>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="voice-region">{t("voiceRegion")}</Label>
-              <select
-                id="voice-region"
-                aria-label={t("voiceRegion")}
-                value={value.region}
-                onChange={(event) => update("region", event.target.value as VoiceSettings["region"])}
-                className={selectClassName}
-                style={selectStyle}
-              >
-                <option value="cn">{t("voiceRegionCn")}</option>
-                <option value="intl">{t("voiceRegionIntl")}</option>
-              </select>
-            </div>
-            {languageSelect}
-          </div>
-          <div className="grid grid-cols-[1fr_120px] gap-3">
-            {modelInput}
-            {maxRecordSecondsInput}
-          </div>
-        </>
-      ) : (
-        <div className="grid grid-cols-[1fr_120px] gap-3">
-          {languageSelect}
-          {maxRecordSecondsInput}
-        </div>
-      )}
+          <VoiceGroup id="voice-input" title={t("voiceGroupInput")}>
+            <MicrophoneSettings saved={value.microphones} onChange={(microphones) => update("microphones", microphones)} />
+          </VoiceGroup>
 
-      {capability.showEnableItn ? (
-        <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-          <input
-            type="checkbox"
-            checked={value.enableItn}
-            onChange={(event) => update("enableItn", event.target.checked)}
-            className="h-4 w-4 cursor-default"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-          {t("voiceEnableItn")}
-        </label>
-      ) : null}
+          <VoiceGroup id="voice-dictionary" title={t("voiceGroupDictionary")}>
+            <VoiceRow
+              title={t("voiceDictionary")}
+              description={
+                // SenseVoice 没有热词接口，词典只对 Qwen3-ASR 和云端服务生效
+                isLocalVoice(value) && value.localModel !== "qwen3-asr" ? t("voiceDictionaryLocalUnsupported") : t("voiceDictionaryDesc")
+              }
+            >
+              <DictionaryEditor words={value.customWords ?? []} onChange={(words) => update("customWords", words)} />
+            </VoiceRow>
+          </VoiceGroup>
 
-      {capability.showPreferWavToggle ? (
-        <div className="flex flex-col gap-0.5">
-          <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
-            <input
-              type="checkbox"
-              checked={value.customPreferWav}
-              onChange={(event) => update("customPreferWav", event.target.checked)}
-              className="h-4 w-4 cursor-default"
-              style={{ accentColor: "var(--app-accent)" }}
+          <VoiceGroup id="voice-advanced" title={t("voiceGroupAdvanced")}>
+            <VoiceRow
+              title={t("voiceShowFloatingButton")}
+              description={t("voiceShowFloatingButtonDesc")}
+              htmlFor="voice-floating-button"
+              control={
+                <Switch
+                  id="voice-floating-button"
+                  checked={value.showFloatingButton}
+                  onCheckedChange={(checked) => update("showFloatingButton", checked)}
+                />
+              }
             />
-            {t("voiceCustomPreferWav")}
-          </label>
-          <p className="text-[length:var(--text-small)] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("voiceCustomPreferWavDesc")}
-          </p>
-        </div>
+            <VoiceRow
+              title={t("voiceMaxRecordSeconds")}
+              description={t("voiceMaxRecordSecondsDesc")}
+              htmlFor="voice-max-seconds"
+              control={
+                <span className="flex items-center gap-1.5">
+                  <Input
+                    id="voice-max-seconds"
+                    type="number"
+                    min={1}
+                    max={300}
+                    className="h-8 w-20 text-right"
+                    value={value.maxRecordSeconds}
+                    onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
+                  />
+                  <span className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
+                    {t("voiceSecondsUnit")}
+                  </span>
+                </span>
+              }
+            />
+          </VoiceGroup>
+        </>
       ) : null}
-
-      <p className="text-[length:var(--text-caption)] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
-        {t(capability.hintKey)}
-      </p>
-      </div>
-      </SearchableSetting>
     </div>
   );
 }

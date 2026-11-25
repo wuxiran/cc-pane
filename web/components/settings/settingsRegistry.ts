@@ -7,7 +7,7 @@ import {
   Bot,
   Cable,
   Camera,
-  Cloud,
+  Compass,
   FlaskConical,
   Gauge,
   Globe,
@@ -18,6 +18,7 @@ import {
   ListChecks,
   MessageSquare,
   Mic,
+  MonitorSmartphone,
   Palette,
   PanelsTopLeft,
   Settings,
@@ -36,6 +37,7 @@ export type SettingsPageId =
   | "terminal"
   | "ai-tools"
   | "system"
+  | "devices"
   | "ccchan"
   | "setup-guide"
   | "experimental"
@@ -114,14 +116,22 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "quick-commands"],
+    paneIds: ["cli-launchers", "agent-chat", "quick-commands"],
   },
   {
     id: "system",
     icon: Globe,
     titleKey: "pages.system.title",
     group: "services",
-    paneIds: ["proxy", "web-access", "notification", "im-bridge", "screenshot", "voice", "performance"],
+    paneIds: ["proxy", "browser", "notification", "im-bridge", "screenshot", "voice", "performance"],
+  },
+  {
+    // 设备与访问（对标 T3「共享与访问」）：本机信息、网络访问、Tailscale、已授权客户端、MCP 端点、服务控制
+    id: "devices",
+    icon: MonitorSmartphone,
+    titleKey: "pages.devices.title",
+    group: "services",
+    paneIds: ["web-access"],
   },
   {
     id: "ccchan",
@@ -294,28 +304,11 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       },
     ],
   },
-  {
-    id: "provider",
-    icon: Cloud,
-    titleKey: "launchProfilesTab",
-    page: "ai-tools",
-    searchEntries: [
-      { id: "launch-profiles", titleKey: "launchProfilesTab", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
-    ],
-    layout: "wide",
-  },
-  {
-    id: "provider-credentials",
-    icon: Cloud,
-    titleKey: "providerCredentialsTab",
-    page: "ai-tools",
-    searchEntries: [
-      { id: "provider-credentials", titleKey: "providerCredentialsTab", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-credentials-root" },
-    ],
-    layout: "wide",
-  },
   { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", page: "ai-tools", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
+  ] },
+  { id: "agent-chat", icon: MessageSquare, titleKey: "agentChat.title", descriptionKey: "agentChat.description", page: "ai-tools", searchEntries: [
+    { id: "codex-acp", titleKey: "agentChat.codexForceAcp", descriptionKey: "agentChat.codexForceAcpDesc", keywordsKey: "searchKeywords.agentChat", targetSectionId: "agent-chat-root" },
   ] },
   { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
@@ -331,11 +324,20 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     { id: "wsl-quota", titleKey: "performance.wslQuotaGroup", descriptionKey: "performance.wslQuotaEnabledHint", targetSectionId: "performance-wsl-quota" },
     { id: "parking", titleKey: "performance.parkingGroup", descriptionKey: "performance.parkedTerminalLimitHint", targetSectionId: "performance-parking" },
   ] },
-  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", page: "system", searchEntries: [
+  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", page: "devices", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
+    { id: "device", titleKey: "deviceAccess.local.title", descriptionKey: "deviceAccess.local.version", keywordsKey: "searchKeywords.deviceInfo", targetSectionId: "web-access-device" },
     { id: "server", titleKey: "webAccessSection.startupEnabled", descriptionKey: "webAccessSection.autoOpenHint", targetSectionId: "web-access-server" },
     { id: "auth", titleKey: "webAccessSection.authEnabled", descriptionKey: "webAccessSection.authEnabledHint", targetSectionId: "web-access-auth" },
     { id: "network", titleKey: "webAccessSection.allowLan", descriptionKey: "webAccessSection.ipWhitelistHint", targetSectionId: "web-access-network" },
+    { id: "tailscale", titleKey: "webAccessSection.tailscale.title", descriptionKey: "webAccessSection.tailscale.description", keywordsKey: "searchKeywords.tailscale", targetSectionId: "web-access-tailscale" },
+    { id: "clients", titleKey: "deviceAccess.clientsTitle", descriptionKey: "deviceAccess.clientsDescription", keywordsKey: "searchKeywords.deviceClients", targetSectionId: "web-access-clients" },
+    { id: "mcp", titleKey: "deviceAccess.mcpTitle", descriptionKey: "sharedMcp.selfHint", keywordsKey: "searchKeywords.deviceMcp", targetSectionId: "web-access-mcp" },
+    { id: "orchestrator", titleKey: "webAccessSection.orchestrator.title", descriptionKey: "webAccessSection.orchestrator.description", keywordsKey: "searchKeywords.orchestrator", targetSectionId: "web-access-orchestrator" },
+    { id: "service", titleKey: "webAccessGroups.service", descriptionKey: "webAccessSection.restartHint", keywordsKey: "searchKeywords.webService", targetSectionId: "web-access-service" },
+  ] },
+  { id: "browser", icon: Compass, titleKey: "browserImport.title", descriptionKey: "browserImport.description", page: "system", availability: "tauri", searchEntries: [
+    { id: "import", titleKey: "browserImport.importTitle", descriptionKey: "browserImport.importHint", keywordsKey: "browserImport.keywords", targetSectionId: "browser-import-sources" },
   ] },
   {
     id: "quick-commands",
@@ -371,9 +373,10 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", page: "system", searchEntries: [
     { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
-    { id: "enable", titleKey: "voiceEnable", descriptionKey: "voiceShowFloatingButtonDesc", targetSectionId: "voice-enable" },
-    { id: "provider", titleKey: "voiceProvider", descriptionKey: "voiceMimoBaseUrl", targetSectionId: "voice-provider" },
-    { id: "options", titleKey: "voiceLanguage", descriptionKey: "voiceCustomPreferWavDesc", targetSectionId: "voice-options" },
+    { id: "provider", titleKey: "voiceTranscribeWith", descriptionKey: "voiceTranscribeWithDesc", targetSectionId: "voice-transcription" },
+    { id: "microphone", titleKey: "voiceMicrophone", descriptionKey: "voiceMicrophoneDesc", targetSectionId: "voice-input" },
+    { id: "dictionary", titleKey: "voiceDictionary", descriptionKey: "voiceDictionaryDesc", targetSectionId: "voice-dictionary" },
+    { id: "options", titleKey: "voiceShowFloatingButton", descriptionKey: "voiceMaxRecordSecondsDesc", targetSectionId: "voice-advanced" },
   ] },
   { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ccchan", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },

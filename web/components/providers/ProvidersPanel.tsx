@@ -39,6 +39,8 @@ interface Props {
   compact?: boolean;
   /** Settings pages can pin one view and omit the in-panel view switcher. */
   view?: ProviderTopView;
+  /** 独立视图打开时先落在哪个子页（仍可在面板内切换） */
+  initialView?: ProviderTopView;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -51,7 +53,7 @@ function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): Laun
   return workspace ? getWorkspaceDefaultEnvironment(workspace) : null;
 }
 
-export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyChange }: Props = {}) {
+export default function ProvidersPanel({ compact, view: fixedTopView, initialView, onDirtyChange }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const { tools: cliTools } = useCliTools();
@@ -79,7 +81,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
 
   const [view, setView] = useState<PanelView>("list");
   const [formReturnView, setFormReturnView] = useState<FormReturnView>("list");
-  const [topView, setTopView] = useState<TopView>(fixedTopView ?? "profiles");
+  const [topView, setTopView] = useState<TopView>(fixedTopView ?? initialView ?? "profiles");
   const activeTopView = fixedTopView ?? topView;
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
   const profileCounts = useMemo(() => countProfilesPerTool(launchProfiles), [launchProfiles]);
@@ -400,7 +402,10 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
       onTabChange={handleTabChange}
       counts={activeTopView === "providers" ? providerCounts : profileCounts}
       compact={compact}
-      showTopViewTabs={!fixedTopView}
+      // 只留运行配置：凭证页从运行配置的凭证行「管理凭证」进入，用返回按钮回来
+      showTopViewTabs={false}
+      onBack={!fixedTopView && activeTopView === "providers" ? () => handleTopViewChange("profiles") : undefined}
+      showToolSelect={activeTopView !== "profiles" || Boolean(compact)}
       actions={activeTopView === "providers" ? (
         <Button
           variant="outline"
@@ -419,7 +424,8 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
     return (
       <>
         <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
-          {header}
+          {/* 宽屏下智能体在左栏选、页面没有顶部标签，header 为空就不占一行 */}
+          {compact && header}
           <div className="flex-1 min-h-0">
             <LaunchProfilesPanel
               compact={compact}
@@ -427,6 +433,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
               initialRuntime={launchDefaults.runtime}
               onActiveToolChange={handleTabChange}
               onDirtyChange={setChildDirty}
+              onManageCredentials={fixedTopView ? undefined : () => handleTopViewChange("providers")}
             />
           </div>
         </div>
