@@ -1,6 +1,8 @@
 // 资源库 · 组件 · 飞书 CLI：四步——安装 lark-cli、创建飞书应用、登录授权、把官方 Skills 装进技能库。
-// 2、3 两步要在浏览器里确认：后端在后台跑命令并抠出授权链接，这里拿到就自动打开一次。
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+// 2、3 两步要用户确认：后端在后台跑命令并抠出授权链接，这里画成二维码给飞书 App 扫，
+// 也可以点按钮在浏览器里打开（lark-cli 在终端里打的也是同一个链接的二维码）。
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "react-i18next";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,6 @@ export default function FeishuCliCard({ active }: { active: boolean }) {
   const { t } = useTranslation("settings");
   const [status, setStatus] = useState<FeishuStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const opened = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isTauriRuntime()) return;
@@ -40,14 +41,6 @@ export default function FeishuCliCard({ active }: { active: boolean }) {
     const timer = window.setInterval(() => void load(), POLL_MS);
     return () => window.clearInterval(timer);
   }, [running, load]);
-
-  // 授权链接出现后自动打开一次；之后用户可以点「打开授权页面」再开
-  useEffect(() => {
-    if (running && job?.url && opened.current !== job.url) {
-      opened.current = job.url;
-      void openExternalUrl(job.url);
-    }
-  }, [running, job?.url]);
 
   const act = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -187,26 +180,39 @@ function JobLine({ job, onCancel }: { job: FeishuJob; onCancel: () => void }) {
     );
   }
   const waitingBrowser = job.kind === "config" || job.kind === "login";
+  const authUrl = waitingBrowser ? job.url : null;
   return (
-    <div className="ms-6 flex flex-wrap items-center gap-2 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-secondary)" }} data-testid="feishu-job">
-      {job.kind === "skills" && job.total > 0 ? (
-        <Progress value={Math.round((job.done / job.total) * 100)} aria-label={t("feishuCli.skillsProgress", { done: job.done, total: job.total })} className="h-1.5 w-32" />
-      ) : (
-        <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+    <div className="ms-6 flex flex-col gap-2" data-testid="feishu-job">
+      <div className="flex flex-wrap items-center gap-2 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-secondary)" }}>
+        {job.kind === "skills" && job.total > 0 ? (
+          <Progress value={Math.round((job.done / job.total) * 100)} aria-label={t("feishuCli.skillsProgress", { done: job.done, total: job.total })} className="h-1.5 w-32" />
+        ) : (
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+        )}
+        <span role="status">
+          {job.kind === "skills"
+            ? t("feishuCli.skillsProgress", { done: job.done, total: job.total })
+            : waitingBrowser
+              ? authUrl ? t("feishuCli.waitingScan") : t("feishuCli.preparing")
+              : t("feishuCli.installing")}
+        </span>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[length:var(--text-micro)]" onClick={onCancel}>{t("feishuCli.cancel")}</Button>
+      </div>
+      {authUrl && (
+        <figure className="m-0 flex flex-wrap items-end gap-3" data-testid="feishu-auth-qr" data-payload={authUrl}>
+          {/* 深色模块 + 浅色静区：暗色主题下也保持可扫 */}
+          <div className="rounded-md bg-white p-2">
+            <QRCodeSVG value={authUrl} size={148} level="M" bgColor="#ffffff" fgColor="#000000" title={t("feishuCli.qrTitle")} />
+          </div>
+          <figcaption className="flex flex-col items-start gap-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
+            <span>{t("feishuCli.qrCaption")}</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void openExternalUrl(authUrl)}>
+              <ExternalLink size={12} aria-hidden="true" />
+              {t("feishuCli.openInBrowser")}
+            </Button>
+          </figcaption>
+        </figure>
       )}
-      <span role="status">
-        {job.kind === "skills"
-          ? t("feishuCli.skillsProgress", { done: job.done, total: job.total })
-          : waitingBrowser
-            ? job.url ? t("feishuCli.waitingBrowser") : t("feishuCli.preparing")
-            : t("feishuCli.installing")}
-      </span>
-      {waitingBrowser && job.url && (
-        <Button size="sm" variant="link" className="h-auto p-0 text-[length:var(--text-micro)]" onClick={() => void openExternalUrl(job.url ?? "")}>
-          {t("feishuCli.openAuthPage")}
-        </Button>
-      )}
-      <Button size="sm" variant="ghost" className="h-6 px-2 text-[length:var(--text-micro)]" onClick={onCancel}>{t("feishuCli.cancel")}</Button>
     </div>
   );
 }

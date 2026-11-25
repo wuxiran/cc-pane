@@ -1405,8 +1405,10 @@
     "skillsHint": "Skills go into the resource library; toggle them per launch profile on the Skills page.",
     "installing": "Installing…",
     "preparing": "Getting the authorization link…",
-    "waitingBrowser": "The authorization page is open in your browser; this updates when you finish",
-    "openAuthPage": "Open the authorization page again",
+    "waitingScan": "Waiting for confirmation; this updates when you finish",
+    "qrTitle": "Feishu authorization QR code",
+    "qrCaption": "Scan with the Feishu app to confirm",
+    "openInBrowser": "Open in browser",
     "cancel": "Cancel",
     "failed": "Failed: {{error}}",
     "actionFailed": "Failed: {{error}}"
