@@ -9,6 +9,7 @@ pub mod bot_service;
 pub mod browser_cookie_import;
 mod browser_service;
 pub mod bundled_skills;
+pub mod feishu_cli;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;
 mod heavy_job_policy_queue;
@@ -45,6 +46,7 @@ mod turn_notify_registry;
 pub mod voice_local;
 pub mod voice_service;
 mod web_access_lifecycle;
+pub mod wechat_component;
 
 pub use acp_chat_service::edits::UndoAcpFileEdit;
 pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};

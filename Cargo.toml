@@ -10,6 +10,7 @@ members = [
     "cc-panes-web",
     "cc-memory",
     "cc-memory-mcp",
+    "cc-wechat-mcp",
     "cc-notify",
     "cc-cli-adapters",
     "cc-panes-paths",

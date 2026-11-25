@@ -1,0 +1,56 @@
+# cc-wechat-mcp —— cc-panes 自带的微信 4.x (Windows) 数据查询 MCP sidecar。
+# 从 Python 版 wechat_win 移植而来：找进程 → 提取密钥 → SQLCipher4 解密 → 读消息/联系人/图片。
+# 纯逻辑模块（sqlcipher / db_reader / image / dll_scan 的扫描）跨平台可编译可测试；
+# 取进程内存、注册表、路径发现等 Windows 专属部分用 #[cfg(windows)] 隔离。
+[package]
+name = "cc-wechat-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "WeChat 4.x (Windows) data query MCP server, sidecar of cc-panes"
+
+[[bin]]
+name = "cc-wechat-mcp"
+path = "src/main.rs"
+
+[lib]
+name = "cc_wechat_mcp"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+log = { version = "0.4", features = ["std"] }
+chrono = { version = "0.4", features = ["clock"] }
+ctrlc = "3"
+# SQLite：bundled 自带 sqlite3，无需系统库。只读打开解密后的明文临时库。
+rusqlite = { version = "0.32", features = ["bundled"] }
+# 加解密：AES-256-CBC(sqlcipher) / AES-128-ECB(图片) / PBKDF2-HMAC-SHA512 / HMAC-SHA512 / MD5。
+aes = "0.8"
+cbc = "0.1"
+cipher = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+md-5 = "0.10"
+# 纯 Rust zstd 解压，避免 C 编译；消息正文多为 zstd 压缩。
+ruzstd = "0.7"
+# 密钥验证 / uin 枚举并行化。
+rayon = "1"
+base64 = "0.22"
+# 图片缩放：只开需要的编解码器。
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+# HTTP 传输（MODE=http）。
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros"] }
+axum = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+] }
+windows-registry = "0.5"

@@ -21,6 +21,7 @@ const args = [
   "-p", "cc-panes-ctl",
   "-p", "cc-panes-daemon",
   "-p", "cc-panes-web",
+  "-p", "cc-wechat-mcp",
 ];
 if (profile === "release") {
   args.push("--release");

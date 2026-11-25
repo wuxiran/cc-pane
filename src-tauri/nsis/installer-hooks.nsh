@@ -1,4 +1,5 @@
-; 杀掉本安装目录下的进程。`$$keepDaemon` = 1 时**放过 daemon**（更新路径专用）。
+; 杀掉本安装目录下的进程（含微信组件 cc-wechat-mcp：它是 app 拉起的共享 MCP 子进程，
+; 更新时 app 不带 /T 被杀，它会成孤儿继续锁住 exe）。`$$keepDaemon` = 1 时**放过 daemon**（更新路径专用）。
 ;
 ; 为什么更新时不能杀 daemon：PTY 会话的真身活在 daemon 里，且这里用的是
 ; `taskkill /F /T`——`/T` 杀整棵进程树，daemon 底下挂着的正是用户所有的 CLI 会话。
@@ -12,7 +13,7 @@
   ; Uninstall still terminates the selected process trees.
   System::Call 'Kernel32::SetEnvironmentVariable(t, t) i("CCPANES_INSTALL_DIR", "$INSTDIR").r0'
   System::Call 'Kernel32::SetEnvironmentVariable(t, t) i("CCPANES_KEEP_DAEMON", "${keepDaemon}").r0'
-  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { $$installDir = $$env:CCPANES_INSTALL_DIR; $$keep = $$env:CCPANES_KEEP_DAEMON -eq '1'; $$daemon = Join-Path $$installDir 'binaries\cc-panes-daemon.exe'; $$targets = @((Join-Path $$installDir 'cc-panes.exe'), (Join-Path $$installDir 'binaries\cc-panes-web.exe')); if (-not $$keep) { $$targets += $$daemon }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$targets -contains $$PSItem.ExecutablePath } | ForEach-Object { $$targetPid = $$PSItem.ProcessId; if ($$keep) { & taskkill.exe /F /PID $$targetPid 2>$$null | Out-Null } else { & taskkill.exe /F /T /PID $$targetPid 2>$$null | Out-Null } }; exit 0 }"`
+  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { $$installDir = $$env:CCPANES_INSTALL_DIR; $$keep = $$env:CCPANES_KEEP_DAEMON -eq '1'; $$daemon = Join-Path $$installDir 'binaries\cc-panes-daemon.exe'; $$targets = @((Join-Path $$installDir 'cc-panes.exe'), (Join-Path $$installDir 'binaries\cc-panes-web.exe'), (Join-Path $$installDir 'binaries\cc-wechat-mcp.exe')); if (-not $$keep) { $$targets += $$daemon }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$targets -contains $$PSItem.ExecutablePath } | ForEach-Object { $$targetPid = $$PSItem.ProcessId; if ($$keep) { & taskkill.exe /F /PID $$targetPid 2>$$null | Out-Null } else { & taskkill.exe /F /T /PID $$targetPid 2>$$null | Out-Null } }; exit 0 }"`
   Pop $0
 !macroend
 

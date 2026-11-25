@@ -29,7 +29,8 @@ const buildDir = targetTriple
   ? path.join(targetDir, targetTriple, profile)
   : path.join(targetDir, profile);
 
-const SIDECAR_BASE_NAMES = ["cc-panes-cli-hook", "cc-panes-ctl", "cc-panes-daemon", "cc-panes-web"];
+// cc-wechat-mcp 只在 Windows 上真正干活，但各平台都打包：tauri 的 resources 通配符匹配不到文件会直接报错。
+const SIDECAR_BASE_NAMES = ["cc-panes-cli-hook", "cc-panes-ctl", "cc-panes-daemon", "cc-panes-web", "cc-wechat-mcp"];
 
 // 先校验全部产物都在，再清空目标目录。顺序反了的话，任一产物缺失会让 throw 发生在
 // 清空之后 —— src-tauri/binaries 被掏空且不回填，app 找不到 daemon 就静默回退
@@ -47,7 +48,8 @@ for (const f of fs.readdirSync(d).filter(f =>
   f.startsWith("cc-panes-cli-hook") ||
   f.startsWith("cc-panes-ctl") ||
   f.startsWith("cc-panes-daemon") ||
-  f.startsWith("cc-panes-web")
+  f.startsWith("cc-panes-web") ||
+  f.startsWith("cc-wechat-mcp")
 )) {
   fs.unlinkSync(path.join(d, f));
 }

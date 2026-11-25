@@ -48,6 +48,7 @@
       "binaries/cc-panes-ctl*",
       "binaries/cc-panes-daemon*",
       "binaries/cc-panes-web*",
+      "binaries/cc-wechat-mcp*",
       "resources/web-dist/**/*",
       "resources/claude-bundle/.claude/commands/ccbook/*",
       "resources/claude-bundle/.claude/agents/*",

@@ -73,6 +73,11 @@ fn ensure_hook_binary_placeholder() {
     if !web_placeholder.exists() {
         std::fs::write(web_placeholder, "placeholder for dev build").ok();
     }
+
+    let wechat_placeholder = binaries_dir.join("cc-wechat-mcp.placeholder");
+    if !wechat_placeholder.exists() {
+        std::fs::write(wechat_placeholder, "placeholder for dev build").ok();
+    }
 }
 
 /// 确保 bundle.resources 中引用的 resources/web-dist/ 在 dev/check 模式也能匹配到
