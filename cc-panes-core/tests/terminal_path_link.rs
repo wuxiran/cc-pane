@@ -62,7 +62,7 @@ fn terminal_path_link_rejects_absolute_and_parent_escapes() {
 }
 
 #[test]
-fn desktop_terminal_path_link_confirms_explicit_external_directories_only() {
+fn desktop_terminal_path_link_confirms_explicit_external_paths_only() {
     let parent = tempfile::tempdir().expect("parent");
     let root = parent.path().join("project");
     let outside_dir = parent.path().join("outside-dir");
@@ -88,8 +88,14 @@ fn desktop_terminal_path_link_confirms_explicit_external_directories_only() {
         resolve_terminal_path_link_for_desktop(&ctx, "../outside-dir"),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
+    // 桌面端显式绝对路径：项目外的文件同样放行，由前端确认框按 outside_project_root 警示
+    let resolved_file =
+        resolve_terminal_path_link_for_desktop(&ctx, &outside_file.to_string_lossy())
+            .expect("desktop should resolve an explicit external file for confirmation");
+    assert_eq!(resolved_file.kind, TerminalPathKind::File);
+    assert!(resolved_file.outside_project_root);
     assert_error_code(
-        resolve_terminal_path_link_for_desktop(&ctx, &outside_file.to_string_lossy()),
+        resolve_terminal_path_link(&ctx, &outside_file.to_string_lossy()),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
 }

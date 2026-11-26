@@ -222,8 +222,7 @@ describe("Panel", () => {
 
     render(<Panel pane={pane} />);
 
-    // 大图标头「准备就绪」已删；未绑定且无启动历史时只剩一句引导 + 自定义启动
-    expect(screen.queryByText(tPanes("ready"))).not.toBeInTheDocument();
+    expect(screen.getByText(tPanes("ready"))).toBeInTheDocument();
     expect(screen.getByText(tPanes("selectProject"))).toBeInTheDocument();
   });
 
