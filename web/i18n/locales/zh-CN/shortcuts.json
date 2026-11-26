@@ -57,5 +57,6 @@
   "palettePreviewSummary": "最近进展",
   "palettePreviewMessages": "{{count}} 条消息",
   "palettePreviewNoContent": "还没有读到这段会话的内容。",
-  "palettePreviewChatOnly": "Agent 对话暂时只能预览标题和目录，打开后可以看到完整内容。"
+  "palettePreviewChatOnly": "Agent 对话暂时只能预览标题和目录，打开后可以看到完整内容。",
+  "relaunch-claude-sessions": "重启所有 Claude 会话（切换 rec 账号后）"
 }

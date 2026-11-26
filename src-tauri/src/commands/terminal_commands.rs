@@ -606,6 +606,19 @@ pub async fn submit_to_session(
         .map_err(|e| AppError::from(e.to_string()))?
 }
 
+/// 「重启并续接」前调用：读取 rec 当前账号，把这些 Claude 会话的 transcript
+/// 复制到该账号目录，使重启后的 `--resume <id>` 能续上原对话。
+#[tauri::command]
+pub async fn prepare_claude_relaunch(
+    resume_ids: Vec<String>,
+) -> AppResult<cc_panes_core::services::claude_account_migration::PrepareClaudeRelaunchResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cc_panes_core::services::claude_account_migration::prepare_claude_relaunch(&resume_ids)
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))
+}
+
 /// 获取所有终端状态
 #[tauri::command]
 pub async fn get_all_terminal_status(

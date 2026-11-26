@@ -406,6 +406,7 @@ use commands::{
     orchestrator_rotation_impact,
     parse_import_url,
     prepare_chat_fork,
+    prepare_claude_relaunch,
     prepare_session_context,
     preview_external_providers,
     preview_launch_profile_native_config,
@@ -3286,6 +3287,7 @@ pub fn run() {
             kill_terminal_idempotent,
             submit_to_session,
             get_all_terminal_status,
+            prepare_claude_relaunch,
             get_bridge_stats,
             commands::record_performance_snapshot,
             // 重负载命令台账

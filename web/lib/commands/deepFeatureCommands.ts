@@ -6,6 +6,7 @@ import {
   GitCommitHorizontal,
   History,
   Keyboard,
+  RotateCw,
   Trash2,
 } from "lucide-react";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -74,6 +75,18 @@ export function buildDeepFeatureCommands(): CommandDescriptor[] {
       run: () => {
         const path = activeProjectPath();
         if (path) useDialogStore.getState().openGitTimeline(path);
+      },
+    },
+    {
+      // 用 rec 切换 Claude 账号后，已运行的会话要重开才会落到新账号
+      id: "relaunch-claude-sessions",
+      titleKey: "relaunch-claude-sessions",
+      icon: RotateCw,
+      group: "system",
+      run: () => {
+        void import("@/hooks/relaunchClaudeTerminals")
+          .then(({ confirmAndRelaunchClaudeTerminals }) => confirmAndRelaunchClaudeTerminals())
+          .catch((error) => handleErrorSilent(error, "relaunch claude sessions"));
       },
     },
     {

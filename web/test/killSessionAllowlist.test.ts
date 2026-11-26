@@ -42,6 +42,8 @@ const ALLOWED_KILL_SESSION_FILES = {
     "后台恢复的创建后复查回滚，与 TerminalView 同口径（sessionId !== expectedSavedSessionId 才杀）",
   "hooks/coldTerminalRestore.ts":
     "冷恢复（docs/81）：claims-unsupported 时用户显式确认的「杀旧建新」，杀的是已认领不了的旧 PTY",
+  "hooks/relaunchClaudeTerminals.ts":
+    "重启并续接：用户确认后原位杀旧 Claude PTY 再按 resumeId 重开（rec 切号后落到新账号）；先摘 sessionId 再杀，reason=relaunch 保留标签，杀失败回滚",
 
   // ── 回收类（reason 落 orphan-reclaim，前端保留标签） ───────
   "hooks/useOrphanSessionReconciler.ts":
@@ -64,6 +66,7 @@ const CALL_SITE_BUDGET: Record<string, number> = {
   "components/panes/TerminalView.tsx": 4,
   "hooks/backgroundLayoutRestore.ts": 1,
   "hooks/coldTerminalRestore.ts": 1,
+  "hooks/relaunchClaudeTerminals.ts": 1,
   "hooks/useOrphanSessionReconciler.ts": 1,
   "stores/snapshotSessionDiff.ts": 1,
   "hooks/useSessionLayoutPersistence.ts": 1,

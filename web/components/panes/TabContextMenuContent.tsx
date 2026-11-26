@@ -20,6 +20,7 @@ import {
   PanelRight,
   Pencil,
   Pin,
+  RotateCw,
   Send,
   Settings2,
   ShieldCheck,
@@ -272,6 +273,12 @@ export default function TabContextMenuContent({
             {tab.contentType === "terminal" && tab.projectPath && onCloneTab && (
               <ContextMenuItem onClick={() => onCloneTab(tab)}>
                 <CopyPlus /> {t("cloneTerminal")}
+              </ContextMenuItem>
+            )}
+            {/* rec 切换 Claude 账号后，原位重开本标签内的本机 Claude 会话并续接原对话。 */}
+            {forkSource?.cliTool === "claude" && !forkSource.ssh && !forkSource.wsl && tab.sessionId && (
+              <ContextMenuItem onClick={() => { void import("@/hooks/relaunchClaudeTerminals").then((m) => m.confirmAndRelaunchClaudeTerminals({ tabId: tab.id })).catch((error) => handleError(error, "relaunch claude tab")); }}>
+                <RotateCw /> {t("relaunchClaudeTab")}
               </ContextMenuItem>
             )}
             {(tab.forkReviewId || (forkSource && !forkSource.ssh && !forkSource.wsl)) && <ContextMenuItem onClick={() => setReviewOpen(true)}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</ContextMenuItem>}

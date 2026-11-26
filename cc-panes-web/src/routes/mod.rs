@@ -54,6 +54,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/launches/{launch_id}", delete(terminal::cancel_launch))
         .route("/api/sessions", get(terminal::list_sessions))
         .route(
+            "/api/sessions/prepare-claude-relaunch",
+            post(terminal::prepare_claude_relaunch),
+        )
+        .route(
             "/api/sessions/adoption-snapshot",
             get(terminal::get_adoption_snapshot),
         )

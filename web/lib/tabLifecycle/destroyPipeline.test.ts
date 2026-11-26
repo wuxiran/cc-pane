@@ -77,6 +77,7 @@ const ALL_KILL_REASONS: KillReason[] = [
   "orphan-reclaim",
   "daemon-reaper",
   "launch-timeout",
+  "relaunch",
   "unknown",
 ];
 
@@ -84,6 +85,7 @@ const RECLAIM_KILL_REASONS: ReadonlySet<KillReason> = new Set([
   "orphan-reclaim",
   "daemon-reaper",
   "launch-timeout",
+  "relaunch",
 ]);
 
 const inertCtx: GuardContext = {

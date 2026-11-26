@@ -1660,7 +1660,7 @@ fn extend_with_login_account_roots(
 /// CLI 进程里（账号切换工具 reclaude 就是这样），应用进程看不到。所以除默认目录外，
 /// 还要找 Provider 配置目录和 reclaude 的账号目录。按 session UUID 精确匹配文件名，
 /// 多找几个目录不会认错会话。
-fn claude_project_roots(
+pub(crate) fn claude_project_roots(
     home: &Path,
     env_config_dir: Option<PathBuf>,
     provider_config_dir: Option<PathBuf>,

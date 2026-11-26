@@ -392,6 +392,21 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
     terminalPaneId: string,
     savedSessionId: string,
   ) => void;
+  /** 收集可「重启并续接」的本机 Claude 会话（跳过星标镜像；传 tabId 只收该标签）。 */
+  collectClaudeRelaunchTargets: (options?: { tabId?: string }) => TerminalRelaunchTarget[];
+  /** 摘掉 leaf 的 sessionId 准备 kill，返回旧 sessionId；状态不符返回 null。 */
+  beginTerminalRelaunch: (
+    tabId: string,
+    terminalPaneId: string,
+    expectedSessionId?: string,
+  ) => string | null;
+  /** kill 完成后提交（递增 launchAttempt 原位重开）或回滚（接回旧 sessionId）。 */
+  finishTerminalRelaunch: (
+    tabId: string,
+    terminalPaneId: string,
+    previousSessionId: string,
+    succeeded: boolean,
+  ) => void;
   /** Detach a blocked legacy-daemon session before explicitly cold-restoring it. */
   beginTerminalColdRestore: (tabId: string, terminalPaneId: string) => string | null;
   /** Commit or roll back the explicit cold restore after the old PTY kill resolves. */
@@ -421,3 +436,13 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
 }
 
 export type PanesDraft = Draft<PanesState>;
+
+/** 「重启并续接」的一个目标格子。 */
+export interface TerminalRelaunchTarget {
+  layoutId: string;
+  tabId: string;
+  terminalPaneId: string;
+  sessionId: string;
+  resumeId?: string;
+  title: string;
+}

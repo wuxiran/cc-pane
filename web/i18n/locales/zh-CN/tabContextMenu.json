@@ -15,5 +15,12 @@
   "tabMenuMoveTo": "移动到",
   "tabMenuMore": "更多",
   "tabMenuCloseOthers": "批量关闭",
-  "checkChannelPurity": "检测中转纯度"
+  "checkChannelPurity": "检测中转纯度",
+  "relaunchClaudeTab": "重启并续接",
+  "relaunchClaudeConfirmTitle": "重启 Claude 会话",
+  "relaunchClaudeConfirmBody": "将关闭并原位重开 {{count}} 个 Claude 会话，并续接原对话（对话会复制到 rec 当前账号）。正在输出的会话会被中断。继续？",
+  "relaunchClaudeSummary": "已重启 {{relaunched}} 个会话（rec 账号 {{account}}，迁移对话 {{migrated}} 个）",
+  "relaunchClaudeFresh": "{{count}} 个找不到原对话，已开新对话",
+  "relaunchClaudeFailed": "{{count}} 个重启失败，保持原状",
+  "relaunchClaudeNone": "没有可重启的本机 Claude 会话"
 }

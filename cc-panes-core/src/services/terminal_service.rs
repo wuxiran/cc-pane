@@ -687,6 +687,8 @@ pub enum KillReason {
     OrphanReclaim,
     DaemonReaper,
     LaunchTimeout,
+    /// 「重启并续接」：kill 后原位重开，前端保留标签。
+    Relaunch,
     #[serde(other)]
     Unknown,
 }
@@ -699,6 +701,7 @@ impl KillReason {
             Some("orphan-reclaim") => KillReason::OrphanReclaim,
             Some("daemon-reaper") => KillReason::DaemonReaper,
             Some("launch-timeout") => KillReason::LaunchTimeout,
+            Some("relaunch") => KillReason::Relaunch,
             _ => KillReason::Unknown,
         }
     }
@@ -710,6 +713,7 @@ impl KillReason {
             KillReason::OrphanReclaim => "orphan-reclaim",
             KillReason::DaemonReaper => "daemon-reaper",
             KillReason::LaunchTimeout => "launch-timeout",
+            KillReason::Relaunch => "relaunch",
             KillReason::Unknown => "unknown",
         }
     }
@@ -8824,6 +8828,7 @@ mod tests {
             (KillReason::OrphanReclaim, "orphan-reclaim"),
             (KillReason::DaemonReaper, "daemon-reaper"),
             (KillReason::LaunchTimeout, "launch-timeout"),
+            (KillReason::Relaunch, "relaunch"),
             (KillReason::Unknown, "unknown"),
         ];
 
@@ -8856,6 +8861,7 @@ mod tests {
                 KillReason::OrphanReclaim => "orphan-reclaim",
                 KillReason::DaemonReaper => "daemon-reaper",
                 KillReason::LaunchTimeout => "launch-timeout",
+                KillReason::Relaunch => "relaunch",
                 KillReason::Unknown => "unknown",
             }
         }
@@ -8864,7 +8870,7 @@ mod tests {
         }
         assert_eq!(
             all.len(),
-            6,
+            7,
             "新增了 KillReason 变体：请同步补进本表与 parse/as_str 两侧"
         );
     }

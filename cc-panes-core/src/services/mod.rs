@@ -9,6 +9,7 @@ mod task_verification_service;
 pub use task_verification_service::TaskVerificationService;
 pub mod agent_transcript;
 pub mod boundary_events;
+pub mod claude_account_migration;
 pub mod claude_session_service;
 pub mod codex_app_server;
 pub mod codex_desktop;

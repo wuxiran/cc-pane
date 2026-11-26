@@ -11,6 +11,7 @@ import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createReviewTabActions } from "./reviewTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
+import { createTerminalRelaunchActions } from "./terminalRelaunchActions";
 import type { PanesState } from "./panesStoreTypes";
 export type {
   AdoptSessionMeta,
@@ -93,6 +94,7 @@ export const usePanesStore = create<PanesState>()(
     ...createBackendCloseActions(set),
 
     ...createTerminalColdRestoreActions({ set, findTab: findTabAcrossLayouts, syncTab: syncTabTerminalState, notifyLayoutChanged: notifyTerminalLayoutChanged }),
+    ...createTerminalRelaunchActions({ get, set, findTab: findTabAcrossLayouts, syncTab: syncTabTerminalState, notifyLayoutChanged: notifyTerminalLayoutChanged }),
   })),
   {
     name: "cc-panes-layout",

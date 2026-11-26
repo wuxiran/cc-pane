@@ -15,5 +15,12 @@
   "tabMenuMoveTo": "Move to",
   "tabMenuMore": "More",
   "tabMenuCloseOthers": "Close multiple",
-  "checkChannelPurity": "Check channel purity"
+  "checkChannelPurity": "Check channel purity",
+  "relaunchClaudeTab": "Restart & resume",
+  "relaunchClaudeConfirmTitle": "Restart Claude sessions",
+  "relaunchClaudeConfirmBody": "Close and reopen {{count}} Claude session(s) in place, resuming each conversation (transcripts are copied to the current rec account). Sessions that are still responding will be interrupted. Continue?",
+  "relaunchClaudeSummary": "Restarted {{relaunched}} session(s) (rec account {{account}}, {{migrated}} transcript(s) migrated)",
+  "relaunchClaudeFresh": "{{count}} had no transcript and started fresh",
+  "relaunchClaudeFailed": "{{count}} failed to restart and were left as is",
+  "relaunchClaudeNone": "No local Claude sessions to restart"
 }

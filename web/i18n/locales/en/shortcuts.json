@@ -57,5 +57,6 @@
   "palettePreviewSummary": "Latest progress",
   "palettePreviewMessages": "{{count}} messages",
   "palettePreviewNoContent": "No content has been read for this session yet.",
-  "palettePreviewChatOnly": "Agent chats only preview their title and folder for now. Open one to see the full conversation."
+  "palettePreviewChatOnly": "Agent chats only preview their title and folder for now. Open one to see the full conversation.",
+  "relaunch-claude-sessions": "Restart all Claude sessions (after switching rec account)"
 }

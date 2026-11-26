@@ -5,8 +5,15 @@ import { apiDelete, invokeOrApi } from "./apiClient";
 export const TERMINAL_LAUNCH_TIMEOUT_MS = 55_000;
 export const TERMINAL_RESTORE_QUEUE_TIMEOUT_MS = 60_000;
 
+/**
+ * session-killed 时保留标签的 kill 来源：回收/超时类，以及「重启并续接」（relaunch：
+ * 原位重开，其他窗口/镜像收到广播时不能把标签关掉）。
+ */
 export function isTerminalReclaimKillReason(reason: string | undefined): boolean {
-  return reason === "orphan-reclaim" || reason === "daemon-reaper" || reason === "launch-timeout";
+  return reason === "orphan-reclaim"
+    || reason === "daemon-reaper"
+    || reason === "launch-timeout"
+    || reason === "relaunch";
 }
 
 export async function cancelTerminalLaunch(launchId: string): Promise<void> {

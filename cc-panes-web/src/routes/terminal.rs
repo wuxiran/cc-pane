@@ -478,6 +478,28 @@ pub async fn cancel_launch(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareClaudeRelaunchBody {
+    #[serde(default)]
+    pub resume_ids: Vec<String>,
+}
+
+/// POST /api/sessions/prepare-claude-relaunch — 「重启并续接」前把 transcript 迁到 rec 当前账号
+pub async fn prepare_claude_relaunch(
+    Json(body): Json<PrepareClaudeRelaunchBody>,
+) -> Result<
+    Json<cc_panes_core::services::claude_account_migration::PrepareClaudeRelaunchResult>,
+    (StatusCode, String),
+> {
+    tokio::task::spawn_blocking(move || {
+        cc_panes_core::services::claude_account_migration::prepare_claude_relaunch(&body.resume_ids)
+    })
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 /// GET /api/sessions — list all active sessions
 pub async fn list_sessions(
     State(state): State<AppState>,

@@ -479,6 +479,7 @@ export type KillReason =
   | "orphan-reclaim"
   | "daemon-reaper"
   | "launch-timeout"
+  | "relaunch"
   | "unknown";
 
 /** session-killed 事件载荷；reason 缺失表示旧后端（按关标签处理） */
