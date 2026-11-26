@@ -4,6 +4,53 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.13.3 - 2026-11-26
+
+This release centers on layered native configuration for launch profiles and providers, a major round of Agent chat work (Codex merged into one entry, a unified model picker, cross-engine handoff), a settings rework with a new "Devices & access" page, plus a Components page in the library, local offline voice transcription, a task view and a batch of UI refreshes.
+
+### Added
+
+- **Layered native config**: providers and launch profiles can each carry a fragment of the CLI's native config (TOML for Codex, JSON for Claude), deep-merged as "the CLI's own config ← provider fragment ← launch profile fragment ← CC-Panes explicit fields". For Codex the result is injected via `-c` (same for local, WSL and SSH); for Claude it is merged into the session's `--settings`. The CLI's own config files are never rewritten, and secret-like keys are rejected on save. The launch profile page gets a native config card and quick toggles.
+- **Provider import**:
+  - Importing from cc-switch now splits a full Codex `config.toml` by layer: provider-bound keys go to the provider fragment, usage preferences (model, YOLO, …) go to the launch profile, and keys that are not imported are listed in the preview. cc-switch's local proxy can be imported as a provider pointing at the proxy.
+  - New import from Magpie: providers are split by protocol into Claude / Codex / Gemini entries for you to pick; each routing group is always imported as two rows (Claude and Codex) that go through Magpie's local gateway.
+  - Gateway preflight: for providers imported from a Magpie routing group or a cc-switch proxy, local launches probe the gateway port first and name the gateway that is not running, instead of failing on the CLI's first request.
+- **Login account status**: the account list shows whether each login account is signed in, and account emails are masked in the UI (e.g. `wu***@example.com`).
+- **Agent chat**:
+  - "Codex" is now a single entry: it prefers the native App Server and falls back to ACP automatically when that fails to start; settings offer "Always use ACP compatibility mode for Codex".
+  - Chats can start with a launch profile, resolving provider, account, model and native config the same way terminals do; the session header shows the profile in use.
+  - One merged model picker: engine, model (searchable, favorites, ⌘1…⌘9), reasoning effort and access mode in one place; picking another engine's model switches engines and hands the conversation over as context.
+  - Files can be dropped onto the start page as attachments sent with the first message.
+  - Selected chat text can be handed to the Codex desktop app.
+  - New ACP registry browser: install agents from the official ACP registry in one click (npx / uvx / sha256-verified binaries).
+- **Devices & access** (new settings page): QR-code pairing for phones and other devices; device online status and token expiry; web login session management with single revoke or "revoke all others"; rotate the orchestrator access token (the old one stops working immediately, no restart); one-click Tailscale Serve on/off for remote access.
+- **Components page in the library**:
+  - WeChat MCP (Windows): a built-in WeChat reader component rewritten in Rust, enabled locally in one click, or reached on a remote Windows machine over an SSH tunnel from other platforms; once enabled it is registered as a shared MCP.
+  - Feishu/Lark CLI: install / update the official `lark-cli`; app setup and login authorization links are shown as QR codes right on the page; the official lark skills install into the skill library and are injected per launch profile.
+- **Local offline voice transcription**: voice settings are redone, with local SenseVoice / Qwen3-ASR models downloaded from settings (resumable, SHA256-verified, proxy-aware); microphone selection and a dictionary are added.
+- **Task view**: the explorer gains a "Tasks" mode that orders sessions across workspaces by whose turn it is (needs you → running → finished) and shows how long each has been in its current state.
+- **New CLIs**: Kiro, Meta Muse Code and fx adapters (plain launch + custom args, not yet verified on real installs).
+- **Browser sign-in import** (macOS): one-time import of cookies from local Chrome / Edge / Brave / Arc and similar browsers into the built-in browser.
+- **Usage report**: the status-bar usage popover becomes a detailed report — totals and hit rate, token breakdown, a daily usage chart and per-source ranking, switchable between today / 7 days / 30 days; settings also get a "Usage" page.
+
+### Improved
+
+- **Settings rework**: flat layout with a page title bar; the performance recorder moves to "Experimental features".
+- **Terminal status bar** shows the launch profile the session uses; a snapshot of the profile is taken at launch, so later profile edits don't change what open sessions display.
+- **Sidebar session cards**: sessions in the workspace tree become cards showing project, status, title and the CLI / engine icons used.
+- **Empty pane page** redone in the new-tab design: project title plus a row of "Start" chips; the method list only shows ways the chips don't cover.
+- **Layout bar**: layout tabs start from the left edge and the tool icons sit fixed next to "+" on the right; the auto-fit button is removed (still toggleable in the layout picker).
+- **Faster CLI detection**: CLIs are detected in parallel, so the total is about as long as the slowest one.
+- A batch of UI refreshes across the theme, wallpaper, terminal and general settings pages, notification cards and more.
+
+### Fixed
+
+- **Terminal path links**: paths are checked against the backend while being recognized, so non-existent paths are no longer shown as links; path error toasts are merged into one instead of stacking two or three. On desktop, opening a file outside the project asks for confirmation first.
+
+### Other
+
+- Frontend tests trimmed: duplicate cases merged and low-value assertions removed.
+
 ## 0.13.2 - 2026-11-23
 
 A fix release: it adds the Android package missing from 0.13.1 and makes the release pipeline fully automatic again. Desktop features are the same as 0.13.1.
