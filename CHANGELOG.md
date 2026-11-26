@@ -6,7 +6,7 @@
 
 ## 0.13.3 - 2026-11-26
 
-A large release. Main threads: launch profiles and providers move to layered native config, with import from cc-switch / Magpie; Agent chat is reworked (Codex merged into one entry, a merged model picker, switching engines within a chat, input completion, the ACP registry); settings get a flat rework plus new "Devices & access", "Agent Chat" and "Usage" pages; the sidebar gets session cards and a new "Tasks" view; the layout bar groups layouts by workspace and supports pinned layouts; the library gains a Components page (WeChat MCP, Feishu/Lark CLI); voice input is redone with local offline transcription; and three new CLIs arrive: Kiro, Meta Muse Code and fx.
+A large release. Main threads: launch profiles and providers move to layered native config, with import from cc-switch / Magpie; Agent chat is reworked (Codex merged into one entry, a merged model picker, switching engines within a chat, input completion, the ACP registry); settings get a flat rework plus new "Devices & access", "Agent Chat", "Usage" and "Privacy" pages; the sidebar gets session cards and a new "Tasks" view; the layout bar groups layouts by workspace and supports pinned layouts; the library gains a Components page (WeChat MCP, Feishu/Lark CLI); voice input is redone with local offline transcription; and three new CLIs arrive: Kiro, Meta Muse Code and fx.
 
 ### Added
 
@@ -50,6 +50,7 @@ A large release. Main threads: launch profiles and providers move to layered nat
 - **Voice input**: settings redone after t3code — transcription service, microphone selection and a dictionary (names, terms); new local offline transcription (sherpa-onnx + SenseVoice / Qwen3-ASR) with models downloaded from settings (resumable, SHA256-verified, proxy-aware).
 - **Devices & access** (new settings page): this machine's info; QR-code pairing; device online status, last seen time and IP; device token lifetime of 30 days / 90 days / never; web login session list with single sign-out or "revoke all others"; rotate the orchestrator access token (the old one stops working immediately, no restart); one-click Tailscale Serve on/off for remote access (requires an access password).
 - **Usage**: the status-bar popover becomes a detailed report — total volume with input / output / hit rate, token breakdown, a daily usage chart and per-source ranking, switchable between today / 7 days / 30 days; settings gain a "Usage" page.
+- **Channel purity check** (new "Privacy" settings page, off by default): checks whether a relay provider injects hidden prompts, wraps the model in another identity, or substitutes models. Each configured model gets 3–4 real requests (empty-request token count, context echo, identity fishing, model self-report), which costs a little; the report gives a verdict per model with evidence. Once enabled, a purity badge shows on provider cards and in the home Agent list, and the CLI tab menu gains "Check channel purity". Only API-key accounts of Claude / OpenAI-compatible providers are checked; subscription sign-ins are never probed, and keys never leave the backend.
 
 ### Improved
 
