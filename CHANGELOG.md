@@ -4,6 +4,20 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.13.4 - 2026-11-26
+
+A small release: fixes for reaching LAN devices on macOS and for reading provider secrets, plus a redesigned task orchestration panel.
+
+### Fixed
+
+- **Clearer error when a provider secret can't be read**: when reading a secret fails (e.g. the macOS Keychain denies access), you now get the same prompt as for a missing secret — re-enter the key in provider settings — together with the underlying Keychain reason, instead of a bare error.
+- **Devices panel detects a denied macOS "Local Network" permission**: when macOS's Local Network privacy permission blocks the app from reaching an SSH device on the LAN (`os error 65`), `ssh` in a terminal works while the app can't connect. The device status now reads "Local Network permission required", and hovering shows the full reason.
+- **macOS now asks for Local Network access**: the app was missing its Local Network usage description, so macOS never showed the permission prompt and connections to LAN devices simply failed. The first time the app reaches a device on your local network, macOS now shows the permission prompt; allow it and the connection goes through.
+
+### Improved
+
+- **Task orchestration panel redesign**: the duplicated title is gone, the toolbar fits on one row, emoji are removed; each task's status is shown only once, empty states share one style, and the tree view is redesigned for clearer hierarchy.
+
 ## 0.13.3 - 2026-11-26
 
 A large release. Main threads: launch profiles and providers move to layered native config, with import from cc-switch / Magpie; Agent chat is reworked (Codex merged into one entry, a merged model picker, switching engines within a chat, input completion, the ACP registry); settings get a flat rework plus new "Devices & access", "Agent Chat", "Usage" and "Privacy" pages; the sidebar gets session cards and a new "Tasks" view; the layout bar groups layouts by workspace and supports pinned layouts; the library gains a Components page (WeChat MCP, Feishu/Lark CLI); voice input is redone with local offline transcription; and three new CLIs arrive: Kiro, Meta Muse Code and fx.
