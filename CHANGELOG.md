@@ -6,46 +6,67 @@
 
 ## 0.13.3 - 2026-11-26
 
-This release centers on layered native configuration for launch profiles and providers, a major round of Agent chat work (Codex merged into one entry, a unified model picker, cross-engine handoff), a settings rework with a new "Devices & access" page, plus a Components page in the library, local offline voice transcription, a task view and a batch of UI refreshes.
+A large release. Main threads: launch profiles and providers move to layered native config, with import from cc-switch / Magpie; Agent chat is reworked (Codex merged into one entry, a merged model picker, switching engines within a chat, input completion, the ACP registry); settings get a flat rework plus new "Devices & access", "Agent Chat" and "Usage" pages; the sidebar gets session cards and a new "Tasks" view; the layout bar groups layouts by workspace and supports pinned layouts; the library gains a Components page (WeChat MCP, Feishu/Lark CLI); voice input is redone with local offline transcription; and three new CLIs arrive: Kiro, Meta Muse Code and fx.
 
 ### Added
 
-- **Layered native config**: providers and launch profiles can each carry a fragment of the CLI's native config (TOML for Codex, JSON for Claude), deep-merged as "the CLI's own config ← provider fragment ← launch profile fragment ← CC-Panes explicit fields". For Codex the result is injected via `-c` (same for local, WSL and SSH); for Claude it is merged into the session's `--settings`. The CLI's own config files are never rewritten, and secret-like keys are rejected on save. The launch profile page gets a native config card and quick toggles.
+- **Layered native config**:
+  - Providers and launch profiles can each carry a fragment of the CLI's native config (TOML for Codex, JSON for Claude), deep-merged as "the CLI's own config ← provider fragment ← launch profile fragment ← CC-Panes explicit fields (model, reasoning effort, YOLO, routing, MCP)". For Codex the result is injected via `-c` (same for local, WSL and SSH); for Claude it is merged into the session's `--settings`. The CLI's global config files are never rewritten, and secret-like keys are rejected on save.
+  - A native override editor previews the merged result; common keys have quick toggles (`service_tier`, `model_verbosity`, plan-mode reasoning effort, auto-compact threshold) that change only the target key and keep comments and key order.
 - **Provider import**:
-  - Importing from cc-switch now splits a full Codex `config.toml` by layer: provider-bound keys go to the provider fragment, usage preferences (model, YOLO, …) go to the launch profile, and keys that are not imported are listed in the preview. cc-switch's local proxy can be imported as a provider pointing at the proxy.
+  - Importing from cc-switch now splits a full Codex `config.toml` by layer: provider-bound keys go to the provider fragment, usage preferences (model, YOLO, …) go to the launch profile, and keys not imported are listed in the preview; each import also creates a launch profile, and existing ones are only completed or supplemented with native config. cc-switch's local proxy can be imported as a provider pointing at the proxy.
   - New import from Magpie: providers are split by protocol into Claude / Codex / Gemini entries for you to pick; each routing group is always imported as two rows (Claude and Codex) that go through Magpie's local gateway.
-  - Gateway preflight: for providers imported from a Magpie routing group or a cc-switch proxy, local launches probe the gateway port first and name the gateway that is not running, instead of failing on the CLI's first request.
-- **Login account status**: the account list shows whether each login account is signed in, and account emails are masked in the UI (e.g. `wu***@example.com`).
+  - Gateway preflight: for providers imported from a Magpie routing group or a cc-switch proxy, local launches probe the gateway port first and name the gateway that is not running (`MAGPIE_GATEWAY_UNREACHABLE` / `CC_SWITCH_PROXY_UNREACHABLE`), instead of failing on the CLI's first request.
+- **Launch profiles**:
+  - Credential selection is now three segments: "CLI's own login / OAuth account / Relay".
+  - MCP servers and skills can be added directly from a launch profile.
+  - Provider models can be hidden from the dropdown.
+- **Login accounts**:
+  - Shows whether each login account is signed in, which account it is, and its plan and auth method; emails are masked in the UI (e.g. `wu***@example.com`). Only non-sensitive fields are read; credential contents are never read.
+  - Claude / Codex session history stored in login account directories now shows up in session lists; the plans directory is shared across accounts.
 - **Agent chat**:
-  - "Codex" is now a single entry: it prefers the native App Server and falls back to ACP automatically when that fails to start; settings offer "Always use ACP compatibility mode for Codex".
+  - "Codex" is now a single entry: it prefers the native App Server and falls back to ACP automatically when that fails to start; a new "Agent Chat" settings page offers "Always use ACP compatibility mode for Codex".
   - Chats can start with a launch profile, resolving provider, account, model and native config the same way terminals do; the session header shows the profile in use.
-  - One merged model picker: engine, model (searchable, favorites, ⌘1…⌘9), reasoning effort and access mode in one place; picking another engine's model switches engines and hands the conversation over as context.
-  - Files can be dropped onto the start page as attachments sent with the first message.
+  - One merged model picker: engine, model (searchable, favorites, ⌘1…⌘9), reasoning effort and access mode in one place.
+  - Switch engines within a chat: picking another engine's model continues the chat on that engine, handing the conversation over as context with a handoff divider; the sidebar shows the engines a chat has used.
+  - Input completion: `/` commands, `@` project files, `$` skills.
+  - Files dropped onto the start page become attachment cards sent with the first message.
   - Selected chat text can be handed to the Codex desktop app.
-  - New ACP registry browser: install agents from the official ACP registry in one click (npx / uvx / sha256-verified binaries).
-- **Devices & access** (new settings page): QR-code pairing for phones and other devices; device online status and token expiry; web login session management with single revoke or "revoke all others"; rotate the orchestrator access token (the old one stops working immediately, no restart); one-click Tailscale Serve on/off for remote access.
+  - ACP registry: browse and install third-party agents from the official ACP registry (npx / uvx / sha256-verified binaries), with source and license shown before install.
+  - Unified engine icons.
+- **New CLIs**: Kiro CLI, Meta Muse Code and fx adapters (plain launch + custom args; not yet verified on real installs, no MCP or session resume yet).
+- **Sidebar**:
+  - Sessions in the workspace tree become cards (inspired by T3 Code thread cards) showing project, status, title and the CLI / engine icons used; Agent chats also appear as session rows.
+  - New "Tasks" view: sessions across workspaces ordered as "needs you → running → finished", showing how long each has waited / run, with a "New task" button at the top. The explorer's two modes are labeled "Spaces / Tasks".
+- **Layout bar**:
+  - Multiple layouts of the same workspace are grouped automatically (like Chrome tab groups, with workspace color / alias), and groups can collapse.
+  - Pinned layouts: like Chrome pinned tabs, they stay at one end showing only an initial and a status dot.
+  - A new "All layouts" dropdown on the right: sectioned by workspace and searchable, so layouts in collapsed groups or scrolled out of view are one click away.
+- **Terminal context menu** gains a "Task queue…" entry.
+- **Built-in browser** (macOS): one-time import of cookies from local Chromium-based browsers (Chrome / Edge / Brave / Arc, …) in settings, reusing existing sign-ins.
 - **Components page in the library**:
-  - WeChat MCP (Windows): a built-in WeChat reader component rewritten in Rust, enabled locally in one click, or reached on a remote Windows machine over an SSH tunnel from other platforms; once enabled it is registered as a shared MCP.
+  - WeChat MCP (Windows): the built-in Rust rewrite `cc-wechat-mcp` extracts keys from a running WeChat 4.x, decrypts the local databases and reads chats, contacts, messages and images; enable it locally in one click, or reach it on a remote Windows machine over an SSH tunnel from other platforms; once enabled it is registered as a shared MCP.
   - Feishu/Lark CLI: install / update the official `lark-cli`; app setup and login authorization links are shown as QR codes right on the page; the official lark skills install into the skill library and are injected per launch profile.
-- **Local offline voice transcription**: voice settings are redone, with local SenseVoice / Qwen3-ASR models downloaded from settings (resumable, SHA256-verified, proxy-aware); microphone selection and a dictionary are added.
-- **Task view**: the explorer gains a "Tasks" mode that orders sessions across workspaces by whose turn it is (needs you → running → finished) and shows how long each has been in its current state.
-- **New CLIs**: Kiro, Meta Muse Code and fx adapters (plain launch + custom args, not yet verified on real installs).
-- **Browser sign-in import** (macOS): one-time import of cookies from local Chrome / Edge / Brave / Arc and similar browsers into the built-in browser.
-- **Usage report**: the status-bar usage popover becomes a detailed report — totals and hit rate, token breakdown, a daily usage chart and per-source ranking, switchable between today / 7 days / 30 days; settings also get a "Usage" page.
+- **Voice input**: settings redone after t3code — transcription service, microphone selection and a dictionary (names, terms); new local offline transcription (sherpa-onnx + SenseVoice / Qwen3-ASR) with models downloaded from settings (resumable, SHA256-verified, proxy-aware).
+- **Devices & access** (new settings page): this machine's info; QR-code pairing; device online status, last seen time and IP; device token lifetime of 30 days / 90 days / never; web login session list with single sign-out or "revoke all others"; rotate the orchestrator access token (the old one stops working immediately, no restart); one-click Tailscale Serve on/off for remote access (requires an access password).
+- **Usage**: the status-bar popover becomes a detailed report — total volume with input / output / hit rate, token breakdown, a daily usage chart and per-source ranking, switchable between today / 7 days / 30 days; settings gain a "Usage" page.
 
 ### Improved
 
-- **Settings rework**: flat layout with a page title bar; the performance recorder moves to "Experimental features".
-- **Terminal status bar** shows the launch profile the session uses; a snapshot of the profile is taken at launch, so later profile edits don't change what open sessions display.
-- **Sidebar session cards**: sessions in the workspace tree become cards showing project, status, title and the CLI / engine icons used.
+- **Settings rework**: flat structure (page → section → row, no nested collapsibles); press `/` to search settings; the macOS settings window gets a transparent title bar; "System & connections" is renamed "System"; "Performance recorder" moves to "Experimental features".
+- **Terminal status bar** shows the session's launch profile as a read-only label; a snapshot is taken at launch, so the original name still shows after the profile is edited or deleted.
 - **Empty pane page** redone in the new-tab design: project title plus a row of "Start" chips; the method list only shows ways the chips don't cover.
-- **Layout bar**: layout tabs start from the left edge and the tool icons sit fixed next to "+" on the right; the auto-fit button is removed (still toggleable in the layout picker).
+- **Layout bar**: layout tabs start from the left edge and tool icons sit fixed next to "+" on the right; the auto-fit button is removed (still toggleable in the layout picker).
 - **Faster CLI detection**: CLIs are detected in parallel, so the total is about as long as the slowest one.
-- A batch of UI refreshes across the theme, wallpaper, terminal and general settings pages, notification cards and more.
+- A batch of UI refreshes across theme, wallpaper, terminal and general settings, onboarding, notification cards and more.
 
 ### Fixed
 
-- **Terminal path links**: paths are checked against the backend while being recognized, so non-existent paths are no longer shown as links; path error toasts are merged into one instead of stacking two or three. On desktop, opening a file outside the project asks for confirmation first.
+- **Terminal path links**: on hover the backend checks whether the path can be opened, and unopenable paths are not shown as links; `~` expansion and wrapped-line joining are supported, and truncated paths are no longer misdetected; path error toasts merge into one instead of stacking two or three. On desktop, opening an absolute path outside the project asks for confirmation first.
+
+### Removed
+
+- The old "Providers" and "Advanced" settings pages; their content now lives in the new settings structure.
 
 ### Other
 
