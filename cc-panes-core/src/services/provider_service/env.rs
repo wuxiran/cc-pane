@@ -264,13 +264,25 @@ impl ProviderService {
         );
         let mut entries = HashMap::with_capacity(keys.len());
         for key in keys {
-            let value = self.secrets.load(&key)?.ok_or_else(|| {
-                secret_error(
-                    "PROVIDER_SECRET_UNAVAILABLE",
-                    format!("Stored secret '{key}' is missing from the credential store"),
-                    &provider.id,
-                )
-            })?;
+            // 读失败（如 macOS 钥匙串拒绝访问）与缺条目同样归到带码错误，界面才能给出
+            // 「去供应商设置重新填写密钥」的提示；`{error:#}` 带上钥匙串的底层原因。
+            let value = match self.secrets.load(&key) {
+                Ok(Some(value)) => value,
+                Ok(None) => {
+                    return Err(secret_error(
+                        "PROVIDER_SECRET_UNAVAILABLE",
+                        format!("Stored secret '{key}' is missing from the credential store"),
+                        &provider.id,
+                    ))
+                }
+                Err(error) => {
+                    return Err(secret_error(
+                        "PROVIDER_SECRET_UNAVAILABLE",
+                        format!("Stored secret '{key}' could not be read: {error:#}"),
+                        &provider.id,
+                    ))
+                }
+            };
             entries.insert(key, value);
         }
         Ok(entries)
@@ -384,7 +396,7 @@ impl ProviderService {
             )),
             Err(error) => Err(secret_error(
                 "PROVIDER_SECRET_UNAVAILABLE",
-                format!("Stored secret '{key}' could not be read: {error}"),
+                format!("Stored secret '{key}' could not be read: {error:#}"),
                 &provider.id,
             )),
         }

@@ -877,6 +877,29 @@ fn a_missing_keychain_entry_fails_the_launch_instead_of_dropping_the_key() {
     assert!(service.launch_secret_entries(&provider, None).is_err());
 }
 
+/// 条目在但钥匙串拒绝读取（macOS 上 dev 重编后签名变化、授权框被拒）：主程序推密钥给
+/// daemon 这一步也要给带码错误，界面才能提示去供应商设置重填，且底层原因不能丢。
+#[test]
+fn an_unreadable_keychain_entry_fails_the_launch_with_a_coded_error() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_file(&dir);
+    let owner_store = memory_store();
+    let owner_service = owner(&dir, &owner_store);
+    let provider = owner_service.get_provider("p-anthropic").unwrap();
+
+    let store = Arc::new(ProviderSecretStore::with_backend(Arc::new(
+        UnreadableSecrets,
+    )));
+    let service = ProviderService::with_secret_store(providers_path(&dir), store);
+    let error = service.launch_secret_entries(&provider, None).unwrap_err();
+
+    let app_error = error.downcast_ref::<AppError>().unwrap();
+    assert_eq!(app_error.code(), Some("PROVIDER_SECRET_UNAVAILABLE"));
+    assert!(error
+        .to_string()
+        .contains("secret access requires authorization"));
+}
+
 // ---------------------------------------------------------------- 环境变量解析
 
 #[test]
