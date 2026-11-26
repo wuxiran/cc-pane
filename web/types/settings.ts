@@ -34,6 +34,8 @@ export interface AppSettings {
   performance: PerformanceSettings;
   /** Agent Chat 偏好（镜像 cc-panes-core AgentChatSettings）；旧后端 / 测试夹具可能缺失，读取时按默认值。 */
   agentChat?: AgentChatSettings;
+  /** 隐私与安全（设置 → 隐私）。全部默认关闭，Dev 构建也一样。 */
+  privacy: PrivacySettings;
 }
 
 /** Agent Chat 偏好（镜像 cc-panes-core AgentChatSettings）。 */
@@ -41,6 +43,17 @@ export interface AgentChatSettings {
   /** 「Codex」始终走 ACP 兼容模式（不尝试原生 App Server）；只影响新会话。默认 false。 */
   codexForceAcp: boolean;
 }
+
+/** 隐私与安全开关（镜像 cc-panes-core PrivacySettings）。全部默认关闭：关着时界面上不出现任何入口。 */
+export interface PrivacySettings {
+  /** 中转纯度检测：供应商卡片 / 首页的标记、标签页右键入口。只测 API key 账号。 */
+  channelPurity: boolean;
+}
+
+/** 隐私开关全部默认关闭——不跟实验功能走 Dev 默认全开。 */
+export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
+  channelPurity: false,
+};
 
 /** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
 export interface ExperimentalSettings {

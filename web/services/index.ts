@@ -136,3 +136,5 @@ export { workspaceSnapshotService } from "./workspaceSnapshotService";
 export { taskBindingService } from "./taskBindingService";
 export { canvasSnapshotService } from "./canvasSnapshotService";
 export { taskQueueService, TaskQueueUnavailableError } from "./taskQueueService";
+export { channelPurityService } from "./channelPurityService";
+export type { PurityFinding, PurityFindingCode, PurityJob, PurityModelReport, PurityProtocol, PurityReport, PurityStatus, PurityVerdict } from "./channelPurityService";

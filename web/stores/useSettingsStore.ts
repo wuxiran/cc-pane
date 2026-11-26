@@ -3,6 +3,7 @@ import { settingsService } from "@/services";
 import { broadcastSettingsChanged } from "@/services/settingsWindowService";
 import type { AppSettings } from "@/types";
 import { DEFAULT_PERFORMANCE_SETTINGS } from "@/types/performanceSettings";
+import { DEFAULT_PRIVACY_SETTINGS } from "@/types/settings";
 import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
@@ -140,6 +141,8 @@ export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
   librarySpace: EXPERIMENTAL_DEFAULT_ON,
 };
 
+export { DEFAULT_PRIVACY_SETTINGS };
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -255,6 +258,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     performance: {
       ...DEFAULT_PERFORMANCE_SETTINGS,
       ...maybeSettings.performance,
+    },
+    privacy: {
+      ...DEFAULT_PRIVACY_SETTINGS,
+      ...maybeSettings.privacy,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
@@ -480,6 +487,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     im: DEFAULT_IM_SETTINGS,
     experimental: DEFAULT_EXPERIMENTAL_SETTINGS,
     performance: DEFAULT_PERFORMANCE_SETTINGS,
+    privacy: DEFAULT_PRIVACY_SETTINGS,
   }),
 }));
 

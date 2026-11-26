@@ -66,6 +66,10 @@ use commands::{
     browser_snapshot,
     cancel_acp_chat,
     cancel_terminal_launch,
+    channel_purity_cancel,
+    channel_purity_forget,
+    channel_purity_start,
+    channel_purity_status,
     check_codex_rollout_exists,
     check_environment,
     check_ssh_connectivity,
@@ -1819,6 +1823,9 @@ pub fn run() {
         app_paths.providers_path(),
         Arc::new(cc_panes_core::services::ProviderSecretStore::system()),
     ));
+    let channel_purity_service = Arc::new(services::channel_purity::ChannelPurityService::new(
+        app_paths.data_dir().to_path_buf(),
+    ));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let task_verification_service = Arc::new(services::TaskVerificationService::new(
@@ -2138,6 +2145,7 @@ pub fn run() {
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
+        .manage(channel_purity_service)
         .manage(launch_profile_service)
         .manage(quick_command_service)
         .manage(notification_preferences)
@@ -3589,6 +3597,10 @@ pub fn run() {
             preview_provider_env,
             resolve_provider_api_credentials,
             get_provider_secret_status,
+            channel_purity_status,
+            channel_purity_start,
+            channel_purity_cancel,
+            channel_purity_forget,
             list_login_accounts,
             create_login_account,
             get_login_account_status,

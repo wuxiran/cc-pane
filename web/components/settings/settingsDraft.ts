@@ -3,6 +3,7 @@ import { DEFAULT_CCCHAN_SETTINGS } from "@/stores/useCCChanStore";
 import {
   DEFAULT_EXPERIMENTAL_SETTINGS,
   DEFAULT_PERFORMANCE_SETTINGS,
+  DEFAULT_PRIVACY_SETTINGS,
 } from "@/stores/useSettingsStore";
 import type { AppSettings } from "@/types";
 import type { SettingsPaneId } from "./settingsRegistry";
@@ -29,6 +30,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   wallpaper: ["wallpaper"],
   experimental: ["experimental"],
   "agent-chat": ["agentChat"],
+  privacy: ["privacy"],
 };
 
 export function createSettingsDraft(value: AppSettings): SettingsDraft {
@@ -65,6 +67,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     agentChat: {
       codexForceAcp: false,
       ...maybeWithCCChan.agentChat,
+    },
+    privacy: {
+      ...DEFAULT_PRIVACY_SETTINGS,
+      ...maybeWithCCChan.privacy,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,

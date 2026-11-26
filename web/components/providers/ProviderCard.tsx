@@ -8,6 +8,7 @@ import ProviderAvatar, { PROVIDER_TYPE_COLORS } from "./ProviderAvatar";
 import { PROVIDER_TYPE_META, isSystemProvider, providerHasSecret, type Provider } from "@/types/provider";
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
 import { Badge } from "@/components/ui/badge";
+import PurityBadge from "./PurityBadge";
 
 /** 列表上的密钥存放标记：有密钥在文件里（钥匙串不可用时的回退）就标「未进钥匙串」。 */
 function secretStorageBadge(provider: Provider): "keychain" | "file" | null {
@@ -234,6 +235,7 @@ export default function ProviderCard({
                 <span className="font-mono text-[length:var(--text-caption)]">{STORED_SECRET_MASK}</span>
               </>
             )}
+            <PurityBadge provider={provider} className="ms-1" />
           </div>
 
           <AccountSummary provider={provider} />

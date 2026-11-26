@@ -22,5 +22,6 @@ export type SettingsPaneId =
   | "screenshot"
   | "voice"
   | "ccchan"
+  | "privacy"
   | "experimental"
   | "about";

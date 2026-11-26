@@ -65,7 +65,8 @@
     "deviceMcp": "MCP external apps token endpoint",
     "tailscale": "Tailscale remote tailnet",
     "webService": "web service start stop restart open browser",
-    "orchestrator": "orchestrator MCP endpoint listener YOLO"
+    "orchestrator": "orchestrator MCP endpoint listener YOLO",
+    "privacy": "privacy security purity relay injection proxy channel"
   },
   "groups": {
     "application": "Application",
@@ -95,6 +96,9 @@
     },
     "about": {
       "title": "About"
+    },
+    "privacy": {
+      "title": "Privacy"
     }
   },
   "performance": {
@@ -1845,5 +1849,12 @@
       "confirm": "Revoke all other access?\n\nThis removes {{devices}} paired device(s) and signs out {{sessions}} Web session(s). They must pair or sign in again to reach this computer.\n\nThis desktop app is not affected.",
       "done": "Removed {{devices}} device(s) and signed out {{sessions}} Web session(s)"
     }
+  },
+  "privacy": {
+    "title": "Privacy & security",
+    "description": "Features that call models or change how CLIs reach them live here. All are off by default.",
+    "notice": "Everything here is off by default; entry points appear only after you turn a feature on. They apply only to API-key providers you configured and never touch subscription sign-ins such as Claude or Codex.",
+    "channelPurity": "Channel purity checks",
+    "channelPurityDesc": "Shows a purity badge on provider cards, the home Agent list and the CLI tab menu, to check whether a relay adds hidden prompts, wraps identities or substitutes models. A check calls the models for real and costs a little; it only runs when you start it."
   }
 }

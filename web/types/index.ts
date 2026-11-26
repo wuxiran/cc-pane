@@ -186,6 +186,7 @@ export type {
   ShellInfo,
   SearchScope,
   ScreenshotSettings,
+  PrivacySettings,
   QuickTerminalSettings,
   VoiceSettings,
   VoiceMicrophone,

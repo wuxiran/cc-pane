@@ -14,5 +14,6 @@
   "tabMenuSplit": "拆分",
   "tabMenuMoveTo": "移动到",
   "tabMenuMore": "更多",
-  "tabMenuCloseOthers": "批量关闭"
+  "tabMenuCloseOthers": "批量关闭",
+  "checkChannelPurity": "检测中转纯度"
 }

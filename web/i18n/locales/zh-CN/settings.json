@@ -65,7 +65,8 @@
     "deviceMcp": "MCP 外部 应用 token 端点",
     "tailscale": "Tailscale 远程 tailnet",
     "webService": "Web 服务 启动 停止 重启 打开 浏览器",
-    "orchestrator": "编排器 MCP 端点 监听 YOLO"
+    "orchestrator": "编排器 MCP 端点 监听 YOLO",
+    "privacy": "隐私 安全 纯度 中转 注入 套壳 掺假 privacy"
   },
   "groups": {
     "application": "应用",
@@ -95,6 +96,9 @@
     },
     "about": {
       "title": "关于"
+    },
+    "privacy": {
+      "title": "隐私"
     }
   },
   "performance": {
@@ -1845,5 +1849,12 @@
       "confirm": "撤销其他全部访问？\n\n将移除 {{devices}} 台已配对设备，并注销 {{sessions}} 个网页登录会话。它们需要重新配对 / 重新登录才能再访问本机。\n\n本机桌面应用不受影响。",
       "done": "已移除 {{devices}} 台设备，注销 {{sessions}} 个网页登录会话"
     }
+  },
+  "privacy": {
+    "title": "隐私与安全",
+    "description": "会调用模型或改动 CLI 请求链路的功能集中在这里，全部默认关闭。",
+    "notice": "这里的功能默认全部关闭，打开后相关入口才会出现。它们只作用于你配置的 API key 供应商，不会碰 Claude、Codex 等订阅登录账号。",
+    "channelPurity": "中转纯度检测",
+    "channelPurityDesc": "在供应商卡片、首页 Agent 列表和 CLI 标签右键菜单里显示纯度标记，可以检测中转有没有偷塞提示词、套壳或拿别的型号冒充。检测会真实调用模型，产生少量费用，只在你手动点时才跑。"
   }
 }

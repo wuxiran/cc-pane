@@ -13,6 +13,7 @@ import {
   useWorkspacesStore,
 } from "@/stores";
 import ProviderCard, { type SystemProbeInfo } from "./ProviderCard";
+import { useChannelPurityStore } from "@/stores/useChannelPurityStore";
 import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
@@ -186,6 +187,8 @@ export default function ProvidersPanel({ compact, view: fixedTopView, initialVie
   const handleDelete = useCallback(async (id: string) => {
     try {
       await removeProvider(id);
+      // 检测报告跟着供应商走，删了就不留
+      void useChannelPurityStore.getState().forget(id).catch(() => {});
       toastOk(t("providerDeleted"));
     } catch (e) {
       toastErr(t("deleteFailed", { error: String(e) }));

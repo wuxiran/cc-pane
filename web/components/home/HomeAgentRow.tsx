@@ -4,6 +4,7 @@ import { Download, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CliBrandIcon from "@/components/CliBrandIcon";
+import PurityBadge from "@/components/providers/PurityBadge";
 import { SYSTEM_PROVIDER_ID, type Provider } from "@/types/provider";
 import type { CliToolInfo } from "@/types";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ export default function HomeAgentRow({
 }: HomeAgentRowProps) {
   const { t } = useTranslation("home");
   const usingOwn = effectiveProviderId === SYSTEM_PROVIDER_ID || !effectiveProviderName;
+  const effectiveProvider = usingOwn ? undefined : providers.find((provider) => provider.id === effectiveProviderId);
   const status = usingOwn
     ? t("agents.usingOwn", { name: tool.displayName })
     : t("agents.usingProvider", { name: effectiveProviderName });
@@ -69,6 +71,7 @@ export default function HomeAgentRow({
             className={cn("size-1.5 shrink-0 rounded-full", usingOwn ? "bg-[var(--app-text-tertiary)]" : "bg-[var(--app-status-success)]")}
           />
           <span className="truncate" title={tool.path ?? undefined}>{status}</span>
+          {effectiveProvider && <PurityBadge provider={effectiveProvider} />}
         </div>
       </div>
       <Select value={effectiveProviderId} onValueChange={onChangeProvider}>

@@ -13,6 +13,7 @@ const BrowserImportSection = lazyWithRetry(() => import("./BrowserImportSection"
 const CCChanSettings = lazyWithRetry(() => import("./CCChanSettings"), "CCChanSettings");
 const CliLaunchersSection = lazyWithRetry(() => import("./CliLaunchersSection"), "CliLaunchersSection");
 const ExperimentalSection = lazyWithRetry(() => import("./ExperimentalSection"), "ExperimentalSection");
+const PrivacySection = lazyWithRetry(() => import("./PrivacySection"), "PrivacySection");
 const GeneralSection = lazyWithRetry(() => import("./GeneralSection"), "GeneralSection");
 const ImSection = lazyWithRetry(() => import("./ImSection"), "ImSection");
 const ModulesSection = lazyWithRetry(() => import("./ModulesSection"), "ModulesSection");
@@ -122,6 +123,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
         : null;
     case "about":
       return <AboutSection />;
+    case "privacy":
+      return <PrivacySection value={draft.privacy} onChange={(privacy) => updateDraft({ ...draft, privacy })} />;
     case "experimental":
       return (
         <ExperimentalSection
@@ -159,6 +162,7 @@ const MIGRATED_PANES: ReadonlySet<SettingsPaneId> = new Set([
   "ccchan",
   "setup-guide",
   "usage-stats",
+  "privacy",
 ]);
 
 /** 自带卡片体系、不再套外层卡片的旧分区。 */

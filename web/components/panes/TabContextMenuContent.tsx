@@ -22,6 +22,7 @@ import {
   Pin,
   Send,
   Settings2,
+  ShieldCheck,
   Star,
 } from "lucide-react";
 import {
@@ -39,11 +40,13 @@ import RestoreClosedTabsMenu from "./RestoreClosedTabsMenu";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { handleError } from "@/utils/errorHandler";
 import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
+import { useTabPurityProvider } from "./tabPurity";
 
 const TerminalForkDialog = lazyWithRetry(() => import("@/components/chatfork/TerminalForkDialog"), "TerminalForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 const WorkbenchTabMenuItems = lazyWithRetry(() => import("./WorkbenchTabMenuItems"), "WorkbenchTabMenuItems");
 const CodexHandoffDialog = lazyWithRetry(() => import("@/components/agentchat/CodexHandoffDialog"), "CodexHandoffDialog");
+const PurityDialog = lazyWithRetry(() => import("@/components/providers/PurityDialog"), "PurityDialog");
 
 
 export interface PaneMoveTarget {
@@ -124,6 +127,8 @@ export default function TabContextMenuContent({
   const [forkOpen, setForkOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [handoffCwd, setHandoffCwd] = useState<string | null>(null);
+  const [purityOpen, setPurityOpen] = useState(false);
+  const purityProvider = useTabPurityProvider(tab);
   const forkSource = terminalForkSource(tab);
   const terminalLeafCount =
     tab.contentType === "terminal" && tab.terminalRootPane
@@ -134,6 +139,7 @@ export default function TabContextMenuContent({
     <>
     {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.contentType === "agent-chat" ? tab.id : undefined} onClose={() => setHandoffCwd(null)} /></Suspense>}
     {forkOpen && <Suspense fallback={null}><TerminalForkDialog open={forkOpen} onOpenChange={setForkOpen} tabId={tab.id} /></Suspense>}
+    {purityOpen && purityProvider && <Suspense fallback={null}><PurityDialog provider={purityProvider} accountId={tab.providerAccountId} onClose={() => setPurityOpen(false)} /></Suspense>}
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
       <ContextMenuContent className="w-56 rounded-2xl p-1.5">
         {/* 顶层只留最常用的几项，其余按「拆分 / 移动到 / 更多」收进子菜单。
@@ -146,6 +152,9 @@ export default function TabContextMenuContent({
         </ContextMenuItem>
         {forkSource && !forkSource.ssh && (
           <ContextMenuItem onClick={() => setForkOpen(true)}><GitFork /> {t("forkChat")}</ContextMenuItem>
+        )}
+        {purityProvider && (
+          <ContextMenuItem onClick={() => setPurityOpen(true)}><ShieldCheck /> {t("checkChannelPurity")}</ContextMenuItem>
         )}
         {/* 文件标签最常用的两个动作留在顶层：复制路径、在文件树里定位。 */}
         {tab.contentType === "editor" && tab.filePath && (

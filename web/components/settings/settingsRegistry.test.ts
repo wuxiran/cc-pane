@@ -29,7 +29,7 @@ describe("settings registry", () => {
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
     expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
     // 顺序本身是需求：devices 紧跟 system；setup-guide 夹在 usage-stats 与 about 之间
-    expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "devices", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
+    expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "devices", "privacy", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
   });
 
   it("applies desktop and platform availability from the registry", () => {
@@ -52,7 +52,7 @@ describe("settings registry", () => {
     )];
 
     expect(commandPaneIds).toEqual(visiblePaneIds);
-    expect(visiblePages).toHaveLength(11);
+    expect(visiblePages).toHaveLength(12);
     expect(visiblePages.every((page) =>
       page.paneIds.some((paneId) => visiblePaneIds.includes(paneId))
     )).toBe(true);
@@ -64,6 +64,7 @@ describe("settings registry", () => {
     ["appearance", ["theme", "theme-shape", "wallpaper"]],
     ["ai-tools", ["cli-launchers", "agent-chat", "quick-commands"]],
     ["devices", ["web-access"]],
+    ["privacy", ["privacy"]],
     ["ccchan", ["ccchan"]],
   ] as const)("orders panes inside the %s page", (pageId, paneIds) => {
     expect(getSettingsPanesForPage(pageId).map((pane) => pane.id)).toEqual(paneIds);
@@ -83,6 +84,7 @@ describe("settings registry", () => {
     ["quick-commands", { titleKey: "quickCommands.title", page: "ai-tools", layout: "wide" }],
     ["performance", { titleKey: "performance.title", page: "system" }],
     ["web-access", { page: "devices" }],
+    ["privacy", { page: "privacy", availability: "tauri" }],
     ["ccchan", { page: "ccchan" }],
   ])("declares %s pane metadata", (paneId, expected) => {
     expect(findPane(paneId)).toMatchObject(expected);

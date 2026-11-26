@@ -14,5 +14,6 @@
   "tabMenuSplit": "Split",
   "tabMenuMoveTo": "Move to",
   "tabMenuMore": "More",
-  "tabMenuCloseOthers": "Close multiple"
+  "tabMenuCloseOthers": "Close multiple",
+  "checkChannelPurity": "Check channel purity"
 }

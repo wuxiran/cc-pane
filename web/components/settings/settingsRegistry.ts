@@ -22,6 +22,7 @@ import {
   Palette,
   PanelsTopLeft,
   Settings,
+  Shield,
   SquareTerminal,
   Terminal,
   Wifi,
@@ -40,6 +41,7 @@ export type SettingsPageId =
   | "devices"
   | "ccchan"
   | "setup-guide"
+  | "privacy"
   | "experimental"
   | "usage-stats"
   | "about";
@@ -132,6 +134,14 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     titleKey: "pages.devices.title",
     group: "services",
     paneIds: ["web-access"],
+  },
+  {
+    // 隐私与安全：开关全部默认关闭，打开后相关入口才出现。
+    id: "privacy",
+    icon: Shield,
+    titleKey: "pages.privacy.title",
+    group: "services",
+    paneIds: ["privacy"],
   },
   {
     id: "ccchan",
@@ -381,6 +391,21 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ccchan", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
   ] },
+  {
+    id: "privacy",
+    icon: Shield,
+    titleKey: "privacy.title",
+    descriptionKey: "privacy.description",
+    page: "privacy",
+    availability: "tauri",
+    searchEntries: [{
+      id: "channel-purity",
+      titleKey: "privacy.channelPurity",
+      descriptionKey: "privacy.channelPurityDesc",
+      keywordsKey: "searchKeywords.privacy",
+      targetSectionId: "privacy-root",
+    }],
+  },
   {
     id: "experimental",
     icon: FlaskConical,

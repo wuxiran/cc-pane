@@ -9,6 +9,7 @@ pub mod bot_service;
 pub mod browser_cookie_import;
 mod browser_service;
 pub mod bundled_skills;
+pub mod channel_purity;
 pub mod feishu_cli;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;

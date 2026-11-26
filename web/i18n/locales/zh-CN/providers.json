@@ -572,5 +572,62 @@
       "profile": "运行配置",
       "managed": "CC-Panes"
     }
+  },
+  "purity": {
+    "title": "中转纯度",
+    "dialogTitle": "{{name}} · 中转纯度",
+    "intro": "对这条供应商配置的每个型号测提示词注入、套壳和掺假。检测会真实调用模型，每个型号 3–4 次请求，会产生少量费用。",
+    "disclaimer": "这些检测只能发现问题，不能证明没有问题：“未发现问题”不等于保证纯净。",
+    "verdict": {
+      "clean": "未发现问题",
+      "suspicious": "有疑点",
+      "injected": "检出注入",
+      "adulterated": "检出掺假",
+      "inconclusive": "无法判断",
+      "unchecked": "未检测"
+    },
+    "start": "开始检测",
+    "recheck": "重新检测",
+    "cancel": "取消",
+    "running": "检测中 {{done}}/{{total}}",
+    "runningModel": "正在测 {{model}}",
+    "preparing": "准备中…",
+    "checkedAt": "{{time}} 检测 · {{host}}",
+    "protocol": {
+      "anthropic": "Anthropic 接口",
+      "responses": "Responses 接口",
+      "chat": "Chat 接口"
+    },
+    "promptTokens": "空请求输入 {{count}} token",
+    "selfReport": "自报：{{text}}",
+    "noFindings": "没有发现问题",
+    "batchTitle": "整体",
+    "finding": {
+      "hidden_prefix": "空请求凭空多出 {{detail}} 个输入 token：上游在你的请求前塞了提示词",
+      "echoed_injection": "复述出了不是你写的系统提示",
+      "echoed_something": "复述出了一段上下文，需要人工判断",
+      "fishing_admitted": "承认系统提示里有 Kiro 身份：套壳通道",
+      "fishing_unclear": "提到了 Kiro，无法自动判断是承认还是否认",
+      "oauth_channel": "拒绝新版参数，错误特征像转卖 Claude Code 订阅的通道",
+      "new_params_rejected": "不支持新版参数（老代理或翻译网关），不影响结论",
+      "nonstandard_fields": "响应里有官方没有的字段：{{detail}}",
+      "self_report_mismatch": "自报型号与标称不同（单个型号答错不定性）",
+      "batch_downgrade": "所有型号自报都对不上标称（{{detail}}）：拿别的型号冒充",
+      "response_model_mismatch": "响应里的型号和请求的不是一个系列：{{detail}}",
+      "request_failed": "请求失败"
+    },
+    "error": {
+      "PURITY_BUSY": "已有检测在进行，等它结束再试",
+      "PURITY_UNSUPPORTED_TYPE": "这类供应商暂不支持检测",
+      "PURITY_NO_ENDPOINT": "没有填接口地址",
+      "PURITY_LOGIN_ACCOUNT": "登录账号走官方订阅，不需要检测",
+      "PURITY_NO_KEY": "默认账号没有密钥",
+      "PURITY_NO_ACCOUNT": "没有可用的账号",
+      "PURITY_NO_MODELS": "没有可测的型号：请在供应商里配置型号",
+      "PURITY_PROVIDER_NOT_FOUND": "找不到这条供应商",
+      "failed": "检测失败：{{error}}",
+      "PURITY_DISABLED": "中转纯度检测没有打开：到 设置 → 隐私 里打开"
+    },
+    "openDetails": "查看中转纯度详情"
   }
 }

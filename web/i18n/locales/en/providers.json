@@ -572,5 +572,62 @@
       "profile": "Profile",
       "managed": "CC-Panes"
     }
+  },
+  "purity": {
+    "title": "Channel purity",
+    "dialogTitle": "{{name}} · Channel purity",
+    "intro": "Checks every configured model of this provider for prompt injection, wrapped identities and model substitution. The check calls the models for real (3–4 requests per model) and costs a little.",
+    "disclaimer": "These checks can only find problems, not prove there are none: \"No issues found\" is not a guarantee.",
+    "verdict": {
+      "clean": "No issues found",
+      "suspicious": "Suspicious",
+      "injected": "Injection detected",
+      "adulterated": "Substitution detected",
+      "inconclusive": "Inconclusive",
+      "unchecked": "Not checked"
+    },
+    "start": "Run check",
+    "recheck": "Check again",
+    "cancel": "Cancel",
+    "running": "Checking {{done}}/{{total}}",
+    "runningModel": "Testing {{model}}",
+    "preparing": "Preparing…",
+    "checkedAt": "Checked {{time}} · {{host}}",
+    "protocol": {
+      "anthropic": "Anthropic API",
+      "responses": "Responses API",
+      "chat": "Chat API"
+    },
+    "promptTokens": "Empty request used {{count}} input tokens",
+    "selfReport": "Self-report: {{text}}",
+    "noFindings": "No issues found",
+    "batchTitle": "Overall",
+    "finding": {
+      "hidden_prefix": "An empty request used {{detail}} input tokens: the upstream adds a hidden prompt before yours",
+      "echoed_injection": "Echoed a system prompt you didn't write",
+      "echoed_something": "Echoed some context; review it yourself",
+      "fishing_admitted": "Admitted a Kiro identity in its system prompt: wrapped channel",
+      "fishing_unclear": "Mentioned Kiro; can't tell whether it admitted or denied",
+      "oauth_channel": "Rejected new parameters with errors typical of resold Claude Code subscriptions",
+      "new_params_rejected": "Doesn't support new parameters (old proxy or translating gateway); doesn't affect the verdict",
+      "nonstandard_fields": "Response has fields the official API doesn't: {{detail}}",
+      "self_report_mismatch": "Self-reported model differs from the requested one (one model alone isn't conclusive)",
+      "batch_downgrade": "Every model's self-report mismatches ({{detail}}): models are being substituted",
+      "response_model_mismatch": "Response model is from a different family: {{detail}}",
+      "request_failed": "Request failed"
+    },
+    "error": {
+      "PURITY_BUSY": "A check is already running; try again when it finishes",
+      "PURITY_UNSUPPORTED_TYPE": "This provider type can't be checked yet",
+      "PURITY_NO_ENDPOINT": "No endpoint URL is set",
+      "PURITY_LOGIN_ACCOUNT": "Login accounts use the official subscription; nothing to check",
+      "PURITY_NO_KEY": "The default account has no key",
+      "PURITY_NO_ACCOUNT": "No usable account",
+      "PURITY_NO_MODELS": "No models to test: add models to the provider",
+      "PURITY_PROVIDER_NOT_FOUND": "Provider not found",
+      "failed": "Check failed: {{error}}",
+      "PURITY_DISABLED": "Channel purity checks are off: turn them on in Settings → Privacy"
+    },
+    "openDetails": "Show channel purity details"
   }
 }

@@ -69,6 +69,9 @@ pub struct AppSettings {
     /// Agent Chat（ACP / Codex App Server）偏好。
     #[serde(default)]
     pub agent_chat: AgentChatSettings,
+    /// 隐私与安全（设置 → 隐私）。全部默认关闭。
+    #[serde(default)]
+    pub privacy: PrivacySettings,
 }
 
 /// Agent Chat 偏好。老配置无此节时全部取默认（serde default）。
@@ -79,6 +82,18 @@ pub struct AgentChatSettings {
     /// 只影响新会话：续接已有会话时沿用该会话落盘的引擎（见 acp_chat_commands::launch）。
     #[serde(default)]
     pub codex_force_acp: bool,
+}
+
+/// 隐私与安全开关。**全部默认关闭，Dev 构建也一样**（不走实验功能那套 Dev 默认全开）：
+/// 这些功能会真实调用模型、或改动 CLI 的请求链路，用户在「设置 → 隐私」明确打开才生效，
+/// 关着时界面上不出现任何入口。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacySettings {
+    /// 中转纯度检测：供应商卡片 / 首页 Agent 行的标记、标签页右键「检测中转纯度」。
+    /// 只测 API key 账号，订阅登录账号永不探测。
+    #[serde(default)]
+    pub channel_purity: bool,
 }
 
 /// 实验功能开关。Release 默认全关，用户在「设置 → 实验功能」显式勾选后入口才
@@ -1615,6 +1630,17 @@ impl ProxySettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 隐私开关全部默认关闭，Dev 构建也一样；老配置没有这一节时读进来也是关的。
+    #[test]
+    fn privacy_switches_default_off_in_every_build() {
+        assert!(!AppSettings::default().privacy.channel_purity);
+        let missing_section: AppSettings = toml::from_str("").expect("empty config parses");
+        assert_eq!(missing_section.privacy, PrivacySettings::default());
+        let enabled: AppSettings =
+            toml::from_str("[privacy]\nchannelPurity = true\n").expect("privacy parses");
+        assert!(enabled.privacy.channel_purity);
+    }
 
     /// 实验功能默认值跟随 Dev/Release 隔离：debug 全开、release 全关；老配置缺
     /// 整节或缺单键时都按此回落（字段级 default 与结构体 Default 同口径）。

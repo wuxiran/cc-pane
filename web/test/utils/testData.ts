@@ -278,6 +278,9 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       parkedTerminalLimit: 6,
       parkDelaySecs: 30,
     },
+    privacy: {
+      channelPurity: false,
+    },
     ...overrides,
   };
 }
