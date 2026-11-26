@@ -201,12 +201,14 @@ fn prune(dir: &Path, keep: &Path) {
     }
 }
 
-/// 前端保存当前会话的正文段（整段替换 `items`，保留降级时继承的 `inherited`）。
+/// 保存会话正文段（整段替换 `items`，保留降级时继承的 `inherited`）。
+/// 生产路径统一走 [`save_with_inherited`]，这个简写只剩测试在用。
+#[cfg(test)]
 pub(super) fn save(chats_dir: &Path, acp_session_id: &str, items: Vec<Value>) -> AppResult<()> {
     save_with_inherited(chats_dir, acp_session_id, items, None)
 }
 
-/// 同 [`save`]；`inherited` 为 Some 时整段替换继承段（上下文交接：前端把切换前
+/// 同 `save`；`inherited` 为 Some 时整段替换继承段（上下文交接：前端把切换前
 /// 的只读前缀连同交接分隔线交给新会话，换引擎后历史恢复仍能看到旧引擎的对话）。
 pub(super) fn save_with_inherited(
     chats_dir: &Path,

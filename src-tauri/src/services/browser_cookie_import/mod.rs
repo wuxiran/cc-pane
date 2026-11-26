@@ -12,6 +12,7 @@ pub mod sources;
 
 use crate::utils::{AppError, AppResult};
 use std::collections::HashSet;
+#[cfg(any(target_os = "macos", test))]
 use std::path::{Path, PathBuf};
 use tauri::webview::cookie::Cookie;
 
@@ -115,6 +116,7 @@ fn read_profile_cookies_macos(source: &str, profile: &str) -> AppResult<DecodedC
     Ok(decode_rows(&rows, key.as_ref(), schema, now_unix()))
 }
 
+#[cfg(target_os = "macos")]
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -154,10 +156,13 @@ pub fn count_domains<'a>(cookies: impl IntoIterator<Item = &'a Cookie<'static>>)
 }
 
 /// `Cookies` 及 -wal/-journal 的临时拷贝；Drop 时整目录删除。
+/// 只有 macOS 导入路径用它（其余平台直接报不支持）；测试在所有平台都覆盖它。
+#[cfg(any(target_os = "macos", test))]
 struct TempCopy {
     dir: PathBuf,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl TempCopy {
     fn of_sqlite(src: &Path) -> std::io::Result<Self> {
         let dir = std::env::temp_dir().join(format!(
@@ -185,6 +190,7 @@ impl TempCopy {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl Drop for TempCopy {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);

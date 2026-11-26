@@ -65,7 +65,7 @@ pub fn image_name_from_packed(packed: &[u8]) -> Option<String> {
 fn aes128_ecb_decrypt(key: &[u8], data: &[u8]) -> Vec<u8> {
     let cipher = aes::Aes128::new_from_slice(key).expect("16-byte key");
     let mut out = data.to_vec();
-    for chunk in out.chunks_exact_mut(16) {
+    for chunk in out.as_chunks_mut::<16>().0 {
         let mut block = GenericArray::clone_from_slice(chunk);
         cipher.decrypt_block(&mut block);
         chunk.copy_from_slice(&block);
@@ -171,7 +171,7 @@ fn thumbs(attach_root: &Path, limit: usize) -> Vec<PathBuf> {
             }
         }
     }
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|a| std::cmp::Reverse(a.0));
     files.into_iter().take(limit).map(|(_, p)| p).collect()
 }
 

@@ -73,7 +73,7 @@ mod win {
             }
             CloseHandle(snap);
         }
-        candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        candidates.sort_by_key(|c| std::cmp::Reverse(c.0));
         let pid = candidates.first().map(|c| c.1);
         if let Some(p) = pid {
             log::info!(

@@ -149,7 +149,7 @@ pub fn list_conversations(s: &mut WeChatSession, limit: i64) -> ToolOutcome {
             }),
         ));
     }
-    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.0));
     let total = rows.len();
     let out: Vec<Value> = rows
         .into_iter()
@@ -266,7 +266,7 @@ pub fn search_messages(
             }
         }
     }
-    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    hits.sort_by_key(|a| std::cmp::Reverse(a.0));
     let messages: Vec<Value> = hits.into_iter().map(|(_, v)| v).collect();
     ToolOutcome::Json(json!({
         "ok": true,

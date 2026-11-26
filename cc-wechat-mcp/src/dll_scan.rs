@@ -136,7 +136,7 @@ fn version_dirs(base: &Path) -> Vec<PathBuf> {
             .collect(),
         Err(_) => return Vec::new(),
     };
-    dirs.sort_by(|a, b| ver_key(b).cmp(&ver_key(a))); // 倒序
+    dirs.sort_by_key(|a| std::cmp::Reverse(ver_key(a))); // 倒序
     dirs
 }
 

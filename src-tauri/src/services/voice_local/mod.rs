@@ -176,10 +176,12 @@ fn build_args(
     let mut args = vec![format!("--num-threads={}", threads())];
     match kind {
         ModelKind::SenseVoice => {
-            let language = match language {
-                Some(code @ ("zh" | "en" | "ja" | "ko" | "yue")) => code,
-                _ => "auto",
-            };
+            // 只放行 SenseVoice 支持的语种，其余（含未指定）一律 auto。
+            // 不能照 clippy::manual_unwrap_or 的建议写成 `language.unwrap_or("auto")`：
+            // 那会把不支持的语种原样传给 sherpa-onnx。
+            let language = language
+                .filter(|code| matches!(*code, "zh" | "en" | "ja" | "ko" | "yue"))
+                .unwrap_or("auto");
             args.extend([
                 format!("--sense-voice-model={}", path("model.int8.onnx")),
                 format!("--tokens={}", path("tokens.txt")),

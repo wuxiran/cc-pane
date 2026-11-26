@@ -5,7 +5,6 @@ edition = "2021"
 description = "CLI tool adapter layer for CC-Panes"
 
 [dependencies]
-cc-panes-paths = { path = "../cc-panes-paths" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -16,9 +15,12 @@ tracing = "0.1"
 dirs = "6"
 
 [dev-dependencies]
+# 只有 cfg(any(windows, test)) 的 WSL trust key 逻辑用它：放普通依赖会在非 Windows 报 unused dependency。
+cc-panes-paths = { path = "../cc-panes-paths" }
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
+cc-panes-paths = { path = "../cc-panes-paths" }
 windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",

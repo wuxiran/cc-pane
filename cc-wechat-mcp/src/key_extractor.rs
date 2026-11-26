@@ -30,10 +30,7 @@ pub fn is_potential_key(k: &[u8]) -> bool {
         return false;
     }
     let printable = k.iter().filter(|&&b| (32..=126).contains(&b)).count();
-    if printable > 24 {
-        return false;
-    }
-    true
+    printable <= 24
 }
 
 fn xor(a: &[u8], b: &[u8]) -> Vec<u8> {
