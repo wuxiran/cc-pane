@@ -81,9 +81,10 @@
     "leaderPrefix": "负责人",
     "workers": "{{count}} 个工作单元",
     "workersTitle": "{{running}} 运行中，{{done}} 已完成",
-    "done": "已完成",
-    "failed": "失败",
-    "exit": "退出码 {{code}}"
+    "exit": "退出码 {{code}}",
+    "worktree": "工作树",
+    "branch": "分支",
+    "failureDetails": "查看失败详情"
   },
   "tree": {
     "collapse": "折叠",
@@ -111,7 +112,11 @@
     "messageTo": "发给 {{name}} 的消息",
     "send": "发送",
     "deleteCascadeTitle": "删除 leader 及全部 worker",
-    "deleteCascadeDesc": "将同时删除 {{count}} 个 worker 任务。"
+    "deleteCascadeDesc": "将同时删除 {{count}} 个 worker 任务。",
+    "search": "搜索",
+    "closeSearch": "关闭搜索",
+    "refresh": "刷新",
+    "viewMode": "视图"
   },
   "closeOverlay": "关闭编排浮层",
   "showTerminalCanvas": "显示终端画布",
@@ -140,5 +145,34 @@
   },
   "verification": {
     "title": "验收证据"
+  },
+  "status": {
+    "pending": "待执行",
+    "running": "运行中",
+    "waiting": "等待输入",
+    "completed": "已完成",
+    "failed": "失败"
+  },
+  "role": {
+    "task": "任务",
+    "leader": "负责人",
+    "worker": "工作单元"
+  },
+  "activity": {
+    "waitingInput": "等待输入",
+    "thinking": "思考中",
+    "stale": "超过 1 分钟无更新",
+    "elapsed": "已运行 {{duration}}"
+  },
+  "timeAgo": {
+    "now": "刚刚",
+    "minutes": "{{count}} 分钟前",
+    "hours": "{{count}} 小时前",
+    "days": "{{count}} 天前"
+  },
+  "emptyFiltered": {
+    "title": "没有符合条件的任务",
+    "description": "换个状态或筛选条件试试",
+    "clear": "清除筛选"
   }
 }

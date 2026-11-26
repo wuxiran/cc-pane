@@ -9,8 +9,6 @@
   "components/panes/terminalFont.ts": 5,
   "components/selfchat/SelfChatManager.tsx": 1,
   "components/settings/AboutSection.tsx": 1,
-  "components/sidebar/OrchestratorTaskCard.tsx": 6,
-  "components/sidebar/OrchestratorTaskTree.tsx": 1,
   "components/sidebar/ProjectListItem.tsx": 3,
   "components/sidebar/ProjectListView.tsx": 1,
   "components/sidebar/WorkspaceEnvironmentPanel.tsx": 55,

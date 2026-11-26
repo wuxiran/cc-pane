@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
 import { useOrchestratorStore } from "@/stores";
 import type { TaskBindingNode } from "@/types";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 
 function flattenVisible(
   nodes: TaskBindingNode[],
@@ -21,6 +21,9 @@ function flattenVisible(
   return result;
 }
 
+const INDENT_STEP = 14;
+const MAX_INDENT = 42;
+
 export default function OrchestratorTaskTree() {
   const { t } = useTranslation("orchestration");
   const bindings = useOrchestratorStore((s) => s.bindings);
@@ -36,53 +39,52 @@ export default function OrchestratorTaskTree() {
   }, [bindings, collapsed]);
   const visibleNodes = useMemo(() => flattenVisible(tree, expanded), [expanded, tree]);
 
+  const toggle = (id: string, isExpanded: boolean) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (isExpanded) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-0.5">
       {visibleNodes.map(({ node, depth }) => {
         const hasChildren = node.children.length > 0;
         const isExpanded = expanded.has(node.id);
+        const toggleLabel = isExpanded ? t("tree.collapse") : t("tree.expand");
         return (
-          <div key={node.id} className="relative">
-            <div
-              className="absolute left-0 top-2 z-10 flex items-center"
-              style={{ marginLeft: Math.max(0, depth * 14 - 4) }}
-            >
+          // 左侧固定 16px 槽位放折叠钮 / 子级连接符，卡片本身不再被覆盖
+          <div
+            key={node.id}
+            data-testid="task-tree-row"
+            data-role={node.role}
+            className="flex items-start gap-0.5"
+            style={{ paddingLeft: Math.min(depth * INDENT_STEP, MAX_INDENT) }}
+          >
+            <div className="flex w-4 shrink-0 justify-center pt-3 text-[var(--app-text-tertiary)]">
               {hasChildren ? (
-                <Tooltip><TooltipTrigger asChild><button
-                  className="rounded p-0.5 hover:bg-[var(--app-hover)]"
+                <IconTooltipButton
+                  label={toggleLabel}
+                  className="size-4 p-0"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setCollapsed((prev) => {
-                      const next = new Set(prev);
-                      if (isExpanded) {
-                        next.add(node.id);
-                      } else {
-                        next.delete(node.id);
-                      }
-                      return next;
-                    });
-                  }} aria-label={isExpanded ? t("tree.collapse", { defaultValue: "折叠" }) : t("tree.expand", { defaultValue: "展开" })}
+                    toggle(node.id, isExpanded);
+                  }}
                 >
-                  {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                </button></TooltipTrigger><TooltipContent>{isExpanded ? t("tree.collapse") : t("tree.expand")}</TooltipContent></Tooltip>
+                  {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                </IconTooltipButton>
               ) : depth > 0 ? (
-                <span className="px-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
-                  ↪
-                </span>
+                <CornerDownRight aria-hidden data-testid="tree-child-connector" className="size-3" />
               ) : null}
             </div>
-            {node.role === "worker" && (
-              <span
-                className="absolute right-2 top-2 z-10 rounded px-1 text-[length:var(--text-nano)]"
-                style={{
-                  color: "var(--app-text-tertiary)",
-                  background: "var(--app-input-bg)",
-                }}
-              >
-                ↪ worker
-              </span>
-            )}
-            <OrchestratorTaskCard binding={node} depth={depth} />
+            <div className="min-w-0 flex-1">
+              <OrchestratorTaskCard binding={node} depth={depth} indent={false} />
+            </div>
           </div>
         );
       })}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { MoreHorizontal } from "lucide-react";
+import { BellOff, FileText, MessageSquare, MoreHorizontal, OctagonX, Pencil, RotateCw, Timer, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -274,23 +274,23 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
       <DropdownMenu>
         <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
           <button
-            className="rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:opacity-100 focus-visible:opacity-100"
+            className="-my-0.5 flex w-0 shrink-0 items-center justify-center overflow-hidden rounded opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:w-5 group-hover:opacity-100 focus-visible:w-5 focus-visible:opacity-100 aria-expanded:w-5 aria-expanded:opacity-100 h-5"
             onClick={(event) => event.stopPropagation()} aria-label={t("sidebar.actions")}
           >
             <MoreHorizontal className="h-3.5 w-3.5" style={{ color: "var(--app-text-tertiary)" }} />
           </button>
         </DropdownMenuTrigger></TooltipTrigger><TooltipContent>{t("sidebar.actions")}</TooltipContent></Tooltip>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={openDetails}>📄 {t("sidebar.details")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={openDetails}><FileText aria-hidden />{t("sidebar.details")}</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!canKill || isBusy}
             onClick={() => runAction("kill", killSession)}
           >
-            🔪 {t("sidebar.kill")}
+            <OctagonX aria-hidden />{t("sidebar.kill")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!canRetry || isBusy} onClick={retryTask}>
-            🔄 {t("sidebar.retry")}
+            <RotateCw aria-hidden />{t("sidebar.retry")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!canEdit || isBusy}
@@ -301,7 +301,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               setEditOpen(true);
             }}
           >
-            ✏️ {t("sidebar.edit")}
+            <Pencil aria-hidden />{t("sidebar.edit")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!canSend || isBusy}
@@ -310,10 +310,10 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               setSendOpen(true);
             }}
           >
-            💬 {t("sidebar.sendMessage")}
+            <MessageSquare aria-hidden />{t("sidebar.sendMessage")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={muted || isBusy} onClick={muteTask}>
-            🔕 {t("sidebar.mute")}
+            <BellOff aria-hidden />{t("sidebar.mute")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={isBusy || !binding.sessionId || (!autoCloseEnabled && !autoCloseSelected)}
@@ -326,7 +326,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               } } });
             })}
           >
-            {t(autoCloseSelected ? "sidebar.cancelAutoClose" : "sidebar.autoClose")}
+            <Timer aria-hidden />{t(autoCloseSelected ? "sidebar.cancelAutoClose" : "sidebar.autoClose")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -341,7 +341,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               }
             }}
           >
-            🗑 {t("sidebar.delete")}
+            <Trash2 aria-hidden />{t("sidebar.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

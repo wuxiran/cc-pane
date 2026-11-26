@@ -1,8 +1,8 @@
 import i18n from "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import OrchestratorFilterBar from "./OrchestratorFilterBar";
+import { OrchestratorFilterButton, OrchestratorSearchField } from "./OrchestratorFilterBar";
 import { useOrchestratorStore, useWorkspacesStore } from "@/stores";
 import {
   createTestWorkspace,
@@ -30,7 +30,12 @@ function resetOrchestratorFilters() {
   });
 }
 
-describe("OrchestratorFilterBar", () => {
+async function openFilters(user: ReturnType<typeof userEvent.setup>) {
+  render(<OrchestratorFilterButton />);
+  await user.click(screen.getByRole("button", { name: tt("sidebar.filters") }));
+}
+
+describe("OrchestratorFilterButton / OrchestratorSearchField", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
@@ -38,62 +43,67 @@ describe("OrchestratorFilterBar", () => {
     useWorkspacesStore.setState({ workspaces: [] });
   });
 
-  it("renders default chip labels when no filter is active", () => {
-    render(<OrchestratorFilterBar />);
-
-    expect(screen.getByRole("button", { name: tt("sidebar.workspace") })).toBeVisible();
-    expect(screen.getByRole("button", { name: tt("sidebar.project") })).toBeVisible();
-    expect(screen.getByPlaceholderText(tt("searchPlaceholder"))).toBeVisible();
-    // Role buttons are identified by their title attribute.
-    expect(screen.getByTitle(tt("sidebar.allRoles"))).toBeVisible();
-    expect(screen.getByTitle("worker")).toBeVisible();
-  });
-
-  it("moves advanced filters into a popover in compact mode", async () => {
+  it("keeps workspace / project / role filters inside the filter popover", async () => {
     const user = userEvent.setup();
-    render(<OrchestratorFilterBar compact />);
+    render(<OrchestratorFilterButton />);
 
-    expect(screen.getByPlaceholderText(tt("searchPlaceholder"))).toBeVisible();
     expect(screen.queryByRole("button", { name: tt("sidebar.workspace") })).not.toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: tt("sidebar.filters") }));
 
     expect(screen.getByRole("button", { name: tt("sidebar.workspace") })).toBeVisible();
-    expect(screen.getByTitle(tt("sidebar.allRoles"))).toBeVisible();
+    expect(screen.getByRole("button", { name: tt("sidebar.project") })).toBeVisible();
+    expect(screen.getByRole("tablist", { name: tt("sidebar.allRoles") })).toBeVisible();
+    expect(screen.getByRole("tab", { name: tt("role.worker") })).toBeVisible();
+    // Role options are text labels, not emoji glyphs.
+    expect(screen.getByRole("tablist").textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2699}]/u);
   });
 
-  it("shows the active workspace name on the workspace chip", () => {
+  it("shows the active workspace name on the workspace chip", async () => {
+    const user = userEvent.setup();
     useOrchestratorStore.setState({ filterWorkspace: "alpha-ws" });
 
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
     expect(screen.getByRole("button", { name: "alpha-ws" })).toBeVisible();
   });
 
   it("typing in the search box updates the store keyword", async () => {
     const user = userEvent.setup();
-    render(<OrchestratorFilterBar />);
+    render(<OrchestratorSearchField onClose={vi.fn()} />);
 
-    await user.type(screen.getByPlaceholderText(tt("searchPlaceholder")), "hello");
+    const input = screen.getByPlaceholderText(tt("searchPlaceholder"));
+    expect(input).toHaveFocus();
+    await user.type(input, "hello");
 
     expect(useOrchestratorStore.getState().searchKeyword).toBe("hello");
   });
 
-  it("clicking a role button sets the filter role in the store", async () => {
-    const user = userEvent.setup();
-    render(<OrchestratorFilterBar />);
+  it("closing the search field clears the keyword", () => {
+    const onClose = vi.fn();
+    useOrchestratorStore.setState({ searchKeyword: "abc" });
+    render(<OrchestratorSearchField onClose={onClose} />);
 
-    await user.click(screen.getByTitle("leader"));
+    fireEvent.click(screen.getByRole("button", { name: tt("sidebar.closeSearch") }));
+
+    expect(useOrchestratorStore.getState().searchKeyword).toBe("");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("clicking a role tab sets the filter role in the store", async () => {
+    const user = userEvent.setup();
+    await openFilters(user);
+
+    await user.click(screen.getByRole("tab", { name: tt("role.leader") }));
 
     expect(useOrchestratorStore.getState().filterRole).toBe("leader");
   });
 
-  it("clicking the active All-roles button keeps role null", async () => {
+  it("clicking the All-roles tab resets role to null", async () => {
     const user = userEvent.setup();
     useOrchestratorStore.setState({ filterRole: "worker" });
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
-    await user.click(screen.getByTitle(tt("sidebar.allRoles")));
+    await user.click(screen.getByRole("tab", { name: tt("sidebar.roleAll") }));
 
     expect(useOrchestratorStore.getState().filterRole).toBeNull();
   });
@@ -106,7 +116,7 @@ describe("OrchestratorFilterBar", () => {
         createTestWorkspace({ name: "ws-two" }),
       ],
     });
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
     await user.click(screen.getByRole("button", { name: tt("sidebar.workspace") }));
     // Alias is shown when present.
@@ -121,7 +131,7 @@ describe("OrchestratorFilterBar", () => {
     useWorkspacesStore.setState({
       workspaces: [createTestWorkspace({ name: "ws-one" })],
     });
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
     await user.click(screen.getByRole("button", { name: "ws-one" }));
     await user.click(await screen.findByRole("button", { name: tt("sidebar.allWorkspaces") }));
@@ -146,7 +156,7 @@ describe("OrchestratorFilterBar", () => {
       ],
     });
     useOrchestratorStore.setState({ filterWorkspace: "ws-one" });
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
     await user.click(screen.getByRole("button", { name: tt("sidebar.project") }));
     // Only ws-one's project should be available.
@@ -156,7 +166,8 @@ describe("OrchestratorFilterBar", () => {
     expect(useOrchestratorStore.getState().filterProjectPath).toBe("/repo/frontend");
   });
 
-  it("shows selected project label on the project chip", () => {
+  it("shows selected project label on the project chip", async () => {
+    const user = userEvent.setup();
     useWorkspacesStore.setState({
       workspaces: [
         createTestWorkspace({
@@ -166,7 +177,7 @@ describe("OrchestratorFilterBar", () => {
       ],
     });
     useOrchestratorStore.setState({ filterProjectPath: "/repo/myproj" });
-    render(<OrchestratorFilterBar />);
+    await openFilters(user);
 
     expect(screen.getByRole("button", { name: "myproj" })).toBeVisible();
   });

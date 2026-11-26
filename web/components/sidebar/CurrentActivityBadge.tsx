@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useShallow } from "zustand/react/shallow";
+import { Brain, CirclePause, Search, SquareTerminal, Timer, Wrench, type LucideIcon } from "lucide-react";
 import { useTerminalStatusStore } from "@/stores";
 import type { TaskBinding, TerminalStatusInfo } from "@/types";
 import { getMetadataUi } from "./OrchestratorTaskUtils";
@@ -22,39 +25,38 @@ function compactSummary(summary?: string): string {
   return `${trimmed.slice(0, 31)}...`;
 }
 
-function toolLabel(info: TerminalStatusInfo): string | null {
+interface Activity {
+  icon: LucideIcon;
+  /** 已翻译文案，或原样展示的工具名 + 摘要 */
+  text: string;
+}
+
+function toolActivity(info: TerminalStatusInfo): Activity | null {
   const tool = info.currentToolName;
   if (!tool) return null;
   const summary = compactSummary(info.currentToolSummary);
   const lower = tool.toLowerCase();
-  if (lower.includes("bash")) return `💻 Bash${summary ? ` '${summary}'` : ""}`;
-  if (lower.includes("edit") || lower.includes("write")) {
-    return `🔧 ${tool}${summary ? ` ${summary}` : ""}`;
+  if (lower.includes("bash")) {
+    return { icon: SquareTerminal, text: `Bash${summary ? ` '${summary}'` : ""}` };
   }
+  const text = `${tool}${summary ? ` ${summary}` : ""}`;
   if (lower.includes("read") || lower.includes("grep") || lower.includes("glob")) {
-    return `🔎 ${tool}${summary ? ` ${summary}` : ""}`;
+    return { icon: Search, text };
   }
-  return `🔧 ${tool}${summary ? ` ${summary}` : ""}`;
+  return { icon: Wrench, text };
 }
 
-function deriveLabel(binding: TaskBinding, info: TerminalStatusInfo | null, now: number): string {
-  if (info?.status === "waitingInput" || binding.status === "waiting") {
-    return "⏸ Waiting input";
-  }
-  if (binding.status === "pending") return "⏳ Pending";
-  if (binding.status === "completed") return "✅ Done";
-  if (binding.status === "failed") return "❌ Failed";
+type Translate = TFunction<"orchestration">;
 
-  if (binding.status === "running") {
-    if (info?.updatedAt && now - info.updatedAt > 60000) {
-      return "⏱ 1m+";
-    }
-    const label = info ? toolLabel(info) : null;
-    return label ?? "💭 Thinking";
+/** 只描述「运行中的任务此刻在干什么」；任务状态本身由卡片的状态标记表达，这里不重复。 */
+function deriveActivity(info: TerminalStatusInfo | null, now: number, t: Translate): Activity {
+  if (info?.status === "waitingInput") {
+    return { icon: CirclePause, text: t("activity.waitingInput") };
   }
-
-  if (info?.status === "idle") return "⏸ Waiting input";
-  return "💭 Thinking";
+  if (info?.updatedAt && now - info.updatedAt > 60000) {
+    return { icon: Timer, text: t("activity.stale") };
+  }
+  return (info ? toolActivity(info) : null) ?? { icon: Brain, text: t("activity.thinking") };
 }
 
 function formatDuration(ms: number): string {
@@ -69,6 +71,7 @@ interface CurrentActivityBadgeProps {
 }
 
 export default function CurrentActivityBadge({ binding }: CurrentActivityBadgeProps) {
+  const { t } = useTranslation("orchestration");
   const { info } = useTerminalStatusStore(
     useShallow((s) => ({
       // fix(C4,H5) review: 直接从 TerminalStatusStore 读当前 session，避免 CurrentToolStore 和不稳选择器。
@@ -76,25 +79,27 @@ export default function CurrentActivityBadge({ binding }: CurrentActivityBadgePr
     }))
   );
   const [now, setNow] = useState(Date.now());
+  const running = binding.status === "running";
 
   useEffect(() => {
+    if (!running) return undefined;
     return startVisibleInterval(() => setNow(Date.now()), 15000);
-  }, []);
+  }, [running]);
 
-  const label = useMemo(() => deriveLabel(binding, info, now), [binding, info, now]);
-  const duration = formatDuration(now - startedAtMillis(binding));
+  const activity = useMemo(() => deriveActivity(info, now, t), [info, now, t]);
+  if (!running) return null;
+
+  const elapsed = t("activity.elapsed", { duration: formatDuration(now - startedAtMillis(binding)) });
+  const Icon = activity.icon;
 
   return (
     <span
-      className="inline-flex min-w-0 items-center rounded px-1.5 py-0.5 text-[length:var(--text-micro)]"
-      style={{
-        color: "var(--app-text-secondary)",
-        background: "var(--app-input-bg)",
-        border: "1px solid var(--app-border)",
-      }}
-      title={`${label} · ${duration}`}
+      data-testid="task-activity"
+      className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]"
+      title={`${activity.text} · ${elapsed}`}
     >
-      <span className="truncate">{label}</span>
+      <Icon aria-hidden className="size-3 shrink-0 text-[var(--app-text-tertiary)]" />
+      <span className="truncate">{activity.text}</span>
     </span>
   );
 }

@@ -62,9 +62,12 @@ describe("OrchestratorTaskTree", () => {
     expect(cards[1].getAttribute("data-depth")).toBe("1");
   });
 
-  it("shows a worker badge for worker-role nodes", () => {
+  it("marks worker children with a connector in the gutter instead of an overlay badge", () => {
     renderLeaderWithWorker();
-    expect(screen.getByText("↪ worker")).toBeVisible();
+    const rows = screen.getAllByTestId("task-tree-row");
+    expect(rows.map((row) => row.getAttribute("data-role"))).toEqual(["leader", "worker"]);
+    expect(rows[1].querySelector('[data-testid="tree-child-connector"]')).not.toBeNull();
+    expect(screen.queryByText(/↪/)).not.toBeInTheDocument();
   });
 
   it("collapses and re-expands children via the parent's toggle", () => {

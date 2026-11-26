@@ -81,9 +81,10 @@
     "leaderPrefix": "Leader",
     "workers": "{{count}} workers",
     "workersTitle": "{{running}} running, {{done}} done",
-    "done": "done",
-    "failed": "Failed",
-    "exit": "exit {{code}}"
+    "exit": "exit {{code}}",
+    "worktree": "Worktree",
+    "branch": "Branch",
+    "failureDetails": "View failure details"
   },
   "tree": {
     "collapse": "Collapse",
@@ -111,7 +112,11 @@
     "messageTo": "Message to {{name}}",
     "send": "Send",
     "deleteCascadeTitle": "Delete leader and workers",
-    "deleteCascadeDesc": "This will also delete {{count}} worker task(s)."
+    "deleteCascadeDesc": "This will also delete {{count}} worker task(s).",
+    "search": "Search",
+    "closeSearch": "Close search",
+    "refresh": "Refresh",
+    "viewMode": "View"
   },
   "closeOverlay": "Close orchestration overlay",
   "showTerminalCanvas": "Show terminal canvas",
@@ -140,5 +145,34 @@
   },
   "verification": {
     "title": "Verification evidence"
+  },
+  "status": {
+    "pending": "Pending",
+    "running": "Running",
+    "waiting": "Waiting for input",
+    "completed": "Done",
+    "failed": "Failed"
+  },
+  "role": {
+    "task": "Task",
+    "leader": "Leader",
+    "worker": "Worker"
+  },
+  "activity": {
+    "waitingInput": "Waiting for input",
+    "thinking": "Thinking",
+    "stale": "No update for 1m+",
+    "elapsed": "Running for {{duration}}"
+  },
+  "timeAgo": {
+    "now": "just now",
+    "minutes": "{{count}}m ago",
+    "hours": "{{count}}h ago",
+    "days": "{{count}}d ago"
+  },
+  "emptyFiltered": {
+    "title": "No matching tasks",
+    "description": "Try another status or filter",
+    "clear": "Clear filters"
   }
 }

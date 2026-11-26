@@ -57,13 +57,14 @@ describe("OrchestratorTaskCard", () => {
     const binding = createBinding({ title: "Implement login", role: "worker" });
     seedStore([binding]);
 
-    render(<OrchestratorTaskCard binding={binding} />);
+    const { container } = render(<OrchestratorTaskCard binding={binding} />);
 
     expect(screen.getByText("Implement login")).toBeVisible();
     expect(screen.getByText("claude")).toBeVisible();
     expect(screen.getByText("frontend")).toBeVisible();
-    // worker role marker carries a title of "worker".
-    expect(screen.getByTitle("worker")).toBeVisible();
+    // worker role marker is an icon with a localized accessible name.
+    expect(screen.getByRole("img", { name: "工作单元" })).toBeVisible();
+    expect(container.querySelector('[data-cli-brand="claude"]')).not.toBeNull();
   });
 
   it("selects the task when the card is clicked", async () => {
@@ -84,7 +85,7 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={worker} />);
 
-    expect(screen.getByText(/📋 负责人: Plan leader/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "负责人: Plan leader" })).toBeVisible();
   });
 
   it("shows a workers badge counting child tasks", () => {
@@ -95,20 +96,26 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={leader} />);
 
-    expect(screen.getByText(/⚙️ 2 个工作单元/)).toBeVisible();
+    expect(screen.getByText("2 个工作单元")).toBeVisible();
   });
 
-  it("hides the progress bar for pending tasks but shows it otherwise", () => {
+  it("shows the progress bar only for running tasks", () => {
     const pending = createBinding({ status: "pending", progress: 0 });
     seedStore([pending]);
     const { container, rerender } = render(<OrchestratorTaskCard binding={pending} />);
 
     // No progress track for pending.
-    expect(container.querySelector('[style*="width"]')).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+
+    const failed = createBinding({ status: "failed", progress: 30 });
+    seedStore([failed]);
+    rerender(<OrchestratorTaskCard binding={failed} />);
+    expect(screen.queryByRole("progressbar")).toBeNull();
 
     const running = createBinding({ status: "running", progress: 55 });
     seedStore([running]);
     rerender(<OrchestratorTaskCard binding={running} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "55");
     const bar = container.querySelector('[style*="width: 55%"]');
     expect(bar).not.toBeNull();
   });
@@ -120,11 +127,11 @@ describe("OrchestratorTaskCard", () => {
     render(<OrchestratorTaskCard binding={binding} />);
 
     expect(screen.getByText("All tests passing")).toBeVisible();
-    // Completed tasks render the localized "done" label instead of the relative time.
-    expect(screen.getByText("已完成")).toBeVisible();
+    // Completed status is expressed once, as a localized status label.
+    expect(screen.getByTestId("task-status")).toHaveTextContent("已完成");
   });
 
-  it("renders a failure button with the exit code for failed tasks", () => {
+  it("expresses failure once and shows the exit code as secondary text", () => {
     const binding = createBinding({
       status: "failed",
       exitCode: 137,
@@ -134,8 +141,10 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={binding} />);
 
-    expect(screen.getByText("失败")).toBeVisible();
-    expect(screen.getByText(/退出码 137/)).toBeVisible();
+    expect(screen.getAllByTestId("task-status")).toHaveLength(1);
+    expect(screen.getByTestId("task-status")).toHaveTextContent("失败");
+    expect(screen.getByRole("button", { name: "退出码 137 · Killed by user" })).toBeVisible();
+    expect(screen.queryByText(/Failed|❌/)).toBeNull();
   });
 
   it("shows the git branch and worktree marker from metadata", () => {
@@ -146,8 +155,9 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={binding} />);
 
-    expect(screen.getByText(/🌿 feature\/login/)).toBeVisible();
-    expect(screen.getByText("🌳")).toBeVisible();
+    expect(screen.getByText("feature/login")).toBeVisible();
+    expect(screen.getByRole("img", { name: "工作树" })).toBeInTheDocument();
+    expect(screen.getByTestId("task-branch").textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u);
   });
 
   it("is Tab-focusable and activates on Enter/Space", async () => {

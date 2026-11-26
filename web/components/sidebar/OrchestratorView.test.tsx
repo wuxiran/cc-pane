@@ -5,7 +5,10 @@ import OrchestratorView from "./OrchestratorView";
 import { useOrchestratorStore } from "@/stores";
 import type { TaskBinding } from "@/types";
 
-vi.mock("./OrchestratorFilterBar", () => ({ default: () => <div>filter-bar-stub</div> }));
+vi.mock("./OrchestratorFilterBar", () => ({
+  OrchestratorFilterButton: () => <div>filter-bar-stub</div>,
+  OrchestratorSearchField: () => <div>search-field-stub</div>,
+}));
 vi.mock("./OrchestratorTaskTree", () => ({ default: () => <div>task-tree-stub</div> }));
 vi.mock("./OrchestratorTaskCard", () => ({
   default: ({ binding }: { binding: TaskBinding }) => <div data-testid="card">{binding.title}</div>,
@@ -30,19 +33,23 @@ function makeBinding(overrides: Partial<TaskBinding> = {}): TaskBinding {
 let loadBindings: ReturnType<typeof vi.fn>;
 let setFilterTab: ReturnType<typeof vi.fn>;
 let setViewType: ReturnType<typeof vi.fn>;
+let setSearchKeyword: ReturnType<typeof vi.fn>;
 
 function configureStore(overrides: Record<string, unknown> = {}) {
   loadBindings = vi.fn(async () => {});
   setFilterTab = vi.fn();
   setViewType = vi.fn();
+  setSearchKeyword = vi.fn();
   useOrchestratorStore.setState({
     bindings: [],
     loading: false, hasMore: false, loadError: null,
     filterTab: "all",
+    filterWorkspace: null, filterProjectPath: null, filterRole: null, searchKeyword: "",
     viewType: "list",
     loadBindings,
     setFilterTab,
     setViewType,
+    setSearchKeyword,
     ...overrides,
   } as unknown as Parameters<typeof useOrchestratorStore.setState>[0]);
 }
@@ -58,15 +65,43 @@ describe("OrchestratorView", () => {
   });
 
   it("loads bindings on mount and reloads when the refresh button is clicked", () => {
+    configureStore({ bindings: [makeBinding({ title: "Alpha" })] });
     renderView();
     expect(loadBindings).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: /Refresh|刷新/i }));
     expect(loadBindings).toHaveBeenCalledTimes(2);
   });
 
-  it("renders the empty state when no bindings and not loading", () => {
+  it("renders the empty state with a refresh action when no bindings and not loading", () => {
     renderView();
     expect(screen.getByText(/No tasks yet|暂无/i)).toBeVisible();
+    const refreshButtons = screen.getAllByRole("button", { name: /Refresh|刷新/i });
+    fireEvent.click(refreshButtons[refreshButtons.length - 1]);
+    expect(loadBindings).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders a filtered empty state that clears filters when a status tab yields nothing", () => {
+    configureStore({ filterTab: "running" });
+    renderView();
+    expect(screen.queryByText(/暂无编排任务/)).not.toBeInTheDocument();
+    expect(screen.getByText("没有符合条件的任务")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+    expect(setFilterTab).toHaveBeenCalledWith("all");
+  });
+
+  it("shows the panel title only when not embedded in the right dock", () => {
+    const { unmount } = renderView();
+    expect(screen.getByText("任务编排")).toBeVisible();
+    unmount();
+    render(<OrchestratorView onOpenTerminal={vi.fn()} compact />);
+    expect(screen.queryByText("任务编排")).not.toBeInTheDocument();
+  });
+
+  it("keeps search collapsed into an icon until toggled", () => {
+    renderView();
+    expect(screen.queryByText("search-field-stub")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    expect(screen.getByText("search-field-stub")).toBeVisible();
   });
 
   it("does not render the empty state while loading", () => {
@@ -97,13 +132,13 @@ describe("OrchestratorView", () => {
 
   it("switches the filter tab when a tab is clicked", () => {
     renderView();
-    fireEvent.click(screen.getByText(/Running|运行/i));
+    fireEvent.click(screen.getByRole("tab", { name: /Running|运行/i }));
     expect(setFilterTab).toHaveBeenCalledWith("running");
   });
 
   it("switches the view type when the tree button is clicked", () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: /^tree$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(tree|树)$/i }));
     expect(setViewType).toHaveBeenCalledWith("tree");
   });
 
