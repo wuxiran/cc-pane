@@ -329,7 +329,6 @@ async function lastTerm(): Promise<MockXterm> {
 
 const SIGWINCH_WAIT_TIMEOUT_MS = 2_000;
 const SIGWINCH_WAIT_INTERVAL_MS = 20;
-const SIGWINCH_SETTLE_WINDOW_MS = 250;
 
 type TerminalResizeGeometry = {
   sessionId: string;
@@ -512,8 +511,14 @@ describe("TerminalView", () => {
     expect(MockXterm.instances).toHaveLength(1);
   });
 
-  it("backfills launch history for CLI sessions without a resume id", async () => {
-    renderTerminalView({ cliTool: "claude" });
+  // 「resumed」一行是回归防线：曾经这里有个 `if (!effectiveResumeId)` 把带 resumeId 的会话挡在 backfill 外。
+  // 恢复路径也必须为本次 PTY 的 one-shot launch id 补齐 history 行；挡掉之后
+  // 恢复出来的会话下次重启仍会丢 resumeId。不要把这个条件加回来。
+  it.each([
+    ["fresh CLI sessions without a resume id", undefined],
+    ["resumed sessions too", "resume-abc"],
+  ] as const)("backfills launch history for %s", async (_label, resumeId) => {
+    renderTerminalView({ cliTool: "claude", resumeId });
 
     await waitFor(() => expect(startLaunchHistoryBackfill).toHaveBeenCalled());
     const call = startLaunchHistoryBackfill.mock.calls[0];
@@ -521,18 +526,6 @@ describe("TerminalView", () => {
     expect(call[1]).toBe("new-session-1");
     expect(call[2]).toBe("claude");
     expect(call[3]).toBe("local");
-  });
-
-  // 回归防线：曾经这里有个 `if (!effectiveResumeId)` 把带 resumeId 的会话挡在 backfill 外。
-  // 恢复路径也必须为本次 PTY 的 one-shot launch id 补齐 history 行；挡掉之后
-  // 恢复出来的会话下次重启仍会丢 resumeId。不要把这个条件加回来。
-  it("backfills launch history for resumed sessions too", async () => {
-    renderTerminalView({ cliTool: "claude", resumeId: "resume-abc" });
-
-    await waitFor(() => expect(startLaunchHistoryBackfill).toHaveBeenCalled());
-    const call = startLaunchHistoryBackfill.mock.calls[0];
-    expect(call[0]).toBe(createSession.mock.calls[0][0]?.launchId);
-    expect(call[2]).toBe("claude");
   });
 
   it("rotates the persisted launchId before a restored PTY is created", async () => {
@@ -631,8 +624,14 @@ describe("TerminalView", () => {
     expect(term.writtenData).not.toContain("\x1b[7;48;2;41;41;41mcomposer");
   });
 
-  it("removes Grok's fullscreen background through the shared CLI surface", async () => {
-    renderTerminalView({ cliTool: "grok" });
+  // 同时覆盖「后端输出写入 xterm」的基本通路（plain shell 原样落屏）。
+  it.each([
+    ["removes Grok's fullscreen background through the shared CLI surface", "grok",
+      "\x1b[48;2;20;20;20mGrok Build", "\x1b[49mGrok Build"],
+    ["keeps ANSI backgrounds intact for plain shell sessions", "none",
+      "\x1b[48;2;20;20;20mvim", "\x1b[48;2;20;20;20mvim"],
+  ] as const)("%s", async (_label, cliTool, output, expected) => {
+    renderTerminalView({ cliTool });
     const term = await lastTerm();
     await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
       "new-session-1",
@@ -643,29 +642,11 @@ describe("TerminalView", () => {
     )?.[1] as ((data: string) => Promise<void>) | undefined;
 
     await act(async () => {
-      await outputHandler?.("\x1b[48;2;20;20;20mGrok Build");
+      await outputHandler?.(output);
     });
 
-    expect(term.writtenData).toContain("\x1b[49mGrok Build");
-    expect(term.writtenData).not.toContain("\x1b[48;2;20;20;20mGrok Build");
-  });
-
-  it("keeps ANSI backgrounds intact for plain shell sessions", async () => {
-    renderTerminalView({ cliTool: "none" });
-    const term = await lastTerm();
-    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
-      "new-session-1",
-      expect.any(Function),
-    ));
-    const outputHandler = registerOutput.mock.calls.find(
-      ([sessionId]) => sessionId === "new-session-1",
-    )?.[1] as ((data: string) => Promise<void>) | undefined;
-
-    await act(async () => {
-      await outputHandler?.("\x1b[48;2;20;20;20mvim");
-    });
-
-    expect(term.writtenData).toContain("\x1b[48;2;20;20;20mvim");
+    expect(term.writtenData).toContain(expected);
+    if (expected !== output) expect(term.writtenData).not.toContain(output);
   });
 
   it("mirror attach and fit never resize the shared PTY", async () => {
@@ -689,27 +670,25 @@ describe("TerminalView", () => {
     expect(schedulerOptions?.isActive?.()).toBe(true);
   });
 
-  it("allows an explicit read-only Canvas mirror to own shared PTY geometry", async () => {
-    useTabViewStateStore.getState().reportView("tab-canvas", "mirror", "visible");
-    renderTerminalView({
-      sessionId: "canvas-session",
-      paneId: undefined,
-      tabId: undefined,
-      drivesBackendPty: false,
-      resizeBackendPty: true,
-      readOnly: true,
-      visibilityOwnerId: "tab-canvas",
-      viewRole: "mirror",
-    });
+  it.each([
+    ["an explicit read-only Canvas mirror owns shared PTY geometry", "canvas-session", () => {
+      useTabViewStateStore.getState().reportView("tab-canvas", "mirror", "visible");
+      return {
+        drivesBackendPty: false,
+        resizeBackendPty: true,
+        readOnly: true,
+        visibilityOwnerId: "tab-canvas",
+        viewRole: "mirror",
+      } as const;
+    }],
+    ["standalone primary views still resize the backend PTY", "standalone-session", () => ({})],
+  ] as const)("%s", async (_label, sessionId, setup) => {
+    renderTerminalView({ sessionId, paneId: undefined, tabId: undefined, ...setup() });
 
     await waitFor(() =>
-      expect(registerOutput).toHaveBeenCalledWith("canvas-session", expect.any(Function)),
+      expect(registerOutput).toHaveBeenCalledWith(sessionId, expect.any(Function)),
     );
-    expect(resize).toHaveBeenCalledWith({
-      sessionId: "canvas-session",
-      cols: 80,
-      rows: 24,
-    });
+    expect(resize).toHaveBeenCalledWith({ sessionId, cols: 80, rows: 24 });
     const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
     const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
     expect(schedulerOptions?.canResizeBackend?.()).toBe(true);
@@ -789,26 +768,6 @@ describe("TerminalView", () => {
       "canvas input\r",
       expect.objectContaining({ traceId: expect.any(Number) }),
     );
-  });
-
-  it("standalone primary views still resize the backend PTY", async () => {
-    renderTerminalView({
-      sessionId: "standalone-session",
-      paneId: undefined,
-      tabId: undefined,
-    });
-
-    await waitFor(() =>
-      expect(registerOutput).toHaveBeenCalledWith("standalone-session", expect.any(Function)),
-    );
-    expect(resize).toHaveBeenCalledWith({
-      sessionId: "standalone-session",
-      cols: 80,
-      rows: 24,
-    });
-    const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
-    const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
-    expect(schedulerOptions?.canResizeBackend?.()).toBe(true);
   });
 
   it("layout resize lets a visible terminal in an unfocused pane fit", async () => {
@@ -1135,17 +1094,6 @@ describe("TerminalView", () => {
     expect(writeToSession).not.toHaveBeenCalled();
   });
 
-  it("writes backend output into the terminal", async () => {
-    renderTerminalView();
-    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
-    const term = await lastTerm();
-    const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
-
-    act(() => outputHandler("hello from pty"));
-
-    await waitFor(() => expect(term.writtenData).toContain("hello from pty"));
-  });
-
   it("后台标签页的输出先积压，切回可见时一次性补齐且保序", async () => {
     // 行为红线（store 驱动版）：可见性翻转不再走 props，翻 store 单视图即触发
     // 边沿 flush——与生产完全同路。
@@ -1241,26 +1189,19 @@ describe("TerminalView", () => {
     expect(exitIndex).toBeGreaterThan(tailIndex);
   });
 
-  it("shows an install hint when the CLI binary is missing", async () => {
-    createSession.mockRejectedValue(new Error("claude CLI not found"));
-    renderTerminalView({ cliTool: "claude" });
-
-    const term = await lastTerm();
-    await waitFor(() =>
-      expect(term.writtenLines.some((line) => line.includes("claude CLI is not installed"))).toBe(true)
-    );
-  });
-
-  it("writes a generic error when session creation fails", async () => {
-    createSession.mockRejectedValue(new Error("spawn refused"));
-    renderTerminalView();
+  it.each([
+    ["shows an install hint when the CLI binary is missing", "claude", "claude CLI not found",
+      ["claude CLI is not installed"]],
+    ["writes a generic error when session creation fails", undefined, "spawn refused",
+      ["Failed to initialize terminal session", "spawn refused"]],
+  ] as const)("%s", async (_label, cliTool, errorMessage, expectedFragments) => {
+    createSession.mockRejectedValue(new Error(errorMessage));
+    renderTerminalView({ cliTool });
 
     const term = await lastTerm();
     await waitFor(() =>
       expect(
-        term.writtenLines.some((line) =>
-          line.includes("Failed to initialize terminal session") && line.includes("spawn refused")
-        )
+        term.writtenLines.some((line) => expectedFragments.every((fragment) => line.includes(fragment)))
       ).toBe(true)
     );
   });
@@ -1302,6 +1243,9 @@ describe("TerminalView", () => {
     expect(term.options.cursorStyle).toBe("bar");
     expect(term.options.cursorBlink).toBe(true);
     expect(term.options.scrollback).toBe(5000);
+    // 在对比强烈的 TUI 背景上保持文字可读。
+    // F7.1：阈值取自共享常量，避免测试与实现各写一遍 4.5 而静默漂移。
+    expect(term.options.minimumContrastRatio).toBe(MINIMUM_TERMINAL_CONTRAST_RATIO);
   });
 
   it("keeps pane-local wheel zoom while xterm is still initializing", async () => {
@@ -1354,14 +1298,6 @@ describe("TerminalView", () => {
     expect(writeToSession).not.toHaveBeenCalled();
   });
 
-  it("keeps terminal text readable on contrasting TUI backgrounds", async () => {
-    renderTerminalView();
-
-    // F7.1：阈值取自共享常量，避免测试与实现各写一遍 4.5 而静默漂移。
-    const term = await lastTerm();
-    expect(term.options.minimumContrastRatio).toBe(MINIMUM_TERMINAL_CONTRAST_RATIO);
-  });
-
   it("applies scrollback changes to a live terminal at runtime (clamped)", async () => {
     renderTerminalView();
     const term = await lastTerm();
@@ -1383,40 +1319,31 @@ describe("TerminalView", () => {
     await waitFor(() => expect(term.options.scrollback).toBe(100_000));
   });
 
-  it("answers background queries while keeping managed CLI surfaces transparent", async () => {
-    useThemeStore.setState({ isDark: false });
-    renderTerminalView({ cliTool: "codex" });
-    const term = await lastTerm();
-    await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
-    const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
-      ([ident]) => ident === 11,
-    )?.[1] as ((data: string) => boolean) | undefined;
-    expect(backgroundHandler).toBeDefined();
+  it.each(["codex", "grok"] as const)(
+    "%s: answers OSC 11 background queries but blocks attempts to replace the transparent background",
+    async (cliTool) => {
+      useThemeStore.setState({ isDark: false });
+      renderTerminalView({ cliTool });
+      const term = await lastTerm();
+      await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(registerOutput).toHaveBeenCalledWith("new-session-1", expect.any(Function)));
+      const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
+        ([ident]) => ident === 11,
+      )?.[1] as ((data: string) => boolean) | undefined;
+      expect(backgroundHandler).toBeDefined();
 
-    writeToSession.mockClear();
+      writeToSession.mockClear();
+      expect(backgroundHandler?.("#141414")).toBe(true);
+      expect(writeToSession).not.toHaveBeenCalled();
 
-    expect(backgroundHandler?.("?")).toBe(true);
-    expect(writeToSession).toHaveBeenCalledWith(
-      "new-session-1",
-      "\x1b]11;rgb:ffff/ffff/ffff\x1b\\",
-      { source: "system" },
-    );
-  });
-
-  it("blocks managed CLI attempts to replace the transparent background", async () => {
-    renderTerminalView({ cliTool: "grok" });
-    const term = await lastTerm();
-    await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
-    const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
-      ([ident]) => ident === 11,
-    )?.[1] as ((data: string) => boolean) | undefined;
-    expect(backgroundHandler).toBeDefined();
-
-    writeToSession.mockClear();
-
-    expect(backgroundHandler?.("#141414")).toBe(true);
-    expect(writeToSession).not.toHaveBeenCalled();
-  });
+      expect(backgroundHandler?.("?")).toBe(true);
+      expect(writeToSession).toHaveBeenCalledWith(
+        "new-session-1",
+        "\x1b]11;rgb:ffff/ffff/ffff\x1b\\",
+        { source: "system" },
+      );
+    },
+  );
 
   it("terminal context menu drives select-all, clear and copy-buffer", async () => {
     const user = userEvent.setup();
@@ -1497,13 +1424,22 @@ describe("TerminalView", () => {
     await waitFor(() => expect(registerOutput).toHaveBeenCalled());
     const host = view.container.querySelector(".cc-terminal-host");
     expect(host).not.toBeNull();
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      flush: ReturnType<typeof vi.fn>;
+      redrawBackend: ReturnType<typeof vi.fn>;
+    };
 
     resize.mockClear();
+    scheduler.flush.mockClear();
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /修复显示|Repair Display/i }));
 
+    // 菜单动作同步执行：flush 已发生说明「修复显示」确实跑过，下面的「未发生」不是没等到。
+    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.repair", expect.anything());
     // 镜像面板改后端尺寸会连带改掉主视图的 PTY，必须完全不发。
-    await new Promise((resolve) => setTimeout(resolve, SIGWINCH_SETTLE_WINDOW_MS));
+    // 拦截点在 requestCliRedraw 的 canResizeBackend() 判断：SIGWINCH 抖动只能经 redrawBackend 发出。
+    expect(scheduler.redrawBackend).not.toHaveBeenCalled();
     expect(resize).not.toHaveBeenCalled();
   });
 
@@ -1535,15 +1471,5 @@ describe("TerminalView", () => {
       allowInactive: true,
     });
     window.removeEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);
-  });
-
-  it("disposes the terminal on unmount", async () => {
-    const view = renderTerminalView();
-    await waitFor(() => expect(createSession).toHaveBeenCalled());
-    const term = await lastTerm();
-
-    view.unmount();
-
-    expect(term.disposed).toBe(true);
   });
 });

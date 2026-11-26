@@ -63,7 +63,6 @@ describe("OrchestratorFilterBar", () => {
   });
 
   it("shows the active workspace name on the workspace chip", () => {
-    resetOrchestratorFilters();
     useOrchestratorStore.setState({ filterWorkspace: "alpha-ws" });
 
     render(<OrchestratorFilterBar />);

@@ -78,7 +78,7 @@ describe("HomeUsageStats", () => {
   it("shows loading and error states", () => {
     useUsageStatsStore.setState({ data: null, loading: true } as never);
     const { rerender } = render(<HomeUsageStats />);
-    expect(screen.getByRole("region", { name: "使用统计" })).toBeVisible();
+    expect(screen.getByText("正在加载用量统计...")).toBeVisible();
 
     act(() => {
       useUsageStatsStore.setState({ loading: false, error: "read failed" } as never);

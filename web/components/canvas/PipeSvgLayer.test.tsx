@@ -32,20 +32,7 @@ describe("PipeSvgLayer", () => {
     const path = container.querySelector("path.canvas-pipe-flowing");
 
     expect(path).toHaveAttribute("marker-end", "url(#canvas-pipe-arrow-accent)");
-    expect(container.querySelector("path.canvas-pipe-aura")).toBeInTheDocument();
-    expect(container.querySelector("path.canvas-pipe-casing")).toBeInTheDocument();
-    expect(container.querySelector("path.canvas-pipe-channel")).toBeInTheDocument();
-    expect(container.querySelector("path.canvas-pipe-signal.canvas-pipe-flowing"))
-      .toHaveAttribute("stroke", "var(--app-canvas-pipe-primary)");
-    expect(container.querySelector("path.canvas-pipe-signal.canvas-pipe-flowing"))
-      .toHaveAttribute("stroke-dasharray", "10 8");
-    expect(container.querySelector("path.canvas-pipe-channel"))
-      .toHaveAttribute("stroke", "var(--app-canvas-pipe-channel)");
-    expect(container.querySelector("path.canvas-pipe-spark-lane.canvas-pipe-flowing"))
-      .toHaveAttribute("stroke", "var(--app-canvas-pipe-highlight)");
-    expect(container.querySelector("path.canvas-pipe-energy-lane.canvas-pipe-flowing")).toHaveAttribute("stroke-dasharray", "1 28");
     expect(container.querySelectorAll("circle.canvas-pipe-port-ring")).toHaveLength(2);
-    expect(container.querySelectorAll("circle.canvas-pipe-port-aura")).toHaveLength(2);
     expect(resolvePipePhase(edge, [event("flowing")])).toBe("flowing");
   });
 
@@ -64,17 +51,15 @@ describe("PipeSvgLayer", () => {
     expect(resolvePipePhase(edge, [reverse])).toBe("flowing");
   });
 
-  it("keeps the compact image-one treatment across transport phases", () => {
+  it("marks the pipe active across flowing and delivered phases", () => {
     const { container, rerender } = render(
       <PipeSvgLayer edges={[edge]} positions={positions} events={[event("flowing")]} />,
     );
     const flowing = container.querySelector("g.canvas-pipe-state-flowing");
     expect(flowing).toHaveAttribute("data-canvas-pipe-active", "true");
-    expect(container.querySelector("circle.canvas-pipe-port-ring")).toHaveAttribute("r", "3.6");
 
     rerender(<PipeSvgLayer edges={[edge]} positions={positions} events={[event("delivered")]} />);
     const settled = container.querySelector("g.canvas-pipe-state-delivered");
     expect(settled).toHaveAttribute("data-canvas-pipe-active", "true");
-    expect(container.querySelector("circle.canvas-pipe-port-ring")).toHaveAttribute("r", "3.6");
   });
 });

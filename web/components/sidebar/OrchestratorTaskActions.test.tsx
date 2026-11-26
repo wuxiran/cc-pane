@@ -109,6 +109,11 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: tt("orchestration:sidebar.actions") }));
 }
 
+function renderActions(binding: TaskBinding, bindings: TaskBinding[] = [binding]) {
+  seedStore(bindings);
+  return render(<OrchestratorTaskActions binding={binding} />);
+}
+
 describe("OrchestratorTaskActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -140,8 +145,7 @@ describe("OrchestratorTaskActions", () => {
   it("opens the action menu with all entries", async () => {
     const user = userEvent.setup();
     const binding = createBinding();
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
 
@@ -157,8 +161,7 @@ describe("OrchestratorTaskActions", () => {
   it("hover-only trigger stays visible when keyboard focused and opens the menu on Enter", async () => {
     const user = userEvent.setup();
     const binding = createBinding();
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     const trigger = screen.getByRole("button", { name: tt("orchestration:sidebar.actions") });
     expect(trigger.className).toContain("group-hover:opacity-100");
@@ -174,8 +177,7 @@ describe("OrchestratorTaskActions", () => {
   it("opens task details and the orchestration overlay", async () => {
     const user = userEvent.setup();
     const binding = createBinding();
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.details") }));
@@ -184,21 +186,10 @@ describe("OrchestratorTaskActions", () => {
     expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(true);
   });
 
-  it("disables Kill when the task has no session", async () => {
-    const user = userEvent.setup();
-    const binding = createBinding({ status: "running", sessionId: undefined });
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
-
-    await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.kill") })).toHaveAttribute("data-disabled");
-  });
-
   it("kills a running session and marks the task failed", async () => {
     const user = userEvent.setup();
     const binding = createBinding({ status: "running", sessionId: "sess-1", progress: 60 });
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.kill") }));
@@ -210,19 +201,25 @@ describe("OrchestratorTaskActions", () => {
     );
   });
 
-  it("enables Retry only for failed tasks", async () => {
+  it.each<[string, Partial<TaskBinding>, TerminalStatusInfo["status"] | null]>([
+    ["kill", { status: "running", sessionId: undefined }, null],
+    ["retry", { status: "running", sessionId: "s" }, null],
+    ["mute", { metadata: { ui: { muted: true } } }, null],
+    // Send message 只在会话 idle / waitingInput 时可用
+    ["sendMessage", { status: "running", sessionId: "sess-2" }, "thinking"],
+  ])("disables %s when not applicable", async (action, overrides, sessionStatus) => {
     const user = userEvent.setup();
-    const running = createBinding({ status: "running", sessionId: "s" });
-    seedStore([running]);
-    const { unmount } = render(<OrchestratorTaskActions binding={running} />);
+    const binding = createBinding(overrides);
+    if (sessionStatus && binding.sessionId) setSessionStatus(binding.sessionId, sessionStatus);
+    renderActions(binding);
 
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") })).toHaveAttribute("data-disabled");
-    unmount();
+    expect(await screen.findByRole("menuitem", { name: tRe(`orchestration:sidebar.${action}`) })).toHaveAttribute("data-disabled");
+  });
 
-    const failed = createBinding({ status: "failed" });
-    seedStore([failed]);
-    render(<OrchestratorTaskActions binding={failed} />);
+  it("enables Retry for failed tasks", async () => {
+    const user = userEvent.setup();
+    renderActions(createBinding({ status: "failed" }));
     await openMenu(user);
     expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") })).not.toHaveAttribute("data-disabled");
   });
@@ -230,8 +227,7 @@ describe("OrchestratorTaskActions", () => {
   it("edits the task title and prompt", async () => {
     const user = userEvent.setup();
     const binding = createBinding({ status: "completed", title: "Old", prompt: "old prompt" });
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.edit") }));
@@ -252,8 +248,7 @@ describe("OrchestratorTaskActions", () => {
   it("deletes a leaf task directly without a confirmation dialog", async () => {
     const user = userEvent.setup();
     const binding = createBinding({ status: "completed" });
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.delete") }));
@@ -266,8 +261,7 @@ describe("OrchestratorTaskActions", () => {
     const user = userEvent.setup();
     const leader = createBinding({ status: "completed", role: "leader" });
     const worker = createBinding({ role: "worker", parentId: leader.id, title: "child worker" });
-    seedStore([leader, worker]);
-    render(<OrchestratorTaskActions binding={leader} />);
+    renderActions(leader, [leader, worker]);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.delete") }));
@@ -284,8 +278,7 @@ describe("OrchestratorTaskActions", () => {
   it("mutes the task via metadata patch", async () => {
     const user = userEvent.setup();
     const binding = createBinding();
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.mute") }));
@@ -298,33 +291,11 @@ describe("OrchestratorTaskActions", () => {
     );
   });
 
-  it("disables Mute when the task is already muted", async () => {
-    const user = userEvent.setup();
-    const binding = createBinding({ metadata: { ui: { muted: true } } });
-    seedStore([binding]);
-    render(<OrchestratorTaskActions binding={binding} />);
-
-    await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.mute") })).toHaveAttribute("data-disabled");
-  });
-
-  it("disables Send message unless the session is idle or waiting for input", async () => {
-    const user = userEvent.setup();
-    const binding = createBinding({ status: "running", sessionId: "sess-2" });
-    seedStore([binding]);
-    setSessionStatus("sess-2", "thinking");
-    render(<OrchestratorTaskActions binding={binding} />);
-
-    await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.sendMessage") })).toHaveAttribute("data-disabled");
-  });
-
   it("sends a message to an idle session", async () => {
     const user = userEvent.setup();
     const binding = createBinding({ status: "running", sessionId: "sess-3" });
-    seedStore([binding]);
     setSessionStatus("sess-3", "idle");
-    render(<OrchestratorTaskActions binding={binding} />);
+    renderActions(binding);
 
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.sendMessage") }));

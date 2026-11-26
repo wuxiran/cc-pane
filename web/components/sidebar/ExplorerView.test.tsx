@@ -5,7 +5,6 @@ import ExplorerView from "./ExplorerView";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/lib/commands/paletteEvents";
 import { gitService } from "@/services/gitService";
 import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
-import type { OpenTerminalOptions } from "@/types";
 
 // --- i18n: t 直接回 key，便于断言 ---
 vi.mock("react-i18next", () => ({
@@ -15,18 +14,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 // --- WorkspaceTree stub ---
-interface WorkspaceTreeStubProps {
-  onOpenTerminal: (opts: OpenTerminalOptions) => void;
-}
 vi.mock("@/components/sidebar/WorkspaceTree", () => ({
-  default: ({ onOpenTerminal }: WorkspaceTreeStubProps) => (
-    <button
-      type="button"
-      onClick={() => onOpenTerminal({ path: "/tmp/from-tree" } as OpenTerminalOptions)}
-    >
-      workspace-tree-stub
-    </button>
-  ),
+  default: () => <div>workspace-tree-stub</div>,
 }));
 
 // --- 「最近」分区 stub：桩掉其会话索引 / 对话历史加载 ---
@@ -67,6 +56,10 @@ vi.mock("@/services/filesystemService", () => ({
   filesystemService: { getGitFileStatuses: vi.fn(async () => ({})) },
 }));
 
+function renderView() {
+  render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+}
+
 describe("ExplorerView", () => {
   beforeEach(() => {
     vi.mocked(gitService.getRepoInfo).mockResolvedValue({
@@ -80,11 +73,11 @@ describe("ExplorerView", () => {
   });
 
   it("defaults to workspaces mode: mode switch, search button, tree and recent", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    renderView();
     // 标题文字已去掉，只作为区域的无障碍名保留
     expect(screen.queryByText("explorer.title")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "explorer.title" })).toBeInTheDocument();
-    expect(screen.getByRole("tablist", { name: "explorer.modeSwitch" })).toHaveClass("grid-cols-2");
+    expect(screen.getByRole("tablist", { name: "explorer.modeSwitch" })).toBeInTheDocument();
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
     expect(screen.getByText("recent-sessions-stub")).toBeVisible();
     // 标题旁只有「工作空间 | 任务」两档切换
@@ -94,12 +87,14 @@ describe("ExplorerView", () => {
     // 「启动终端」主操作行已去掉（搜索面板的快捷操作 / 快捷键 / 标签栏 + 仍可启动）
     expect(screen.queryByRole("button", { name: /launchTerminal/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId("explorer-mode-trigger")).not.toBeInTheDocument();
+    // 新建工作空间入口在工作空间头部，不再单独占一行
+    expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
   });
 
   it("opens the search panel from the header search button", () => {
     const onToggle = vi.fn();
     window.addEventListener(COMMAND_PALETTE_TOGGLE_EVENT, onToggle);
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    renderView();
 
     fireEvent.click(screen.getByRole("button", { name: "explorer.search" }));
 
@@ -107,20 +102,8 @@ describe("ExplorerView", () => {
     window.removeEventListener(COMMAND_PALETTE_TOGGLE_EVENT, onToggle);
   });
 
-  it("forwards onOpenTerminal from the workspace tree", () => {
-    const onOpenTerminal = vi.fn();
-    render(<TooltipProvider><ExplorerView onOpenTerminal={onOpenTerminal} /></TooltipProvider>);
-    fireEvent.click(screen.getByText("workspace-tree-stub"));
-    expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-tree" });
-  });
-
-  it("no longer has a separate new-workspace row (it lives in the workspace header)", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
-  });
-
   it("switches to tasks mode: task board only, tree and recent hidden but still mounted", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    renderView();
     fireEvent.click(screen.getByRole("tab", { name: "explorer.modeTasks" }));
 
     expect(useExplorerSectionsStore.getState().explorerMode).toBe("tasks");

@@ -110,26 +110,26 @@ describe("OrchestrationFullView", () => {
     expect(screen.getByTestId("task-detail")).toHaveAttribute("data-binding-id", "b2");
   });
 
-  it("switches the task filter tab through the store", async () => {
+  it("switches the task filter tab", async () => {
     const user = userEvent.setup();
-    const setFilterTab = vi.fn();
-    setOrchestratorState([makeBinding("b1")], { setFilterTab });
+    setOrchestratorState([makeBinding("b1")]);
     render(<OrchestrationFullView />);
 
     await user.click(screen.getByRole("button", { name: "运行中" }));
 
-    expect(setFilterTab).toHaveBeenCalledWith("running");
+    expect(useOrchestratorStore.getState().filterTab).toBe("running");
   });
 
-  it("forwards search input to the store", async () => {
+  it("keeps the search input controlled by the store keyword", async () => {
     const user = userEvent.setup();
-    const setSearchKeyword = vi.fn();
-    setOrchestratorState([makeBinding("b1")], { setSearchKeyword });
+    setOrchestratorState([makeBinding("b1")]);
     render(<OrchestrationFullView />);
 
-    await user.type(screen.getByPlaceholderText("搜索任务"), "abc");
+    const input = screen.getByPlaceholderText("搜索任务");
+    await user.type(input, "abc");
 
-    expect(setSearchKeyword).toHaveBeenCalled();
+    expect(useOrchestratorStore.getState().searchKeyword).toBe("abc");
+    expect(input).toHaveValue("abc");
   });
 
   it("renders the tree view when viewType is tree", () => {
@@ -194,11 +194,11 @@ describe("OrchestrationFullView", () => {
 
   it("lists notifications and jumps to the linked task", async () => {
     const user = userEvent.setup();
-    const setSelectedTaskId = vi.fn();
-    setOrchestratorState([makeBinding("b1")], { setSelectedTaskId });
+    // b1 会被自动选中，通知指向 b2 才能证明跳转生效
+    setOrchestratorState([makeBinding("b1"), makeBinding("b2")]);
     useNotificationStore.setState({
       notifications: [
-        makeNotification({ id: "n1", title: "Worker done", taskBindingId: "b1" }),
+        makeNotification({ id: "n1", title: "Worker done", taskBindingId: "b2" }),
       ],
     });
     render(<OrchestrationFullView />);
@@ -206,7 +206,7 @@ describe("OrchestrationFullView", () => {
     await user.click(screen.getByRole("button", { name: "通知" }));
     await user.click(screen.getByText("Worker done"));
 
-    expect(setSelectedTaskId).toHaveBeenCalledWith("b1");
+    expect(useOrchestratorStore.getState().selectedTaskId).toBe("b2");
     // 跳回任务页
     expect(screen.getByPlaceholderText("搜索任务")).toBeInTheDocument();
   });
@@ -249,17 +249,17 @@ describe("OrchestrationFullView", () => {
 
   it("clears all notifications", async () => {
     const user = userEvent.setup();
-    const clear = vi.fn();
     useNotificationStore.setState({
-      notifications: [makeNotification({ id: "n1" })],
-      clear,
-    } as never);
+      notifications: [makeNotification({ id: "n1", title: "stale notice" })],
+    });
     render(<OrchestrationFullView />);
     await user.click(screen.getByRole("button", { name: "通知" }));
+    expect(screen.getByText("stale notice")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "清空" }));
 
-    expect(clear).toHaveBeenCalledTimes(1);
+    expect(useNotificationStore.getState().notifications).toEqual([]);
+    expect(screen.queryByText("stale notice")).not.toBeInTheDocument();
   });
   it("offers pagination and retry while retaining the full-screen task and its selection", async () => {
     const more = vi.fn(); const retry = vi.fn(); const binding = makeBinding("retained");

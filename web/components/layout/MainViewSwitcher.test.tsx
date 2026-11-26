@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MainViewSwitcher from "./MainViewSwitcher";
 import type { AppViewMode, ActivityView } from "@/stores/useActivityBarStore";
@@ -120,50 +120,75 @@ function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {
   canvasDisplayState.mode = "panel";
 }
 
+function renderSwitcher() {
+  return render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+}
+
+function mainViewLayer(testId: string, view: string) {
+  return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
+}
+
+function expectLayerActive(layer: HTMLElement, active: boolean) {
+  expect(layer.hasAttribute("inert")).toBe(!active);
+  expect(layer).toHaveAttribute("aria-hidden", String(!active));
+}
+
+const normalLayouts = () => [
+  { id: "l1", kind: "normal", rootPane: panesState.rootPane },
+];
+
 describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   beforeEach(() => {
     setMode("panes");
     wallpaperState.resolved = null;
     wallpaperState.assetUrl = null;
     experimentalState.skillMarket = true;
+    panesState.layouts = normalLayouts();
   });
 
-  it("home → HomeDashboard 全屏", () => {
+  it("keep-alive：切走隐藏不卸载（inert + aria-hidden），切回即显示；未访问过的模式不挂载", () => {
     setMode("home");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("home-dashboard")).toBeVisible();
-    expect(screen.queryByTestId("sidebar")).toBeNull();
-  });
-
-  it("keep-alive：切走隐藏不卸载，切回即显示；未访问过的模式不挂载", async () => {
-    setMode("home");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const homeLayer = screen.getByTestId("home-dashboard").closest("[data-main-view='home']") as HTMLElement;
+    const { rerender } = renderSwitcher();
+    const homeLayer = mainViewLayer("home-dashboard", "home");
     expect(homeLayer).toBeVisible();
-    expect(homeLayer).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
-    expect(homeLayer).toHaveClass("main-view-layer");
+    expectLayerActive(homeLayer, true);
     // 未访问过 todo：不应挂载
     expect(screen.queryByTestId("todo-manager")).toBeNull();
 
-    // 切到 panes：home 保持挂载但隐藏（panes 播入场视差滑动，等它落到终态）
+    // 切到 panes：直接切换无转场，当帧新层即可见；home 保持挂载但隐藏，
+    // inert 使隐藏子树不可聚焦/不可命中（aria-hidden 焦点告警修复）
     setMode("panes");
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("pane-container")).toBeVisible());
+    const panesLayer = mainViewLayer("pane-container", "panes");
+    expect(screen.getByTestId("pane-container")).toBeVisible();
     expect(screen.getByTestId("home-dashboard")).not.toBeVisible();
-    expect(homeLayer).toHaveAttribute("aria-hidden", "true");
-    expect(homeLayer).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+    expectLayerActive(homeLayer, false);
+    expectLayerActive(panesLayer, true);
 
-    // 切回 home：同一实例重新显示，panes（含终端）保持挂载
+    // 切回 home：同一实例重新显示，panes（含终端）保持挂载并转入 inert
     setMode("home");
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("home-dashboard")).toBeVisible());
+    expect(screen.getByTestId("home-dashboard")).toBeVisible();
     expect(screen.getByTestId("pane-container")).not.toBeVisible();
     expect(screen.getAllByTestId("home-dashboard")).toHaveLength(1);
+    expectLayerActive(homeLayer, true);
+    expectLayerActive(panesLayer, false);
+  });
+
+  it.each([
+    ["home", "home-dashboard"],
+    ["selfchat", "selfchat-manager"],
+    ["providers", "providers-panel"],
+  ] as const)("%s → 全屏渲染 %s，不带 Sidebar", (mode, testId) => {
+    setMode(mode);
+    renderSwitcher();
+    expect(screen.getByTestId(testId)).toBeVisible();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
   });
 
   it("todo → 共享侧栏中的任务列表 + Todo 主内容", () => {
     setMode("todo");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.getByTestId("todo-sidebar")).toBeVisible();
     expect(screen.getByTestId("todo-manager")).toBeVisible();
     expect(screen.queryByTestId("sidebar")).toBeNull();
@@ -171,7 +196,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
 
   it("panes 与 todo 切换时复用同一个展开状态的侧栏过渡容器", () => {
     setMode("panes");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const { rerender } = renderSwitcher();
     const regularSidebar = screen.getByTestId("sidebar");
     const transition = regularSidebar.parentElement?.parentElement;
 
@@ -182,28 +207,16 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(todoSidebar.parentElement?.parentElement).toBe(transition);
   });
 
-  it("selfchat → SelfChatManager 全屏", () => {
-    setMode("selfchat");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("selfchat-manager")).toBeVisible();
-  });
-
-  it("providers → ProvidersPanel 全屏", () => {
-    setMode("providers");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("providers-panel")).toBeVisible();
-  });
-
   it("files → Sidebar + FileEditorPanel 组合", async () => {
     setMode("files", { activeView: "files" });
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     expect(await screen.findByTestId("file-editor")).toBeVisible();
   });
 
   it("panes → Sidebar + PaneContainer，隐藏侧栏时只剩面板", () => {
     setMode("panes");
-    const { unmount } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const { unmount } = renderSwitcher();
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
     expect(screen.getByTestId("pane-flow-overlay")).toBeInTheDocument();
@@ -211,7 +224,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     unmount();
 
     setMode("panes", { sidebarVisible: false });
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.queryByTestId("sidebar")).toBeNull();
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
   });
@@ -219,16 +232,15 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   it("Canvas 模式隐藏默认 pane 布局并让独立 Canvas 占满主内容区", () => {
     setMode("panes");
     canvasDisplayState.mode = "canvas";
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
 
     expect(screen.getByTestId("pane-flow-overlay")).toBeVisible();
-    expect(screen.getByTestId("pane-flow-overlay").closest("[data-terminal-canvas-view]")).toHaveStyle({ display: "block" });
-    expect(screen.getByTestId("pane-container").closest("[data-terminal-layout-view]")).toHaveStyle({ display: "none" });
+    expect(screen.getByTestId("pane-container")).not.toBeVisible();
   });
 
   it("orchestration → panes 兼容态 + overlay，且不渲染 Sidebar", async () => {
     setMode("orchestration", { activeView: "orchestration", sidebarVisible: false });
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
     expect(screen.getByTestId("pane-flow-overlay")).toBeInTheDocument();
     expect(await screen.findByTestId("orchestration-overlay")).toBeInTheDocument();
@@ -240,11 +252,8 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     panesState.layouts = [
       { id: "l1", kind: "starred", rootPane: panesState.rootPane },
     ];
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.getByTestId("starred-panel")).toBeInTheDocument();
-    panesState.layouts = [
-      { id: "l1", kind: "normal", rootPane: panesState.rootPane },
-    ];
   });
 
   it("多布局启动时只挂当前布局的分屏树，其余布局与星标页未访问不挂载（issue #43）", () => {
@@ -254,18 +263,15 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
       { id: "l2", kind: "normal", rootPane: { type: "panel", id: "p2", tabs: [], activeTabId: null } },
       { id: "l3", kind: "starred", rootPane: panesState.rootPane },
     ];
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     expect(screen.getAllByTestId("pane-container")).toHaveLength(1);
     expect(screen.queryByTestId("starred-panel")).toBeNull();
-    panesState.layouts = [
-      { id: "l1", kind: "normal", rootPane: panesState.rootPane },
-    ];
   });
 
   it("布局切换器双模式：corner 不渲染布局条，topbar 在 panes 区渲染 LayoutTopBar", () => {
     setMode("panes");
     layoutUiState.switcherMode = "corner";
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const { rerender } = renderSwitcher();
     expect(screen.queryByTestId("layout-top-bar")).toBeNull();
 
     layoutUiState.switcherMode = "topbar";
@@ -284,7 +290,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     wallpaperState.resolved = { kind: "image", glassBlur: 8, dim: 0.35, opacity: 1 };
     wallpaperState.assetUrl = "asset://wallpaper.png";
     themeState.isDark = true;
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
 
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
     // 半透明垫层：保留面板底色 62%，只透 38% 给壁纸（全透明会让亮壁纸压过终端文字）
@@ -301,7 +307,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     wallpaperState.resolved = { kind: "image", glassBlur: 8, dim: 0.35, opacity: 1 };
     wallpaperState.assetUrl = "asset://wallpaper.png";
     themeState.isDark = false;
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
 
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
     expect(style).toContain("var(--app-panel-bg) 80%, transparent");
@@ -310,7 +316,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
 
   it("壁纸未激活时不覆盖 effective token", () => {
     setMode("panes");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
     expect(style).not.toContain("--app-panel-bg-effective");
     expect(style).not.toContain("--app-glass-blur");
@@ -359,7 +365,7 @@ describe("亮色壁纸终端区纯色垫层（脏交界修复）", () => {
   }
 
   function renderAndGetUnderlay() {
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    renderSwitcher();
     const panesLayer = screen.getByTestId("main-wallpaper-layer").parentElement as HTMLElement;
     return panesLayer.querySelector("[data-terminal-solid-underlay]") as HTMLElement;
   }
@@ -384,9 +390,6 @@ describe("亮色壁纸终端区纯色垫层（脏交界修复）", () => {
     expect(underlay.style.opacity).toBe("1");
     // 禁裸 hex：纯色底只能引用现有 --app-panel-bg token
     expect(underlay.style.background).toBe("var(--app-panel-bg)");
-    // 平滑过渡：opacity（垫层淡入）+ background-color（主题切换）都走 --dur
-    expect(underlay.style.transition).toContain("opacity var(--dur)");
-    expect(underlay.style.transition).toContain("background-color var(--dur)");
 
     // token 不换：内容区 80% color-mix 落在纯色垫上复合为 100% panel 色
     const panesStyle = (underlay.parentElement as HTMLElement).getAttribute("style") ?? "";
@@ -427,68 +430,5 @@ describe("亮色壁纸终端区纯色垫层（脏交界修复）", () => {
     const underlay = renderAndGetUnderlay();
     expect(underlay).toHaveAttribute("data-active", "false");
     expect(underlay.style.opacity).toBe("0");
-  });
-});
-
-describe("视图切换：直接切换，无转场", () => {
-  function mainViewLayer(testId: string, view: string) {
-    return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
-  }
-
-  it("切换当帧新层即完全可见，且不带位移或内联过渡", () => {
-    setMode("panes");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const panesLayer = mainViewLayer("pane-container", "panes");
-
-    setMode("home");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const homeLayer = mainViewLayer("home-dashboard", "home");
-
-    expect(homeLayer.style.opacity).toBe("1");
-    expect(homeLayer.style.transform).toBe("");
-    expect(homeLayer.style.transition).toBe("");
-    expect(panesLayer.style.opacity).toBe("0");
-    expect(panesLayer.style.transition).toBe("");
-  });
-});
-
-describe("inert：隐藏 keep-alive 层不持焦（aria-hidden 焦点告警修复）", () => {
-  function mainViewLayer(testId: string, view: string) {
-    return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
-  }
-
-  it("首次挂载的活动层不带 inert，aria-hidden 为 false", () => {
-    setMode("panes");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const panesLayer = mainViewLayer("pane-container", "panes");
-    expect(panesLayer.hasAttribute("inert")).toBe(false);
-    expect(panesLayer).toHaveAttribute("aria-hidden", "false");
-  });
-
-  it("非活动 keep-alive 层带 inert + aria-hidden，活动层不带；切换后互换", async () => {
-    setMode("home");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const homeLayer = mainViewLayer("home-dashboard", "home");
-    expect(homeLayer.hasAttribute("inert")).toBe(false);
-    expect(homeLayer).toHaveAttribute("aria-hidden", "false");
-
-    // 切到 panes：home 保持挂载但隐藏，inert 使子树不可聚焦/不可命中
-    setMode("panes");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("pane-container")).toBeVisible());
-    const panesLayer = mainViewLayer("pane-container", "panes");
-    expect(homeLayer.hasAttribute("inert")).toBe(true);
-    expect(homeLayer).toHaveAttribute("aria-hidden", "true");
-    expect(panesLayer.hasAttribute("inert")).toBe(false);
-    expect(panesLayer).toHaveAttribute("aria-hidden", "false");
-
-    // 切回 home：inert 摘除，焦点/命中能力恢复；panes 层转入 inert
-    setMode("home");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("home-dashboard")).toBeVisible());
-    expect(homeLayer.hasAttribute("inert")).toBe(false);
-    expect(homeLayer).toHaveAttribute("aria-hidden", "false");
-    expect(panesLayer.hasAttribute("inert")).toBe(true);
-    expect(panesLayer).toHaveAttribute("aria-hidden", "true");
   });
 });

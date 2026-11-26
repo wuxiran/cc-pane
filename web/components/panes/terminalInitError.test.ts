@@ -6,41 +6,22 @@ import {
 } from "./terminalInitError";
 
 describe("formatTerminalInitError", () => {
-  it("formats WSL host resolution errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_HOST_UNRESOLVED: could not resolve the Windows host address"
-    );
-
-    expect(lines?.[0]).toContain("Failed to resolve the Windows host address");
-    expect(lines?.[1]).toContain("ccpanes MCP server");
-  });
-
-  it("formats WSL MCP unreachable errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_MCP_UNREACHABLE: ccpanes orchestrator at 172.18.64.1:48080 is not reachable from WSL distro 'Ubuntu'."
-    );
-
-    expect(lines?.[0]).toContain("not reachable");
-    expect(lines?.[1]).toContain("Windows host/port");
-  });
-
-  it("formats WSL MCP registration errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_MCP_REGISTER_FAILED: failed to register ccpanes MCP for WSL distro 'Ubuntu': exit code 1"
-    );
-
-    expect(lines?.[0]).toContain("Failed to register");
-    expect(lines?.[1]).toContain("WSL Codex CLI environment");
-  });
-
-  it("formats missing WSL Codex config errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_CODEX_CONFIG_MISSING: no workspace Provider auth was injected and WSL distro 'Ubuntu' has neither '~/.codex/config.toml' nor '~/.codex/auth.json'. Bind a Provider or configure/sign in to Codex inside WSL first."
-    );
-
-    expect(lines?.[0]).toContain("No usable Codex configuration was found");
-    expect(lines?.[1]).toContain("~/.codex");
-    expect(lines?.[2]).toContain("no workspace Provider auth was injected");
+  it.each<[string, string, string[]]>([
+    ["WSL host resolution",
+      "WSL_HOST_UNRESOLVED: could not resolve the Windows host address",
+      ["Failed to resolve the Windows host address", "ccpanes MCP server"]],
+    ["WSL MCP unreachable",
+      "WSL_MCP_UNREACHABLE: ccpanes orchestrator at 172.18.64.1:48080 is not reachable from WSL distro 'Ubuntu'.",
+      ["not reachable", "Windows host/port"]],
+    ["WSL MCP registration",
+      "WSL_MCP_REGISTER_FAILED: failed to register ccpanes MCP for WSL distro 'Ubuntu': exit code 1",
+      ["Failed to register", "WSL Codex CLI environment"]],
+    ["missing WSL Codex config",
+      "WSL_CODEX_CONFIG_MISSING: no workspace Provider auth was injected and WSL distro 'Ubuntu' has neither '~/.codex/config.toml' nor '~/.codex/auth.json'. Bind a Provider or configure/sign in to Codex inside WSL first.",
+      ["No usable Codex configuration was found", "~/.codex", "no workspace Provider auth was injected"]],
+  ])("formats %s errors", (_label, raw, expectedLines) => {
+    const lines = formatTerminalInitError(raw);
+    expectedLines.forEach((fragment, i) => expect(lines?.[i]).toContain(fragment));
   });
 
   it("returns null for unknown errors", () => {

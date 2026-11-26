@@ -1,4 +1,5 @@
-import "@/i18n";
+import i18n from "@/i18n";
+import type { ComponentProps } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,86 +101,41 @@ describe("GeneralSection", () => {
     vi.restoreAllMocks();
   });
 
-  it("toggles closeToTray and autoStart switches", async () => {
+  it.each<[RegExp, Partial<GeneralSettings>]>([
+    [/关闭窗口时最小化到托盘|Minimize to tray on close/i, { closeToTray: false }],
+    [/开机自启|Start on boot/i, { autoStart: true }],
+    [/状态栏显示系统资源|Show system resources in the status bar/i, { showSystemResources: false }],
+    [/托盘菜单显示会话状态|Show session status in tray menu/i, { trayShowSessionStatus: false }],
+    [/托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i, { trayTooltipSummary: false }],
+    [/退出前确认|Confirm before quitting/i, { trayConfirmQuit: false }],
+  ])("toggles the %s switch into settings.general", async (name, expected) => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<GeneralSection value={createValue()} onChange={onChange} />);
 
-    await user.click(
-      screen.getByRole("switch", { name: /关闭窗口时最小化到托盘|Minimize to tray on close/i }),
-    );
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ closeToTray: false }));
+    await user.click(screen.getByRole("switch", { name }));
 
-    await user.click(screen.getByRole("switch", { name: /开机自启|Start on boot/i }));
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining(expected));
   });
 
-  it("toggles the global Local History watcher setting", async () => {
-    const user = userEvent.setup();
-    const onLocalHistoryEnabledChange = vi.fn();
-    render(
-      <GeneralSection
-        value={createValue()}
-        onChange={vi.fn()}
-        localHistoryEnabled
-        onLocalHistoryEnabledChange={onLocalHistoryEnabledChange}
-      />,
-    );
-
-    await user.click(
-      screen.getByRole("switch", {
-        name: /启用 Local History 文件监听|Enable Local History file watching/i,
-      }),
-    );
-
-    expect(onLocalHistoryEnabledChange).toHaveBeenCalledWith(false);
-    expect(
-      screen.getByText(/项目级设置不能覆盖此开关|Project settings cannot override it/i),
-    ).toBeInTheDocument();
-  });
-
-  it("toggles the status bar system resource setting", async () => {
+  type ToggleCallback = (enabled: boolean) => void;
+  it.each<[string, RegExp, (cb: ToggleCallback) => Partial<ComponentProps<typeof GeneralSection>>]>([
+    ["localHistoryEnabled", /启用 Local History 文件监听|Enable Local History file watching/i,
+      (cb) => ({ localHistoryEnabled: true, onLocalHistoryEnabledChange: cb })],
+    ["updateNotifyEnabled", /有新版本时提示|Notify me about new versions/i,
+      (cb) => ({ updateNotifyEnabled: true, onUpdateNotifyEnabledChange: cb })],
+    ["featureTipsEnabled", /功能提示|Feature tips/i,
+      (cb) => ({ featureTipsEnabled: true, onFeatureTipsEnabledChange: cb })],
+  ])("routes the %s switch to its own callback, not settings.general", async (_prop, name, props) => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<GeneralSection value={createValue()} onChange={onChange} />);
+    const onToggle = vi.fn<ToggleCallback>();
+    render(<GeneralSection value={createValue()} onChange={onChange} {...props(onToggle)} />);
 
-    await user.click(screen.getByRole("switch", { name: /状态栏显示系统资源|Show system resources in the status bar/i }));
+    await user.click(screen.getByRole("switch", { name }));
 
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showSystemResources: false }));
-  });
-
-  it("toggles proactive update notifications", async () => {
-    const user = userEvent.setup();
-    const onUpdateNotifyEnabledChange = vi.fn();
-    render(
-      <GeneralSection
-        value={createValue()}
-        onChange={vi.fn()}
-        updateNotifyEnabled
-        onUpdateNotifyEnabledChange={onUpdateNotifyEnabledChange}
-      />,
-    );
-
-    await user.click(screen.getByRole("switch", { name: /有新版本时提示|Notify me about new versions/i }));
-
-    expect(onUpdateNotifyEnabledChange).toHaveBeenCalledWith(false);
-  });
-
-  it("toggles feature tips", async () => {
-    const user = userEvent.setup();
-    const onFeatureTipsEnabledChange = vi.fn();
-    render(
-      <GeneralSection
-        value={createValue()}
-        onChange={vi.fn()}
-        featureTipsEnabled
-        onFeatureTipsEnabledChange={onFeatureTipsEnabledChange}
-      />,
-    );
-
-    await user.click(screen.getByRole("switch", { name: /功能提示|Feature tips/i }));
-
-    expect(onFeatureTipsEnabledChange).toHaveBeenCalledWith(false);
+    expect(onToggle).toHaveBeenCalledWith(false);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("emits language changes and lists CLI tools from the hook", async () => {
@@ -207,16 +163,16 @@ describe("GeneralSection", () => {
     await user.click(screen.getByRole("option", { name: /全盘|Full disk/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ searchScope: "FullDisk" }));
 
+    const hint = i18n.t("settings:searchScopeFullDiskHint");
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
     rerender(<GeneralSection value={createValue({ searchScope: "FullDisk" })} onChange={onChange} />);
-    // FullDisk 提示文案以 accent 色渲染
-    expect(document.querySelector('p[style*="--app-accent"]')).not.toBeNull();
+    expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
   it("loads and displays the data directory in desktop runtime", async () => {
     render(<GeneralSection value={createValue()} onChange={vi.fn()} />);
 
     expect(await screen.findByText("C:/Users/dev/.cc-panes")).toBeInTheDocument();
-    expect(settingsService.getDataDirInfo).toHaveBeenCalled();
   });
 
   it("skips the data directory block outside the desktop runtime", () => {
@@ -271,27 +227,6 @@ describe("GeneralSection", () => {
     expect(settingsService.migrateDataDir).not.toHaveBeenCalled();
   });
 
-  it("offers a reset link when the data dir is customized and resets to default", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    vi.mocked(settingsService.getDataDirInfo).mockResolvedValue({
-      ...dataDirInfo,
-      currentPath: "D:/custom-dir",
-      isDefault: false,
-    });
-    vi.mocked(settingsService.migrateDataDir).mockResolvedValue(undefined as never);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<GeneralSection value={createValue({ dataDir: "D:/custom-dir" })} onChange={onChange} />);
-    await screen.findByText("D:/custom-dir");
-
-    await user.click(screen.getByText(/恢复默认|Reset/i));
-
-    await waitFor(() =>
-      expect(settingsService.migrateDataDir).toHaveBeenCalledWith(dataDirInfo.defaultPath),
-    );
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ dataDir: null }));
-  });
-
   it("restarts onboarding by resetting the flag and opening the dialog", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -304,7 +239,7 @@ describe("GeneralSection", () => {
     expect(openOnboardingMock).toHaveBeenCalled();
   });
 
-  it("reset data dir action is a real focusable button with a focus-visible ring", async () => {
+  it("resets a customized data dir via a keyboard-operable button", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     vi.mocked(settingsService.getDataDirInfo).mockResolvedValue({
@@ -318,10 +253,6 @@ describe("GeneralSection", () => {
     await screen.findByText("D:/custom-dir");
 
     const resetButton = screen.getByRole("button", { name: /恢复默认|Reset/i });
-    expect(resetButton.className).toContain("focus-visible:outline-none");
-    expect(resetButton.className).toContain("focus-visible:ring-2");
-    expect(resetButton.className).toContain("focus-visible:ring-[var(--app-accent)]");
-
     resetButton.focus();
     expect(resetButton).toHaveFocus();
     await user.keyboard("{Enter}");
@@ -333,51 +264,6 @@ describe("GeneralSection", () => {
   });
 
   describe("系统托盘设置区", () => {
-    it("renders the tray subsection with all four controls", () => {
-      render(<GeneralSection value={createValue()} onChange={vi.fn()} />);
-
-      expect(screen.getByText(/系统托盘|System Tray/i)).toBeInTheDocument();
-      expect(
-        screen.getByRole("switch", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
-      ).toBeChecked();
-      expect(
-        screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
-      ).toHaveTextContent("5");
-      expect(
-        screen.getByRole("switch", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
-      ).toBeChecked();
-      expect(
-        screen.getByRole("switch", { name: /退出前确认|Confirm before quitting/i }),
-      ).toBeChecked();
-    });
-
-    it("toggles trayShowSessionStatus / trayTooltipSummary / trayConfirmQuit", async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-      render(<GeneralSection value={createValue()} onChange={onChange} />);
-
-      await user.click(
-        screen.getByRole("switch", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
-      );
-      expect(onChange).toHaveBeenLastCalledWith(
-        expect.objectContaining({ trayShowSessionStatus: false }),
-      );
-
-      await user.click(
-        screen.getByRole("switch", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
-      );
-      expect(onChange).toHaveBeenLastCalledWith(
-        expect.objectContaining({ trayTooltipSummary: false }),
-      );
-
-      await user.click(
-        screen.getByRole("switch", { name: /退出前确认|Confirm before quitting/i }),
-      );
-      expect(onChange).toHaveBeenLastCalledWith(
-        expect.objectContaining({ trayConfirmQuit: false }),
-      );
-    });
-
     it("changes trayMaxPendingEntries as a number within the 1-10 option range", async () => {
       const user = userEvent.setup();
       const onChange = vi.fn();

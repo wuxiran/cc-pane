@@ -38,6 +38,23 @@ function snapshot(overrides: Partial<TaskQueueSnapshot> = {}): TaskQueueSnapshot
   };
 }
 
+const queuedItem = {
+  id: "item-1",
+  sessionId: "pty-1",
+  position: 0,
+  text: "next task",
+  imageRefs: [],
+  state: "queued",
+  createdAt: 1,
+  lastError: null,
+} as TaskQueueSnapshot["items"][number];
+
+const imageClipboard = () =>
+  ({
+    items: [{ kind: "file", type: "image/png" }],
+    getData: vi.fn(() => ""),
+  }) as unknown as DataTransfer;
+
 describe("TaskQueuePopover", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,23 +98,13 @@ describe("TaskQueuePopover", () => {
     });
   });
 
-  it("pauses the queue without removing its items", async () => {
-    taskQueueServiceMock.get.mockResolvedValue(snapshot({
-      items: [{
-        id: "item-1",
-        sessionId: "pty-1",
-        position: 0,
-        text: "next task",
-        imageRefs: [],
-        state: "queued",
-        createdAt: 1,
-        lastError: null,
-      }],
-    }));
+  it("sends a pause update (not a clear) for a queue with items", async () => {
+    taskQueueServiceMock.get.mockResolvedValue(snapshot({ items: [queuedItem] }));
     const user = await openPopover();
 
     await user.click(await screen.findByRole("button", { name: /暂停|Pause/i }));
     expect(taskQueueServiceMock.update).toHaveBeenCalledWith("pty-1", { paused: true });
+    expect(taskQueueServiceMock.clear).not.toHaveBeenCalled();
   });
 
   it("requires an explicit confirmation before enabling unattended mode", async () => {
@@ -124,10 +131,7 @@ describe("TaskQueuePopover", () => {
   it("stages an image paste as an opaque reference", async () => {
     const user = await openPopover();
     const input = await screen.findByRole("textbox", { name: /新任务|New task/i });
-    const clipboardData = {
-      items: [{ kind: "file", type: "image/png" }],
-      getData: vi.fn(() => ""),
-    } as unknown as DataTransfer;
+    const clipboardData = imageClipboard();
 
     fireEvent.paste(input, { clipboardData });
     await waitFor(() => expect(taskQueueServiceMock.stageClipboardImage).toHaveBeenCalledWith("pty-1"));
@@ -148,10 +152,7 @@ describe("TaskQueuePopover", () => {
     });
     await openPopover();
     const input = await screen.findByRole("textbox", { name: /新任务|New task/i });
-    const clipboardData = {
-      items: [{ kind: "file", type: "image/png" }],
-      getData: vi.fn(() => ""),
-    } as unknown as DataTransfer;
+    const clipboardData = imageClipboard();
 
     for (let index = 1; index <= 10; index += 1) {
       fireEvent.paste(input, { clipboardData });
@@ -175,12 +176,7 @@ describe("TaskQueuePopover", () => {
   });
 
   it("shows the status-bar icon once tasks are queued", async () => {
-    taskQueueServiceMock.get.mockResolvedValue(snapshot({
-      items: [{
-        id: "item-1", sessionId: "pty-1", position: 0, text: "next task",
-        imageRefs: [], state: "queued", createdAt: 1, lastError: null,
-      }],
-    }));
+    taskQueueServiceMock.get.mockResolvedValue(snapshot({ items: [queuedItem] }));
     render(<TaskQueuePopover sessionId="pty-1" />);
     expect(await screen.findByRole("button", { name: /任务队列|Task queue/i })).toBeInTheDocument();
   });

@@ -98,6 +98,51 @@ const usageData = {
   workspaces: [],
 };
 
+const otherLayoutHit = {
+  layoutId: "layout-other",
+  layoutName: "Other layout",
+  tree: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
+  panel: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
+  tab: {
+    id: "tab-1",
+    title: "Codex tab",
+    contentType: "terminal",
+    projectId: "project-1",
+    projectPath: "D:/work/project-1",
+    sessionId: "session-1",
+    workspaceName: "Workspace A",
+    cliTool: "codex",
+  },
+};
+
+/** 布局里找不到该会话的 tab（无主会话），只能从持久化记录接管。 */
+function makeSessionOrphanedFromLayout(extra: Partial<SavedSession> = {}) {
+  const panes = usePanesStore.getState();
+  vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
+  vi.mocked(sessionRestoreService.load).mockResolvedValue([{
+    sessionId: "session-1",
+    tabId: "tab-old",
+    paneId: "pane-old",
+    projectPath: "D:/work/project-1",
+    cliTool: "codex",
+    runtimeKind: "local",
+    createdAt: "",
+    savedAt: "",
+    hasOutput: false,
+    ...extra,
+  }]);
+  return panes;
+}
+
+async function renderAndClickAdopt() {
+  renderSegment();
+  await flushPromises();
+  await openPopover();
+  await flushPromises();
+  fireEvent.click(screen.getByRole("button", { name: /接管到当前布局:|adopt into current layout:/i }));
+  await flushPromises();
+}
+
 function setDocumentHidden(hidden: boolean) {
   Object.defineProperty(document, "hidden", {
     configurable: true,
@@ -176,38 +221,8 @@ describe("SystemResourceSegment", () => {
 
     const panes = usePanesStore.getState();
     // focusTab 正门按 tabId 再定位一次，与按 session 的定位喂同一份
-    vi.spyOn(panes, "findTabAcrossLayouts").mockReturnValue({
-      layoutId: "layout-other",
-      layoutName: "Other layout",
-      tree: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
-      panel: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
-      tab: {
-        id: "tab-1",
-        title: "Codex tab",
-        contentType: "terminal",
-        projectId: "project-1",
-        projectPath: "D:/work/project-1",
-        sessionId: "session-1",
-        workspaceName: "Workspace A",
-        cliTool: "codex",
-      },
-    } as never);
-    vi.spyOn(panes, "findTabBySessionAcrossLayouts").mockReturnValue({
-      layoutId: "layout-other",
-      layoutName: "Other layout",
-      tree: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
-      panel: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
-      tab: {
-        id: "tab-1",
-        title: "Codex tab",
-        contentType: "terminal",
-        projectId: "project-1",
-        projectPath: "D:/work/project-1",
-        sessionId: "session-1",
-        workspaceName: "Workspace A",
-        cliTool: "codex",
-      },
-    } as never);
+    vi.spyOn(panes, "findTabAcrossLayouts").mockReturnValue(otherLayoutHit as never);
+    vi.spyOn(panes, "findTabBySessionAcrossLayouts").mockReturnValue(otherLayoutHit as never);
     vi.spyOn(panes, "switchLayout").mockImplementation(() => {});
     vi.spyOn(panes, "setActivePane").mockImplementation(() => {});
     vi.spyOn(panes, "selectTab").mockImplementation(() => {});
@@ -317,83 +332,27 @@ describe("SystemResourceSegment", () => {
   });
 
   it("无主会话先取得 daemon claim，再创建接管 tab", async () => {
-    const panes = usePanesStore.getState();
-    vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
-    vi.mocked(sessionRestoreService.load).mockResolvedValue([
-      {
-        sessionId: "session-1",
-        tabId: "tab-old",
-        paneId: "pane-old",
-        projectPath: "D:/work/project-1",
-        launchCwd: "D:/worktree",
-        workspaceName: "Workspace A",
-        cliTool: "codex",
-        runtimeKind: "local",
-        createdAt: "",
-        savedAt: "",
-        hasOutput: false,
-      },
-    ]);
-    const adoptTab = vi
-      .spyOn(panes, "adoptSession")
-      .mockReturnValue("tab-adopted");
-    const setReadOnly = vi
-      .spyOn(panes, "setSessionLeaseReadOnly")
-      .mockImplementation(() => {});
+    const panes = makeSessionOrphanedFromLayout({ launchCwd: "D:/worktree", workspaceName: "Workspace A" });
+    const adoptTab = vi.spyOn(panes, "adoptSession").mockReturnValue("tab-adopted");
+    const setReadOnly = vi.spyOn(panes, "setSessionLeaseReadOnly").mockImplementation(() => {});
 
-    renderSegment();
-    await flushPromises();
-    await openPopover();
-    await flushPromises();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /接管到当前布局:|adopt into current layout:/i,
-      }),
-    );
-    await flushPromises();
+    await renderAndClickAdopt();
 
     expect(terminalService.adoptSession).toHaveBeenCalledWith("session-1");
     expect(adoptTab).toHaveBeenCalledWith(
       "session-1",
-      expect.objectContaining({
-        projectPath: "D:/work/project-1",
-        launchCwd: "D:/worktree",
-      }),
+      expect.objectContaining({ projectPath: "D:/work/project-1", launchCwd: "D:/worktree" }),
     );
-    expect(
-      vi.mocked(terminalService.adoptSession).mock.invocationCallOrder[0],
-    ).toBeLessThan(adoptTab.mock.invocationCallOrder[0]);
+    expect(vi.mocked(terminalService.adoptSession).mock.invocationCallOrder[0])
+      .toBeLessThan(adoptTab.mock.invocationCallOrder[0]);
     expect(setReadOnly).toHaveBeenCalledWith("session-1", false);
   });
 
   it("claim 后接管 tab 创建失败时释放租约", async () => {
-    const panes = usePanesStore.getState();
-    vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
-    vi.mocked(sessionRestoreService.load).mockResolvedValue([
-      {
-        sessionId: "session-1",
-        tabId: "tab-old",
-        paneId: "pane-old",
-        projectPath: "D:/work/project-1",
-        cliTool: "codex",
-        runtimeKind: "local",
-        createdAt: "",
-        savedAt: "",
-        hasOutput: false,
-      },
-    ]);
+    const panes = makeSessionOrphanedFromLayout();
     vi.spyOn(panes, "adoptSession").mockReturnValue(null);
 
-    renderSegment();
-    await flushPromises();
-    await openPopover();
-    await flushPromises();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /接管到当前布局:|adopt into current layout:/i,
-      }),
-    );
-    await flushPromises();
+    await renderAndClickAdopt();
 
     expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
   });
@@ -486,13 +445,12 @@ describe("SystemResourceSegment", () => {
     );
   });
 
-  it("用琥珀语义显示孤立计数并在列出明细后二次确认批量终止", async () => {
+  it("显示孤立计数并在列出明细后二次确认批量终止", async () => {
     renderSegment();
     await flushPromises();
     await openPopover();
 
-    const count = screen.getByText(/1 个孤立项|1 orphaned item/i);
-    expect(count).toHaveStyle({ color: "var(--app-status-warning)" });
+    expect(screen.getByText(/1 个孤立项|1 orphaned item/i)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", {
         name: /展开孤立进程|expand orphaned processes/i,

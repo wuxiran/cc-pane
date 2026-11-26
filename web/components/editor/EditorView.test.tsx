@@ -30,6 +30,19 @@ vi.mock("./EditorBreadcrumb", () => ({ default: () => <div /> }));
 vi.mock("./MarkdownPreview", () => ({ default: () => <div /> }));
 vi.mock("./ImagePreview", () => ({ default: () => <div data-testid="image-preview" /> }));
 
+function mountFakeEditor(lineCount: number, maxColumn: number) {
+  const editor = {
+    onDidScrollChange: vi.fn(),
+    addAction: vi.fn(),
+    getModel: () => ({ getLineCount: () => lineCount, getLineMaxColumn: () => maxColumn }),
+    setPosition: vi.fn(),
+    revealPositionInCenterIfOutsideViewport: vi.fn(),
+    focus: vi.fn(),
+  };
+  act(() => monacoHarness.props?.onMount(editor));
+  return editor;
+}
+
 describe("EditorView terminal path reveal", () => {
   beforeEach(() => {
     monacoHarness.props = null;
@@ -44,15 +57,7 @@ describe("EditorView terminal path reveal", () => {
     render(<EditorView filePath={filePath} projectPath="C:/repo" />);
     await screen.findByTestId("monaco-editor");
 
-    const editor = {
-      onDidScrollChange: vi.fn(),
-      addAction: vi.fn(),
-      getModel: () => ({ getLineCount: () => 2, getLineMaxColumn: () => 4 }),
-      setPosition: vi.fn(),
-      revealPositionInCenterIfOutsideViewport: vi.fn(),
-      focus: vi.fn(),
-    };
-    act(() => monacoHarness.props?.onMount(editor));
+    const editor = mountFakeEditor(2, 4);
 
     await waitFor(() => expect(editor.setPosition).toHaveBeenCalledWith({ lineNumber: 2, column: 4 }));
     expect(editor.revealPositionInCenterIfOutsideViewport).toHaveBeenCalledWith({ lineNumber: 2, column: 4 });
@@ -64,15 +69,7 @@ describe("EditorView terminal path reveal", () => {
     const filePath = "C:/repo/src/App.tsx";
     render(<EditorView filePath={filePath} projectPath="C:/repo" />);
     await screen.findByTestId("monaco-editor");
-    const editor = {
-      onDidScrollChange: vi.fn(),
-      addAction: vi.fn(),
-      getModel: () => ({ getLineCount: () => 20, getLineMaxColumn: () => 10 }),
-      setPosition: vi.fn(),
-      revealPositionInCenterIfOutsideViewport: vi.fn(),
-      focus: vi.fn(),
-    };
-    act(() => monacoHarness.props?.onMount(editor));
+    const editor = mountFakeEditor(20, 10);
 
     act(() => { useEditorRevealStore.getState().request(filePath, 12, 8); });
 
@@ -83,15 +80,7 @@ describe("EditorView terminal path reveal", () => {
     const filePath = "C:/repo/docs/readme.md";
     render(<EditorView filePath={filePath} projectPath="C:/repo" />);
     await screen.findByTestId("monaco-editor");
-    const editor = {
-      onDidScrollChange: vi.fn(),
-      addAction: vi.fn(),
-      getModel: () => ({ getLineCount: () => 20, getLineMaxColumn: () => 10 }),
-      setPosition: vi.fn(),
-      revealPositionInCenterIfOutsideViewport: vi.fn(),
-      focus: vi.fn(),
-    };
-    act(() => monacoHarness.props?.onMount(editor));
+    const editor = mountFakeEditor(20, 10);
     fireEvent.click(screen.getByRole("button", { name: "preview" }));
     expect(screen.queryByTestId("monaco-editor")).not.toBeInTheDocument();
 

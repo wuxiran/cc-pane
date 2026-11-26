@@ -4,118 +4,52 @@ import {
   formatTerminalPathsForShell,
   quoteShellPath,
   windowsPathToWsl,
+  type TerminalRuntimeKind,
 } from "./terminalDropPaths";
 
 describe("quoteShellPath", () => {
-  it("wraps a plain path in single quotes", () => {
-    expect(quoteShellPath("/tmp/a.txt")).toBe("'/tmp/a.txt'");
-  });
-
-  it("quotes a path with spaces so the shell keeps it as one argument", () => {
-    expect(quoteShellPath("C:\\my dir\\a b.txt")).toBe("'C:\\my dir\\a b.txt'");
-  });
-
-  it("preserves non-ASCII characters", () => {
-    expect(quoteShellPath("/Users/me/企业基本信息.sql")).toBe(
-      "'/Users/me/企业基本信息.sql'",
-    );
-  });
-
-  it("escapes embedded single quotes with the '\\'' idiom", () => {
+  it.each([
+    ["a plain path", "/tmp/a.txt", "'/tmp/a.txt'"],
+    ["a path with spaces (kept as one argument)", "C:\\my dir\\a b.txt", "'C:\\my dir\\a b.txt'"],
+    ["non-ASCII characters", "/Users/me/企业基本信息.sql", "'/Users/me/企业基本信息.sql'"],
     // /tmp/o'brien -> '/tmp/o'\''brien'
-    expect(quoteShellPath("/tmp/o'brien")).toBe("'/tmp/o'\\''brien'");
+    ["embedded single quotes via the '\\'' idiom", "/tmp/o'brien", "'/tmp/o'\\''brien'"],
+  ])("quotes %s", (_label, input, expected) => {
+    expect(quoteShellPath(input)).toBe(expected);
   });
 });
 
 describe("windowsPathToWsl", () => {
-  it("converts a drive-letter path with backslashes", () => {
-    expect(windowsPathToWsl("D:\\repos\\app")).toBe("/mnt/d/repos/app");
-  });
-
-  it("converts a drive-letter path with forward slashes", () => {
-    expect(windowsPathToWsl("C:/Users/me")).toBe("/mnt/c/Users/me");
-  });
-
-  it("lowercases the drive letter", () => {
-    expect(windowsPathToWsl("E:\\Data")).toBe("/mnt/e/Data");
-  });
-
-  it("does not treat a drive-relative path as absolute", () => {
+  it.each<[string, string, string | null]>([
+    ["drive-letter path with backslashes", "D:\\repos\\app", "/mnt/d/repos/app"],
+    ["drive-letter path with forward slashes", "C:/Users/me", "/mnt/c/Users/me"],
+    ["uppercase drive letter is lowercased", "E:\\Data", "/mnt/e/Data"],
     // `C:relative` has no separator after the colon; not a real absolute path.
-    expect(windowsPathToWsl("C:relative")).toBeNull();
-  });
-
-  it("converts a \\\\wsl.localhost UNC path to the guest path", () => {
-    expect(windowsPathToWsl("\\\\wsl.localhost\\Ubuntu\\home\\me")).toBe(
-      "/home/me",
-    );
-  });
-
-  it("converts a \\\\wsl$ UNC path", () => {
-    expect(windowsPathToWsl("\\\\wsl$\\Debian\\etc\\hosts")).toBe("/etc/hosts");
-  });
-
-  it("returns null for a non-WSL UNC path", () => {
-    expect(windowsPathToWsl("\\\\server\\share\\file.txt")).toBeNull();
-  });
-
-  it("returns null for an already-POSIX path", () => {
-    expect(windowsPathToWsl("/home/me/file.txt")).toBeNull();
-  });
-
-  it("returns null for a relative path", () => {
-    expect(windowsPathToWsl("relative/path.txt")).toBeNull();
+    ["drive-relative path is not absolute", "C:relative", null],
+    ["\\\\wsl.localhost UNC path", "\\\\wsl.localhost\\Ubuntu\\home\\me", "/home/me"],
+    ["\\\\wsl$ UNC path", "\\\\wsl$\\Debian\\etc\\hosts", "/etc/hosts"],
+    ["non-WSL UNC path", "\\\\server\\share\\file.txt", null],
+    ["already-POSIX path", "/home/me/file.txt", null],
+    ["relative path", "relative/path.txt", null],
+  ])("%s", (_label, input, expected) => {
+    expect(windowsPathToWsl(input)).toBe(expected);
   });
 });
 
 describe("formatTerminalPathsForShell", () => {
-  it("quotes and space-joins local paths", () => {
-    expect(
-      formatTerminalPathsForShell(["/Users/me/Desktop/企业基本信息.sql", "/tmp/second.sql"]),
-    ).toBe("'/Users/me/Desktop/企业基本信息.sql' '/tmp/second.sql'");
-  });
-
-  it("keeps a path with spaces as a single quoted argument", () => {
-    expect(formatTerminalPathsForShell(["C:\\my dir\\a b.txt"])).toBe(
-      "'C:\\my dir\\a b.txt'",
-    );
-  });
-
-  it("filters out empty paths", () => {
-    expect(formatTerminalPathsForShell(["", "/tmp/a.txt", ""])).toBe("'/tmp/a.txt'");
-  });
-
-  it("returns an empty string when all paths are empty", () => {
-    expect(formatTerminalPathsForShell(["", ""])).toBe("");
-  });
-
-  it("defaults to local when runtimeKind is omitted", () => {
-    expect(formatTerminalPathsForShell(["D:\\repos\\app"])).toBe("'D:\\repos\\app'");
-  });
-
-  it("converts Windows paths to guest paths for wsl sessions", () => {
-    expect(
-      formatTerminalPathsForShell(["D:\\repos\\app"], { runtimeKind: "wsl" }),
-    ).toBe("'/mnt/d/repos/app'");
-  });
-
-  it("converts each wsl path and keeps already-POSIX ones unchanged", () => {
-    expect(
-      formatTerminalPathsForShell(["D:\\repos\\app", "/home/me/x.txt"], {
-        runtimeKind: "wsl",
-      }),
-    ).toBe("'/mnt/d/repos/app' '/home/me/x.txt'");
-  });
-
-  it("quotes spaces after wsl conversion", () => {
-    expect(
-      formatTerminalPathsForShell(["D:\\my dir\\a b.txt"], { runtimeKind: "wsl" }),
-    ).toBe("'/mnt/d/my dir/a b.txt'");
-  });
-
-  it("returns an empty string for ssh sessions (honest no-op)", () => {
-    expect(
-      formatTerminalPathsForShell(["D:\\repos\\app"], { runtimeKind: "ssh" }),
-    ).toBe("");
+  it.each<[string, string[], TerminalRuntimeKind | undefined, string]>([
+    ["quotes and space-joins local paths",
+      ["/Users/me/Desktop/企业基本信息.sql", "/tmp/second.sql"], "local",
+      "'/Users/me/Desktop/企业基本信息.sql' '/tmp/second.sql'"],
+    ["filters out empty paths", ["", "/tmp/a.txt", ""], "local", "'/tmp/a.txt'"],
+    ["returns an empty string when all paths are empty", ["", ""], "local", ""],
+    ["defaults to local (no WSL conversion) when runtimeKind is omitted", ["D:\\repos\\app"], undefined, "'D:\\repos\\app'"],
+    ["converts each wsl path and keeps already-POSIX ones unchanged",
+      ["D:\\repos\\app", "/home/me/x.txt"], "wsl", "'/mnt/d/repos/app' '/home/me/x.txt'"],
+    ["quotes spaces after wsl conversion", ["D:\\my dir\\a b.txt"], "wsl", "'/mnt/d/my dir/a b.txt'"],
+    ["returns an empty string for ssh sessions (honest no-op)", ["D:\\repos\\app"], "ssh", ""],
+  ])("%s", (_label, paths, runtimeKind, expected) => {
+    const options = runtimeKind ? { runtimeKind } : undefined;
+    expect(formatTerminalPathsForShell(paths, options)).toBe(expected);
   });
 });

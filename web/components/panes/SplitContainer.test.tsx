@@ -118,21 +118,16 @@ describe("SplitContainer narrow-mode protection", () => {
     vi.restoreAllMocks();
   });
 
-  it("applies pane min-width floor and horizontal scroll at xs for horizontal splits", () => {
-    setViewportWidth(500);
+  it.each<[string, number]>([
+    ["xs", 500],
+    ["sm (just below md)", 767],
+  ])("applies pane min-width floor and horizontal scroll at %s (%dpx) for horizontal splits", (_label, width) => {
+    setViewportWidth(width);
     const { container } = render(<SplitContainer pane={makeSplit()} />);
 
     expect(lastSplitViewProps?.paneMinWidth).toBe(NARROW_PANE_MIN_WIDTH_PX);
     expect(wrapperOf(container).style.overflowX).toBe("auto");
     expect(wrapperOf(container).style.overflowY).toBe("hidden");
-  });
-
-  it("applies the same protection at sm (just below md)", () => {
-    setViewportWidth(767);
-    const { container } = render(<SplitContainer pane={makeSplit()} />);
-
-    expect(lastSplitViewProps?.paneMinWidth).toBe(NARROW_PANE_MIN_WIDTH_PX);
-    expect(wrapperOf(container).style.overflowX).toBe("auto");
   });
 
   it("does not protect vertical splits at narrow widths (rows stay full width)", () => {

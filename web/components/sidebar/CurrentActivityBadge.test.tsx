@@ -46,35 +46,21 @@ describe("CurrentActivityBadge", () => {
     vi.useRealTimers();
   });
 
-  it("shows Waiting input when binding status is waiting", () => {
-    render(<CurrentActivityBadge binding={makeBinding({ status: "waiting" })} />);
-    expect(screen.getByText(/Waiting input/)).toBeVisible();
+  it.each<[TaskBinding["status"], RegExp]>([
+    ["waiting", /Waiting input/],
+    ["pending", /Pending/],
+    ["completed", /Done/],
+    ["failed", /Failed/],
+    ["running", /Thinking/],
+  ])("binding status %s without tool info shows %s", (status, label) => {
+    render(<CurrentActivityBadge binding={makeBinding({ status })} />);
+    expect(screen.getByText(label)).toBeVisible();
   });
 
   it("shows Waiting input when terminal status is waitingInput", () => {
     setStatus("s1", makeStatus({ status: "waitingInput" }));
     render(<CurrentActivityBadge binding={makeBinding({ status: "running", sessionId: "s1" })} />);
     expect(screen.getByText(/Waiting input/)).toBeVisible();
-  });
-
-  it("shows Pending for pending bindings", () => {
-    render(<CurrentActivityBadge binding={makeBinding({ status: "pending" })} />);
-    expect(screen.getByText(/Pending/)).toBeVisible();
-  });
-
-  it("shows Done for completed bindings", () => {
-    render(<CurrentActivityBadge binding={makeBinding({ status: "completed" })} />);
-    expect(screen.getByText(/Done/)).toBeVisible();
-  });
-
-  it("shows Failed for failed bindings", () => {
-    render(<CurrentActivityBadge binding={makeBinding({ status: "failed" })} />);
-    expect(screen.getByText(/Failed/)).toBeVisible();
-  });
-
-  it("shows Thinking for running bindings with no tool info", () => {
-    render(<CurrentActivityBadge binding={makeBinding({ status: "running" })} />);
-    expect(screen.getByText(/Thinking/)).toBeVisible();
   });
 
   it("renders a Bash tool label with a compacted summary", () => {
@@ -86,16 +72,13 @@ describe("CurrentActivityBadge", () => {
     expect(screen.getByText(/Bash 'npm run build'/)).toBeVisible();
   });
 
-  it("renders an edit/write tool label with a wrench icon", () => {
-    setStatus("s1", makeStatus({ currentToolName: "Edit", currentToolSummary: "file.ts" }));
+  it.each([
+    ["Edit", "file.ts", /🔧 Edit file.ts/],
+    ["Grep", "pattern", /🔎 Grep pattern/],
+  ])("renders the %s tool label with its category icon", (currentToolName, currentToolSummary, label) => {
+    setStatus("s1", makeStatus({ currentToolName, currentToolSummary }));
     render(<CurrentActivityBadge binding={makeBinding({ status: "running", sessionId: "s1" })} />);
-    expect(screen.getByText(/🔧 Edit file.ts/)).toBeVisible();
-  });
-
-  it("renders a read/grep/glob tool label with a magnifier icon", () => {
-    setStatus("s1", makeStatus({ currentToolName: "Grep", currentToolSummary: "pattern" }));
-    render(<CurrentActivityBadge binding={makeBinding({ status: "running", sessionId: "s1" })} />);
-    expect(screen.getByText(/🔎 Grep pattern/)).toBeVisible();
+    expect(screen.getByText(label)).toBeVisible();
   });
 
   it("truncates long tool summaries beyond 32 chars", () => {

@@ -116,15 +116,6 @@ describe("TerminalContextMenu", () => {
     expect(screen.queryByRole("menuitem", { name: /适应大小|Fit Terminal/i })).not.toBeInTheDocument();
   });
 
-  it("修复显示触发回调", async () => {
-    const user = userEvent.setup();
-    const props = renderMenu();
-
-    openMenu();
-    await user.click(await screen.findByRole("menuitem", { name: /修复显示|Repair Display/i }));
-    expect(props.onRepairDisplay).toHaveBeenCalledTimes(1);
-  });
-
   it("更多子菜单里的操作分别触发回调", async () => {
     const user = userEvent.setup();
     const props = renderMenu({ onResetBuffer: vi.fn() });
@@ -165,25 +156,25 @@ describe("TerminalContextMenu", () => {
     const user = userEvent.setup();
     const props = renderMenu();
 
-    await openSubmenu(user, COPY_MENU);
-    fireEvent.click(await screen.findByRole("menuitem", { name: /终端全部输出|All Terminal Output/i }));
-    expect(props.onCopyBuffer).toHaveBeenCalledTimes(1);
+    for (const [name, handler] of [
+      [/终端全部输出|All Terminal Output/i, props.onCopyBuffer],
+      [/会话 ID|Session ID/i, props.onCopySessionId],
+    ] as const) {
+      await openSubmenu(user, COPY_MENU);
+      fireEvent.click(await screen.findByRole("menuitem", { name }));
+      expect(handler).toHaveBeenCalledTimes(1);
+    }
 
-    await openSubmenu(user, COPY_MENU);
-    fireEvent.click(await screen.findByRole("menuitem", { name: /会话 ID|Session ID/i }));
-    expect(props.onCopySessionId).toHaveBeenCalledTimes(1);
-
-    openMenu();
-    await user.click(await screen.findByRole("menuitem", { name: /打开项目目录|Open Project Fold/i }));
-    expect(props.onOpenProjectDir).toHaveBeenCalledTimes(1);
-
-    openMenu();
-    await user.click(await screen.findByRole("menuitem", { name: /粘贴|^Paste$/i }));
-    expect(props.onPaste).toHaveBeenCalledTimes(1);
-
-    openMenu();
-    await user.click(await screen.findByRole("menuitem", { name: /全选|Select All/i }));
-    expect(props.onSelectAll).toHaveBeenCalledTimes(1);
+    for (const [name, handler] of [
+      [/打开项目目录|Open Project Fold/i, props.onOpenProjectDir],
+      [/粘贴|^Paste$/i, props.onPaste],
+      [/全选|Select All/i, props.onSelectAll],
+      [/修复显示|Repair Display/i, props.onRepairDisplay],
+    ] as const) {
+      openMenu();
+      await user.click(await screen.findByRole("menuitem", { name }));
+      expect(handler).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("未提供 onResetBuffer 时（镜像/只读视图）不渲染重建终端画面", async () => {

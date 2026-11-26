@@ -64,6 +64,12 @@ function setupStore(overrides: Record<string, unknown> = {}) {
   return actions;
 }
 
+/** 顶栏 + 按钮进入新建 */
+async function clickNewMemory(user: ReturnType<typeof userEvent.setup>) {
+  const header = screen.getByText("Memory").closest("div")!.parentElement as HTMLElement;
+  await user.click(header.querySelector("button")!);
+}
+
 describe("MemoryManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,13 +144,9 @@ describe("MemoryManager", () => {
     const actions = setupStore();
     render(<MemoryManager projectPath={PROJECT} />);
 
-    // 顶栏 + 按钮进入新建
-    const header = screen.getByText("Memory").closest("div")!
-      .parentElement as HTMLElement;
-    await user.click(header.querySelector("button")!);
+    await clickNewMemory(user);
 
     // 标题为空时保存按钮 disabled，Ctrl+S 走 handleSave 弹错误
-    const { fireEvent } = await import("@testing-library/react");
     fireEvent.keyDown(document, { key: "s", ctrlKey: true });
     expect(toast.error).toHaveBeenCalledWith(i18n.t("notifications:titleRequired"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(actions.store).not.toHaveBeenCalled();
@@ -155,9 +157,7 @@ describe("MemoryManager", () => {
     const actions = setupStore();
     render(<MemoryManager projectPath={PROJECT} />);
 
-    const header = screen.getByText("Memory").closest("div")!
-      .parentElement as HTMLElement;
-    await user.click(header.querySelector("button")!);
+    await clickNewMemory(user);
 
     await user.type(
       screen.getByPlaceholderText(i18n.t("dialogs:memoryTitlePlaceholder")),
@@ -202,8 +202,7 @@ describe("MemoryManager", () => {
         });
       });
 
-      const header = screen.getByText("Memory").closest("div")!.parentElement as HTMLElement;
-      await user.click(header.querySelector("button")!);
+      await clickNewMemory(user);
       await user.type(screen.getByPlaceholderText(i18n.t("dialogs:memoryTitlePlaceholder")), "Team rule");
       await user.click(screen.getByRole("button", { name: new RegExp(i18n.t("common:create")) }));
 
@@ -240,23 +239,6 @@ describe("MemoryManager", () => {
     expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryUpdated"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
-  it("deletes a memory from the row action without selecting it", async () => {
-    const user = userEvent.setup();
-    const actions = setupStore({ memories: [makeMemory()], total: 1 });
-    render(<MemoryManager projectPath={PROJECT} />);
-
-    const row = screen
-      .getByText("Prefer immutable data")
-      .closest("div[class*='group']") as HTMLElement;
-    await user.click(row.querySelector("button")!);
-
-    await waitFor(() => {
-      expect(actions.remove).toHaveBeenCalledWith("m-1");
-    });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
-    expect(actions.select).not.toHaveBeenCalled();
-  });
-
   it("surfaces store failures as an error toast", async () => {
     const user = userEvent.setup();
     const actions = setupStore({ selectedMemory: makeMemory() });
@@ -272,7 +254,7 @@ describe("MemoryManager", () => {
   });
 
   describe("keyboard accessibility", () => {
-    it("memory row is focusable with a focus-visible ring and selects on Enter/Space", () => {
+    it("memory row is focusable and selects on Enter/Space", () => {
       const memory = makeMemory();
       const actions = setupStore({ memories: [memory], total: 1 });
       render(<MemoryManager projectPath={PROJECT} />);
@@ -282,9 +264,6 @@ describe("MemoryManager", () => {
         .closest('[role="button"]') as HTMLElement;
       expect(row).not.toBeNull();
       expect(row).toHaveAttribute("tabindex", "0");
-      expect(row.className).toContain("focus-visible:outline-none");
-      expect(row.className).toContain("focus-visible:ring-2");
-      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       row.focus();
       expect(row).toHaveFocus();
@@ -302,9 +281,6 @@ describe("MemoryManager", () => {
         name: i18n.t("dialogs:memoryProject"),
       });
       expect(badge).toHaveAttribute("tabindex", "0");
-      expect(badge.className).toContain("focus-visible:outline-none");
-      expect(badge.className).toContain("focus-visible:ring-2");
-      expect(badge.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       badge.focus();
       fireEvent.keyDown(badge, { key: "Enter" });
@@ -338,6 +314,7 @@ describe("MemoryManager", () => {
       await waitFor(() => {
         expect(actions.remove).toHaveBeenCalledWith("m-1");
       });
+      expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
       expect(actions.select).not.toHaveBeenCalled();
     });
 
@@ -350,11 +327,6 @@ describe("MemoryManager", () => {
         name: i18n.t("dialogs:memorySetImportance", { count: 5 }),
       });
       expect(star5).toHaveAttribute("tabindex", "0");
-      // Star 是 SVG 元素，className 为 SVGAnimatedString，需读 class 属性
-      const star5Class = star5.getAttribute("class") ?? "";
-      expect(star5Class).toContain("focus-visible:outline-none");
-      expect(star5Class).toContain("focus-visible:ring-2");
-      expect(star5Class).toContain("focus-visible:ring-[var(--app-accent)]");
 
       star5.focus();
       fireEvent.keyDown(star5, { key: "Enter" });

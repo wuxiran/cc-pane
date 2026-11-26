@@ -56,16 +56,26 @@ function makeBrowserTab(browserUrl = "http://localhost:5173/"): Tab {
   };
 }
 
-function renderBrowser(options: { visibility?: "active" | "visible" | "hidden" } = {}) {
+function browserElement(
+  options: { url?: string; popup?: boolean; popupMode?: "mini" } = {},
+) {
+  return (
+    <TooltipProvider>
+      <BrowserTabContent
+        tab={makeBrowserTab(options.url)}
+        popup={options.popup}
+        popupMode={options.popupMode}
+      />
+    </TooltipProvider>
+  );
+}
+
+function renderBrowser(options: { visibility?: "active" | "visible" | "hidden"; url?: string } = {}) {
   // 可见性走单源：browser 组件自己按 tab.id 订阅 primary 视图
   useTabViewStateStore
     .getState()
     .reportView("browser-tab-1", "primary", options.visibility ?? "active");
-  return render(
-    <TooltipProvider>
-      <BrowserTabContent tab={makeBrowserTab()} />
-    </TooltipProvider>,
-  );
+  return render(browserElement({ url: options.url }));
 }
 
 describe("BrowserTabContent", () => {
@@ -94,7 +104,7 @@ describe("BrowserTabContent", () => {
   });
 
   it("keeps the live native page when a popup host unmounts", async () => {
-    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup /></TooltipProvider>);
+    const view = render(browserElement({ popup: true }));
     await waitFor(() => expect(browserService.create).toHaveBeenCalled());
     view.unmount();
     expect(browserService.releaseHost).not.toHaveBeenCalled();
@@ -132,11 +142,11 @@ describe("BrowserTabContent", () => {
   });
 
   it("switches a popup to mini chrome without recreating or navigating the page", async () => {
-    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup /></TooltipProvider>);
+    const view = render(browserElement({ popup: true }));
     await waitFor(() => expect(browserService.create).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) }));
     await waitFor(() => expect(browserService.setViewport).toHaveBeenCalled());
-    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup popupMode="mini" /></TooltipProvider>);
+    view.rerender(browserElement({ popup: true, popupMode: "mini" }));
     expect(screen.getByTestId("browser-mini-toolbar")).toBeVisible();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) })).not.toBeInTheDocument();
@@ -176,7 +186,7 @@ describe("BrowserTabContent", () => {
     vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
     const view = renderBrowser();
     await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
-    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://new.test/")} /></TooltipProvider>);
+    view.rerender(browserElement({ url: "https://new.test/" }));
     await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(2));
     await act(async () => finishOld());
     expect(browserService.releaseHost).not.toHaveBeenCalled();
@@ -186,11 +196,10 @@ describe("BrowserTabContent", () => {
   it("keeps a pending create through an early normalized page-load URL", async () => {
     let finish!: () => void;
     vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "active");
-    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test")} /></TooltipProvider>);
+    const view = renderBrowser({ url: "https://example.test" });
     await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
     act(() => { pageLoadHandler?.({ tabId: "browser-tab-1", url: "https://example.test/", loading: false }); });
-    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test/")} /></TooltipProvider>);
+    view.rerender(browserElement({ url: "https://example.test/" }));
     await act(async () => finish());
     expect(browserService.releaseHost).not.toHaveBeenCalled();
     expect(browserService.create).toHaveBeenCalledTimes(1);
@@ -380,12 +389,7 @@ describe("BrowserTabContent", () => {
   // 没人会去调 navigate()（那条路只有地址栏走），所以创建 effect 必须认
   // 「URL 变了」这件事——否则 webview 永远停在上一个死端口上。
   it("re-points the existing webview when the url is replaced externally", async () => {
-    useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "active");
-    const view = render(
-      <TooltipProvider>
-        <BrowserTabContent tab={makeBrowserTab("http://127.0.0.1:53157/")} />
-      </TooltipProvider>,
-    );
+    const view = renderBrowser({ url: "http://127.0.0.1:53157/" });
 
     await waitFor(() => expect(browserService.create).toHaveBeenCalledWith(
       "browser-tab-1",
@@ -395,11 +399,7 @@ describe("BrowserTabContent", () => {
     ));
 
     // dsh 实例重启，端口换了
-    view.rerender(
-      <TooltipProvider>
-        <BrowserTabContent tab={makeBrowserTab("http://127.0.0.1:51819/")} />
-      </TooltipProvider>,
-    );
+    view.rerender(browserElement({ url: "http://127.0.0.1:51819/" }));
 
     await waitFor(() => expect(browserService.navigate).toHaveBeenCalledWith(
       "browser-tab-1", "http://127.0.0.1:51819/",
@@ -410,12 +410,7 @@ describe("BrowserTabContent", () => {
   // 页面自身的导航（用户点链接）会把新 URL 回填进 store。那不是「外部换 URL」，
   // 不得触发重新导航——否则用户点一下链接就被弹回原页。
   it("does not re-navigate when the page itself navigated", async () => {
-    useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "active");
-    const view = render(
-      <TooltipProvider>
-        <BrowserTabContent tab={makeBrowserTab("http://localhost:5173/")} />
-      </TooltipProvider>,
-    );
+    const view = renderBrowser({ url: "http://localhost:5173/" });
     await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -425,11 +420,7 @@ describe("BrowserTabContent", () => {
         loading: false,
       });
     });
-    view.rerender(
-      <TooltipProvider>
-        <BrowserTabContent tab={makeBrowserTab("http://localhost:5173/docs")} />
-      </TooltipProvider>,
-    );
+    view.rerender(browserElement({ url: "http://localhost:5173/docs" }));
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(browserService.create).toHaveBeenCalledTimes(1);

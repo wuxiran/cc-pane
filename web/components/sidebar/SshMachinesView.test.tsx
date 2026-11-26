@@ -240,13 +240,18 @@ describe("SshMachinesView", () => {
 
   it("selects a machine on click without opening a terminal", async () => {
     const user = userEvent.setup();
-    const { onOpenTerminal } = renderView([createMachine()]);
+    // 两台机器：首台会被自动选中，点第二台才能证明是点击生效
+    const { onOpenTerminal } = renderView([
+      createMachine(),
+      createMachine({ id: "m-2", name: "stagingbox", host: "staging.local" }),
+    ]);
 
-    await user.click(screen.getByText("devbox"));
+    await user.click(screen.getByText("stagingbox"));
 
-    expect(useSshMachinePreferencesStore.getState().selectedMachineId).toBe("m-1");
+    expect(useSshMachinePreferencesStore.getState().selectedMachineId).toBe("m-2");
     expect(onOpenTerminal).not.toHaveBeenCalled();
-    expect(screen.getByText("devbox").closest("[aria-selected='true']")).not.toBeNull();
+    expect(screen.getByText("stagingbox").closest("[aria-selected='true']")).not.toBeNull();
+    expect(screen.getByText("devbox").closest("[aria-selected='true']")).toBeNull();
   });
 
   it("auto-selects the only machine in the list", async () => {
@@ -331,14 +336,12 @@ describe("SshMachinesView", () => {
     });
   });
 
-  it("hides the filter row with five or fewer machines", () => {
-    renderView(manyMachines(5));
-    expect(screen.queryByTestId("ssh-machine-filters")).toBeNull();
-  });
-
-  it("shows the filter row without a visible scrollbar above five machines", () => {
-    renderView(manyMachines(6));
-    expect(screen.getByTestId("ssh-machine-filters")).toHaveClass("no-scrollbar");
+  it.each([
+    [5, false],
+    [6, true],
+  ])("with %i machines the filter row shown = %s", (count, shown) => {
+    renderView(manyMachines(count));
+    expect(screen.queryByTestId("ssh-machine-filters") !== null).toBe(shown);
   });
 
   it("auto-checks every machine once on mount, two at a time", async () => {
@@ -463,13 +466,15 @@ describe("SshMachinesView", () => {
     renderView([createMachine()]);
 
     fireEvent.contextMenu(screen.getByText("devbox"));
-    fireEvent.click(
-      await screen.findByRole("menuitem", {
-        name: /Check Connectivity|检测连通|连通性/i,
-      }),
-    );
+    const item = await screen.findByRole("menuitem", {
+      name: /Check Connectivity|检测连通|连通性/i,
+    });
+    // 挂载 500ms 后会自动探测；此处必须在自动探测之前同步断言，否则用例空转
+    expect(mockCheck).not.toHaveBeenCalled();
+    fireEvent.click(item);
 
-    await waitFor(() => expect(mockCheck).toHaveBeenCalledWith("m-1"));
+    expect(mockCheck).toHaveBeenCalledTimes(1);
+    expect(mockCheck).toHaveBeenCalledWith("m-1");
   });
 
   it("connects from the context menu", async () => {

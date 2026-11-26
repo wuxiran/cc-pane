@@ -49,6 +49,16 @@ const changedFile: GitChangedFile = {
   newMode: "100644",
 };
 
+const emptyDiff = {
+  hunks: [],
+  stats: { additions: 0, deletions: 0, changes: 0 },
+  isBinary: false,
+  truncated: false,
+  truncationReason: null,
+  oldSize: 1,
+  newSize: 1,
+};
+
 describe("GitTimelinePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,15 +70,7 @@ describe("GitTimelinePanel", () => {
     });
     vi.mocked(gitService.getLocalBranches).mockResolvedValue(["main", "feature"]);
     vi.mocked(gitService.listCommitFiles).mockResolvedValue([changedFile]);
-    vi.mocked(gitService.getDiff).mockResolvedValue({
-      hunks: [],
-      stats: { additions: 0, deletions: 0, changes: 0 },
-      isBinary: false,
-      truncated: false,
-      truncationReason: null,
-      oldSize: 1,
-      newSize: 1,
-    });
+    vi.mocked(gitService.getDiff).mockResolvedValue(emptyDiff);
   });
 
   it("分支切换丢弃较晚返回的旧 log 响应", async () => {
@@ -148,15 +150,7 @@ describe("GitTimelinePanel", () => {
       "/repo",
       { mode: "worktreeVsHead", file: secondFile },
     ));
-    await act(async () => newDiff.resolve({
-      hunks: [],
-      stats: { additions: 0, deletions: 0, changes: 0 },
-      isBinary: false,
-      truncated: false,
-      truncationReason: null,
-      oldSize: 1,
-      newSize: 1,
-    }));
+    await act(async () => newDiff.resolve(emptyDiff));
     expect(await screen.findByText(/文件内容没有变更|No changes in file content/i)).toBeVisible();
     await act(async () => oldDiff.reject(new Error("stale diff error")));
     expect(screen.queryByText("stale diff error")).not.toBeInTheDocument();

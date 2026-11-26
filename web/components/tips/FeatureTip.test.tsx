@@ -33,20 +33,22 @@ function renderTip(overrides: Partial<ComponentProps<typeof FeatureTip>> = {}) {
   return props;
 }
 
+function setBinding(actionId: string, key: string) {
+  const current = useSettingsStore.getState().settings!;
+  useSettingsStore.setState({
+    settings: {
+      ...current,
+      shortcuts: { ...current.shortcuts, bindings: { ...current.shortcuts.bindings, [actionId]: key } },
+    },
+  });
+}
+
 describe("FeatureTip", () => {
   beforeEach(() => {
     openUrl.mockClear();
     vi.spyOn(window, "open").mockReturnValue(null);
-    const settings = useSettingsStore.getState().getDefaults();
-    useSettingsStore.setState({
-      settings: {
-        ...settings,
-        shortcuts: {
-          ...settings.shortcuts,
-          bindings: { ...settings.shortcuts.bindings, "command-palette": "Alt+P" },
-        },
-      },
-    });
+    useSettingsStore.setState({ settings: useSettingsStore.getState().getDefaults() });
+    setBinding("command-palette", "Alt+P");
   });
 
   it("实时显示用户绑定的键位，不使用默认硬编码", () => {
@@ -58,16 +60,8 @@ describe("FeatureTip", () => {
 
   it("解绑后隐藏 chip 并切换为绑定引导文案", () => {
     renderTip();
-    const current = useSettingsStore.getState().settings!;
 
-    act(() => {
-      useSettingsStore.setState({
-        settings: {
-          ...current,
-          shortcuts: { ...current.shortcuts, bindings: { ...current.shortcuts.bindings, "command-palette": "" } },
-        },
-      });
-    });
+    act(() => setBinding("command-palette", ""));
 
     expect(screen.queryByText("Alt+P")).not.toBeInTheDocument();
     expect(screen.getByText(/去设置绑定命令面板快捷键|Bind the Command Palette in Settings/i)).toBeInTheDocument();
@@ -81,16 +75,7 @@ describe("FeatureTip", () => {
   });
 
   it("actionId 不在放行清单内时不渲染限制说明", () => {
-    const current = useSettingsStore.getState().settings!;
-    useSettingsStore.setState({
-      settings: {
-        ...current,
-        shortcuts: {
-          ...current.shortcuts,
-          bindings: { ...current.shortcuts.bindings, "toggle-layouts": "Ctrl+Alt+L" },
-        },
-      },
-    });
+    setBinding("toggle-layouts", "Ctrl+Alt+L");
 
     renderTip({
       definition: {
@@ -107,16 +92,7 @@ describe("FeatureTip", () => {
   });
 
   it("未绑定快捷键时不同时冒出限制说明", () => {
-    const current = useSettingsStore.getState().settings!;
-    useSettingsStore.setState({
-      settings: {
-        ...current,
-        shortcuts: {
-          ...current.shortcuts,
-          bindings: { ...current.shortcuts.bindings, "command-palette": "" },
-        },
-      },
-    });
+    setBinding("command-palette", "");
 
     renderTip();
 

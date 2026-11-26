@@ -161,7 +161,6 @@ describe("WorkspaceMigrationDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "先预检" }));
 
-    await waitFor(() => expect(previewWorkspaceMigration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("迁移预览")).toBeVisible();
     expect(screen.getByText("api")).toBeVisible();
     expect(screen.getByText("external")).toBeVisible();
@@ -202,7 +201,6 @@ describe("WorkspaceMigrationDialog", () => {
     await screen.findByText("迁移预览");
     await user.click(screen.getByRole("button", { name: "执行迁移" }));
 
-    await waitFor(() => expect(executeWorkspaceMigration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/已完成切换/)).toBeVisible();
     expect(screen.getByText(/快照 ID：snap-e/)).toBeVisible();
     expect(load).toHaveBeenCalled();

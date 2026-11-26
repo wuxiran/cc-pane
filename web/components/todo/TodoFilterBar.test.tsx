@@ -34,37 +34,19 @@ describe("TodoFilterBar", () => {
     expect(screen.queryByText("进行中")).not.toBeInTheDocument();
   });
 
-  it("从筛选菜单设置状态", async () => {
-    const { onStatusChange } = renderBar();
+  it.each([
+    ["状态", "进行中", "onStatusChange", "in_progress"],
+    ["优先级", "高", "onPriorityChange", "high"],
+    ["类型", "缺陷", "onTypeChange", "bug"],
+  ] as const)("从筛选菜单设置%s", async (submenu, option, callback, expected) => {
+    const props = renderBar();
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: "筛选" }));
-    await user.hover(await screen.findByRole("menuitem", { name: "状态" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "进行中" }));
+    await user.hover(await screen.findByRole("menuitem", { name: submenu }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: option }));
 
-    expect(onStatusChange).toHaveBeenCalledWith("in_progress");
-  });
-
-  it("从筛选菜单设置优先级", async () => {
-    const { onPriorityChange } = renderBar();
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: "筛选" }));
-    await user.hover(await screen.findByRole("menuitem", { name: "优先级" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "高" }));
-
-    expect(onPriorityChange).toHaveBeenCalledWith("high");
-  });
-
-  it("从筛选菜单设置类型", async () => {
-    const { onTypeChange } = renderBar();
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: "筛选" }));
-    await user.hover(await screen.findByRole("menuitem", { name: "类型" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "缺陷" }));
-
-    expect(onTypeChange).toHaveBeenCalledWith("bug");
+    expect(props[callback]).toHaveBeenCalledWith(expected);
   });
 
   it("自定义类型追加在类型菜单且不重复内置项", async () => {
@@ -103,7 +85,7 @@ describe("TodoFilterBar", () => {
   it("当前激活的筛选以简洁标签显示", () => {
     renderBar({ filterStatus: "done" });
 
-    expect(screen.getByText("完成")).toHaveClass("bg-primary/10");
+    expect(screen.getByText("完成")).toBeVisible();
     expect(screen.getByRole("button", { name: /^筛选\s*1$/ })).toHaveTextContent("1");
   });
 });

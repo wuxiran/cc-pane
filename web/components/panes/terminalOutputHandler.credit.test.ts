@@ -19,6 +19,8 @@ interface HarnessOptions {
   failWrite?: boolean;
   /** 不同步回调 onWritten，模拟写队列悬挂。 */
   deferWrite?: boolean;
+  /** 渲染变换把整段剥空（alt-screen 序列）。 */
+  renderEmpty?: boolean;
 }
 
 function makeHandler(options: HarnessOptions): {
@@ -32,8 +34,8 @@ function makeHandler(options: HarnessOptions): {
     terminalRef: { current: options.term === undefined ? fakeTerm : options.term },
     hiddenWriteBufferRef,
     isRenderVisible: () => options.visible,
-    keepCliOutputInNormalBuffer: false,
-    renderTerminalData: (data) => data,
+    keepCliOutputInNormalBuffer: Boolean(options.renderEmpty),
+    renderTerminalData: (data) => (options.renderEmpty ? "" : data),
     writeTerminalData: (_data, onWritten) => {
       if (options.failWrite) return Promise.reject(new Error("write failed"));
       if (options.deferWrite) {
@@ -91,18 +93,8 @@ describe("createTerminalOutputHandler 的流控信用归还", () => {
   });
 
   it("整段被剥空（alt-screen 序列）时归还", () => {
-    const hiddenWriteBufferRef: { current: TerminalHiddenWriteBuffer | null } = { current: null };
-    const handler = createTerminalOutputHandler({
-      sessionId: "s1",
-      terminalRef: { current: fakeTerm },
-      hiddenWriteBufferRef,
-      isRenderVisible: () => true,
-      keepCliOutputInNormalBuffer: true,
-      renderTerminalData: () => "", // 全被剥掉
-      writeTerminalData: () => Promise.resolve(),
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
+    // deferWrite：若实现仍把空串送进写队列，信用就不会归还。
+    const { handler } = makeHandler({ visible: true, renderEmpty: true, deferWrite: true });
     expect(dispatch(handler, "\x1b[?1049h", 10)).toHaveBeenCalledTimes(1);
   });
 

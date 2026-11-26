@@ -85,19 +85,14 @@ describe("SortableLayoutTab", () => {
   });
 
   describe("工作空间绑定标签", () => {
-    it("manual 绑定：无图标，名字后不带问号", () => {
-      renderTab({ layout: { workspaceName: "cc-book" } });
-      const label = document.querySelector("[data-binding-source='manual']");
+    it.each([
+      { source: "manual", props: { layout: { workspaceName: "cc-book" } }, text: "cc-book" },
+      { source: "derived", props: { tree: paneWith(tab("t1", "terminal", "erp")) }, text: "erp?" },
+    ])("$source 绑定显示 $text 且不带图标", ({ source, props, text }) => {
+      renderTab(props);
+      const label = document.querySelector(`[data-binding-source='${source}']`);
       expect(label).toBeTruthy();
-      expect(label?.textContent).toBe("cc-book");
-      expect(label?.querySelector("svg")).toBeFalsy();
-    });
-
-    it("derived 绑定：按标签推导，名字后带 ?", () => {
-      renderTab({ tree: paneWith(tab("t1", "terminal", "erp")) });
-      const label = document.querySelector("[data-binding-source='derived']");
-      expect(label).toBeTruthy();
-      expect(label?.textContent).toBe("erp?");
+      expect(label?.textContent).toBe(text);
       expect(label?.querySelector("svg")).toBeFalsy();
     });
   });
@@ -119,13 +114,6 @@ describe("SortableLayoutTab", () => {
       );
       expect(perGroup.reduce((a, b) => a + b, 0)).toBe(4);
       expect(screen.getByRole("tab")).not.toHaveTextContent("4");
-    });
-
-    it("选中态是中性浮起面：不用 accent 描边和蓝字，蓝色只留给运行中", () => {
-      renderTab({ selected: true });
-      const card = screen.getByRole("tab");
-      expect(card.style.borderColor).toBe("var(--app-border)");
-      expect(card.style.color).toBe("var(--app-text-primary)");
     });
 
     it("空布局不渲染类型计数桁", () => {

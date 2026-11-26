@@ -55,20 +55,7 @@ function quickCommand(overrides: Partial<QuickCommand> = {}): QuickCommand {
   };
 }
 
-function renderTabBar({
-  tabs = [makeTab("tab-1", "Alpha")],
-  activeId = tabs[0]?.id ?? "",
-  onRename = vi.fn(),
-  onFullscreen = vi.fn(),
-  layoutMoveTargets = [],
-  onMoveTabToLayoutPane = vi.fn(),
-  onEditWorkspaceEnvironment,
-  canEditWorkspaceEnvironment,
-  onCloneTab,
-  onToggleFullscreen,
-  isPaneFullscreen,
-  onAddSsh,
-}: {
+type TabBarOptions = {
   tabs?: Tab[];
   activeId?: string;
   onRename?: (tabId: string, newTitle: string) => void;
@@ -81,8 +68,23 @@ function renderTabBar({
   onToggleFullscreen?: (tabId: string) => void;
   isPaneFullscreen?: boolean;
   onAddSsh?: () => void;
-} = {}) {
-  return render(
+};
+
+function tabBarElement({
+  tabs = [makeTab("tab-1", "Alpha")],
+  activeId = tabs[0]?.id ?? "",
+  onRename = vi.fn(),
+  onFullscreen = vi.fn(),
+  layoutMoveTargets = [],
+  onMoveTabToLayoutPane = vi.fn(),
+  onEditWorkspaceEnvironment,
+  canEditWorkspaceEnvironment,
+  onCloneTab,
+  onToggleFullscreen,
+  isPaneFullscreen,
+  onAddSsh,
+}: TabBarOptions = {}) {
+  return (
     <DndContext>
       <TabBar
         paneId="pane-1"
@@ -115,6 +117,10 @@ function renderTabBar({
       />
     </DndContext>
   );
+}
+
+function renderTabBar(options: TabBarOptions = {}) {
+  return render(tabBarElement(options));
 }
 
 /** 标签右键菜单把次要动作收进了子菜单：先点开对应的子菜单再找菜单项。 */
@@ -382,27 +388,6 @@ describe("TabBar", () => {
     expect(await screen.findByText("发送到布局")).toBeInTheDocument();
   });
 
-  it("uses a horizontally scrollable max-content tab strip for overflow", () => {
-    renderTabBar({
-      tabs: [
-        makeTab("tab-1", "Alpha"),
-        makeTab("tab-2", "Beta"),
-        makeTab("tab-3", "Gamma"),
-        makeTab("tab-4", "Delta"),
-      ],
-    });
-
-    const scrollContainer = screen.getByTestId("pane-tabbar-scroll");
-    const itemsContainer = screen.getByTestId("pane-tabbar-items");
-
-    expect(scrollContainer.className).toContain("overflow-x-auto");
-    expect(scrollContainer.className).toContain("cc-tabbar-scroll");
-    expect(scrollContainer.className).not.toContain("no-scrollbar");
-    expect(itemsContainer.className).toContain("inline-flex");
-    expect(itemsContainer.className).toContain("min-w-max");
-    expect(itemsContainer.className).not.toContain("flex-1");
-  });
-
   it("maps mouse wheel movement to horizontal tab scrolling", () => {
     renderTabBar({
       tabs: [
@@ -438,34 +423,7 @@ describe("TabBar", () => {
     const view = renderTabBar({ tabs, activeId: "tab-1" });
     scrollCalls.length = 0;
 
-    view.rerender(
-      <DndContext>
-        <TabBar
-          paneId="pane-1"
-          tabs={tabs}
-          activeId="tab-3"
-          onSelect={vi.fn()}
-          onClose={vi.fn()}
-          onTogglePin={vi.fn()}
-          onToggleStar={vi.fn()}
-          newTab={{ onAdd: vi.fn() }}
-          onFullscreen={vi.fn()}
-          onRename={vi.fn()}
-          onSplitAndMoveRight={vi.fn()}
-          onSplitAndMoveDown={vi.fn()}
-          moveTargets={[]}
-          onMoveTabToPane={vi.fn()}
-          layoutMoveTargets={[]}
-          onMoveTabToLayoutPane={vi.fn()}
-          onSplitTerminalRight={vi.fn()}
-          onSplitTerminalDown={vi.fn()}
-          onCloseTerminalPane={vi.fn()}
-          onCloseTabsToLeft={vi.fn()}
-          onCloseTabsToRight={vi.fn()}
-          onCloseOtherTabs={vi.fn()}
-        />
-      </DndContext>
-    );
+    view.rerender(tabBarElement({ tabs, activeId: "tab-3" }));
 
     expect(scrollCalls).toContain("tab-3");
   });

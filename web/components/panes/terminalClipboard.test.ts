@@ -40,10 +40,17 @@ function createClipboardData({
   } as unknown as DataTransfer;
 }
 
+const imageClipboard = (text?: string) =>
+  createClipboardData({ text, items: [{ kind: "file", type: "image/png" }] });
+const textClipboard = (text: string) =>
+  createClipboardData({ text, items: [{ kind: "string", type: "text/plain" }] });
+
 describe("terminalClipboard", () => {
   const webReadTextMock = vi.fn();
 
   beforeEach(() => {
+    // 默认剪贴板里没有文件路径；个别用例自行覆盖。
+    invokeMock.mockResolvedValue([]);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -62,23 +69,18 @@ describe("terminalClipboard", () => {
   it("detects image clipboard items", () => {
     expect(
       clipboardHasImage(
-        createClipboardData({
-          items: [{ kind: "file", type: "image/png" }],
-        })
+        imageClipboard()
       )
     ).toBe(true);
 
     expect(
       clipboardHasImage(
-        createClipboardData({
-          items: [{ kind: "string", type: "text/plain" }],
-        })
+        textClipboard("")
       )
     ).toBe(false);
   });
 
   it("prefers clipboard images and returns the saved file path", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockResolvedValue({
       filePath: "C:/shots/screenshot_1.png",
       width: 10,
@@ -86,10 +88,7 @@ describe("terminalClipboard", () => {
     });
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        text: "ignored text",
-        items: [{ kind: "file", type: "image/png" }],
-      })
+      imageClipboard("ignored text")
     );
 
     expect(saveClipboardImageMock).toHaveBeenCalledTimes(1);
@@ -101,12 +100,8 @@ describe("terminalClipboard", () => {
   });
 
   it("falls back to plain text when the clipboard does not contain an image", async () => {
-    invokeMock.mockResolvedValue([]);
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        text: "hello world",
-        items: [{ kind: "string", type: "text/plain" }],
-      })
+      textClipboard("hello world")
     );
 
     expect(saveClipboardImageMock).not.toHaveBeenCalled();
@@ -117,13 +112,10 @@ describe("terminalClipboard", () => {
   });
 
   it("reports an unavailable clipboard image when image paste was requested", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockResolvedValue(null);
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        items: [{ kind: "file", type: "image/png" }],
-      })
+      imageClipboard()
     );
 
     expect(result).toEqual({
@@ -134,7 +126,6 @@ describe("terminalClipboard", () => {
   });
 
   it("reads text from the Tauri clipboard when paste data is unavailable", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockResolvedValue(null);
     tauriReadTextMock.mockResolvedValue("from tauri clipboard");
 
@@ -149,13 +140,10 @@ describe("terminalClipboard", () => {
   });
 
   it("returns a save failure when persisting a clipboard image errors", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockRejectedValue(new Error("disk full"));
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        items: [{ kind: "file", type: "image/png" }],
-      })
+      imageClipboard()
     );
 
     expect(result).toEqual({
@@ -168,7 +156,6 @@ describe("terminalClipboard", () => {
   it("still pastes text when the clipboard image probe throws", async () => {
     // Linux: `screenshot_save_clipboard_image` reads the clipboard off the main
     // thread and the invoke can be rejected outright. Text paste must survive.
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockRejectedValue(new Error("clipboard image read failed"));
     tauriReadTextMock.mockResolvedValue("plain text from clipboard");
 
@@ -182,14 +169,10 @@ describe("terminalClipboard", () => {
   });
 
   it("still pastes text when the image probe throws on an event-driven paste", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockRejectedValue(new Error("clipboard image read failed"));
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        text: "hello world",
-        items: [{ kind: "file", type: "image/png" }],
-      })
+      imageClipboard("hello world")
     );
 
     expect(result).toEqual({
@@ -199,7 +182,6 @@ describe("terminalClipboard", () => {
   });
 
   it("reports the image failure only when no text is available", async () => {
-    invokeMock.mockResolvedValue([]);
     saveClipboardImageMock.mockRejectedValue(new Error("disk full"));
     tauriReadTextMock.mockResolvedValue("");
     webReadTextMock.mockResolvedValue("");
@@ -227,10 +209,7 @@ describe("terminalClipboard", () => {
     ]);
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        text: "企业基本信息.sql",
-        items: [{ kind: "string", type: "text/plain" }],
-      })
+      textClipboard("企业基本信息.sql")
     );
 
     expect(result).toEqual({
@@ -266,10 +245,7 @@ describe("terminalClipboard", () => {
     invokeMock.mockRejectedValue(new Error("clipboard unavailable"));
 
     const result = await resolveTerminalPastePayload(
-      createClipboardData({
-        text: "hello world",
-        items: [{ kind: "string", type: "text/plain" }],
-      })
+      textClipboard("hello world")
     );
 
     expect(result).toEqual({

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -78,6 +78,35 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
   };
 }
 
+/** 新建表单（Claude 标签）。 */
+function renderNew(onBack = vi.fn()) {
+  const actions = setupStore();
+  render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+  return actions;
+}
+
+/** 编辑已有供应商。 */
+function renderEdit(existing: Provider) {
+  const actions = setupStore([existing]);
+  render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+  return actions;
+}
+
+type User = ReturnType<typeof userEvent.setup>;
+
+const typeName = (user: User, name: string) =>
+  user.type(screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")), name);
+
+const clickSave = (user: User) => user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+/** 点「添加模型」并填模型 id，返回该行。 */
+async function addModelRow(user: User, id: string) {
+  await user.click(screen.getByRole("button", { name: i18n.t("settings:addProviderModel") }));
+  const row = screen.getByTestId("provider-model-row-0");
+  await user.type(within(row).getByLabelText(i18n.t("settings:providerModelId")), id);
+  return row;
+}
+
 const jsonEditor = () => screen.getByTestId("json-editor") as HTMLTextAreaElement;
 const revealJson = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("button", { name: i18n.t("settings:showSensitiveJson") }));
@@ -99,8 +128,7 @@ describe("ProviderFormPanel", () => {
 
   it("mirrors form fields into the config JSON", async () => {
     const user = userEvent.setup();
-    setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    renderNew();
 
     await user.type(screen.getByPlaceholderText("sk-ant-..."), "sk-key");
     await user.type(screen.getByPlaceholderText("https://api.anthropic.com"), "https://x.dev");
@@ -114,11 +142,9 @@ describe("ProviderFormPanel", () => {
   });
 
   it("parses config JSON edits back into the form fields", async () => {
-    setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    renderNew();
     await revealJson(userEvent.setup());
 
-    const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(jsonEditor(), {
       target: {
         value: JSON.stringify({
@@ -137,8 +163,7 @@ describe("ProviderFormPanel", () => {
 
   it("clears fields that the new provider type does not use", async () => {
     const user = userEvent.setup();
-    setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    renderNew();
 
     await user.type(screen.getByPlaceholderText("https://api.anthropic.com"), "https://x.dev");
     // anthropic → bedrock：baseUrl/apiKey 不再适用
@@ -158,8 +183,7 @@ describe("ProviderFormPanel", () => {
   it("does not render API keys in the JSON editor until explicitly revealed", async () => {
     const user = userEvent.setup();
     const existing = makeProvider({ apiKey: "visible-only-after-confirmation" });
-    setupStore([existing]);
-    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+    renderEdit(existing);
 
     expect(screen.queryByTestId("json-editor")).not.toBeInTheDocument();
     await revealJson(user);
@@ -168,25 +192,20 @@ describe("ProviderFormPanel", () => {
 
   it("requires a name before saving", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    const actions = renderNew();
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:nameRequired"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(actions.addProvider).not.toHaveBeenCalled();
   });
 
   it("adds a new provider with empty fields normalized to null", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
     const onBack = vi.fn();
-    render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+    const actions = renderNew(onBack);
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "  New One  "
-    );
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await typeName(user, "  New One  ");
+    await clickSave(user);
 
     await waitFor(() => {
       expect(actions.addProvider).toHaveBeenCalledWith(
@@ -204,57 +223,29 @@ describe("ProviderFormPanel", () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  it("updates an existing provider and preserves id and isDefault", async () => {
+  it("updates an existing provider, preserving id and isDefault and hydrating an empty model catalog", async () => {
     const user = userEvent.setup();
-    const existing = makeProvider();
-    const actions = setupStore([existing]);
-    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+    const actions = renderEdit(makeProvider());
 
-    // 编辑态字段预填
+    // 编辑态字段预填；旧版 provider 无模型目录 → 空态
     expect(screen.getByDisplayValue("Existing")).toBeInTheDocument();
+    expect(screen.getByText(i18n.t("settings:noProviderModels"))).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     await waitFor(() => {
       expect(actions.updateProvider).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "p-1", isDefault: true, apiKey: "sk-old" })
+        expect.objectContaining({ id: "p-1", isDefault: true, apiKey: "sk-old", models: [], defaultModelId: null })
       );
     });
     expect(actions.addProvider).not.toHaveBeenCalled();
   });
 
-  it("hydrates a legacy provider with an empty model catalog", async () => {
-    const user = userEvent.setup();
-    const existing = makeProvider();
-    const actions = setupStore([existing]);
-    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
-
-    expect(screen.getByText(i18n.t("settings:noProviderModels"))).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
-
-    await waitFor(() => {
-      expect(actions.updateProvider).toHaveBeenCalledWith(
-        expect.objectContaining({ models: [], defaultModelId: null })
-      );
-    });
-  });
-
   it("adds the first model as the default and saves the catalog", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    const actions = renderNew();
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "Model Provider"
-    );
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
-    );
-    const row = screen.getByTestId("provider-model-row-0");
-    await user.type(
-      within(row).getByLabelText(i18n.t("settings:providerModelId")),
-      "claude-sonnet-4-5"
-    );
+    await typeName(user, "Model Provider");
+    const row = await addModelRow(user, "claude-sonnet-4-5");
     await user.type(
       within(row).getByLabelText(i18n.t("settings:providerModelLabel")),
       "Sonnet 4.5"
@@ -271,7 +262,7 @@ describe("ProviderFormPanel", () => {
       })
     ).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     await waitFor(() => {
       expect(actions.addProvider).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -288,27 +279,16 @@ describe("ProviderFormPanel", () => {
 
   it("toggles a model's hidden-in-dropdown flag and saves it", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    const actions = renderNew();
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "Hidden Model Provider"
-    );
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
-    );
-    const row = screen.getByTestId("provider-model-row-0");
-    await user.type(
-      within(row).getByLabelText(i18n.t("settings:providerModelId")),
-      "legacy-model"
-    );
+    await typeName(user, "Hidden Model Provider");
+    const row = await addModelRow(user, "legacy-model");
     const toggle = within(row).getByTestId("provider-model-hidden-0");
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     await waitFor(() => {
       expect(actions.addProvider).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -328,8 +308,7 @@ describe("ProviderFormPanel", () => {
       ],
       defaultModelId: "claude-opus-4-1",
     } as Provider;
-    const actions = setupStore([existing]);
-    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+    const actions = renderEdit(existing);
 
     const rows = screen.getAllByTestId(/^provider-model-row-/);
     expect(
@@ -351,7 +330,7 @@ describe("ProviderFormPanel", () => {
         name: i18n.t("settings:removeProviderModel"),
       })
     );
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
 
     await waitFor(() => {
       expect(actions.updateProvider).toHaveBeenCalledWith(
@@ -396,7 +375,7 @@ describe("ProviderFormPanel", () => {
       })
     ).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
 
     await waitFor(() => expect(actions.addProvider).toHaveBeenCalled());
     expect(actions.updateProvider).not.toHaveBeenCalled();
@@ -410,21 +389,10 @@ describe("ProviderFormPanel", () => {
   // 对 200k 的主流 Claude 模型那是个「看着精确但分母是错的」百分比。
   it("leaves the context window empty for new model rows and applies the preset picker", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    const actions = renderNew();
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "Window Provider"
-    );
-    await user.click(
-      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
-    );
-    const row = screen.getByTestId("provider-model-row-0");
-    await user.type(
-      within(row).getByLabelText(i18n.t("settings:providerModelId")),
-      "claude-sonnet-4-5"
-    );
+    await typeName(user, "Window Provider");
+    const row = await addModelRow(user, "claude-sonnet-4-5");
 
     const windowInput = within(row).getByLabelText(
       i18n.t("settings:providerModelContextWindow")
@@ -441,7 +409,7 @@ describe("ProviderFormPanel", () => {
     );
     expect(windowInput).toHaveValue("200000");
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     await waitFor(() => {
       expect(actions.addProvider).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -458,16 +426,12 @@ describe("ProviderFormPanel", () => {
 
   it("shows save failures as an error toast and stays on the form", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
-    actions.addProvider.mockRejectedValue(new Error("io error"));
     const onBack = vi.fn();
-    render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+    const actions = renderNew(onBack);
+    actions.addProvider.mockRejectedValue(new Error("io error"));
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "X"
-    );
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await typeName(user, "X");
+    await clickSave(user);
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalled();
     });
@@ -501,7 +465,7 @@ describe("ProviderFormPanel", () => {
     // website 提供获取 API key 链接
     expect(screen.getByRole("link")).toHaveAttribute("href", "https://example.com");
 
-    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await clickSave(user);
     await waitFor(() => {
       expect(actions.addProvider).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -514,9 +478,8 @@ describe("ProviderFormPanel", () => {
 
   it("calls onBack from the cancel button without saving", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
     const onBack = vi.fn();
-    render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+    const actions = renderNew(onBack);
     await user.click(screen.getByRole("button", { name: i18n.t("common:cancel") }));
     expect(onBack).toHaveBeenCalled();
     expect(actions.addProvider).not.toHaveBeenCalled();
@@ -525,13 +488,9 @@ describe("ProviderFormPanel", () => {
   it("asks before discarding provider form changes", async () => {
     const user = userEvent.setup();
     const onBack = vi.fn();
-    setupStore();
-    render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+    renderNew(onBack);
 
-    await user.type(
-      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
-      "Unsaved Provider",
-    );
+    await typeName(user, "Unsaved Provider");
     await user.click(screen.getByRole("button", { name: i18n.t("common:cancel") }));
 
     expect(onBack).not.toHaveBeenCalled();

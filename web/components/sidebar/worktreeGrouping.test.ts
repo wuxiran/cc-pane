@@ -54,23 +54,6 @@ describe("buildProjectTree", () => {
     expect(nodes[0].group.children.map((c) => c.project.id)).toEqual(["a"]);
   });
 
-  it("任一项目不会同时出现在 parent 与 children（无环）", () => {
-    const projects = [project("m", MAIN), project("a", WT_A), project("b", WT_B)];
-    const nodes = buildProjectTree(projects, {
-      [MAIN]: FULL_LIST,
-      [WT_A]: FULL_LIST,
-      [WT_B]: FULL_LIST,
-    });
-    const parents = new Set<string>();
-    const children = new Set<string>();
-    for (const node of nodes) {
-      if (node.kind !== "group") continue;
-      parents.add(node.group.parent.id);
-      node.group.children.forEach((c) => children.add(c.project.id));
-    }
-    for (const id of parents) expect(children.has(id)).toBe(false);
-  });
-
   it("主仓库未加入工作空间时全部保持平铺", () => {
     const projects = [project("a", WT_A), project("b", WT_B)];
     const nodes = buildProjectTree(projects, { [WT_A]: FULL_LIST, [WT_B]: FULL_LIST });

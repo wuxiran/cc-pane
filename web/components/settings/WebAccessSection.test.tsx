@@ -112,7 +112,6 @@ describe("WebAccessSection", () => {
     await act(async () => {});
 
     expect(await screen.findByText(/未运行 · http:\/\/127\.0\.0\.1:18080/)).toBeInTheDocument();
-    expect(settingsService.getWebAccessStatus).toHaveBeenCalled();
   });
 
   it("leads with the local device card: version, running Web URL and update status", async () => {
@@ -152,14 +151,6 @@ describe("WebAccessSection", () => {
     expect(within(device).getByRole("heading", { name: "本机" })).toBeInTheDocument();
     expect(screen.getByTestId("device-info-os")).not.toHaveTextContent("macOS 15.5");
     warn.mockRestore();
-  });
-
-  it("uses the secondary style for service actions", async () => {
-    await i18n.changeLanguage("en");
-    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
-    await act(async () => {});
-
-    expect(screen.getByRole("button", { name: "Open Web" })).toHaveAttribute("data-variant", "secondary");
   });
 
   it("switches Web access copy when the app language changes", async () => {
@@ -294,14 +285,14 @@ describe("WebAccessSection", () => {
     await waitFor(() => expect(settingsService.openWebAccess).toHaveBeenCalled());
 
     await user.click(screen.getByRole("button", { name: /启动/ }));
-    await waitFor(() => expect(settingsService.startWebAccess).toHaveBeenCalled());
-    expect(await screen.findByText(/运行中/)).toBeInTheDocument();
+    expect(await screen.findByText(/^运行中/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /停止/ }));
-    await waitFor(() => expect(settingsService.stopWebAccess).toHaveBeenCalled());
+    expect(await screen.findByText(/^未运行/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /重启/ }));
-    await waitFor(() => expect(settingsService.restartWebAccess).toHaveBeenCalled());
+    expect(await screen.findByText(/^运行中/)).toBeInTheDocument();
+    expect(settingsService.restartWebAccess).toHaveBeenCalled();
   });
 
   it("hides start/stop/restart outside the desktop runtime", async () => {

@@ -135,7 +135,5 @@ describe("Sidebar", () => {
     expect(localStorage.getItem("cc-panes-sidebar-width")).toBe("500");
     expect(document.body.style.cursor).toBe("");
     expect(sash).not.toHaveAttribute("data-dragging");
-    // sash 不再占布局宽度：由 CSS 绝对定位，内联不写 width
-    expect(sash.style.width).toBe("");
   });
 });

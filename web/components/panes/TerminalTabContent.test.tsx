@@ -2,7 +2,7 @@ import i18n from "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { Tab } from "@/types";
+import type { Tab, TerminalPaneLeaf } from "@/types";
 import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
@@ -49,6 +49,14 @@ function createTerminalTab(overrides?: Partial<Tab>): Tab {
   };
 }
 
+/** 单 leaf 终端 tab：只覆写 leaf 字段（id/sessionId 有默认值）。 */
+function leafTab(leaf: Partial<TerminalPaneLeaf>, tab?: Partial<Tab>): Tab {
+  return createTerminalTab({
+    ...tab,
+    terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: null, ...leaf },
+  });
+}
+
 function renderTerminalTabContent(
   tab: Tab,
   options?: { visible?: boolean; showStatusBar?: boolean },
@@ -85,9 +93,10 @@ describe("TerminalTabContent", () => {
     [undefined, undefined, "/tmp/project"],
   ])("reviews the actual terminal cwd with launch/workspace/project precedence", async (launchExtras, workspacePath, expected) => {
     const openReview = vi.spyOn(usePanesStore.getState(), "openReviewTab").mockReturnValue("review-tab");
-    renderTerminalTabContent(createTerminalTab({ terminalRootPane: {
-      type: "leaf", id: "leaf-1", sessionId: "live-session", launchExtras, workspacePath,
-    } }), { showStatusBar: true });
+    renderTerminalTabContent(
+      leafTab({ sessionId: "live-session", launchExtras, workspacePath }),
+      { showStatusBar: true },
+    );
     fireEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
     expect(openReview).toHaveBeenCalledExactlyOnceWith(expected, {
       paneId: undefined, checkpointChatId: "cli:live-session", cliSessionId: "live-session",
@@ -95,24 +104,24 @@ describe("TerminalTabContent", () => {
   });
 
   it("excludes WSL terminals from local repository review even when the host path exists", () => {
-    renderTerminalTabContent(createTerminalTab({
-      wsl: { distro: "Ubuntu", remotePath: "/repo" },
-      terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: "live-session" },
-    }), { showStatusBar: true });
+    renderTerminalTabContent(
+      leafTab({ sessionId: "live-session" }, { wsl: { distro: "Ubuntu", remotePath: "/repo" } }),
+      { showStatusBar: true },
+    );
     expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])("renders the per-terminal status bar only when showStatusBar=%s", (showStatusBar) => {
+    renderTerminalTabContent(
+      leafTab({ sessionId: "session-grid", cliTool: "none" }, { sessionId: "session-grid", cliTool: "none" }),
+      { showStatusBar },
+    );
+    expect(screen.queryByTestId("terminal-status-bar") !== null).toBe(showStatusBar);
   });
 
   it("把 leaf 的 launchId 传给 TerminalView，而不是复用 tab projectId", () => {
     renderTerminalTabContent(
-      createTerminalTab({
-        projectId: "stable-tab-project-id",
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          launchId: "leaf-launch-id",
-        },
-      }),
+      leafTab({ launchId: "leaf-launch-id" }, { projectId: "stable-tab-project-id" }),
     );
 
     expect(terminalViewMock).toHaveBeenCalledWith(
@@ -125,25 +134,12 @@ describe("TerminalTabContent", () => {
     const retryTerminalLaunch = vi.fn();
     const removeTerminalLaunch = vi.fn();
     usePanesStore.setState({ retryTerminalLaunch, removeTerminalLaunch } as never);
-    renderTerminalTabContent(
-      createTerminalTab({
-        launchError: {
-          code: "PATH_NOT_FOUND",
-          message: "Launch directory does not exist",
-          params: { path: "/missing/repo" },
-        },
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          launchError: {
-            code: "PATH_NOT_FOUND",
-            message: "Launch directory does not exist",
-            params: { path: "/missing/repo" },
-          },
-        },
-      }),
-    );
+    const launchError = {
+      code: "PATH_NOT_FOUND",
+      message: "Launch directory does not exist",
+      params: { path: "/missing/repo" },
+    };
+    renderTerminalTabContent(leafTab({ launchError }, { launchError }));
 
     expect(screen.getByText("终端启动失败")).toBeVisible();
     expect(screen.getByText("路径不存在")).toBeVisible();
@@ -165,53 +161,30 @@ describe("TerminalTabContent", () => {
     expect(screen.queryByText("从左侧选择一个项目以启动终端")).not.toBeInTheDocument();
   });
 
-  it("hides ready overlay once the leaf has a session", () => {
-    renderTerminalTabContent(
-      createTerminalTab({
-        sessionId: "session-1",
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: "session-1",
-        },
-      }),
-    );
+  it("hides the launching/ready overlay once the leaf has a session", () => {
+    renderTerminalTabContent(leafTab({ sessionId: "session-1" }, { sessionId: "session-1" }));
 
+    expect(screen.queryByText("正在启动终端")).not.toBeInTheDocument();
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
   });
 
-  it("shows the restore log while a visible leaf is restoring", () => {
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-        },
-      }),
-    );
+  it("shows the select-project hint only for an empty terminal tab", () => {
+    renderTerminalTabContent(createTerminalTab({ projectId: "", projectPath: "" }));
+
+    expect(screen.getByText("准备就绪")).toBeVisible();
+    expect(screen.getByText("从左侧选择一个项目以启动终端")).toBeVisible();
+    expect(screen.queryByText("正在启动终端")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["visible", true],
+    ["hidden", false],
+  ])("shows the restore log for a %s restoring leaf", (_label, visible) => {
+    renderTerminalTabContent(leafTab({ restoring: true }), { visible });
 
     expect(screen.getByText("恢复日志")).toBeVisible();
     expect(screen.getByText("恢复链路初始化中...")).toBeVisible();
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
-  });
-
-  it("shows restoring overlay for a hidden restoring leaf", () => {
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-        },
-      }),
-      { visible: false },
-    );
-
-    expect(screen.getByText("恢复日志")).toBeVisible();
-    expect(screen.getByText("恢复链路初始化中...")).toBeVisible();
   });
 
   it("prints real restore events without the queued restore placeholder", () => {
@@ -219,16 +192,7 @@ describe("TerminalTabContent", () => {
       active: 3,
       pending: 1,
     });
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-        },
-      }),
-    );
+    renderTerminalTabContent(leafTab({ restoring: true }));
 
     expect(screen.getByRole("log")).toHaveTextContent(
       i18n.t("panes:restoreLog.events.queue_queued", { pending: 1, active: 3 }),
@@ -245,17 +209,7 @@ describe("TerminalTabContent", () => {
       field: "projectPath",
       values: { record: "D:\\work\\a", leaf: "D:\\work\\b" },
     });
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-          restoreBlockedReason: "identity-mismatch",
-        },
-      }),
-    );
+    renderTerminalTabContent(leafTab({ restoring: true, restoreBlockedReason: "identity-mismatch" }));
 
     expect(screen.getByText("会话恢复已阻断")).toBeVisible();
     expect(screen.getByRole("log")).toHaveTextContent(
@@ -277,51 +231,15 @@ describe("TerminalTabContent", () => {
     expect(screen.getByRole("log")).toHaveTextContent("identity-mismatch");
   });
 
-  it("shows the select-project hint only for an empty terminal tab", () => {
-    renderTerminalTabContent(
-      createTerminalTab({
-        projectId: "",
-        projectPath: "",
-      }),
-    );
-
-    expect(screen.getByText("准备就绪")).toBeVisible();
-    expect(screen.getByText("从左侧选择一个项目以启动终端")).toBeVisible();
-    expect(screen.queryByText("正在启动终端")).not.toBeInTheDocument();
-  });
-
-  it("shows a per-terminal status bar when the layout is a grid", () => {
-    renderTerminalTabContent(
-      createTerminalTab({
-        sessionId: "session-grid",
-        cliTool: "none",
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: "session-grid",
-          cliTool: "none",
-        },
-      }),
-      { showStatusBar: true },
-    );
-
-    expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
+  const legacyDaemonLeaf = () => leafTab({
+    restoring: true,
+    savedSessionId: "old-session",
+    restoreBlockedReason: "claims-unsupported",
   });
 
   it("offers an explicit cold restore for a live legacy-daemon session", async () => {
     coldRestoreMock.mockResolvedValue(undefined);
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-          savedSessionId: "old-session",
-          restoreBlockedReason: "claims-unsupported",
-        },
-      }),
-    );
+    renderTerminalTabContent(legacyDaemonLeaf());
 
     expect(screen.getByText("需要恢复旧会话")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "结束旧终端并恢复" }));
@@ -333,18 +251,7 @@ describe("TerminalTabContent", () => {
 
   it("keeps the blocked surface and reports a failed legacy-daemon kill", async () => {
     coldRestoreMock.mockRejectedValue(new Error("daemon unavailable"));
-    renderTerminalTabContent(
-      createTerminalTab({
-        terminalRootPane: {
-          type: "leaf",
-          id: "leaf-1",
-          sessionId: null,
-          restoring: true,
-          savedSessionId: "old-session",
-          restoreBlockedReason: "claims-unsupported",
-        },
-      }),
-    );
+    renderTerminalTabContent(legacyDaemonLeaf());
 
     fireEvent.click(screen.getByRole("button", { name: "结束旧终端并恢复" }));
 
@@ -355,25 +262,18 @@ describe("TerminalTabContent", () => {
 
 describe("TerminalTabContent 启动失败提示（L2-2）", () => {
   it("leaf.launchFailure 存在且无会话时显示修复命令，且不阻断 TerminalView 重新启动", () => {
-    const tab = createTerminalTab({
+    const wsl = { remotePath: "/mnt/d/repo", distro: "Ubuntu" };
+    renderTerminalTabContent(leafTab({
       cliTool: "claude",
-      wsl: { remotePath: "/mnt/d/repo", distro: "Ubuntu" },
-      terminalRootPane: {
-        type: "leaf",
-        id: "leaf-1",
-        sessionId: null,
-        cliTool: "claude",
-        wsl: { remotePath: "/mnt/d/repo", distro: "Ubuntu" },
-        launchFailure: {
-          reason: "native-cli-missing",
-          at: 1,
-          missingCli: "claude",
-          fixHint: "npm i -g @anthropic-ai/claude-code",
-          wslDistro: "Ubuntu",
-        },
+      wsl,
+      launchFailure: {
+        reason: "native-cli-missing",
+        at: 1,
+        missingCli: "claude",
+        fixHint: "npm i -g @anthropic-ai/claude-code",
+        wslDistro: "Ubuntu",
       },
-    });
-    renderTerminalTabContent(tab);
+    }, { cliTool: "claude", wsl }));
     const hint = screen.getByTestId("terminal-launch-failure-hint");
     expect(hint.textContent).toContain("npm i -g @anthropic-ai/claude-code");
     expect(hint.textContent).toContain("claude");
@@ -382,16 +282,11 @@ describe("TerminalTabContent 启动失败提示（L2-2）", () => {
   });
 
   it("有会话后不再显示启动失败提示", () => {
-    const tab = createTerminalTab({
-      terminalRootPane: {
-        type: "leaf",
-        id: "leaf-1",
-        sessionId: "pty-live",
-        cliTool: "claude",
-        launchFailure: { reason: "native-cli-missing", at: 1, fixHint: "x" },
-      },
-    });
-    renderTerminalTabContent(tab);
+    renderTerminalTabContent(leafTab({
+      sessionId: "pty-live",
+      cliTool: "claude",
+      launchFailure: { reason: "native-cli-missing", at: 1, fixHint: "x" },
+    }));
     expect(screen.queryByTestId("terminal-launch-failure-hint")).toBeNull();
   });
 });

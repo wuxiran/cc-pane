@@ -1,5 +1,5 @@
-import { render as rtlRender, screen, within } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { render, screen, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -13,7 +13,13 @@ vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({ getToolById }),
 }));
 
-const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
+function renderTabs(props: Partial<ComponentProps<typeof ProviderToolTabs>> = {}) {
+  return render(
+    <TooltipProvider>
+      <ProviderToolTabs activeTab="claude" onTabChange={vi.fn()} providerCounts={{}} {...props} />
+    </TooltipProvider>,
+  );
+}
 
 function tablist() {
   return screen.getByRole("tablist", { name: i18n.t("settings:cliToolSelect") });
@@ -30,9 +36,7 @@ describe("ProviderToolTabs", () => {
   });
 
   it("renders every CLI tool as an icon tab, not a dropdown", () => {
-    render(
-      <ProviderToolTabs activeTab="claude" onTabChange={vi.fn()} providerCounts={{}} />,
-    );
+    renderTabs();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(within(tablist()).getAllByRole("tab")).toHaveLength(CLI_TOOL_TABS.length);
     expect(tabNamed(i18n.t("settings:tabClaude"))).toHaveAttribute("aria-selected", "true");
@@ -42,13 +46,7 @@ describe("ProviderToolTabs", () => {
   });
 
   it("shows counts only for CLI tools with saved items", () => {
-    render(
-      <ProviderToolTabs
-        activeTab="claude"
-        onTabChange={vi.fn()}
-        providerCounts={{ claude: 3, codex: 0 }}
-      />,
-    );
+    renderTabs({ providerCounts: { claude: 3, codex: 0 } });
     expect(tabNamed(i18n.t("settings:tabClaude"))).toHaveAccessibleName(/3/);
     expect(tabNamed(i18n.t("settings:tabCodex"))).not.toHaveAccessibleName(/0/);
   });
@@ -57,9 +55,7 @@ describe("ProviderToolTabs", () => {
     getToolById.mockImplementation((id: string) =>
       id === "claude" ? { installed: true } : { installed: false },
     );
-    render(
-      <ProviderToolTabs activeTab="claude" onTabChange={vi.fn()} providerCounts={{}} />,
-    );
+    renderTabs();
     expect(tabNamed(i18n.t("settings:tabClaude"))).not.toHaveAccessibleName(
       new RegExp(i18n.t("settings:cliNotInstalled")),
     );
@@ -70,9 +66,7 @@ describe("ProviderToolTabs", () => {
 
   it("treats missing tool info as not installed", () => {
     getToolById.mockReturnValue(undefined);
-    render(
-      <ProviderToolTabs activeTab="claude" onTabChange={vi.fn()} providerCounts={{}} />,
-    );
+    renderTabs();
     expect(tabNamed(i18n.t("settings:tabClaude"))).toHaveAccessibleName(
       new RegExp(i18n.t("settings:cliNotInstalled")),
     );
@@ -81,9 +75,7 @@ describe("ProviderToolTabs", () => {
   it("calls onTabChange with the clicked tab id", async () => {
     const user = userEvent.setup();
     const onTabChange = vi.fn();
-    render(
-      <ProviderToolTabs activeTab="claude" onTabChange={onTabChange} providerCounts={{}} />,
-    );
+    renderTabs({ onTabChange });
     await user.click(tabNamed(i18n.t("settings:tabKimi")));
     expect(onTabChange).toHaveBeenCalledWith("kimi");
   });

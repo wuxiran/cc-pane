@@ -37,7 +37,6 @@ function setupStore() {
     refresh: vi.fn().mockResolvedValue(undefined),
     createFile: vi.fn().mockResolvedValue(undefined),
     createDirectory: vi.fn().mockResolvedValue(undefined),
-    toggleShowHidden: vi.fn(),
   };
   useFileTreeStore.setState({
     trees: {},
@@ -72,10 +71,12 @@ describe("FileExplorerView", () => {
 
   it("toggles hidden files from the toolbar", async () => {
     const user = userEvent.setup();
-    const actions = setupStore();
+    setupStore();
     render(<FileExplorerView projectPath={PROJECT} />);
     await user.click(screen.getAllByRole("button")[3]);
-    expect(actions.toggleShowHidden).toHaveBeenCalled();
+    expect(useFileTreeStore.getState().showHidden).toBe(true);
+    // 工具栏图标随 store 状态切换
+    expect(screen.getAllByRole("button")[3].querySelector("svg.lucide-eye")).not.toBeNull();
   });
 
   it("creates a new file through the dialog", async () => {

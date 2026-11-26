@@ -15,6 +15,12 @@ function renderToolbar(currentPath: string) {
   return { onNavigate, onRefresh };
 }
 
+function enterEditMode(): HTMLElement {
+  // Double-click the breadcrumb container (parent of the segments)
+  fireEvent.doubleClick(screen.getByRole("button", { name: "home" }).closest("div")!.parentElement!);
+  return screen.getByRole("textbox");
+}
+
 describe("FileBrowserToolbar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,10 +87,7 @@ describe("FileBrowserToolbar", () => {
   it("enters edit mode on double click and confirms a new path on Enter", () => {
     const { onNavigate } = renderToolbar("/home/user");
 
-    // Double-click the breadcrumb container (parent of the segments)
-    fireEvent.doubleClick(screen.getByRole("button", { name: "home" }).closest("div")!.parentElement!);
-
-    const input = screen.getByRole("textbox");
+    const input = enterEditMode();
     expect(input).toHaveValue("/home/user");
 
     fireEvent.change(input, { target: { value: "/etc/hosts" } });
@@ -96,8 +99,7 @@ describe("FileBrowserToolbar", () => {
   it("does not navigate when the edited path is unchanged", () => {
     const { onNavigate } = renderToolbar("/home/user");
 
-    fireEvent.doubleClick(screen.getByRole("button", { name: "home" }).closest("div")!.parentElement!);
-    const input = screen.getByRole("textbox");
+    const input = enterEditMode();
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onNavigate).not.toHaveBeenCalled();
@@ -106,8 +108,7 @@ describe("FileBrowserToolbar", () => {
   it("cancels editing without navigating on Escape", () => {
     const { onNavigate } = renderToolbar("/home/user");
 
-    fireEvent.doubleClick(screen.getByRole("button", { name: "home" }).closest("div")!.parentElement!);
-    const input = screen.getByRole("textbox");
+    const input = enterEditMode();
     fireEvent.change(input, { target: { value: "/somewhere/else" } });
     fireEvent.keyDown(input, { key: "Escape" });
 

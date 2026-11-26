@@ -33,6 +33,15 @@ const snapshot: AcpChatSnapshot = {
   configOptions: [{ configId: "thinking", category: "thought_level", currentValue: "low", options: [{ value: "low" }, { value: "high" }] }],
 };
 const renderChat = () => render(<TooltipProvider><AgentChatTabContent tab={tab} /></TooltipProvider>);
+const INITIAL_PROMPT = [{ type: "text", text: "initial task" }];
+const chatState = () => useAgentChatStore.getState().chats[CHAT];
+/** 真后端在 start IPC 返回之前就发 ready；不能让此事件提前开放 composer。 */
+function startReturns(value: AcpChatSnapshot) {
+  vi.mocked(agentChatService.start).mockImplementation(async () => {
+    useAgentChatStore.getState().setSnapshot(CHAT, value);
+    return value;
+  });
+}
 async function launch() {
   await waitFor(() => expect(screen.getByRole("textbox")).toBeInTheDocument());
   await act(async () => { fireEvent.change(screen.getByRole("textbox"), { target: { value: "initial task" } }); });
@@ -44,11 +53,7 @@ beforeEach(() => {
   vi.mocked(agentChatService.listen).mockResolvedValue(() => {});
   vi.mocked(agentChatService.listEngines).mockResolvedValue([{ id: "claude", label: "Claude", available: true, requirement: "" }]);
   vi.mocked(agentChatService.listHistory).mockResolvedValue([]);
-  vi.mocked(agentChatService.start).mockImplementation(async () => {
-    // 真后端在 start IPC 返回之前就发 ready；不能让此事件提前开放 composer。
-    useAgentChatStore.getState().setSnapshot(CHAT, snapshot);
-    return snapshot;
-  });
+  startReturns(snapshot);
   vi.mocked(agentChatService.setMode).mockResolvedValue(undefined);
   vi.mocked(agentChatService.setModel).mockResolvedValue(undefined);
   vi.mocked(agentChatService.setConfigOption).mockResolvedValue(undefined);
@@ -68,7 +73,7 @@ describe("configured first turn", () => {
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     await launch();
     await waitFor(() => expect(agentChatService.start).toHaveBeenCalledWith(CHAT, "codex-app-server", "/project", undefined, []));
-    expect(agentChatService.prompt).toHaveBeenCalledWith(CHAT, [{ type: "text", text: "initial task" }]);
+    expect(agentChatService.prompt).toHaveBeenCalledWith(CHAT, INITIAL_PROMPT);
   });
 
   it("preserves the existing ACP default when no native engine is requested", async () => {
@@ -98,12 +103,9 @@ describe("configured first turn", () => {
     saveEngineModes("claude", [{ id: "default" }, { id: "plan" }]);
     savePreferredMode("claude", "plan");
     const changed = { ...snapshot, modes: { currentModeId: "default", availableModes: [{ id: "default" }] } };
-    vi.mocked(agentChatService.start).mockImplementation(async () => {
-      useAgentChatStore.getState().setSnapshot(CHAT, changed);
-      return changed;
-    });
+    startReturns(changed);
     renderChat(); await launch();
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toContain("plan"));
+    await waitFor(() => expect(chatState().setup?.error).toContain("plan"));
     expect(loadEnginePrefs("claude")?.preferredModeId).toBe("plan");
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     expect(screen.queryByRole("textbox")).toBeNull();
@@ -116,12 +118,9 @@ describe("configured first turn", () => {
     const user = userEvent.setup();
     savePreferredMode("claude", "removed-plan-mode");
     const changed = { ...snapshot, modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "review" }] } };
-    vi.mocked(agentChatService.start).mockImplementation(async () => {
-      useAgentChatStore.getState().setSnapshot(CHAT, changed);
-      return changed;
-    });
+    startReturns(changed);
     renderChat(); await launch();
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toContain("removed-plan-mode"));
+    await waitFor(() => expect(chatState().setup?.error).toContain("removed-plan-mode"));
     await user.click(screen.getByRole("button", { name: "default" }));
     await user.click(await screen.findByRole("menuitem", { name: "review" }));
     expect(loadEnginePrefs("claude")?.preferredModeId).toBe("review");
@@ -129,11 +128,11 @@ describe("configured first turn", () => {
     expect(agentChatService.setMode).not.toHaveBeenCalled();
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toBeTruthy();
+    expect(chatState().setup?.error).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "重新启动会话" }));
     await waitFor(() => expect(agentChatService.setMode).toHaveBeenCalledWith(CHAT, "review"));
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
-    expect(useAgentChatStore.getState().chats[CHAT].setup).toBeNull();
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
+    expect(chatState().setup).toBeNull();
   });
 
   it("uses current configOptions model choices over stale legacy choices without sending on selection", async () => {
@@ -143,12 +142,9 @@ describe("configured first turn", () => {
       ...snapshot, models: { currentModelId: "removed-model", availableModels: [{ modelId: "removed-model" }] },
       configOptions: [{ configId: "chosen-model", category: "model", type: "select", currentValue: "fast", options: [{ value: "fast" }, { value: "careful" }] }],
     };
-    vi.mocked(agentChatService.start).mockImplementation(async () => {
-      useAgentChatStore.getState().setSnapshot(CHAT, changed);
-      return changed;
-    });
+    startReturns(changed);
     renderChat(); await launch();
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toContain("removed-model"));
+    await waitFor(() => expect(chatState().setup?.error).toContain("removed-model"));
     await user.click(screen.getByRole("button", { name: "fast" }));
     await user.click(await screen.findByRole("menuitem", { name: "careful" }));
     expect(loadEnginePrefs("claude")?.preferredModelId).toBe("careful");
@@ -157,7 +153,7 @@ describe("configured first turn", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     await user.click(screen.getByRole("button", { name: "重新启动会话" }));
     await waitFor(() => expect(agentChatService.setConfigOption).toHaveBeenCalledWith(CHAT, "chosen-model", "careful"));
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
   });
 
   it.each(["failed", "exited"] as const)("does not expose setup selectors for a genuinely %s process", (phase) => {
@@ -178,10 +174,7 @@ describe("configured first turn", () => {
       ...snapshot, modes: undefined,
       configOptions: [{ configId: "operating-mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default" }, { value: "plan" }] }],
     };
-    vi.mocked(agentChatService.start).mockImplementation(async () => {
-      useAgentChatStore.getState().setSnapshot(CHAT, configOnly);
-      return configOnly;
-    });
+    startReturns(configOnly);
     let modeDone!: () => void;
     vi.mocked(agentChatService.setConfigOption).mockImplementation(() => new Promise<void>((resolve) => { modeDone = resolve; }));
     renderChat(); await launch();
@@ -192,7 +185,7 @@ describe("configured first turn", () => {
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     await act(async () => modeDone());
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
     expect(loadEnginePrefs("claude")?.modes?.map((mode) => mode.id)).toEqual(["default", "plan"]);
   });
 
@@ -202,10 +195,7 @@ describe("configured first turn", () => {
       ...snapshot, models: undefined,
       configOptions: [{ configId: "chosen-model", category: "model", type: "select", currentValue: "fast", options: [{ value: "fast" }, { value: "careful" }] }],
     };
-    vi.mocked(agentChatService.start).mockImplementation(async () => {
-      useAgentChatStore.getState().setSnapshot(CHAT, configOnly);
-      return configOnly;
-    });
+    startReturns(configOnly);
     let modelDone!: () => void;
     vi.mocked(agentChatService.setConfigOption).mockImplementation(() => new Promise<void>((resolve) => { modelDone = resolve; }));
     renderChat(); await launch();
@@ -213,7 +203,7 @@ describe("configured first turn", () => {
     expect(agentChatService.setModel).not.toHaveBeenCalled();
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     await act(async () => modelDone());
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
     expect(loadEnginePrefs("claude")?.models.map((model) => model.modelId)).toEqual(["fast", "careful"]);
   });
 
@@ -237,8 +227,8 @@ describe("configured first turn", () => {
     expect(agentChatService.setConfigOption).toHaveBeenCalledWith(CHAT, "thinking", "high");
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     await act(async () => configDone());
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
-    expect(useAgentChatStore.getState().chats[CHAT].setup).toBeNull();
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
+    expect(chatState().setup).toBeNull();
   });
 
   it("shows a model-change failure in a ready session without sending a new task", async () => {
@@ -249,7 +239,7 @@ describe("configured first turn", () => {
     // 合并选择器：chip 显示「模型 · 推理档位」，展开后在中栏选模型。
     await user.click(screen.getByRole("button", { name: /fast · low/ }));
     await user.click(await screen.findByRole("option", { name: /careful/ }));
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].items).toContainEqual(
+    await waitFor(() => expect(chatState().items).toContainEqual(
       expect.objectContaining({ type: "notice", text: "model switch rejected" }),
     ));
     expect(agentChatService.setModel).toHaveBeenCalledWith(CHAT, "careful");
@@ -262,28 +252,28 @@ describe("configured first turn", () => {
   it("keeps a rejected automatic first prompt retryable without leaving a sent user bubble", async () => {
     vi.mocked(agentChatService.prompt).mockRejectedValueOnce(new Error("first prompt rejected")).mockResolvedValueOnce(undefined);
     renderChat(); await launch();
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toBe("first prompt rejected"));
-    const chat = useAgentChatStore.getState().chats[CHAT];
+    await waitFor(() => expect(chatState().setup?.error).toBe("first prompt rejected"));
+    const chat = chatState();
     expect(chat.items.filter((item) => item.type === "user")).toHaveLength(0);
-    expect(chat.rejectedPrompt?.promptBlocks).toEqual([{ type: "text", text: "initial task" }]);
+    expect(chat.rejectedPrompt?.promptBlocks).toEqual(INITIAL_PROMPT);
     expect(chat.items.filter((item) => item.type === "notice" && item.text === "first prompt rejected")).toHaveLength(1);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "重新启动会话" })));
     expect(agentChatService.prompt).toHaveBeenCalledTimes(2);
-    expect(useAgentChatStore.getState().chats[CHAT].items.filter((item) => item.type === "user")).toHaveLength(1);
-    expect(useAgentChatStore.getState().chats[CHAT].rejectedPrompt).toBeNull();
+    expect(chatState().items.filter((item) => item.type === "user")).toHaveLength(1);
+    expect(chatState().rejectedPrompt).toBeNull();
   });
 
   it("blocks all sends on mode failure and retries configuration with the retained initial task", async () => {
     savePreferredMode("claude", "plan");
     vi.mocked(agentChatService.setMode).mockRejectedValueOnce(new Error("mode denied")).mockResolvedValueOnce(undefined);
     renderChat(); await launch();
-    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toBe("mode denied"));
+    await waitFor(() => expect(chatState().setup?.error).toBe("mode denied"));
     expect(agentChatService.prompt).not.toHaveBeenCalled();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(useAgentChatStore.getState().chats[CHAT].items.some((item) => item.type === "notice" && item.text === "mode denied")).toBe(true);
+    expect(chatState().items.some((item) => item.type === "notice" && item.text === "mode denied")).toBe(true);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "重新启动会话" })));
     expect(agentChatService.setMode).toHaveBeenCalledTimes(2);
-    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, [{ type: "text", text: "initial task" }]);
-    expect(useAgentChatStore.getState().chats[CHAT].setup).toBeNull();
+    expect(agentChatService.prompt).toHaveBeenCalledExactlyOnceWith(CHAT, INITIAL_PROMPT);
+    expect(chatState().setup).toBeNull();
   });
 });

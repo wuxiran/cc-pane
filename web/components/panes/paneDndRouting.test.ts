@@ -21,25 +21,14 @@ const tabNode = (id: string, paneId: string) => ({ id, data: { type: "tab", pane
 const layoutNode = (id: string) => ({ id, data: { type: "layout", layoutId: id } });
 
 describe("resolveDndDrop", () => {
-  it("tab 拖到 pane 右边缘 → 落边分屏（split-move-tab）", () => {
-    const edgeNode = { id: "pane-edge-pane-2-right", data: { type: "pane-edge", paneId: "pane-2", edge: "right" } };
+  it.each(["right", "bottom"])("tab 拖到 pane 的 %s 边缘 → 落边分屏（split-move-tab）", (edge) => {
+    const edgeNode = { id: `pane-edge-pane-2-${edge}`, data: { type: "pane-edge", paneId: "pane-2", edge } };
     expect(resolveDndDrop(tabNode("t1", "pane-1"), edgeNode, ctx)).toEqual({
       kind: "split-move-tab",
       fromPaneId: "pane-1",
       toPaneId: "pane-2",
       tabId: "t1",
-      edge: "right",
-    });
-  });
-
-  it("tab 拖到 pane 下边缘 → 落边分屏（edge=bottom）", () => {
-    const edgeNode = { id: "pane-edge-pane-2-bottom", data: { type: "pane-edge", paneId: "pane-2", edge: "bottom" } };
-    expect(resolveDndDrop(tabNode("t1", "pane-1"), edgeNode, ctx)).toEqual({
-      kind: "split-move-tab",
-      fromPaneId: "pane-1",
-      toPaneId: "pane-2",
-      tabId: "t1",
-      edge: "bottom",
+      edge,
     });
   });
 

@@ -4,7 +4,6 @@ import type { CliToolInfo, Workspace } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
 import WorkspaceTree from "./WorkspaceTree";
-import { getReorderedWorkspaceNames } from "./workspaceDnd";
 
 // --- i18n: t 直接回 key，便于断言 ---
 vi.mock("react-i18next", () => ({
@@ -73,10 +72,9 @@ vi.mock("./WorkspaceItem", () => ({
   ),
 }));
 
-const handleCreateWorkspace = vi.fn();
 vi.mock("./useWorkspaceActions", () => ({
   useWorkspaceActions: () => ({
-    handleCreateWorkspace,
+    handleCreateWorkspace: vi.fn(),
     handleRenameWorkspace: vi.fn(),
     handleDeleteWorkspace: vi.fn(),
     handleSetWorkspaceAlias: vi.fn(),
@@ -133,52 +131,9 @@ function makeWorkspace(over: Partial<Workspace>): Workspace {
   } as Workspace;
 }
 
-describe("getReorderedWorkspaceNames", () => {
-  const a = makeWorkspace({ id: "a", name: "alpha" });
-  const b = makeWorkspace({ id: "b", name: "bravo" });
-  const c = makeWorkspace({ id: "c", name: "charlie" });
-
-  it("同一 id 返回 null", () => {
-    expect(getReorderedWorkspaceNames([a, b, c], "a", "a")).toBeNull();
-  });
-
-  it("未知 id 返回 null", () => {
-    expect(getReorderedWorkspaceNames([a, b, c], "a", "zzz")).toBeNull();
-    expect(getReorderedWorkspaceNames([a, b, c], "zzz", "b")).toBeNull();
-  });
-
-  it("默认工作空间不参与拖拽排序", () => {
-    const def = makeWorkspace({ id: "d", name: "default", isDefault: true });
-    expect(getReorderedWorkspaceNames([def, a, b], "d", "a")).toBeNull();
-    expect(getReorderedWorkspaceNames([def, a, b], "a", "d")).toBeNull();
-  });
-
-  it("跨 pinned 边界返回 null", () => {
-    const pinned = makeWorkspace({ id: "a", name: "alpha", pinned: true });
-    expect(getReorderedWorkspaceNames([pinned, b, c], "a", "b")).toBeNull();
-  });
-
-  it("跨 workspace group 返回 null", () => {
-    const frontend = makeWorkspace({ id: "a", name: "alpha", group: "Frontend" });
-    const backend = makeWorkspace({ id: "b", name: "bravo", group: "Backend" });
-    expect(getReorderedWorkspaceNames([frontend, backend], "a", "b")).toBeNull();
-  });
-
-  it("合法重排返回新顺序的 name 数组", () => {
-    expect(getReorderedWorkspaceNames([a, b, c], "a", "c")).toEqual(["bravo", "charlie", "alpha"]);
-  });
-
-  it("同为 pinned 时允许重排", () => {
-    const pa = makeWorkspace({ id: "a", name: "alpha", pinned: true });
-    const pb = makeWorkspace({ id: "b", name: "bravo", pinned: true });
-    expect(getReorderedWorkspaceNames([pa, pb], "a", "b")).toEqual(["bravo", "alpha"]);
-  });
-});
-
 describe("WorkspaceTree component", () => {
   beforeEach(() => {
     useExplorerSectionsStore.setState({ workspacesCollapsed: false });
-    handleCreateWorkspace.mockClear();
     vi.mocked(useCliTools).mockReturnValue({ tools: [], loading: false,
       refresh: vi.fn(), getToolById: vi.fn(), installedTools: [] });
     storeState = {
@@ -227,16 +182,6 @@ describe("WorkspaceTree component", () => {
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
-  it("渲染工作空间条目", () => {
-    storeState.workspaces = [
-      makeWorkspace({ id: "a", name: "alpha" }),
-      makeWorkspace({ id: "b", name: "bravo" }),
-    ];
-    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
-    expect(screen.queryByText("noWorkspaces")).not.toBeInTheDocument();
-  });
-
   it("行级拖拽监听只给用户工作空间，系统工作空间不可拖", () => {
     storeState.workspaces = [
       makeWorkspace({ id: "d", name: "default", isDefault: true }),
@@ -264,13 +209,6 @@ describe("WorkspaceTree component", () => {
     ];
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
-  });
-
-  it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {
-    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    // 分区头 + 按钮（空态还有一个 CTA）
-    fireEvent.click(screen.getAllByText("newWorkspace")[0]);
-    expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it("按分组分段渲染并给未分组工作空间单独的组头", () => {
@@ -301,6 +239,7 @@ describe("WorkspaceTree component", () => {
 
     expect(screen.queryByText("ungrouped")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
+    expect(screen.queryByText("noWorkspaces")).not.toBeInTheDocument();
   });
 
   it("折叠未分组组头后隐藏未分组工作空间", () => {

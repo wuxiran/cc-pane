@@ -137,22 +137,6 @@ describe("ProvidersView", () => {
     expect(screen.queryByRole("button", { name: /Set as default|设为默认/i })).not.toBeInTheDocument();
   });
 
-  it("calls set_default_provider when clicking the star on a non-default provider", async () => {
-    const provider = createTestProvider({ providerType: "anthropic", name: "Claude Main", isDefault: false });
-    setup([provider]);
-    render(<ProvidersView />);
-
-    await screen.findByText("Claude Main");
-    fireEvent.click(screen.getByRole("button", { name: /Set as default|设为默认/i }));
-
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith("set_default_provider", {
-        id: provider.id,
-        cliTool: "claude",
-      }),
-    );
-  });
-
   it("calls remove_provider when clicking the delete button", async () => {
     const provider = createTestProvider({ providerType: "anthropic", name: "Claude Main" });
     setup([provider]);
@@ -166,7 +150,7 @@ describe("ProvidersView", () => {
     );
   });
 
-  it("hover-only row actions stay visible and keyboard operable via focus-within", async () => {
+  it("hover-only row actions stay visible and keyboard operable via focus-within (Enter sets default)", async () => {
     const provider = createTestProvider({ providerType: "anthropic", name: "Claude Main", isDefault: false });
     setup([provider]);
     render(<ProvidersView />);

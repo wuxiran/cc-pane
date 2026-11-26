@@ -22,13 +22,8 @@ function createKeyboardEvent(options: KeyboardEventInit): KeyboardEvent {
   });
 }
 
-function createKeydownEvent(options: KeyboardEventInit): KeyboardEvent {
-  return new KeyboardEvent("keydown", {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    ...options,
-  });
+function createCompositionEvent(type: "compositionstart" | "compositionend", data: string): CompositionEvent {
+  return new CompositionEvent(type, { data, bubbles: true, cancelable: true, composed: true });
 }
 
 describe("terminal IME guard", () => {
@@ -89,12 +84,7 @@ describe("terminal IME guard", () => {
     textarea.setSelectionRange(5, 5);
     textarea.dispatchEvent(input);
 
-    const compositionEnd = new CompositionEvent("compositionend", {
-      data: "你好",
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    });
+    const compositionEnd = createCompositionEvent("compositionend", "你好");
     textarea.value = "你好 你好";
     textarea.dispatchEvent(compositionEnd);
 
@@ -115,12 +105,7 @@ describe("terminal IME guard", () => {
       enabled: true,
     });
 
-    textarea.dispatchEvent(new CompositionEvent("compositionstart", {
-      data: "",
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    }));
+    textarea.dispatchEvent(createCompositionEvent("compositionstart", ""));
     const beforeInput = createInputEvent("beforeinput", {
       inputType: "insertFromComposition",
       data: "你好",
@@ -314,7 +299,7 @@ describe("terminal IME guard", () => {
     textarea.value = "\u00a0";
     textarea.setSelectionRange(1, 1);
 
-    const imeKeydown = createKeydownEvent({
+    const imeKeydown = createKeyboardEvent({
       key: "Unidentified",
       code: "",
       keyCode: 229,
@@ -378,12 +363,7 @@ describe("terminal IME guard", () => {
     });
 
     // 组合开始后被显式清理打断，WebKitGTK 此后可能不再发 compositionend（issue #41）。
-    textarea.dispatchEvent(new CompositionEvent("compositionstart", {
-      data: "",
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    }));
+    textarea.dispatchEvent(createCompositionEvent("compositionstart", ""));
     guard.clearNativeEditState();
 
     // 之后的中文上屏没有新的 compositionstart，guard 必须按 malformed

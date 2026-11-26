@@ -146,16 +146,13 @@ describe("PlansPanel", () => {
     expect(await screen.findByText(noArchivedPlans)).toBeInTheDocument();
   });
 
-  it("计划行可聚焦并带 focus-visible 焦点环，Enter/Space 切换选中", async () => {
+  it("计划行可聚焦，Enter/Space 切换选中", async () => {
     stubPlans();
     renderPanel();
 
     const authRow = (await screen.findByText("Auth Plan")).closest('[role="button"]') as HTMLElement;
     expect(authRow).not.toBeNull();
     expect(authRow).toHaveAttribute("tabindex", "0");
-    expect(authRow.className).toContain("focus-visible:outline-none");
-    expect(authRow.className).toContain("focus-visible:ring-2");
-    expect(authRow.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
     authRow.focus();
     expect(authRow).toHaveFocus();

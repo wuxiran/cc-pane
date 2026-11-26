@@ -83,7 +83,8 @@ function makeLaunchProfile(
   };
 }
 
-function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => void) {
+/** 面板挂载时会调的全部只读命令；各用例 spread 覆盖自己关心的键。 */
+function mockPanelInvoke(overrides: Record<string, unknown> = {}) {
   mockTauriInvoke({
     list_launch_profiles: [],
     list_providers: [],
@@ -91,14 +92,25 @@ function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => vo
     get_shared_mcp_status: [],
     list_skill_market_entries: [],
     list_user_skills: [],
-    list_external_skills: externalSkills,
+    list_external_skills: [],
     list_cli_tools: [],
     preview_launch_profile_resolution: emptyResolution,
-    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-      const draft = args?.draft as LaunchProfileDraft;
-      onSave(draft);
-      return savedProfileFromDraft(draft);
-    },
+    ...overrides,
+  });
+}
+
+function createProfileHandler(onSave: (draft: LaunchProfileDraft) => void) {
+  return (_cmd: string, args?: Record<string, unknown>) => {
+    const draft = args?.draft as LaunchProfileDraft;
+    onSave(draft);
+    return savedProfileFromDraft(draft);
+  };
+}
+
+function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => void) {
+  mockPanelInvoke({
+    list_external_skills: externalSkills,
+    create_launch_profile: createProfileHandler(onSave),
   });
 
   render(<LaunchProfilesPanel initialTool="claude" />);
@@ -124,21 +136,10 @@ function renderKimiPanel(
     isDefault: false,
   };
 
-  mockTauriInvoke({
+  mockPanelInvoke({
     list_launch_profiles: profiles,
     list_providers: [kimiProvider],
-    list_workspaces: [],
-    get_shared_mcp_status: [],
-    list_skill_market_entries: [],
-    list_user_skills: [],
-    list_external_skills: [],
-    list_cli_tools: [],
-    preview_launch_profile_resolution: emptyResolution,
-    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-      const draft = args?.draft as LaunchProfileDraft;
-      onSave(draft);
-      return savedProfileFromDraft(draft);
-    },
+    create_launch_profile: createProfileHandler(onSave),
   });
 
   render(<LaunchProfilesPanel initialTool="kimi" />);
@@ -158,21 +159,9 @@ function renderCodexPanel(onSave: (draft: LaunchProfileDraft) => void) {
     isDefault: false,
   };
 
-  mockTauriInvoke({
-    list_launch_profiles: [],
+  mockPanelInvoke({
     list_providers: [codexProvider],
-    list_workspaces: [],
-    get_shared_mcp_status: [],
-    list_skill_market_entries: [],
-    list_user_skills: [],
-    list_external_skills: [],
-    list_cli_tools: [],
-    preview_launch_profile_resolution: emptyResolution,
-    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-      const draft = args?.draft as LaunchProfileDraft;
-      onSave(draft);
-      return savedProfileFromDraft(draft);
-    },
+    create_launch_profile: createProfileHandler(onSave),
   });
 
   render(<LaunchProfilesPanel initialTool="codex" />);
@@ -202,21 +191,9 @@ function renderPiPanel(onSave: (draft: LaunchProfileDraft) => void) {
     },
   };
 
-  mockTauriInvoke({
-    list_launch_profiles: [],
-    list_providers: [],
-    list_workspaces: [],
-    get_shared_mcp_status: [],
-    list_skill_market_entries: [],
-    list_user_skills: [],
-    list_external_skills: [],
+  mockPanelInvoke({
     list_cli_tools: [piTool],
-    preview_launch_profile_resolution: emptyResolution,
-    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-      const draft = args?.draft as LaunchProfileDraft;
-      onSave(draft);
-      return savedProfileFromDraft(draft);
-    },
+    create_launch_profile: createProfileHandler(onSave),
   });
 
   render(<LaunchProfilesPanel initialTool="pi" />);
@@ -243,17 +220,7 @@ describe("LaunchProfilesPanel external skills", () => {
         reason: "ccpanesMcpDisabled",
       },
     };
-    mockTauriInvoke({
-      list_launch_profiles: [],
-      list_providers: [],
-      list_workspaces: [],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: resolution,
-    });
+    mockPanelInvoke({ preview_launch_profile_resolution: resolution });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
 
@@ -340,17 +307,7 @@ describe("LaunchProfilesPanel external skills", () => {
     const loadedDefault = { ...makeLaunchProfile("profile-default", "Loaded Default"), isDefault: true };
     let resolveProfiles!: (profiles: LaunchProfile[]) => void;
     const profilesPromise = new Promise<LaunchProfile[]>((resolve) => { resolveProfiles = resolve; });
-    mockTauriInvoke({
-      list_launch_profiles: () => profilesPromise,
-      list_providers: [],
-      list_workspaces: [],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: emptyResolution,
-    });
+    mockPanelInvoke({ list_launch_profiles: () => profilesPromise });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
     // 系统默认已不再显示名称输入框：改用共享 MCP 开关做「加载前的编辑」
@@ -362,20 +319,32 @@ describe("LaunchProfilesPanel external skills", () => {
     await waitFor(() => expect(screen.getByRole("checkbox", { name: new RegExp(`^${tp("sharedMcpService")}`) })).not.toBeChecked());
   });
 
-  it("asks before switching away from an unsaved launch profile", async () => {
+  it.each([
+    {
+      action: "switching away from",
+      command: null,
+      trigger: () => screen.getByRole("button", { name: /^Second Profile/ }),
+    },
+    {
+      action: "deleting",
+      command: "delete_launch_profile",
+      trigger: () => screen.getByRole("button", { name: i18n.t("common:delete") }),
+    },
+    {
+      action: "setting as default",
+      command: "set_default_launch_profile",
+      trigger: () => screen.getByRole("button", { name: tp("setAsDefault") }),
+    },
+  ])("asks before $action a profile with unsaved edits", async ({ command, trigger }) => {
     const user = userEvent.setup();
     const first = makeLaunchProfile("profile-first", "First Profile");
     const second = makeLaunchProfile("profile-second", "Second Profile");
-    mockTauriInvoke({
-      list_launch_profiles: [first, second],
-      list_providers: [],
-      list_workspaces: [],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: emptyResolution,
+    const commandSpy = vi.fn();
+    mockPanelInvoke({
+      list_launch_profiles: command ? [first] : [first, second],
+      ...(command
+        ? { [command]: (_cmd: string, args?: Record<string, unknown>) => { commandSpy(args?.id); } }
+        : {}),
     });
 
     render(<LaunchProfilesPanel initialTool="claude" />);
@@ -383,78 +352,18 @@ describe("LaunchProfilesPanel external skills", () => {
     const aliasInput = screen.getByDisplayValue("First Profile");
     await user.clear(aliasInput);
     await user.type(aliasInput, "Edited First Profile");
-    await user.click(screen.getByRole("button", { name: /^Second Profile/ }));
+    await user.click(trigger());
 
     expect(screen.getByDisplayValue("Edited First Profile")).toBeInTheDocument();
+    expect(commandSpy).not.toHaveBeenCalled();
     expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
-    expect(await screen.findByDisplayValue("Second Profile")).toBeInTheDocument();
-  });
-
-  it("asks before deleting a profile with unsaved edits", async () => {
-    const user = userEvent.setup();
-    const first = makeLaunchProfile("profile-first", "First Profile");
-    const deleteProfile = vi.fn();
-    mockTauriInvoke({
-      list_launch_profiles: [first],
-      list_providers: [],
-      list_workspaces: [],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: emptyResolution,
-      delete_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-        deleteProfile(args?.id);
-      },
-    });
-
-    render(<LaunchProfilesPanel initialTool="claude" />);
-    await user.click(await screen.findByRole("button", { name: /^First Profile/ }));
-    const aliasInput = screen.getByDisplayValue("First Profile");
-    await user.clear(aliasInput);
-    await user.type(aliasInput, "Edited First Profile");
-    await user.click(screen.getByRole("button", { name: i18n.t("common:delete") }));
-
-    expect(deleteProfile).not.toHaveBeenCalled();
-    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
-    await waitFor(() => expect(deleteProfile).toHaveBeenCalledWith("profile-first"));
-  });
-
-  it("asks before setting an edited profile as default", async () => {
-    const user = userEvent.setup();
-    const first = makeLaunchProfile("profile-first", "First Profile");
-    const setDefault = vi.fn();
-    mockTauriInvoke({
-      list_launch_profiles: [first],
-      list_providers: [],
-      list_workspaces: [],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: emptyResolution,
-      set_default_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
-        setDefault(args?.id);
-      },
-    });
-
-    render(<LaunchProfilesPanel initialTool="claude" />);
-    await user.click(await screen.findByRole("button", { name: /^First Profile/ }));
-    const aliasInput = screen.getByDisplayValue("First Profile");
-    await user.clear(aliasInput);
-    await user.type(aliasInput, "Edited First Profile");
-    await user.click(screen.getByRole("button", { name: tp("setAsDefault") }));
-
-    expect(setDefault).not.toHaveBeenCalled();
-    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
-    await waitFor(() => expect(setDefault).toHaveBeenCalledWith("profile-first"));
+    if (command) {
+      await waitFor(() => expect(commandSpy).toHaveBeenCalledWith("profile-first"));
+    } else {
+      expect(await screen.findByDisplayValue("Second Profile")).toBeInTheDocument();
+    }
   });
 
   it("saves a Kimi Provider through the unified profile field", async () => {
@@ -485,9 +394,9 @@ describe("LaunchProfilesPanel external skills", () => {
     });
   });
 
-  it("shows configured and unknown context windows in Provider model options", async () => {
+  it("shows configured and unknown context windows in Provider model options, omitting hidden models", async () => {
     const user = userEvent.setup();
-    renderKimiPanel(() => {});
+    renderKimiPanel(() => {}, [{ id: "kimi-legacy", label: "Kimi Legacy", hidden: true }]);
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
     await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
@@ -502,20 +411,8 @@ describe("LaunchProfilesPanel external skills", () => {
     expect(within(listbox).getByRole("option", {
       name: "Kimi K2 Thinking (kimi-k2-thinking) - 未配置",
     })).toBeInTheDocument();
-  });
-
-  it("omits hidden Provider models from the model dropdown", async () => {
-    const user = userEvent.setup();
-    renderKimiPanel(() => {}, [{ id: "kimi-legacy", label: "Kimi Legacy", hidden: true }]);
-
-    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await user.click(screen.getByRole("tab", { name: tp("credentialKind.relay") }));
-    await selectOption(user, screen.getByRole("combobox", { name: tp("credentialKind.relay") }), "Kimi API");
-
-    await user.click(screen.getByRole("combobox", { name: tp("fieldModel") }));
-    const listbox = await screen.findByRole("listbox");
+    // hidden 模型不进下拉
     expect(within(listbox).queryByRole("option", { name: /kimi-legacy/ })).toBeNull();
-    expect(within(listbox).getByRole("option", { name: /kimi-k2-thinking/ })).toBeInTheDocument();
   });
 
   it("keeps a hidden model selected on a profile that already references it", async () => {
@@ -570,12 +467,6 @@ describe("LaunchProfilesPanel external skills", () => {
     expect(screen.getAllByTestId("launch-profile-expanded")).toHaveLength(1);
   });
 
-  it("hides the workspace lens by default", async () => {
-    renderPanelWithExternalSkills(() => {});
-    await screen.findByTestId("launch-profile-expanded");
-    expect(screen.queryByRole("tab", { name: new RegExp(tp("workspaceListTab")) })).toBeNull();
-  });
-
   it("collapses the expanded profile into a summary row and expands it again", async () => {
     const user = userEvent.setup();
     renderPanelWithExternalSkills(() => {});
@@ -612,19 +503,17 @@ describe("LaunchProfilesPanel external skills", () => {
       projects: [],
     });
 
-    mockTauriInvoke({
+    mockPanelInvoke({
       list_launch_profiles: [designProfile, codexProfile],
-      list_providers: [],
       list_workspaces: [designWorkspace, apiWorkspace],
-      get_shared_mcp_status: [],
-      list_skill_market_entries: [],
-      list_user_skills: [],
-      list_external_skills: [],
-      list_cli_tools: [],
-      preview_launch_profile_resolution: emptyResolution,
     });
 
-    render(<LaunchProfilesPanel initialTool="claude" showWorkspaceLens />);
+    // 不传 showWorkspaceLens 时默认隐藏工作空间视角
+    const { rerender } = render(<LaunchProfilesPanel initialTool="claude" />);
+    expect(await screen.findByText("Design Profile")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: new RegExp(tp("workspaceListTab")) })).toBeNull();
+
+    rerender(<LaunchProfilesPanel initialTool="claude" showWorkspaceLens />);
 
     expect(await screen.findByText("Design Profile")).toBeInTheDocument();
     expect(screen.queryByText("Codex Profile")).not.toBeInTheDocument();

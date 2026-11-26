@@ -72,6 +72,13 @@ function setupStore(providers: Provider[] = []) {
   return actions;
 }
 
+/** 编辑一个已保存的供应商：store 里放同一份数据。 */
+function renderEdit(provider: Provider = keyProvider(), activeTab?: "claude") {
+  const actions = setupStore([provider]);
+  render(<ProviderFormPanel editProvider={provider} activeTab={activeTab} onBack={vi.fn()} />);
+  return actions;
+}
+
 function keyProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: "p-1",
@@ -169,8 +176,7 @@ describe("plain key provider", () => {
 
   it("adds a second key account and makes it the default", async () => {
     const user = userEvent.setup();
-    const actions = setupStore([keyProvider()]);
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    const actions = renderEdit();
 
     // 编辑已带账号的供应商：密钥在账号里换，不再有单独的密钥框。
     expect(screen.queryByPlaceholderText("sk-ant-...")).not.toBeInTheDocument();
@@ -208,8 +214,7 @@ describe("plain key provider", () => {
 describe("environment variables", () => {
   it("never echoes a saved sensitive value and keeps it when left empty", async () => {
     const user = userEvent.setup();
-    const actions = setupStore([keyProvider()]);
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    const actions = renderEdit();
 
     const scope = tp("section.env");
     const value = screen.getByLabelText(tp("env.valueAria", { scope, index: 2 }));
@@ -227,8 +232,7 @@ describe("environment variables", () => {
 
   it("requires the value again after renaming a sensitive variable", async () => {
     const user = userEvent.setup();
-    const actions = setupStore([keyProvider()]);
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    const actions = renderEdit();
 
     const scope = tp("section.env");
     const name = screen.getByLabelText(tp("env.nameAria", { scope, index: 2 }));
@@ -264,8 +268,7 @@ describe("launch env preview", () => {
       { name: "ANTHROPIC_AUTH_TOKEN", value: "••••", sensitive: true, layer: "generated", overridesGenerated: false },
       { name: "API_TIMEOUT_MS", value: "600000", sensitive: false, layer: "provider", overridesGenerated: true },
     ]);
-    setupStore([keyProvider()]);
-    render(<ProviderFormPanel editProvider={keyProvider()} activeTab="claude" onBack={vi.fn()} />);
+    renderEdit(keyProvider(), "claude");
 
     const preview = screen.getByTestId("provider-env-preview");
     await waitFor(() => expect(preview).toHaveTextContent("ANTHROPIC_AUTH_TOKEN=••••"));
@@ -279,7 +282,6 @@ describe("launch env preview", () => {
 describe("login accounts", () => {
   it("creates a login account and opens a terminal running the login command", async () => {
     const user = userEvent.setup();
-    setupStore([keyProvider()]);
     vi.mocked(loginAccountService.listLoginAccounts).mockResolvedValue([defaultLoginView]);
     vi.mocked(loginAccountService.createLoginAccount).mockResolvedValue(loginView({
       accountId: "claude-new",
@@ -288,7 +290,7 @@ describe("login accounts", () => {
       configDir: "/data/login-accounts/claude-new",
     }));
     vi.mocked(loginAccountService.getLoginCommand).mockResolvedValue(loginCommand());
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    renderEdit();
 
     await user.click(screen.getByRole("button", { name: tp("account.addLogin") }));
     const dialog = await screen.findByRole("dialog");
@@ -318,7 +320,6 @@ describe("login accounts", () => {
   it("lets Gemini providers pick the CLI and explains interactive login", async () => {
     const user = userEvent.setup();
     const provider = keyProvider({ providerType: "gemini", endpoints: {}, baseUrl: null });
-    setupStore([provider]);
     vi.mocked(loginAccountService.createLoginAccount).mockResolvedValue(loginView({
       accountId: "antigravity-1",
       cliTool: "antigravity",
@@ -333,7 +334,7 @@ describe("login accounts", () => {
       interactive: true,
       executableFound: false,
     }));
-    render(<ProviderFormPanel editProvider={provider} onBack={vi.fn()} />);
+    renderEdit(provider);
 
     await user.click(screen.getByRole("button", { name: tp("account.addLogin") }));
     const dialog = await screen.findByRole("dialog");
@@ -358,7 +359,6 @@ describe("login accounts", () => {
         { id: "claude-c", name: "备用号", kind: "login", cliTool: "claude", configDir: "/d/c" },
       ],
     });
-    setupStore([provider]);
     vi.mocked(loginAccountService.listLoginAccounts).mockResolvedValue([
       defaultLoginView,
       loginView({ accountId: "claude-a", status: { state: "logged_in", identity: "work@corp.dev" } }),
@@ -366,7 +366,7 @@ describe("login accounts", () => {
       loginView({ accountId: "claude-c", status: { state: "unknown", reason: "keychain_unavailable" } }),
     ]);
     vi.mocked(loginAccountService.getLoginStatus).mockResolvedValue({ state: "logged_in", identity: "me@personal.dev" });
-    render(<ProviderFormPanel editProvider={provider} onBack={vi.fn()} />);
+    renderEdit(provider);
 
     await waitFor(() => expect(within(accountRow("claude-a")).getByText(tp("login.state.loggedInAs", { identity: maskEmail("work@corp.dev") }))).toBeInTheDocument());
     expect(within(accountRow("claude-b")).getByText(tp("login.state.notLoggedIn"))).toBeInTheDocument();
@@ -391,9 +391,8 @@ describe("deleting accounts", () => {
 
   it("confirms a key account deletion and spells out the consequences", async () => {
     const user = userEvent.setup();
-    setupStore([twoKeys()]);
     vi.mocked(loginAccountService.deleteAccount).mockResolvedValue({ accountId: "key-2", dirDeleted: false });
-    render(<ProviderFormPanel editProvider={twoKeys()} onBack={vi.fn()} />);
+    renderEdit(twoKeys());
 
     expect(within(accountRow("key-2")).getByText(tp("account.secretState.file"))).toBeInTheDocument();
     await user.click(within(accountRow("key-2")).getByRole("button", { name: tp("account.delete", { name: "个人号" }) }));
@@ -416,7 +415,6 @@ describe("deleting accounts", () => {
         { id: "claude-a", name: "个人号", kind: "login", cliTool: "claude", configDir: "/ext/claude" },
       ],
     });
-    setupStore([provider]);
     vi.mocked(loginAccountService.deleteAccount).mockResolvedValue({
       accountId: "claude-a",
       configDir: "/ext/claude",
@@ -425,7 +423,7 @@ describe("deleting accounts", () => {
       keychainCredentialsMayRemain: true,
       logoutCommand: "env CLAUDE_CONFIG_DIR='/ext/claude' claude auth logout",
     });
-    render(<ProviderFormPanel editProvider={provider} onBack={vi.fn()} />);
+    renderEdit(provider);
 
     await user.click(within(accountRow("claude-a")).getByRole("button", { name: tp("account.delete", { name: "个人号" }) }));
     const dialog = await screen.findByRole("dialog");
@@ -452,9 +450,8 @@ describe("deleting accounts", () => {
         { id: "claude-a", name: "个人号", kind: "login", cliTool: "claude", configDir: "/d/a" },
       ],
     });
-    setupStore([provider]);
     vi.mocked(loginAccountService.deleteAccount).mockResolvedValue({ accountId: "claude-a", dirDeleted: false });
-    render(<ProviderFormPanel editProvider={provider} onBack={vi.fn()} />);
+    renderEdit(provider);
 
     await user.click(within(accountRow("claude-a")).getByRole("button", { name: tp("account.delete", { name: "个人号" }) }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: tp("remove.confirm") }));
@@ -464,10 +461,9 @@ describe("deleting accounts", () => {
 
   it("shows the backend's refusal to delete the last account", async () => {
     const user = userEvent.setup();
-    setupStore([keyProvider()]);
     const refusal = { code: "PROVIDER_ACCOUNT_LAST", message: "only account", params: { providerId: "p-1", account: "default" } };
     vi.mocked(loginAccountService.deleteAccount).mockRejectedValue(refusal);
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    renderEdit();
 
     await user.click(within(accountRow("default")).getByRole("button", { name: tp("account.delete", { name: "工作号" }) }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: tp("remove.confirm") }));
@@ -478,8 +474,7 @@ describe("deleting accounts", () => {
 
   it("removes an unsaved account without asking the backend", async () => {
     const user = userEvent.setup();
-    setupStore([keyProvider()]);
-    render(<ProviderFormPanel editProvider={keyProvider()} onBack={vi.fn()} />);
+    renderEdit();
 
     await user.click(screen.getByRole("button", { name: tp("account.addKey") }));
     const row = screen.getAllByTestId(/^provider-account-row-key-/)[0];

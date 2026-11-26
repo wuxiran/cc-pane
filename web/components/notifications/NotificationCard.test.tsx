@@ -89,15 +89,9 @@ describe("NotificationCard 快捷终端定位 (F1.4)", () => {
   });
 
   it("快捷终端登记后到：卡片重算定位，长出「在主窗口打开」（订阅 store 的意义）", () => {
-    const onDismiss = vi.fn();
-    const record = makeRecord();
     // 挂载时定位不到。
     locateNotificationSession.mockReturnValue(null);
-    render(
-      <TooltipProvider>
-        <NotificationCard record={record} onDismiss={onDismiss} />
-      </TooltipProvider>,
-    );
+    renderCard();
     expect(screen.queryByRole("button", { name: "在主窗口打开" })).not.toBeInTheDocument();
 
     // 快捷终端登记到达：store 变化触发重渲染，回退命中。
@@ -113,26 +107,20 @@ describe("NotificationCard 快捷终端定位 (F1.4)", () => {
 });
 
 describe("NotificationCard 接管交互 (F1.4)", () => {
-  it("点「在主窗口打开」：接管成功才 dismiss", async () => {
+  // 接管失败时保留卡片（用户还能重试或改走聚焦）
+  it.each([
+    { adopted: true, dismissed: true },
+    { adopted: false, dismissed: false },
+  ])("点「在主窗口打开」：接管结果 $adopted → dismiss=$dismissed", async ({ adopted, dismissed }) => {
     locateNotificationSession.mockReturnValue({ kind: "quickTerminal" });
-    handleAdoptQuickTerminal.mockResolvedValue(true);
+    handleAdoptQuickTerminal.mockResolvedValue(adopted);
     const { onDismiss } = renderCard();
 
     fireEvent.click(screen.getByRole("button", { name: "在主窗口打开" }));
     await vi.waitFor(() => expect(handleAdoptQuickTerminal).toHaveBeenCalled());
 
-    expect(onDismiss).toHaveBeenCalledWith("n1");
-  });
-
-  it("接管失败：保留卡片，不 dismiss（用户还能重试或改走聚焦）", async () => {
-    locateNotificationSession.mockReturnValue({ kind: "quickTerminal" });
-    handleAdoptQuickTerminal.mockResolvedValue(false);
-    const { onDismiss } = renderCard();
-
-    fireEvent.click(screen.getByRole("button", { name: "在主窗口打开" }));
-    await vi.waitFor(() => expect(handleAdoptQuickTerminal).toHaveBeenCalled());
-
-    expect(onDismiss).not.toHaveBeenCalled();
+    if (dismissed) expect(onDismiss).toHaveBeenCalledWith("n1");
+    else expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it("点「聚焦会话」：立即 dismiss（聚焦结果与 dismiss 无关，沿用 F7.3 口径）", () => {

@@ -53,7 +53,7 @@ describe("RestoreClosedTabsMenu", () => {
     usePanesStore.setState({ closedTabs: [] });
     openMenu();
     const item = await screen.findByRole("menuitem", { name: /Restore Closed Tabs \(0\)/ });
-    expect(item).toHaveAttribute("data-disabled");
+    expect(item).toHaveAttribute("aria-disabled", "true");
   });
 
   it("lists closed tabs newest first", async () => {

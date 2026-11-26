@@ -6,8 +6,13 @@ import {
   SETTINGS_GROUPS,
   SETTINGS_PAGES,
   SETTINGS_PANES,
+  type SettingsPaneDefinition,
+  type SettingsPaneId,
+  type SettingsSearchEntry,
 } from "./settingsRegistry";
 import { getSettingsCommandTargets } from "./settingsSearch";
+
+const findPane = (id: SettingsPaneId) => SETTINGS_PANES.find((pane) => pane.id === id);
 
 describe("settings registry", () => {
   it("declares independent setup and experimental settings pages across two groups", () => {
@@ -23,6 +28,7 @@ describe("settings registry", () => {
     expect(assignedPaneIds).toHaveLength(paneIds.length);
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
     expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
+    // 顺序本身是需求：devices 紧跟 system；setup-guide 夹在 usage-stats 与 about 之间
     expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "devices", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
   });
 
@@ -52,33 +58,60 @@ describe("settings registry", () => {
     )).toBe(true);
   });
 
-  it("preserves the intended order inside consolidated pages", () => {
+  it.each([
     // 外观一站式：颜色/形态/壁纸收进独立 appearance Page（批 5）
-    expect(getSettingsPanesForPage("general").map((pane) => pane.id)).toEqual([
-      "general",
-      "modules",
-    ]);
-    expect(getSettingsPanesForPage("appearance").map((pane) => pane.id)).toEqual([
-      "theme",
-      "theme-shape",
-      "wallpaper",
-    ]);
-    expect(getSettingsPanesForPage("ai-tools").map((pane) => pane.id)).toEqual([
-      "cli-launchers",
-      "agent-chat",
-      "quick-commands",
-    ]);
+    ["general", ["general", "modules"]],
+    ["appearance", ["theme", "theme-shape", "wallpaper"]],
+    ["ai-tools", ["cli-launchers", "agent-chat", "quick-commands"]],
+    ["devices", ["web-access"]],
+    ["ccchan", ["ccchan"]],
+  ] as const)("orders panes inside the %s page", (pageId, paneIds) => {
+    expect(getSettingsPanesForPage(pageId).map((pane) => pane.id)).toEqual(paneIds);
   });
 
-  it("hosts web access on the devices page right after system, with every section searchable", () => {
-    const pageIds = SETTINGS_PAGES.map((page) => page.id);
-    expect(pageIds.indexOf("devices")).toBe(pageIds.indexOf("system") + 1);
-    expect(getSettingsPanesForPage("devices").map((pane) => pane.id)).toEqual(["web-access"]);
-    expect(SETTINGS_PAGES.find((page) => page.id === "system")?.paneIds).not.toContain("web-access");
+  it("keeps CC-chan in the services group and web access off the system page", () => {
+    expect(SETTINGS_PAGES.find((page) => page.id === "ccchan")?.group).toBe("services");
+    const system = SETTINGS_PAGES.find((page) => page.id === "system");
+    expect(system?.paneIds).not.toContain("web-access");
+    expect(system?.paneIds).toContain("performance");
+  });
 
-    const webAccess = SETTINGS_PANES.find((pane) => pane.id === "web-access");
-    expect(webAccess?.page).toBe("devices");
-    expect(webAccess?.searchEntries.map((entry) => entry.targetSectionId)).toEqual([
+  it.each<[SettingsPaneId, Partial<SettingsPaneDefinition>]>([
+    ["modules", { titleKey: "modules.title", page: "general" }],
+    ["usage-stats", { titleKey: "usageStats.title", page: "usage-stats" }],
+    ["setup-guide", { titleKey: "setupGuide.title", page: "setup-guide" }],
+    ["quick-commands", { titleKey: "quickCommands.title", page: "ai-tools", layout: "wide" }],
+    ["performance", { titleKey: "performance.title", page: "system" }],
+    ["web-access", { page: "devices" }],
+    ["ccchan", { page: "ccchan" }],
+  ])("declares %s pane metadata", (paneId, expected) => {
+    expect(findPane(paneId)).toMatchObject(expected);
+  });
+
+  it.each<[SettingsPaneId, Partial<SettingsSearchEntry>]>([
+    ["general", { id: "system-resources", titleKey: "showSystemResources", targetSectionId: "general-root" }],
+    ["terminal", { id: "path-links", targetSectionId: "terminal-path-links" }],
+    ["terminal", { id: "task-queue", targetSectionId: "terminal-task-queue" }],
+    ["terminal", { id: "inline-images", titleKey: "inlineImagesEnabled", keywordsKey: "searchKeywords.inlineImages", targetSectionId: "terminal-inline-images" }],
+    ["theme", { id: "color", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-color" }],
+    ["theme-shape", { id: "shape", keywordsKey: "searchKeywords.themeShape", targetSectionId: "theme-shape" }],
+    ["modules", { id: "placement", targetSectionId: "modules-root" }],
+    ["usage-stats", { id: "usage-trends", keywordsKey: "searchKeywords.usageStats", targetSectionId: "usage-stats-root" }],
+    ["setup-guide", { id: "workflow-checklist", keywordsKey: "searchKeywords.setupGuide", targetSectionId: "setup-guide-root" }],
+    ["quick-commands", { id: "library", keywordsKey: "searchKeywords.quickCommands", targetSectionId: "quick-commands-root" }],
+    ["performance", { id: "build", keywordsKey: "searchKeywords.performance" }],
+    ["performance", { id: "session-priority", titleKey: "lowerSessionPriority", targetSectionId: "performance-session-policy" }],
+    ["performance", { id: "session-cpu-weight", titleKey: "performance.sessionCpuWeight", targetSectionId: "performance-session-policy" }],
+  ])("registers a %s search entry %o", (paneId, entry) => {
+    expect(findPane(paneId)?.searchEntries).toContainEqual(expect.objectContaining(entry));
+  });
+
+  it("moves the session priority search entry off the terminal pane", () => {
+    expect(findPane("terminal")?.searchEntries.some((entry) => entry.titleKey === "lowerSessionPriority")).toBe(false);
+  });
+
+  it.each([
+    ["web-access", [
       "web-access-root",
       "web-access-device",
       "web-access-server",
@@ -89,55 +122,8 @@ describe("settings registry", () => {
       "web-access-mcp",
       "web-access-orchestrator",
       "web-access-service",
-    ]);
-  });
-
-  it("keeps CC-chan as an independent service page", () => {
-    const ccchan = SETTINGS_PAGES.find((page) => page.id === "ccchan");
-
-    expect(ccchan).toMatchObject({
-      group: "services",
-      paneIds: ["ccchan"],
-    });
-    expect(SETTINGS_PANES.find((pane) => pane.id === "ccchan")?.page).toBe("ccchan");
-  });
-
-  it("registers the status bar system resource setting for search", () => {
-    const general = SETTINGS_PANES.find((pane) => pane.id === "general");
-
-    expect(general?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "system-resources",
-      titleKey: "showSystemResources",
-      targetSectionId: "general-root",
-    }));
-  });
-
-  it("registers the terminal path link setting for search", () => {
-    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
-
-    expect(terminal?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "path-links",
-      targetSectionId: "terminal-path-links",
-    }));
-  });
-
-  it("registers the terminal task queue setting for search", () => {
-    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
-
-    expect(terminal?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "task-queue",
-      targetSectionId: "terminal-task-queue",
-    }));
-  });
-
-  it("hosts the performance pane on the system page with one search entry per group", () => {
-    const system = SETTINGS_PAGES.find((page) => page.id === "system");
-    expect(system?.paneIds).toContain("performance");
-
-    const performance = SETTINGS_PANES.find((pane) => pane.id === "performance");
-    expect(performance?.page).toBe("system");
-    expect(performance?.titleKey).toBe("performance.title");
-    expect(performance?.searchEntries.map((entry) => entry.targetSectionId)).toEqual([
+    ]],
+    ["performance", [
       "performance-build",
       "performance-codex",
       "performance-heavy-gate",
@@ -146,111 +132,8 @@ describe("settings registry", () => {
       "performance-session-policy",
       "performance-wsl-quota",
       "performance-parking",
-    ]);
-    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "build",
-      keywordsKey: "searchKeywords.performance",
-    }));
-  });
-
-  it("moves the session priority search entry from the terminal pane to the performance pane", () => {
-    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
-    const performance = SETTINGS_PANES.find((pane) => pane.id === "performance");
-
-    expect(terminal?.searchEntries.some((entry) => entry.titleKey === "lowerSessionPriority")).toBe(false);
-    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "session-priority",
-      titleKey: "lowerSessionPriority",
-      targetSectionId: "performance-session-policy",
-    }));
-    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "session-cpu-weight",
-      titleKey: "performance.sessionCpuWeight",
-      targetSectionId: "performance-session-policy",
-    }));
-  });
-
-  it("registers the opt-in terminal inline image setting for search", () => {
-    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
-
-    expect(terminal?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "inline-images",
-      titleKey: "inlineImagesEnabled",
-      keywordsKey: "searchKeywords.inlineImages",
-      targetSectionId: "terminal-inline-images",
-    }));
-  });
-
-  it("registers independent color and shape search targets", () => {
-    const theme = SETTINGS_PANES.find((pane) => pane.id === "theme");
-    const shape = SETTINGS_PANES.find((pane) => pane.id === "theme-shape");
-
-    expect(theme?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "color",
-      keywordsKey: "searchKeywords.theme",
-      targetSectionId: "theme-color",
-    }));
-    expect(shape?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "shape",
-      keywordsKey: "searchKeywords.themeShape",
-      targetSectionId: "theme-shape",
-    }));
-  });
-
-  it("registers the module pane and its placement search target", () => {
-    const modules = SETTINGS_PANES.find((pane) => pane.id === "modules");
-
-    expect(modules).toMatchObject({
-      titleKey: "modules.title",
-      page: "general",
-    });
-    expect(modules?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "placement",
-      targetSectionId: "modules-root",
-    }));
-  });
-
-  it("places the setup guide between usage statistics and about", () => {
-    const usageStats = SETTINGS_PANES.find((pane) => pane.id === "usage-stats");
-
-    expect(usageStats).toMatchObject({
-      titleKey: "usageStats.title",
-      page: "usage-stats",
-    });
-    expect(usageStats?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "usage-trends",
-      keywordsKey: "searchKeywords.usageStats",
-      targetSectionId: "usage-stats-root",
-    }));
-    expect(SETTINGS_PAGES.map((page) => page.id).slice(-3)).toEqual(["usage-stats", "setup-guide", "about"]);
-  });
-
-  it("registers the setup guide and its searchable checklist target", () => {
-    const setupGuide = SETTINGS_PANES.find((pane) => pane.id === "setup-guide");
-
-    expect(setupGuide).toMatchObject({
-      titleKey: "setupGuide.title",
-      page: "setup-guide",
-    });
-    expect(setupGuide?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "workflow-checklist",
-      keywordsKey: "searchKeywords.setupGuide",
-      targetSectionId: "setup-guide-root",
-    }));
-  });
-
-  it("registers quick commands as a wide AI tools pane", () => {
-    const quickCommands = SETTINGS_PANES.find((pane) => pane.id === "quick-commands");
-
-    expect(quickCommands).toMatchObject({
-      titleKey: "quickCommands.title",
-      page: "ai-tools",
-      layout: "wide",
-    });
-    expect(quickCommands?.searchEntries).toContainEqual(expect.objectContaining({
-      id: "library",
-      keywordsKey: "searchKeywords.quickCommands",
-      targetSectionId: "quick-commands-root",
-    }));
+    ]],
+  ] as const)("makes every %s section searchable", (paneId, sectionIds) => {
+    expect(findPane(paneId)?.searchEntries.map((entry) => entry.targetSectionId)).toEqual(sectionIds);
   });
 });

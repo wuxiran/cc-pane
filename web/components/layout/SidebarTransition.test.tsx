@@ -12,21 +12,13 @@ describe("SidebarTransition", () => {
     expect(screen.queryByTestId("sidebar-body")).toBeNull();
   });
 
-  it("visible=true 时挂载 children", () => {
-    render(
-      <SidebarTransition visible>
-        <div data-testid="sidebar-body" />
-      </SidebarTransition>,
-    );
-    expect(screen.getByTestId("sidebar-body")).toBeInTheDocument();
-  });
-
-  it("隐藏当帧即卸载，无过渡等待", () => {
+  it("visible=true 时挂载 children，隐藏当帧即卸载，无过渡等待", () => {
     const { rerender } = render(
       <SidebarTransition visible>
         <div data-testid="sidebar-body" />
       </SidebarTransition>,
     );
+    expect(screen.getByTestId("sidebar-body")).toBeInTheDocument();
     rerender(
       <SidebarTransition visible={false}>
         <div data-testid="sidebar-body" />

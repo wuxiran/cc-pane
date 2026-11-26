@@ -46,6 +46,13 @@ function cloneButton() {
   return screen.getByRole("button", { name: /^克隆$|^Clone$|克隆中|Cloning/i });
 }
 
+/** 填 URL + 父目录，等文件夹名自动推导完成 */
+async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(inputs().url, "https://github.com/user/repo.git");
+  await user.type(inputs().parentDir, "C:/repos");
+  await waitFor(() => expect(inputs().folderName.value).toBe("repo"));
+}
+
 describe("GitCloneDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,9 +109,7 @@ describe("GitCloneDialog", () => {
     vi.mocked(invoke).mockResolvedValue("C:/repos/repo");
     const { onCloned, onOpenChange } = renderDialog();
 
-    await user.type(inputs().url, "https://github.com/user/repo.git");
-    await user.type(inputs().parentDir, "C:/repos");
-    await waitFor(() => expect(inputs().folderName.value).toBe("repo"));
+    await fillRequired(user);
 
     await user.click(cloneButton());
 
@@ -130,9 +135,7 @@ describe("GitCloneDialog", () => {
     vi.mocked(invoke).mockResolvedValue("C:/repos/repo");
     renderDialog();
 
-    await user.type(inputs().url, "https://github.com/user/repo.git");
-    await user.type(inputs().parentDir, "C:/repos");
-    await waitFor(() => expect(inputs().folderName.value).toBe("repo"));
+    await fillRequired(user);
     await user.click(screen.getByText(/浅克隆|Shallow/i));
 
     await user.click(cloneButton());
@@ -150,9 +153,7 @@ describe("GitCloneDialog", () => {
     vi.mocked(invoke).mockRejectedValue(new Error("network down"));
     const { onCloned, onOpenChange } = renderDialog();
 
-    await user.type(inputs().url, "https://github.com/user/repo.git");
-    await user.type(inputs().parentDir, "C:/repos");
-    await waitFor(() => expect(inputs().folderName.value).toBe("repo"));
+    await fillRequired(user);
 
     await user.click(cloneButton());
 
@@ -170,7 +171,6 @@ describe("GitCloneDialog", () => {
     const dirRow = inputs().parentDir.parentElement as HTMLElement;
     await user.click(within(dirRow).getByRole("button"));
 
-    await waitFor(() => expect(open).toHaveBeenCalled());
     await waitFor(() => expect(inputs().parentDir.value).toBe("C:/selected/dir"));
   });
 

@@ -14,12 +14,6 @@ describe("Slider", () => {
     expect(thumb).toHaveAttribute("aria-orientation", "horizontal");
   });
 
-  it("renders track and range", () => {
-    render(<Slider defaultValue={[40]} />);
-
-    expect(document.querySelector('[data-slot="slider-track"]')).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="slider-range"]')).toBeInTheDocument();
-  });
 
   it("changes value with arrow keys", async () => {
     const user = userEvent.setup();

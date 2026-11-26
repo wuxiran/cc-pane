@@ -79,7 +79,6 @@ describe("SessionReviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand all files" }));
     fireEvent.click(screen.getByRole("button", { name: "Wrap lines" }));
     expect(screen.getByRole("button", { name: "Wrap lines" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("new value")).toHaveClass("whitespace-pre");
     fireEvent.click(screen.getByRole("button", { name: "Open current file: a.ts" }));
     expect(openEditor).toHaveBeenCalledWith("/repo", "/repo/a.ts", "a.ts", undefined, { forcePaneTab: true, paneId: undefined });
     expect(close).toHaveBeenCalledWith(false);
@@ -162,5 +161,4 @@ it("rejects repository traversal and absolute file paths", () => {
   expect(reviewFilePath("/repo", "/other")).toBeNull();
   expect(reviewFilePath("C:\\repo", "C:\\other")).toBeNull();
   expect(reviewFilePath("C:\\repo", "src/a.ts")).toBe("C:\\repo\\src/a.ts");
-
 });

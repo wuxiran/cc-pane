@@ -40,6 +40,20 @@ function inputByLabel(keyword: RegExp): HTMLInputElement {
   return input as HTMLInputElement;
 }
 
+type FormFields = { host?: string; path?: string; user?: string; port?: string };
+
+async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, fields: FormFields) {
+  if (fields.host) await user.type(inputByLabel(/主机|Host/), fields.host);
+  if (fields.path) await user.type(inputByLabel(/远程路径|Remote Path/), fields.path);
+  if (fields.user) await user.type(inputByLabel(/用户|User/), fields.user);
+  if (fields.port !== undefined) {
+    const portInput = inputByLabel(/端口|Port/);
+    await user.clear(portInput);
+    await user.type(portInput, fields.port);
+  }
+  await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+}
+
 function renderDialog(open = true, workspaceName = "ws-alpha") {
   const onOpenChange = vi.fn();
   render(
@@ -75,64 +89,27 @@ describe("AddSshProjectDialog", () => {
     expect(loadMock).toHaveBeenCalled();
   });
 
-  it("rejects submit when host is empty", async () => {
+  it.each<[string, FormFields]>([
+    ["host is empty", { path: "/home/dev/repo" }],
+    ["remote path is empty", { host: "example.com" }],
+    ["remote path is not absolute", { host: "example.com", path: "relative/path" }],
+    ["port is out of range", { host: "example.com", path: "/home/dev/repo", port: "0" }],
+  ])("rejects submit when %s", async (_name, fields) => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog(true);
 
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/home/dev/repo");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+    await fillAndSubmit(user, fields);
 
     expect(toast.error).toHaveBeenCalled();
     expect(addSshProjectMock).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
-  it("rejects submit when remote path is empty", async () => {
-    const user = userEvent.setup();
-    renderDialog(true);
-
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
-
-    expect(toast.error).toHaveBeenCalled();
-    expect(addSshProjectMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects a non-absolute remote path", async () => {
-    const user = userEvent.setup();
-    renderDialog(true);
-
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "relative/path");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
-
-    expect(toast.error).toHaveBeenCalled();
-    expect(addSshProjectMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects an out-of-range port", async () => {
-    const user = userEvent.setup();
-    renderDialog(true);
-
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/home/dev/repo");
-    const portInput = inputByLabel(/端口|Port/);
-    await user.clear(portInput);
-    await user.type(portInput, "0");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
-
-    expect(toast.error).toHaveBeenCalled();
-    expect(addSshProjectMock).not.toHaveBeenCalled();
-  });
-
   it("submits a manually entered ssh project and syncs a machine", async () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog(true);
 
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/home/dev/repo");
-    await user.type(inputByLabel(/用户|User/), "dev");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+    await fillAndSubmit(user, { host: "example.com", path: "/home/dev/repo", user: "dev" });
 
     await waitFor(() => expect(addSshProjectMock).toHaveBeenCalledTimes(1));
     const [wsName, sshInfo] = addSshProjectMock.mock.calls[0];
@@ -161,10 +138,7 @@ describe("AddSshProjectDialog", () => {
     });
     renderDialog(true);
 
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/home/dev/repo");
-    await user.type(inputByLabel(/用户|User/), "dev");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+    await fillAndSubmit(user, { host: "example.com", path: "/home/dev/repo", user: "dev" });
 
     await waitFor(() => expect(addSshProjectMock).toHaveBeenCalled());
     expect(findByConnection).toHaveBeenCalledWith("example.com", 22, "dev");
@@ -174,28 +148,7 @@ describe("AddSshProjectDialog", () => {
     expect(sshInfo.machineId).toBe("m-1");
   });
 
-  it("renders a machine selector and fills fields when a machine is chosen", async () => {
-    const user = userEvent.setup();
-    const machine = createMachine();
-    useSshMachinesStore.setState({
-      machines: [machine],
-      load: loadMock as never,
-      add: addMachineMock as never,
-    });
-    renderDialog(true);
-
-    const select = await screen.findByRole("combobox");
-    await user.selectOptions(select, "m-1");
-
-    // host/port/user autofilled and disabled
-    const hostInput = inputByLabel(/主机|Host/);
-    expect(hostInput.value).toBe("devbox.local");
-    expect(hostInput).toBeDisabled();
-    expect(inputByLabel(/端口|Port/).value).toBe("2222");
-    expect(inputByLabel(/用户|User/).value).toBe("dev");
-  });
-
-  it("submits with the selected machine's id and connection", async () => {
+  it("fills (and locks) fields from the chosen machine and submits with its id and connection", async () => {
     const user = userEvent.setup();
     const machine = createMachine();
     useSshMachinesStore.setState({
@@ -207,8 +160,15 @@ describe("AddSshProjectDialog", () => {
 
     const select = await screen.findByRole("combobox");
     await user.selectOptions(select, "m-1");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/srv/app");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+
+    // host/port/user autofilled and disabled
+    const hostInput = inputByLabel(/主机|Host/);
+    expect(hostInput.value).toBe("devbox.local");
+    expect(hostInput).toBeDisabled();
+    expect(inputByLabel(/端口|Port/).value).toBe("2222");
+    expect(inputByLabel(/用户|User/).value).toBe("dev");
+
+    await fillAndSubmit(user, { path: "/srv/app" });
 
     await waitFor(() => expect(addSshProjectMock).toHaveBeenCalledTimes(1));
     const sshInfo = addSshProjectMock.mock.calls[0][1];
@@ -230,9 +190,7 @@ describe("AddSshProjectDialog", () => {
     addSshProjectMock.mockRejectedValueOnce(new Error("workspace missing"));
     const { onOpenChange } = renderDialog(true);
 
-    await user.type(inputByLabel(/主机|Host/), "example.com");
-    await user.type(inputByLabel(/远程路径|Remote Path/), "/home/dev/repo");
-    await user.click(screen.getByRole("button", { name: /Confirm|确定/i }));
+    await fillAndSubmit(user, { host: "example.com", path: "/home/dev/repo" });
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

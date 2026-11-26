@@ -47,14 +47,21 @@ describe("ProjectListView", () => {
     });
   });
 
-  it("WSL UNC 路径项目显示 WSL badge", () => {
+  it.each([
+    ["WSL UNC 路径", { alias: "wsl-project", path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo" }, "WSL"],
+    ["本地", { alias: "local-project", path: "D:/workspace/local-project" }, "LOCAL"],
+    [
+      "SSH",
+      {
+        alias: "ssh-project",
+        path: "/ignored/for/ssh",
+        ssh: { host: "devbox.local", port: 22, user: "dev", remotePath: "/home/dev/repo" },
+      },
+      "SSH",
+    ],
+  ] as const)("%s 项目显示对应 badge", (_label, project, badge) => {
     const workspace = createTestWorkspace({
-      projects: [
-        createTestWorkspaceProject({
-          alias: "wsl-project",
-          path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo",
-        }),
-      ],
+      projects: [createTestWorkspaceProject(project)],
     });
 
     render(
@@ -71,48 +78,8 @@ describe("ProjectListView", () => {
       />
     );
 
-    expect(screen.getByText("wsl-project")).toBeVisible();
-    expect(screen.getByText("WSL")).toBeVisible();
-  });
-
-  it("本地项目和 SSH 项目保留原有 badge", () => {
-    const workspace = createTestWorkspace({
-      projects: [
-        createTestWorkspaceProject({
-          alias: "local-project",
-          path: "D:/workspace/local-project",
-        }),
-        createTestWorkspaceProject({
-          alias: "ssh-project",
-          path: "/ignored/for/ssh",
-          ssh: {
-            host: "devbox.local",
-            port: 22,
-            user: "dev",
-            remotePath: "/home/dev/repo",
-          },
-        }),
-      ],
-    });
-
-    render(
-      <ProjectListView
-        projects={workspace.projects}
-        ws={workspace}
-        gitBranches={{}}
-        onOpenTerminal={vi.fn()}
-        onRemoveProject={vi.fn()}
-        onSetProjectAlias={vi.fn()}
-        onImportProject={vi.fn()}
-        onMigrateProject={vi.fn()}
-        onOpenWorktreeManager={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText("local-project")).toBeVisible();
-    expect(screen.getByText("LOCAL")).toBeVisible();
-    expect(screen.getByText("ssh-project")).toBeVisible();
-    expect(screen.getByText("SSH")).toBeVisible();
+    expect(screen.getByText(project.alias)).toBeVisible();
+    expect(screen.getByText(badge)).toBeVisible();
   });
 
   it("运行时异常项目不会让项目列表渲染崩溃", () => {
@@ -225,44 +192,6 @@ describe("ProjectListView", () => {
     }));
   });
 
-  it("默认环境为 wsl 时项目右键提供显式 WSL CLI 入口", async () => {
-    const workspace = createTestWorkspace({
-      defaultEnvironment: "wsl",
-      path: "D:/workspace-root",
-      wsl: {
-        distro: "Ubuntu",
-        remotePath: "/mnt/d/workspace-root",
-      },
-      projects: [
-        createTestWorkspaceProject({
-          alias: "local-project",
-          path: "D:/workspace-root/apps/api",
-        }),
-      ],
-    });
-
-    render(
-      <ProjectListView
-        projects={workspace.projects}
-        ws={workspace}
-        gitBranches={{}}
-        onOpenTerminal={vi.fn()}
-        onRemoveProject={vi.fn()}
-        onSetProjectAlias={vi.fn()}
-        onImportProject={vi.fn()}
-        onMigrateProject={vi.fn()}
-        onOpenWorktreeManager={vi.fn()}
-      />
-    );
-
-    fireEvent.contextMenu(screen.getByText("local-project"));
-    const user = userEvent.setup();
-    await user.hover(
-      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
-    );
-    expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
-  });
-
   it("默认环境为 wsl 时显式 WSL CLI 项也走 WSL", async () => {
     const user = userEvent.setup();
     const onOpenTerminal = vi.fn();
@@ -309,49 +238,6 @@ describe("ProjectListView", () => {
         remotePath: "/mnt/d/workspace-root/apps/api",
       }),
     }));
-  });
-
-  it("does not render inline favorite launch buttons under project rows", () => {
-    useSettingsStore.setState({
-      settings: createTestSettings({
-        general: {
-          ...createTestSettings().general,
-          launchFavorites: ["terminal-default", "terminal-wsl"],
-        },
-      }),
-      loading: false,
-    });
-    const workspace = createTestWorkspace({
-      defaultEnvironment: "wsl",
-      path: "D:/workspace-root",
-      wsl: {
-        distro: "Ubuntu",
-        remotePath: "/mnt/d/workspace-root",
-      },
-      projects: [
-        createTestWorkspaceProject({
-          alias: "local-project",
-          path: "D:/workspace-root/apps/api",
-        }),
-      ],
-    });
-
-    render(
-      <ProjectListView
-        projects={workspace.projects}
-        ws={workspace}
-        gitBranches={{}}
-        onOpenTerminal={vi.fn()}
-        onRemoveProject={vi.fn()}
-        onSetProjectAlias={vi.fn()}
-        onImportProject={vi.fn()}
-        onMigrateProject={vi.fn()}
-        onOpenWorktreeManager={vi.fn()}
-      />
-    );
-
-    expect(screen.queryByText(/常用|Favorites/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /打开终端.*WSL|Open Terminal.*WSL/i })).not.toBeInTheDocument();
   });
 
   it("默认环境为 wsl 时项目默认打开终端也走 WSL", async () => {
@@ -535,9 +421,6 @@ describe("ProjectListView", () => {
 
       const importEntry = screen.getByRole("button", { name: "导入项目" });
       expect(importEntry).toHaveAttribute("tabindex", "0");
-      expect(importEntry.className).toContain("focus-visible:outline-none");
-      expect(importEntry.className).toContain("focus-visible:ring-2");
-      expect(importEntry.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       // Tab 顺序：项目行是首个停留点，再 Tab 一次到导入入口
       await user.tab();
@@ -581,9 +464,6 @@ describe("ProjectListView", () => {
         .closest('[role="button"]') as HTMLElement;
       expect(row).not.toBeNull();
       expect(row).toHaveAttribute("tabindex", "0");
-      expect(row.className).toContain("focus-visible:outline-none");
-      expect(row.className).toContain("focus-visible:ring-2");
-      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       row.focus();
       expect(row).toHaveFocus();

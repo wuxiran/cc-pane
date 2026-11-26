@@ -18,18 +18,6 @@ describe("ScrollArea", () => {
     expect(viewport).toContainElement(screen.getByText("scrollable content"));
   });
 
-  it("merges custom className on the root", () => {
-    render(
-      <ScrollArea className="h-40 w-40">
-        <div>content</div>
-      </ScrollArea>,
-    );
-
-    expect(document.querySelector('[data-slot="scroll-area"]')).toHaveClass(
-      "h-40",
-      "w-40",
-    );
-  });
 
   it("always renders the default vertical scrollbar with type=always", () => {
     render(

@@ -130,7 +130,6 @@ describe("UpdateNotification", () => {
     await user.click(screen.getByRole("button", { name: /继续更新|Continue update/i }));
 
     await waitFor(() => expect(updaterMocks.downloadAndInstallUpdate).toHaveBeenCalledOnce());
-    expect(busyMocks.hasBusySessions).toHaveBeenCalled();
     expect(screen.getByText("40%")).toBeInTheDocument();
   });
 

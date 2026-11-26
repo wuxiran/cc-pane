@@ -11,20 +11,12 @@ import { createTestSettings } from "@/test/utils/testData";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import TerminalStatusBar from "./TerminalStatusBar";
 
-vi.mock("@/components/review/SessionReviewPanel", () => ({
-  default: ({ projectPath, checkpointChatId, cliSessionId }: { projectPath: string; checkpointChatId: string; cliSessionId: string }) => <output data-testid="session-review-target">{projectPath}|{checkpointChatId}|{cliSessionId}</output>,
-}));
-
 vi.mock("@/components/ContextUsageIndicator", () => ({
-  default: ({ enabled }: { enabled?: boolean }) => (
-    <span data-testid="context-usage-indicator" data-enabled={String(enabled)} />
-  ),
+  default: () => <span data-testid="context-usage-indicator" />,
 }));
 
 vi.mock("./SessionCostIndicator", () => ({
-  default: ({ enabled }: { enabled?: boolean }) => (
-    <span data-testid="session-cost-indicator" data-enabled={String(enabled)} />
-  ),
+  default: () => <span data-testid="session-cost-indicator" />,
 }));
 
 vi.mock("./TaskQueuePopover", () => ({
@@ -50,207 +42,98 @@ const terminalContext: ActiveTerminalContext = {
   launchProfileId: null,
 };
 
-describe("TerminalStatusBar", () => {
-  beforeEach(() => {
-    window.__TAURI_INTERNALS__ = {};
-    useSettingsStore.setState({ settings: createTestSettings() });
-    useTerminalStatusStore.setState({ statusMap: new Map() });
-  });
+type BarProps = Partial<React.ComponentProps<typeof TerminalStatusBar>>;
 
+function renderBar(props: BarProps = {}) {
+  return render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" {...props} />);
+}
+
+function setTerminalSettings(patch: Partial<ReturnType<typeof createTestSettings>["terminal"]>) {
+  const settings = useSettingsStore.getState().settings ?? createTestSettings();
+  useSettingsStore.setState({ settings: { ...settings, terminal: { ...settings.terminal, ...patch } } });
+}
+
+const reviewButton = () => screen.queryByRole("button", { name: i18n.t("review:title") });
+const queueButton = () => screen.queryByRole("button", { name: "task-queue-session-1" });
+
+beforeEach(() => {
+  window.__TAURI_INTERNALS__ = {};
+  useSettingsStore.setState({ settings: createTestSettings() });
+  useTerminalStatusStore.setState({ statusMap: new Map() });
+});
+
+describe("TerminalStatusBar", () => {
   it("opens review for the current CLI session and excludes remote files", async () => {
     const openReview = vi.spyOn(usePanesStore.getState(), "openReviewTab").mockReturnValue("review-tab");
-    const rendered = render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/repo/worktree" />);
-    await userEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
+    const rendered = renderBar({ projectPath: "/repo/worktree" });
+    await userEvent.click(reviewButton()!);
     expect(openReview).toHaveBeenCalledWith("/repo/worktree", { checkpointChatId: "cli:session-1", cliSessionId: "session-1", paneId: undefined });
     openReview.mockRestore();
     rendered.rerender(<TerminalStatusBar terminalContext={{ ...terminalContext, ssh: true }} projectPath="/remote" />);
-    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();
+    expect(reviewButton()).not.toBeInTheDocument();
+  });
+
+  it("never opens host repository review for a WSL session", () => {
+    renderBar({ projectPath: "C:/repo", wsl: true });
+    expect(reviewButton()).not.toBeInTheDocument();
   });
 
   it("修复显示按钮把请求派发给当前会话", () => {
     const seen: unknown[] = [];
     const onRepair = (event: Event) => seen.push((event as CustomEvent).detail);
     window.addEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
-    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/repo" />);
+    renderBar({ projectPath: "/repo" });
     fireEvent.click(screen.getByTestId("terminal-repair-display"));
     window.removeEventListener(TERMINAL_REPAIR_DISPLAY_EVENT, onRepair);
     expect(seen).toEqual([{ sessionId: "session-1" }]);
   });
 
-  it("never opens host repository review for a WSL session", () => {
-    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="C:/repo" wsl />);
-    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();
+  it("shows context usage and the queue entry by default", () => {
+    renderBar();
+    expect(screen.getByTestId("context-usage-indicator")).toBeInTheDocument();
+    expect(queueButton()).toBeInTheDocument();
   });
 
-  it("shows context usage by default", () => {
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />,
-    );
-
-    expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
-    expect(screen.getByTestId("context-usage-indicator")).toHaveAttribute("data-enabled", "true");
-    expect(screen.getByRole("button", { name: "task-queue-session-1" })).toBeInTheDocument();
-  });
-
-  it("hides the queue entry when the global feature is disabled", () => {
-    const settings = createTestSettings();
-    useSettingsStore.setState({
-      settings: {
-        ...settings,
-        terminal: { ...settings.terminal, taskQueueEnabled: false },
-      },
-    });
-
-    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />);
-    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
-  });
-
-  it("does not expose queue controls in a browser runtime", () => {
-    window.__TAURI_INTERNALS__ = undefined;
-
-    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />);
-    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
-  });
-
-  it("does not expose queue controls without an eligible CLI session", () => {
-    render(
-      <TerminalStatusBar
-        terminalContext={{ ...terminalContext, cliTool: "none" }}
-        projectPath="/tmp/project"
-      />,
-    );
-    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
+  it.each<[string, () => void, BarProps]>([
+    ["the global feature is disabled", () => setTerminalSettings({ taskQueueEnabled: false }), {}],
+    ["running in a browser runtime", () => { window.__TAURI_INTERNALS__ = undefined; }, {}],
+    ["there is no eligible CLI session", () => {}, { terminalContext: { ...terminalContext, cliTool: "none" } }],
+  ])("hides the queue entry when %s", (_label, arrange, props) => {
+    arrange();
+    renderBar(props);
+    expect(queueButton()).not.toBeInTheDocument();
   });
 
   it("hides only context usage when the terminal setting is disabled", () => {
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />,
-    );
-
-    act(() => {
-      const settings = useSettingsStore.getState().settings!;
-      useSettingsStore.setState({
-        settings: {
-          ...settings,
-          terminal: { ...settings.terminal, showContextUsage: false },
-        },
-      });
-    });
+    renderBar();
+    act(() => setTerminalSettings({ showContextUsage: false }));
 
     expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
     expect(screen.queryByTestId("context-usage-indicator")).not.toBeInTheDocument();
     expect(screen.getByText("claude")).toBeInTheDocument();
   });
 
-  it("collapses the whole bar when showStatusBar is disabled", () => {
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />,
-    );
+  it("toggles showStatusBar from the right-click menu and collapses the whole bar", async () => {
+    const user = userEvent.setup();
+    renderBar();
 
-    expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
+    await user.pointer({ target: screen.getByTestId("terminal-status-bar"), keys: "[MouseRight]" });
+    await user.click(await screen.findByText("隐藏状态栏"));
 
-    act(() => {
-      const settings = useSettingsStore.getState().settings!;
-      useSettingsStore.setState({
-        settings: {
-          ...settings,
-          terminal: { ...settings.terminal, showStatusBar: false },
-        },
-      });
-    });
-
+    expect(useSettingsStore.getState().settings?.terminal.showStatusBar).toBe(false);
     // 整段不渲染,空 DOM 也不要
     expect(screen.queryByTestId("terminal-status-bar")).not.toBeInTheDocument();
     expect(screen.queryByText("claude")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("context-usage-indicator")).not.toBeInTheDocument();
-  });
-
-  it("toggles showStatusBar from the right-click menu", async () => {
-    const user = userEvent.setup();
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />,
-    );
-
-    expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
-
-    await user.pointer({ target: screen.getByTestId("terminal-status-bar"), keys: "[MouseRight]" });
-
-    const menuItem = await screen.findByText("隐藏状态栏");
-    await user.click(menuItem);
-
-    expect(useSettingsStore.getState().settings?.terminal.showStatusBar).toBe(false);
-    expect(screen.queryByTestId("terminal-status-bar")).not.toBeInTheDocument();
   });
 });
 
 describe("TerminalStatusBar 焦点渐进展示", () => {
   beforeEach(() => {
-    window.__TAURI_INTERNALS__ = {};
-    useSettingsStore.setState({ settings: createTestSettings() });
-    useTerminalStatusStore.setState({ statusMap: new Map() });
     useFullscreenStore.setState({ isFullscreen: false, fullscreenPaneId: null });
   });
 
-  function resetPanes(rootPane: PaneNode, activePaneId: string) {
-    usePanesStore.setState({ rootPane, activePaneId });
-  }
-
-  function statusBarState() {
-    return screen.getByTestId("terminal-status-bar").getAttribute("data-pane-statusbar");
-  }
-
-  it("单窗格永远全亮（无焦点歧义，不降透明度）", () => {
-    const pane = createPanel();
-    resetPanes(pane, pane.id);
-
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" paneId={pane.id} />,
-    );
-
-    expect(statusBarState()).toBe("full");
-  });
-
-  it("多窗格时非焦点窗格状态条降为 dimmed", () => {
-    const focused = createPanel();
-    const blurred = createPanel();
-    const root: PaneNode = {
-      type: "split",
-      id: "split-root",
-      direction: "horizontal",
-      children: [focused, blurred],
-      sizes: [50, 50],
-    };
-    resetPanes(root, focused.id);
-
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" paneId={blurred.id} />,
-    );
-
-    expect(statusBarState()).toBe("dimmed");
-  });
-
-  it("多窗格时焦点窗格状态条保持全亮", () => {
-    const focused = createPanel();
-    const blurred = createPanel();
-    const root: PaneNode = {
-      type: "split",
-      id: "split-root",
-      direction: "horizontal",
-      children: [focused, blurred],
-      sizes: [50, 50],
-    };
-    resetPanes(root, focused.id);
-
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" paneId={focused.id} />,
-    );
-
-    expect(statusBarState()).toBe("full");
-  });
-
-  it("焦点切换后状态条即时恢复全亮", () => {
+  /** 两格水平分屏，first 为焦点。 */
+  function setupSplit() {
     const first = createPanel();
     const second = createPanel();
     const root: PaneNode = {
@@ -260,11 +143,35 @@ describe("TerminalStatusBar 焦点渐进展示", () => {
       children: [first, second],
       sizes: [50, 50],
     };
-    resetPanes(root, first.id);
+    usePanesStore.setState({ rootPane: root, activePaneId: first.id });
+    return { first, second };
+  }
 
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" paneId={second.id} />,
-    );
+  function statusBarState() {
+    return screen.getByTestId("terminal-status-bar").getAttribute("data-pane-statusbar");
+  }
+
+  it("单窗格永远全亮（无焦点歧义，不降透明度）", () => {
+    const pane = createPanel();
+    usePanesStore.setState({ rootPane: pane, activePaneId: pane.id });
+    renderBar({ paneId: pane.id });
+    expect(statusBarState()).toBe("full");
+  });
+
+  it.each<[string, "focused" | "blurred" | "none", "full" | "dimmed"]>([
+    ["多窗格时非焦点窗格状态条降为 dimmed", "blurred", "dimmed"],
+    ["多窗格时焦点窗格状态条保持全亮", "focused", "full"],
+    ["未传 paneId 时始终全亮（独立渲染场景向后兼容）", "none", "full"],
+  ])("%s", (_label, which, expected) => {
+    const { first, second } = setupSplit();
+    const paneId = which === "focused" ? first.id : which === "blurred" ? second.id : undefined;
+    renderBar({ paneId });
+    expect(statusBarState()).toBe(expected);
+  });
+
+  it("焦点切换后状态条即时恢复全亮", () => {
+    const { second } = setupSplit();
+    renderBar({ paneId: second.id });
     expect(statusBarState()).toBe("dimmed");
 
     act(() => {
@@ -274,41 +181,9 @@ describe("TerminalStatusBar 焦点渐进展示", () => {
   });
 
   it("全屏中的窗格状态条保持全亮", () => {
-    const focused = createPanel();
-    const fullscreen = createPanel();
-    const root: PaneNode = {
-      type: "split",
-      id: "split-root",
-      direction: "horizontal",
-      children: [focused, fullscreen],
-      sizes: [50, 50],
-    };
-    resetPanes(root, focused.id);
-    useFullscreenStore.setState({ isFullscreen: true, fullscreenPaneId: fullscreen.id });
-
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" paneId={fullscreen.id} />,
-    );
-
-    expect(statusBarState()).toBe("full");
-  });
-
-  it("未传 paneId 时始终全亮（独立渲染场景向后兼容）", () => {
-    const focused = createPanel();
-    const blurred = createPanel();
-    const root: PaneNode = {
-      type: "split",
-      id: "split-root",
-      direction: "horizontal",
-      children: [focused, blurred],
-      sizes: [50, 50],
-    };
-    resetPanes(root, focused.id);
-
-    render(
-      <TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />,
-    );
-
+    const { second } = setupSplit();
+    useFullscreenStore.setState({ isFullscreen: true, fullscreenPaneId: second.id });
+    renderBar({ paneId: second.id });
     expect(statusBarState()).toBe("full");
   });
 });

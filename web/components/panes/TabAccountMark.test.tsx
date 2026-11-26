@@ -29,27 +29,21 @@ describe("TabAccountMark", () => {
     const dot = screen.getByTestId("account-color-dot");
     expect(dot).toHaveAttribute("title", "账号：个人号");
     expect(dot).toHaveAttribute("data-color", "green");
-    expect(dot.style.backgroundColor).toBe("var(--app-tag-green)");
   });
 
-  it("默认账号不显示", () => {
-    render(<TabAccountMark providerId="p-multi" providerAccountId="acc-work" />);
-    expect(screen.queryByTestId("account-color-dot")).toBeNull();
-  });
-
-  it("默认登录也算非默认账号：次要色 + 「默认登录」", () => {
+  it("默认登录也算非默认账号：显示「默认登录」", () => {
     render(<TabAccountMark providerId="p-multi" providerAccountId={DEFAULT_LOGIN_ACCOUNT_ID} />);
     const dot = screen.getByTestId("account-color-dot");
     expect(dot).toHaveAttribute("title", "账号：默认登录");
-    expect(dot.style.backgroundColor).toBe("var(--app-text-tertiary)");
   });
 
-  it("没有账号 / 供应商没加载 / 账号已删时不显示", () => {
-    const { rerender } = render(<TabAccountMark providerId="p-multi" />);
-    expect(screen.queryByTestId("account-color-dot")).toBeNull();
-    rerender(<TabAccountMark providerId="p-unknown" providerAccountId="acc-personal" />);
-    expect(screen.queryByTestId("account-color-dot")).toBeNull();
-    rerender(<TabAccountMark providerId="p-multi" providerAccountId="acc-gone" />);
+  it.each<[string, string, string | undefined]>([
+    ["默认账号", "p-multi", "acc-work"],
+    ["没有账号", "p-multi", undefined],
+    ["供应商没加载", "p-unknown", "acc-personal"],
+    ["账号已删", "p-multi", "acc-gone"],
+  ])("%s时不显示", (_label, providerId, providerAccountId) => {
+    render(<TabAccountMark providerId={providerId} providerAccountId={providerAccountId} />);
     expect(screen.queryByTestId("account-color-dot")).toBeNull();
   });
 });

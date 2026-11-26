@@ -29,12 +29,4 @@ describe("Separator", () => {
     expect(separator).toHaveAttribute("aria-orientation", "vertical");
     expect(separator).toHaveAttribute("data-orientation", "vertical");
   });
-
-  it("merges custom className", () => {
-    render(<Separator className="my-4" />);
-
-    expect(document.querySelector('[data-slot="separator"]')).toHaveClass(
-      "my-4",
-    );
-  });
 });

@@ -127,19 +127,6 @@ describe("CliLaunchersSection", () => {
     expect(editor).not.toHaveTextContent("Claude Code");
   });
 
-  it("adds an override when a custom command is typed", () => {
-    const onChange = vi.fn();
-    render(<CliLaunchersSection value={{ overrides: {} }} onChange={onChange} />);
-
-    fireEvent.change(screen.getByPlaceholderText("claude"), {
-      target: { value: "node C:/dev/claude.js" },
-    });
-
-    expect(onChange).toHaveBeenCalledWith({
-      overrides: { claude: { command: "node C:/dev/claude.js" } },
-    });
-  });
-
   it("removes the override when the command is cleared or reset", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

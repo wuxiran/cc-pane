@@ -143,12 +143,11 @@ describe("WorkspaceDialogs", () => {
     expect(screen.queryByTestId("project-migration-dialog")).not.toBeInTheDocument();
   });
 
-  it("新建工作空间：名称为空时创建按钮禁用", () => {
-    const { props } = makeProps({ newWorkspace: { open: true, name: "" } });
+  it.each(["", "   "])("新建工作空间：名称为 %j 时创建按钮禁用", (name) => {
+    const { props } = makeProps({ newWorkspace: { open: true, name } });
     render(<WorkspaceDialogs {...props} />);
 
-    const createBtn = screen.getByRole("button", { name: /创建|Create/i });
-    expect(createBtn).toBeDisabled();
+    expect(screen.getByRole("button", { name: /创建|Create/i })).toBeDisabled();
   });
 
   it("新建工作空间：填写名称后创建按钮启用并可确认", async () => {
@@ -164,82 +163,32 @@ describe("WorkspaceDialogs", () => {
     expect(spies.newConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it("新建工作空间：输入名称触发 setName，点击 Browse 触发 onSelectPath", async () => {
-    const user = userEvent.setup();
-    const { props, spies } = makeProps({ newWorkspace: { open: true, name: "" } });
+  it.each([
+    ["renameWorkspace", { name: "old-name" }, /重命名工作空间|Rename Workspace/i, "renameConfirm"],
+    ["projectAlias", { value: "" }, /设置项目别名|Set Project Alias/i, "projectAliasConfirm"],
+    ["workspaceAlias", { value: "alias" }, /设置工作空间别名|Set Workspace Alias/i, "workspaceAliasConfirm"],
+  ] as const)("%s 对话框：渲染标题，回车触发 onConfirm", (key, fields, title, spyKey) => {
+    const { props, spies } = makeProps({ [key]: { open: true, ...fields } } as DeepPartial<WorkspaceDialogsProps>);
     render(<WorkspaceDialogs {...props} />);
 
-    const nameInput = screen.getByPlaceholderText(/工作空间名称|Workspace name/i);
-    await user.type(nameInput, "a");
-    expect(spies.newSetName).toHaveBeenCalledWith("a");
-
-    await user.click(screen.getByRole("button", { name: /Browse/i }));
-    expect(spies.newSelectPath).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(title)).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(spies[spyKey]).toHaveBeenCalledTimes(1);
   });
 
-  it("新建工作空间：取消按钮调用 setOpen(false)", async () => {
-    const user = userEvent.setup();
-    const { props, spies } = makeProps({
-      newWorkspace: { open: true, name: "x" },
-    });
+  it.each([
+    ["scan", "scan-dialog"],
+    ["projectMigration", "project-migration-dialog"],
+  ] as const)("%s 对话框打开时渲染占位子组件", (key, testId) => {
+    const { props } = makeProps({ [key]: { open: true } } as DeepPartial<WorkspaceDialogsProps>);
     render(<WorkspaceDialogs {...props} />);
-
-    await user.click(screen.getByRole("button", { name: /取消|Cancel/i }));
-    expect(spies.newSetOpen).toHaveBeenCalledWith(false);
-  });
-
-  it("重命名工作空间：回车触发 onConfirm", async () => {
-    const { props, spies } = makeProps({
-      renameWorkspace: { open: true, name: "old-name" },
-    });
-    render(<WorkspaceDialogs {...props} />);
-
-    expect(screen.getByText(/重命名工作空间|Rename Workspace/i)).toBeVisible();
-    const input = screen.getByRole("textbox");
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(spies.renameConfirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("项目别名对话框：输入触发 setValue", async () => {
-    const user = userEvent.setup();
-    const { props, spies } = makeProps({
-      projectAlias: { open: true, value: "" },
-    });
-    render(<WorkspaceDialogs {...props} />);
-
-    expect(screen.getByText(/设置项目别名|Set Project Alias/i)).toBeVisible();
-    await user.type(screen.getByRole("textbox"), "z");
-    expect(spies.projectAliasSetValue).toHaveBeenCalledWith("z");
-  });
-
-  it("工作空间别名对话框：确认按钮触发 onConfirm", async () => {
-    const user = userEvent.setup();
-    const { props, spies } = makeProps({
-      workspaceAlias: { open: true, value: "alias" },
-    });
-    render(<WorkspaceDialogs {...props} />);
-
-    expect(screen.getByText(/设置工作空间别名|Set Workspace Alias/i)).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /确定|OK/i }));
-    expect(spies.workspaceAliasConfirm).toHaveBeenCalledTimes(1);
-  });
-
-  it("扫描导入对话框打开时渲染占位子组件", () => {
-    const { props } = makeProps({ scan: { open: true } });
-    render(<WorkspaceDialogs {...props} />);
-    expect(screen.getByTestId("scan-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId(testId)).toBeInTheDocument();
   });
 
   it("Git Clone 对话框打开时透传 workspaceName", () => {
     const { props } = makeProps({ gitClone: { open: true, workspaceName: "repo-ws" } });
     render(<WorkspaceDialogs {...props} />);
     expect(screen.getByTestId("git-clone-dialog")).toHaveTextContent("repo-ws");
-  });
-
-  it("项目迁移对话框打开时渲染占位子组件", () => {
-    const { props } = makeProps({ projectMigration: { open: true } });
-    render(<WorkspaceDialogs {...props} />);
-    expect(screen.getByTestId("project-migration-dialog")).toBeInTheDocument();
   });
 
   it("确认对话框：走系统对话框，确认/取消调用对应回调", async () => {
@@ -283,7 +232,9 @@ describe("ConfirmDialog", () => {
   it("Web 壳仍渲染 DOM 对话框", () => {
     vi.spyOn(runtime, "isTauriRuntime").mockReturnValue(false);
     render(<ConfirmDialog open setOpen={vi.fn()} title="普通操作" description="确认" onConfirm={vi.fn()} variant="destructive" />);
-    expect(screen.getByRole("button", { name: /确定|OK/i }).className).toMatch(/bg-destructive/);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByText("普通操作")).toBeVisible();
+    expect(screen.getByRole("button", { name: /确定|OK/i })).toBeVisible();
     vi.restoreAllMocks();
   });
 });

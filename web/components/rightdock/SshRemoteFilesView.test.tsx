@@ -123,18 +123,9 @@ describe("SshRemoteFilesView", () => {
     serviceMocks.writeFile.mockResolvedValue(undefined);
   });
 
-  it("does not navigate when a tree folder is double-clicked", async () => {
+  it.each(["tree", "list"] as const)("does not navigate when a %s folder is double-clicked", async (viewMode) => {
     const user = userEvent.setup();
-    renderView();
-
-    await user.dblClick(await screen.findByText("src"));
-
-    expect(useSshRemoteFilesStore.getState().currentPath).toBe("/srv/app");
-  });
-
-  it("does not navigate when a list folder is double-clicked", async () => {
-    const user = userEvent.setup();
-    useSshRemoteFilePreferencesStore.setState({ viewMode: "list" });
+    useSshRemoteFilePreferencesStore.setState({ viewMode });
     renderView();
 
     await user.dblClick(await screen.findByText("src"));
@@ -304,7 +295,6 @@ describe("SshRemoteFilesView", () => {
     renderView();
 
     const machineSelector = await screen.findByRole("combobox", { name: /SSH machine|SSH 机器/ });
-    expect(machineSelector).toHaveAttribute("data-slot", "select-trigger");
     expect(machineSelector).toHaveTextContent("production");
     expect(screen.getByRole("button", { name: /Back|后退/ })).toBeVisible();
     expect(screen.getByRole("button", { name: /Home directory|主目录/ })).toBeVisible();
@@ -360,15 +350,12 @@ describe("SshRemoteFilesView", () => {
     await waitFor(() => expect(treeItem).toHaveAttribute("aria-expanded", "false"));
   });
 
-  it("matches the Files tab tree-first hierarchy and row styling", async () => {
+  it("matches the Files tab tree-first hierarchy", async () => {
     renderView();
 
     const root = await screen.findByRole("treeitem", { name: "app" });
     expect(root).toHaveAttribute("aria-expanded", "true");
-
-    const src = screen.getByText("src");
-    expect(src).toHaveClass("font-semibold");
-    expect(src.closest("[role='treeitem']")).toHaveClass("rounded-md");
+    expect(screen.getByText("src").closest("[role='treeitem']")).not.toBeNull();
     expect(screen.queryByRole("columnheader")).toBeNull();
   });
 });

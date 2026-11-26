@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { LaunchProfile, SshMachine, Workspace } from "@/types";
+import type { CliTool, LaunchProfile, SshMachine, Workspace } from "@/types";
 import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import {
   createTestWorkspace,
@@ -66,17 +66,28 @@ function createLaunchProfile(overrides: Partial<LaunchProfile> = {}): LaunchProf
 }
 
 describe("workspaceLaunch", () => {
-  it("returns local_path_missing when no local anchor or project exists", () => {
-    const workspace = createTestWorkspace({ path: undefined });
-
+  it.each([
+    {
+      code: "local_path_missing",
+      workspace: { path: undefined },
+      environment: "local" as const,
+      platform: "windows" as const,
+    },
+    {
+      code: "wsl_unsupported",
+      workspace: { path: "/tmp/project", wsl: { remotePath: "/mnt/d/project" } },
+      environment: "wsl" as const,
+      platform: "macos" as const,
+    },
+  ])("returns $code from getWorkspaceEnvironmentIssue", ({ code, workspace, environment, platform }) => {
     const issue = getWorkspaceEnvironmentIssue({
-      workspace,
-      environment: "local",
+      workspace: createTestWorkspace(workspace),
+      environment,
       machines: [],
-      platform: "windows",
+      platform,
     });
 
-    expect(issue?.code).toBe("local_path_missing");
+    expect(issue?.code).toBe(code);
   });
 
   it("falls back to first local project when workspace path is missing", () => {
@@ -97,22 +108,6 @@ describe("workspaceLaunch", () => {
       path: "D:/repo/app",
       workspaceName: workspace.name,
     });
-  });
-
-  it("returns wsl_unsupported on non-Windows", () => {
-    const workspace = createTestWorkspace({
-      path: "/tmp/project",
-      wsl: { remotePath: "/mnt/d/project" },
-    });
-
-    const issue = getWorkspaceEnvironmentIssue({
-      workspace,
-      environment: "wsl",
-      machines: [],
-      platform: "macos",
-    });
-
-    expect(issue?.code).toBe("wsl_unsupported");
   });
 
   it("returns path_platform_mismatch for a Windows local path on macOS", () => {
@@ -151,92 +146,60 @@ describe("workspaceLaunch", () => {
     expect(options?.ssh?.remotePath).toBe("/srv/repo");
   });
 
-  it("derives workspace WSL path from workspace.path when remote root is blank", () => {
-    const workspace = createTestWorkspace({
+  it.each([
+    {
+      label: "drive path",
       path: "D:/workspace-root",
-      defaultEnvironment: "wsl",
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
-      machines: [],
-      platform: "windows",
-    });
-
-    expect(issue).toBeNull();
-    expect(options?.wsl?.remotePath).toBe("/mnt/d/workspace-root");
-    expect(options?.path).toBe("D:/workspace-root");
-  });
-
-  it("keeps Codex on local launch when workspace default environment is local", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      providerId: "provider-1",
-      defaultEnvironment: "local",
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
-      cliTool: "codex",
-      machines: [],
-      platform: "windows",
-    });
-
-    expect(issue).toBeNull();
-    expect(options).toMatchObject({
-      path: "D:/workspace-root",
-      cliTool: "codex",
-    });
-    expect(options?.wsl).toBeUndefined();
-    expect(options?.providerId).toBeUndefined();
-    expect(options?.launchProfileId).toBeUndefined();
-  });
-
-  it("does not inherit the workspace provider for Claude by default", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      providerId: "provider-1",
-      defaultEnvironment: "local",
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
-      cliTool: "claude",
-      machines: [],
-      platform: "windows",
-    });
-
-    expect(issue).toBeNull();
-    expect(options).toMatchObject({
-      path: "D:/workspace-root",
-      cliTool: "claude",
-    });
-    expect(options?.providerId).toBeUndefined();
-    expect(options?.launchProfileId).toBeUndefined();
-  });
-
-  it("launches Codex through WSL when workspace default environment is wsl", () => {
-    const workspace = createTestWorkspace({
+      cliTool: undefined,
+      remotePath: "/mnt/d/workspace-root",
+    },
+    {
+      label: "UNC WSL path (Codex)",
       path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root",
-      defaultEnvironment: "wsl",
-    });
+      cliTool: "codex" as const,
+      remotePath: "/home/dev/workspace-root",
+    },
+  ])("derives workspace WSL path from workspace.path ($label) when default environment is wsl", ({ path, cliTool, remotePath }) => {
+    const workspace = createTestWorkspace({ path, defaultEnvironment: "wsl" });
 
     const { options, issue } = resolveWorkspaceLaunchOptions({
       workspace,
-      cliTool: "codex",
+      cliTool,
       machines: [],
       platform: "windows",
     });
 
     expect(issue).toBeNull();
     expect(options).toMatchObject({
-      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root",
-      cliTool: "codex",
-      wsl: {
-        remotePath: "/home/dev/workspace-root",
-      },
+      path,
+      ...(cliTool ? { cliTool } : {}),
+      wsl: { remotePath },
     });
   });
+
+  it.each<CliTool>(["codex", "claude"])(
+    "keeps %s on local launch without inheriting the workspace provider by default",
+    (cliTool) => {
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        providerId: "provider-1",
+        defaultEnvironment: "local",
+      });
+
+      const { options, issue } = resolveWorkspaceLaunchOptions({
+        workspace,
+        cliTool,
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(issue).toBeNull();
+      expect(options).toMatchObject({ path: "D:/workspace-root", cliTool });
+      expect(options?.wsl).toBeUndefined();
+      expect(options?.providerId).toBeUndefined();
+      expect(options?.launchProfileId).toBeUndefined();
+    },
+  );
 
   it("prefers the Claude CLI default over the workspace default", () => {
     const workspace = createTestWorkspace({
@@ -264,54 +227,34 @@ describe("workspaceLaunch", () => {
     });
   });
 
-  it("falls back to the workspace default when a CLI default is absent", () => {
+  it.each<{ label: string; cliTool: CliTool; cliEnvironmentDefaults: Workspace["cliEnvironmentDefaults"] }>([
+    {
+      label: "falls back to the workspace default when a CLI default is absent",
+      cliTool: "codex",
+      cliEnvironmentDefaults: { claude: "wsl" },
+    },
+    {
+      label: "ignores CLI defaults for non-Claude/Codex tools",
+      cliTool: "gemini",
+      cliEnvironmentDefaults: { claude: "wsl", codex: "wsl" },
+    },
+  ])("$label", ({ cliTool, cliEnvironmentDefaults }) => {
     const workspace = createTestWorkspace({
       path: "D:/workspace-root",
       defaultEnvironment: "local",
-      cliEnvironmentDefaults: {
-        claude: "wsl",
-      },
+      cliEnvironmentDefaults,
     });
 
     const { options, issue } = resolveWorkspaceLaunchOptions({
       workspace,
-      cliTool: "codex",
+      cliTool,
       machines: [],
       platform: "windows",
     });
 
     expect(issue).toBeNull();
-    expect(resolveCliEnvironmentDefault(workspace, "codex")).toBeUndefined();
-    expect(options).toMatchObject({
-      path: "D:/workspace-root",
-      cliTool: "codex",
-    });
-    expect(options?.wsl).toBeUndefined();
-  });
-
-  it("ignores CLI defaults for non-Claude/Codex tools", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      defaultEnvironment: "local",
-      cliEnvironmentDefaults: {
-        claude: "wsl",
-        codex: "wsl",
-      },
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
-      cliTool: "gemini",
-      machines: [],
-      platform: "windows",
-    });
-
-    expect(issue).toBeNull();
-    expect(resolveCliEnvironmentDefault(workspace, "gemini")).toBeUndefined();
-    expect(options).toMatchObject({
-      path: "D:/workspace-root",
-      cliTool: "gemini",
-    });
+    expect(resolveCliEnvironmentDefault(workspace, cliTool)).toBeUndefined();
+    expect(options).toMatchObject({ path: "D:/workspace-root", cliTool });
     expect(options?.wsl).toBeUndefined();
   });
 
@@ -445,59 +388,41 @@ describe("workspaceLaunch", () => {
     });
   });
 
-  it("prefers migrated project WSL path", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      wsl: { remotePath: "/home/dev/workspace-root" },
-    });
-    const project = createTestWorkspaceProject({
-      path: "D:/workspace-root/apps/api",
-      wslRemotePath: "/home/dev/workspace-root/apps/api",
-    });
-
-    expect(resolveWorkspaceProjectWslPath(workspace, project)).toBe(
-      "/home/dev/workspace-root/apps/api",
-    );
-  });
-
-  it("derives project WSL path from workspace roots", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      wsl: { remotePath: "/home/dev/workspace-root" },
-    });
-    const project = createTestWorkspaceProject({
-      path: "D:/workspace-root/apps/web",
-    });
-
-    expect(resolveWorkspaceProjectWslPath(workspace, project)).toBe(
-      "/home/dev/workspace-root/apps/web",
-    );
-  });
-
-  it("falls back to drive mapping for standalone local project", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-    });
-    const project = createTestWorkspaceProject({
-      path: "D:/workspace-root/apps/web",
-    });
-
-    expect(resolveWorkspaceProjectWslPath(workspace, project)).toBe(
-      "/mnt/d/workspace-root/apps/web",
-    );
-  });
-
-  it("derives project WSL path from UNC WSL project path without persisted remote path", () => {
-    const workspace = createTestWorkspace({
-      path: undefined,
-    });
-    const project = createTestWorkspaceProject({
-      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root\\apps\\web",
-    });
-
-    expect(resolveWorkspaceProjectWslPath(workspace, project)).toBe(
-      "/home/dev/workspace-root/apps/web",
-    );
+  it.each([
+    {
+      label: "prefers migrated project WSL path",
+      workspace: { path: "D:/workspace-root", wsl: { remotePath: "/home/dev/workspace-root" } },
+      project: {
+        path: "D:/workspace-root/apps/api",
+        wslRemotePath: "/home/dev/workspace-root/apps/api",
+      },
+      expected: "/home/dev/workspace-root/apps/api",
+    },
+    {
+      label: "derives project WSL path from workspace roots",
+      workspace: { path: "D:/workspace-root", wsl: { remotePath: "/home/dev/workspace-root" } },
+      project: { path: "D:/workspace-root/apps/web" },
+      expected: "/home/dev/workspace-root/apps/web",
+    },
+    {
+      label: "falls back to drive mapping for standalone local project",
+      workspace: { path: "D:/workspace-root" },
+      project: { path: "D:/workspace-root/apps/web" },
+      expected: "/mnt/d/workspace-root/apps/web",
+    },
+    {
+      label: "derives project WSL path from UNC WSL project path without persisted remote path",
+      workspace: { path: undefined },
+      project: { path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root\\apps\\web" },
+      expected: "/home/dev/workspace-root/apps/web",
+    },
+  ])("$label", ({ workspace, project, expected }) => {
+    expect(
+      resolveWorkspaceProjectWslPath(
+        createTestWorkspace(workspace),
+        createTestWorkspaceProject(project),
+      ),
+    ).toBe(expected);
   });
 
   it("classifies local, wsl, and ssh projects", () => {
@@ -530,11 +455,20 @@ describe("workspaceLaunch", () => {
     ).toBe("ssh");
   });
 
-  it("resolves project launch through WSL when workspace default environment is wsl", () => {
+  it.each<{ label: string; workspace: Partial<Workspace> }>([
+    {
+      label: "workspace default environment is wsl",
+      workspace: { defaultEnvironment: "wsl" },
+    },
+    {
+      label: "the CLI default is wsl (after project.ssh is checked)",
+      workspace: { defaultEnvironment: "local", cliEnvironmentDefaults: { claude: "wsl" } },
+    },
+  ])("resolves project launch through WSL when $label", ({ workspace: overrides }) => {
     const workspace = createTestWorkspace({
       path: "D:/workspace-root",
-      defaultEnvironment: "wsl",
       wsl: { distro: "Ubuntu", remotePath: "/mnt/d/workspace-root" },
+      ...overrides,
     });
     const project = createTestWorkspaceProject({
       path: "D:/workspace-root/apps/api",
@@ -558,38 +492,6 @@ describe("workspaceLaunch", () => {
       },
     });
     expect(options?.providerId).toBeUndefined();
-  });
-
-  it("uses the CLI default for project launches after project.ssh is checked", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      defaultEnvironment: "local",
-      cliEnvironmentDefaults: {
-        claude: "wsl",
-      },
-      wsl: { distro: "Ubuntu", remotePath: "/mnt/d/workspace-root" },
-    });
-    const project = createTestWorkspaceProject({
-      path: "D:/workspace-root/apps/api",
-    });
-
-    const { options, issue } = resolveWorkspaceProjectLaunchOptions({
-      workspace,
-      project,
-      cliTool: "claude",
-      machines: [],
-      platform: "windows",
-    });
-
-    expect(issue).toBeNull();
-    expect(options).toMatchObject({
-      path: "D:/workspace-root/apps/api",
-      cliTool: "claude",
-      wsl: {
-        distro: "Ubuntu",
-        remotePath: "/mnt/d/workspace-root/apps/api",
-      },
-    });
   });
 
   it("keeps project SSH launches ahead of a local CLI default", () => {
@@ -655,67 +557,54 @@ describe("workspaceLaunch", () => {
     expect(issue?.code).toBe("wsl_local_path_missing");
   });
 
-  it("allows explicit provider selection for project launch in WSL mode", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      defaultEnvironment: "wsl",
-      wsl: { remotePath: "/mnt/d/workspace-root" },
-    });
-    const project = createTestWorkspaceProject({
-      path: "D:/workspace-root/apps/api",
-    });
-
-    const { options, issue } = resolveWorkspaceProjectLaunchOptions({
-      workspace,
-      project,
+  it("passes explicit providerId / providerSelection / launchProfileId through", () => {
+    // 显式 providerId：项目在 WSL 模式下启动
+    const projectResult = resolveWorkspaceProjectLaunchOptions({
+      workspace: createTestWorkspace({
+        path: "D:/workspace-root",
+        defaultEnvironment: "wsl",
+        wsl: { remotePath: "/mnt/d/workspace-root" },
+      }),
+      project: createTestWorkspaceProject({ path: "D:/workspace-root/apps/api" }),
       cliTool: "gemini",
       providerId: "provider-gemini",
       machines: [],
       platform: "windows",
     });
+    expect(projectResult.issue).toBeNull();
+    expect(projectResult.options?.providerId).toBe("provider-gemini");
+    expect(projectResult.options?.wsl?.remotePath).toBe("/mnt/d/workspace-root/apps/api");
 
-    expect(issue).toBeNull();
-    expect(options?.providerId).toBe("provider-gemini");
-    expect(options?.wsl?.remotePath).toBe("/mnt/d/workspace-root/apps/api");
-  });
-
-  it("passes providerSelection=none through workspace launches", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      providerId: "workspace-provider",
-      defaultEnvironment: "local",
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
+    // providerSelection=none 透传，且不回落 workspace provider
+    const noneResult = resolveWorkspaceLaunchOptions({
+      workspace: createTestWorkspace({
+        path: "D:/workspace-root",
+        providerId: "workspace-provider",
+        defaultEnvironment: "local",
+      }),
       cliTool: "claude",
       providerSelection: "none",
       machines: [],
       platform: "windows",
     });
+    expect(noneResult.issue).toBeNull();
+    expect(noneResult.options?.providerId).toBeUndefined();
+    expect(noneResult.options?.providerSelection).toBe("none");
 
-    expect(issue).toBeNull();
-    expect(options?.providerId).toBeUndefined();
-    expect(options?.providerSelection).toBe("none");
-  });
-
-  it("allows explicit launch profile selection to override workspace binding", () => {
-    const workspace = createTestWorkspace({
-      path: "D:/workspace-root",
-      launchProfileId: "workspace-profile",
-      defaultEnvironment: "local",
-    });
-
-    const { options, issue } = resolveWorkspaceLaunchOptions({
-      workspace,
+    // 显式 launchProfileId 覆盖 workspace 绑定
+    const profileResult = resolveWorkspaceLaunchOptions({
+      workspace: createTestWorkspace({
+        path: "D:/workspace-root",
+        launchProfileId: "workspace-profile",
+        defaultEnvironment: "local",
+      }),
       cliTool: "codex",
       launchProfileId: "selected-profile",
       machines: [],
       platform: "windows",
     });
-
-    expect(issue).toBeNull();
-    expect(options?.launchProfileId).toBe("selected-profile");
+    expect(profileResult.issue).toBeNull();
+    expect(profileResult.options?.launchProfileId).toBe("selected-profile");
   });
 
   describe("绑定 profile 的 CLI/运行环境过滤", () => {
@@ -744,111 +633,87 @@ describe("workspaceLaunch", () => {
       expect(options?.launchProfileId).toBeUndefined();
     });
 
-    it("workspace 绑定的 profile 适用于目标 CLI 时正常传递", () => {
-      useLaunchProfilesStore.setState({
+    it.each<{
+      label: string;
+      profiles: LaunchProfile[];
+      boundId?: string;
+      explicitId?: string;
+      cliTool: CliTool;
+      expected: string;
+    }>([
+      {
+        label: "workspace 绑定的 profile 适用于目标 CLI 时正常传递",
         profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
-      });
+        boundId: "codex-only",
+        cliTool: "codex",
+        expected: "codex-only",
+      },
+      {
+        label: "显式传入的 launchProfileId 不经过滤（保留后端 mismatch 警告）",
+        profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
+        explicitId: "codex-only",
+        cliTool: "claude",
+        expected: "codex-only",
+      },
+      {
+        label: "绑定 profile 在本地列表中不存在时保持原样传递",
+        profiles: [],
+        boundId: "unknown-profile",
+        cliTool: "claude",
+        expected: "unknown-profile",
+      },
+    ])("$label", ({ profiles, boundId, explicitId, cliTool, expected }) => {
+      useLaunchProfilesStore.setState({ profiles });
       const workspace = createTestWorkspace({
         path: "D:/workspace-root",
-        launchProfileId: "codex-only",
+        launchProfileId: boundId,
         defaultEnvironment: "local",
       });
 
       const { options } = resolveWorkspaceLaunchOptions({
         workspace,
-        cliTool: "codex",
+        cliTool,
+        launchProfileId: explicitId,
         machines: [],
         platform: "windows",
       });
 
-      expect(options?.launchProfileId).toBe("codex-only");
+      expect(options?.launchProfileId).toBe(expected);
     });
 
-    it("旧数据里 targetRuntime=wsl 的项目绑定 profile 在本机环境仍照常传递（运行位置已弃用）", () => {
-      useLaunchProfilesStore.setState({
-        profiles: [createLaunchProfile({ id: "wsl-only", targetTools: [], targetRuntime: "wsl" })],
-      });
-      const workspace = createTestWorkspace({
-        path: "D:/workspace-root",
-        defaultEnvironment: "local",
-      });
-      const project = createTestWorkspaceProject({
-        path: "D:/workspace-root/apps/api",
-        launchProfileId: "wsl-only",
-      });
+    it.each([
+      {
+        label: "旧数据里 targetRuntime=wsl 的项目绑定 profile 在本机环境仍照常传递（运行位置已弃用）",
+        profile: createLaunchProfile({ id: "wsl-only", targetTools: [], targetRuntime: "wsl" }),
+        workspace: { path: "D:/workspace-root", defaultEnvironment: "local" as const },
+        project: { path: "D:/workspace-root/apps/api", launchProfileId: "wsl-only" },
+      },
+      {
+        label: "旧数据里 targetRuntime=local 的工作空间绑定 profile 在 SSH 项目里仍照常传递",
+        profile: createLaunchProfile({ id: "local-only", targetTools: [], targetRuntime: "local" }),
+        workspace: {
+          path: "D:/workspace-root",
+          launchProfileId: "local-only",
+          defaultEnvironment: "local" as const,
+        },
+        project: {
+          path: "/srv/app",
+          ssh: { host: "box", port: 22, user: "me", remotePath: "/srv/app" },
+        },
+      },
+    ])("$label", ({ profile, workspace, project }) => {
+      useLaunchProfilesStore.setState({ profiles: [profile] });
 
       const { options, issue } = resolveWorkspaceProjectLaunchOptions({
-        workspace,
-        project,
+        workspace: createTestWorkspace(workspace),
+        project: createTestWorkspaceProject(project),
         cliTool: "claude",
         machines: [],
         platform: "windows",
       });
 
       expect(issue).toBeNull();
-      expect(options?.launchProfileId).toBe("wsl-only");
-    });
-
-    it("旧数据里 targetRuntime=local 的工作空间绑定 profile 在 SSH 项目里仍照常传递", () => {
-      useLaunchProfilesStore.setState({
-        profiles: [createLaunchProfile({ id: "local-only", targetTools: [], targetRuntime: "local" })],
-      });
-      const workspace = createTestWorkspace({
-        path: "D:/workspace-root",
-        launchProfileId: "local-only",
-        defaultEnvironment: "local",
-      });
-      const project = createTestWorkspaceProject({
-        path: "/srv/app",
-        ssh: { host: "box", port: 22, user: "me", remotePath: "/srv/app" },
-      });
-
-      const { options } = resolveWorkspaceProjectLaunchOptions({
-        workspace,
-        project,
-        cliTool: "claude",
-        machines: [],
-        platform: "windows",
-      });
-
-      expect(options?.launchProfileId).toBe("local-only");
-    });
-
-    it("显式传入的 launchProfileId 不经过滤（保留后端 mismatch 警告）", () => {
-      useLaunchProfilesStore.setState({
-        profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
-      });
-      const workspace = createTestWorkspace({
-        path: "D:/workspace-root",
-        defaultEnvironment: "local",
-      });
-
-      const { options } = resolveWorkspaceLaunchOptions({
-        workspace,
-        cliTool: "claude",
-        launchProfileId: "codex-only",
-        machines: [],
-        platform: "windows",
-      });
-
-      expect(options?.launchProfileId).toBe("codex-only");
-    });
-
-    it("绑定 profile 在本地列表中不存在时保持原样传递", () => {
-      const workspace = createTestWorkspace({
-        path: "D:/workspace-root",
-        launchProfileId: "unknown-profile",
-        defaultEnvironment: "local",
-      });
-
-      const { options } = resolveWorkspaceLaunchOptions({
-        workspace,
-        cliTool: "claude",
-        machines: [],
-        platform: "windows",
-      });
-
-      expect(options?.launchProfileId).toBe("unknown-profile");
+      expect(options?.launchProfileId).toBe(profile.id);
     });
   });
 });

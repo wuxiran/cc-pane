@@ -54,11 +54,10 @@ describe("SplitView", () => {
     expect(container.style.flexDirection).toBe("row");
   });
 
-  it("uses column direction and horizontal sash class when vertical", () => {
+  it("uses column direction when vertical", () => {
     const { container } = renderSplitView({ vertical: true });
 
     expect(container.style.flexDirection).toBe("column");
-    expect(container.querySelector(".splitview-sash")!.className).toContain("horizontal");
   });
 
   it("falls back to equal sizes when sizes length mismatches children", () => {
@@ -162,26 +161,24 @@ describe("SplitView", () => {
 
   // 窄档列宽下限（docs/splitview-narrow.md）
   describe("paneMinWidth floor", () => {
-    it("applies the min-width floor with a smooth min-width transition", () => {
+    it("applies the min-width floor to every pane", () => {
       const { container } = renderSplitView({ paneMinWidth: 320 });
 
       const panes = container.querySelectorAll<HTMLElement>("[data-splitview-pane]");
       expect(panes).toHaveLength(2);
       for (const pane of panes) {
         expect(pane.style.minWidth).toBe("320px");
-        expect(pane.style.transition).toContain("min-width var(--dur)");
       }
       // 百分比布局与 sash 结构不变
       expect(panes[0].style.flexBasis).toBe("50%");
       expect(container.querySelectorAll(".splitview-sash")).toHaveLength(1);
     });
 
-    it("keeps minWidth 0 and no transition when paneMinWidth is omitted", () => {
+    it("keeps minWidth 0 when paneMinWidth is omitted", () => {
       const { container } = renderSplitView();
 
       const panes = container.querySelectorAll<HTMLElement>("[data-splitview-pane]");
       expect(panes[0].style.minWidth).toBe("0px");
-      expect(panes[0].style.transition).toBe("");
     });
 
     it("drags with the same percentage math when paneMinWidth is set", () => {

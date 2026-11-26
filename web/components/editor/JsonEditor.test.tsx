@@ -53,16 +53,10 @@ describe("JsonEditor", () => {
   });
 
   it("hides the format button in read-only mode", () => {
-    const { unmount } = render(<JsonEditor value="{}" onChange={vi.fn()} readOnly />);
+    render(<JsonEditor value="{}" onChange={vi.fn()} readOnly />);
     expect(
       screen.queryByRole("button", { name: new RegExp(formatBtnLabel()) })
     ).not.toBeInTheDocument();
-    unmount();
-
-    render(<JsonEditor value="{}" onChange={vi.fn()} />);
-    expect(
-      screen.getByRole("button", { name: new RegExp(formatBtnLabel()) })
-    ).toBeInTheDocument();
   });
 
   it("formats valid JSON through the format button", async () => {

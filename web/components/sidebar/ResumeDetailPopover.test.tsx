@@ -46,10 +46,6 @@ function renderPopover(record: LaunchRecord) {
 describe("ResumeDetailPopover", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: vi.fn(async () => undefined) },
-      configurable: true,
-    });
   });
 
   it("renders the trigger and opens the popover on click", async () => {
@@ -63,22 +59,16 @@ describe("ResumeDetailPopover", () => {
     expect(screen.getByText("D:/work/my-project")).toBeVisible();
   });
 
-  it("truncates a long session id in the middle", async () => {
+  it.each([
+    ["truncates a long session id in the middle", "abcdef012345678901234567", "abcdef01...01234567"],
+    ["shows the full session id when short", "short123", "short123"],
+  ])("%s", async (_name, resumeSessionId, shown) => {
     const user = userEvent.setup();
-    renderPopover(createRecord({ resumeSessionId: "abcdef012345678901234567" }));
+    renderPopover(createRecord({ resumeSessionId }));
 
     await user.click(screen.getByRole("button", { name: "trigger" }));
 
-    expect(await screen.findByText("abcdef01...01234567")).toBeVisible();
-  });
-
-  it("shows the full session id when short", async () => {
-    const user = userEvent.setup();
-    renderPopover(createRecord({ resumeSessionId: "short123" }));
-
-    await user.click(screen.getByRole("button", { name: "trigger" }));
-
-    expect(await screen.findByText("short123")).toBeVisible();
+    expect(await screen.findByText(shown)).toBeVisible();
   });
 
   it("copies the session id and shows a success toast", async () => {
@@ -90,6 +80,8 @@ describe("ResumeDetailPopover", () => {
     const copyBtn = (await screen.findByText("sess-xyz")).parentElement!.querySelector("button")!;
     await user.click(copyBtn);
 
+    // userEvent.setup() 自带剪贴板 stub，读回即可验证写入内容
+    await expect(navigator.clipboard.readText()).resolves.toBe("sess-xyz");
     expect(toast.success).toHaveBeenCalled();
   });
 

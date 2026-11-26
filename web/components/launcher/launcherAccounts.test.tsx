@@ -85,25 +85,15 @@ describe("buildPendingLaunch · providerAccountId", () => {
     expect(launch?.providerAccountId).toBe("acc-login");
   });
 
-  it("记住的账号被删了就退回默认账号", () => {
-    const { launch } = buildPendingLaunch(recentDraft({ providerId: "p-multi", providerAccountId: "acc-gone" }), deps);
-    expect(launch?.providerId).toBe("p-multi");
+  it.each<[string, Partial<OpenTerminalOptions>, LauncherDraft["cliTool"], string | undefined]>([
+    ["记住的账号被删了", { providerId: "p-multi", providerAccountId: "acc-gone" }, "claude", "p-multi"],
+    ["换了 CLI 后登录账号不可选", { providerId: "p-multi", providerAccountId: "acc-login" }, "pi", "p-multi"],
+    ["记住的账号所属供应商已删除", { providerId: "p-removed", providerAccountId: "acc-x" }, "claude", "p-removed"],
+    ["运行时是 WSL 时本机登录账号", { providerId: "p-multi", providerAccountId: "acc-login", wsl: { distro: "Ubuntu", remotePath: "/home/u/repo" } }, "claude", "p-multi"],
+  ])("%s → 退回默认账号（不带 providerAccountId）", (_label, options, cliTool, providerId) => {
+    const { launch } = buildPendingLaunch(recentDraft(options, cliTool), deps);
+    expect(launch?.providerId).toBe(providerId);
     expect(launch?.providerAccountId).toBeUndefined();
-  });
-
-  it("换了 CLI 后登录账号不可选，退回默认账号", () => {
-    const { launch } = buildPendingLaunch(recentDraft({ providerId: "p-multi", providerAccountId: "acc-login" }, "pi"), deps);
-    expect(launch?.providerAccountId).toBeUndefined();
-  });
-
-  it("记住的账号所属供应商已删除时也退回默认", () => {
-    const { launch } = buildPendingLaunch(recentDraft({ providerId: "p-removed", providerAccountId: "acc-x" }), deps);
-    expect(launch?.providerAccountId).toBeUndefined();
-  });
-
-  it("运行时是 WSL 时本机登录账号不带", () => {
-    const draft = recentDraft({ providerId: "p-multi", providerAccountId: "acc-login", wsl: { distro: "Ubuntu", remotePath: "/home/u/repo" } });
-    expect(buildPendingLaunch(draft, deps).launch?.providerAccountId).toBeUndefined();
   });
 
   it("不接供应商（none）时不带账号", () => {

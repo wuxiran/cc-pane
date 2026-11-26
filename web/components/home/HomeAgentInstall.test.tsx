@@ -61,8 +61,10 @@ describe("agentCatalog 包管理器探测", () => {
     expect(terminalRunCommand("irm https://x | iex", "mac")).toBe("irm https://x | iex");
   });
 
-  it("每个条目在 Windows 上都有安装方式（含 Antigravity）", () => {
-    expect(AGENT_CATALOG.some((entry) => entry.id === "antigravity")).toBe(true);
+  it("条目 id 不重复，且每个条目在 Windows 上都有安装方式（含 Antigravity）", () => {
+    const ids = AGENT_CATALOG.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain("antigravity");
     for (const entry of AGENT_CATALOG) {
       expect(installMethodsFor(entry, "windows").length, entry.id).toBeGreaterThan(0);
     }

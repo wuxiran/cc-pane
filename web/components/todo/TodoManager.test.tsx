@@ -13,20 +13,15 @@ vi.mock("@/lib/feedback", () => ({
 
 // 子组件均有独立测试，这里桩化并捕获 props 以聚焦 Manager 的编排逻辑
 const captured = vi.hoisted(() => ({
-  sidebar: [] as Record<string, never>[],
   filterBar: [] as Record<string, never>[],
   listItems: [] as Record<string, never>[],
   tagGroups: [] as Record<string, never>[],
   editor: [] as Record<string, never>[],
-  overview: [] as Record<string, never>[],
   onDragEnd: undefined as unknown,
 }));
 
 vi.mock("./TodoViewSwitcher", () => ({
-  default: (p: never) => {
-    captured.sidebar.push(p);
-    return <div data-testid="todo-view-switcher" />;
-  },
+  default: () => <div data-testid="todo-view-switcher" />,
 }));
 vi.mock("./TodoFilterBar", () => ({
   default: (p: never) => {
@@ -55,10 +50,7 @@ vi.mock("./TodoEditor", () => ({
   },
 }));
 vi.mock("./TodoOverview", () => ({
-  default: (p: never) => {
-    captured.overview.push(p);
-    return <div data-testid="todo-overview" />;
-  },
+  default: () => <div data-testid="todo-overview" />,
 }));
 
 vi.mock("@dnd-kit/core", async (importOriginal) => {
@@ -140,12 +132,10 @@ describe("TodoManager", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    captured.sidebar.length = 0;
     captured.filterBar.length = 0;
     captured.listItems.length = 0;
     captured.tagGroups.length = 0;
     captured.editor.length = 0;
-    captured.overview.length = 0;
     seedStore();
   });
 
@@ -213,7 +203,7 @@ describe("TodoManager", () => {
     expect(lastEditor().isNew).toBe(true);
   });
 
-  it("列表加载后自动选中第一条", () => {
+  it("列表加载后不自动选中任何任务", () => {
     const todos = [createTodo(), createTodo({ id: "t2", title: "任务二" })];
     seedStore({ todos, total: 2 });
     render(<TodoManager scope="" scopeRef="" />);
@@ -221,19 +211,11 @@ describe("TodoManager", () => {
     expect(useTodoStore.getState().select).not.toHaveBeenCalled();
   });
 
-  it("头部显示当前视图标题与任务总数", () => {
-    seedStore({ total: 3, viewMode: "my_day" });
+  it("头部显示任务总数", () => {
+    seedStore({ total: 3 });
     render(<TodoManager scope="" scopeRef="" />);
 
-    expect(captured.sidebar[captured.sidebar.length - 1]).toEqual(expect.objectContaining({ viewMode: "my_day" }));
     expect(screen.getByText("共 3 个任务")).toBeVisible();
-  });
-
-  it("按 filterScope 显示作用域标题", () => {
-    seedStore({ filterScope: "project" });
-    render(<TodoManager scope="" scopeRef="" />);
-
-    expect(captured.sidebar[captured.sidebar.length - 1]).toEqual(expect.objectContaining({ activeScope: "project" }));
   });
 
   it("uses a two-column layout and resizes the task list", () => {
@@ -242,11 +224,9 @@ describe("TodoManager", () => {
 
     const [layoutHandle] = screen.getAllByRole("separator");
     const listPanel = layoutHandle.previousElementSibling as HTMLElement;
-    const detailsPanel = layoutHandle.parentElement?.nextElementSibling as HTMLElement;
 
     expect(screen.getByTestId("todo-view-switcher")).toBeInTheDocument();
     expect(listPanel).toHaveStyle({ width: "248px" });
-    expect(detailsPanel).toHaveClass("flex-1");
 
     fireEvent.pointerDown(layoutHandle, { clientX: 248 });
     fireEvent.pointerMove(window, { clientX: 320 });
@@ -284,7 +264,7 @@ describe("TodoManager", () => {
     expect(editor.form.tags).toBe("bug, 前端");
   });
 
-  it("点击加号打开新建编辑器", async () => {
+  it("新建任务标题为空时保存被拦截并提示", async () => {
     render(<TodoManager scope="" scopeRef="" />);
 
     const addButton = screen.getByRole("button", { name: "新建任务" });
@@ -329,25 +309,6 @@ describe("TodoManager", () => {
     expect(toastOk).toHaveBeenCalled();
   });
 
-  it("保存：编辑已选任务走 update", async () => {
-    const todo = createTodo({ id: "t9", title: "旧标题" });
-    seedStore({ todos: [todo], selectedTodo: todo, total: 1 });
-    render(<TodoManager scope="" scopeRef="" />);
-
-    const editor = lastEditor();
-    act(() => {
-      editor.onChange({ ...editor.form, title: "新标题" });
-    });
-    await act(async () => {
-      await lastEditor().onSave();
-    });
-
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith(
-      "t9",
-      expect.objectContaining({ title: "新标题", tags: [] }),
-    );
-  });
-
   it("保存失败时提示 operationFailed", async () => {
     const todo = createTodo();
     seedStore({
@@ -378,55 +339,24 @@ describe("TodoManager", () => {
     expect(toastOk).toHaveBeenCalled();
   });
 
-  it("列表项状态循环：todo→in_progress，done→todo", async () => {
-    const todos = [
-      createTodo({ id: "t1", status: "todo" }),
-      createTodo({ id: "t2", title: "任务二", status: "done" }),
-    ];
-    seedStore({ todos, selectedTodo: todos[0], total: 2 });
+  it.each<[string, "status" | "priority", string, Record<string, string>]>([
+    ["onToggleStatus", "status", "todo", { status: "in_progress" }],
+    ["onToggleStatus", "status", "in_progress", { status: "done" }],
+    ["onToggleStatus", "status", "done", { status: "todo" }],
+    ["onTogglePriority", "priority", "medium", { priority: "high" }],
+    ["onTogglePriority", "priority", "high", { priority: "low" }],
+    ["onTogglePriority", "priority", "low", { priority: "medium" }],
+  ])("列表项 %s：%s=%s 循环到下一档", async (handler, field, from, expected) => {
+    const todos = [createTodo({ id: "target", [field]: from } as Partial<TodoItem>)];
+    seedStore({ todos, selectedTodo: todos[0], total: 1 });
     render(<TodoManager scope="" scopeRef="" />);
 
-    const items = captured.listItems as unknown as {
-      todo: TodoItem;
-      onToggleStatus: () => void;
-    }[];
+    const item = captured.listItems[captured.listItems.length - 1] as unknown as Record<string, () => void>;
     await act(async () => {
-      items.find((i) => i.todo.id === "t1")!.onToggleStatus();
-    });
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith("t1", {
-      status: "in_progress",
+      item[handler]();
     });
 
-    await act(async () => {
-      items.find((i) => i.todo.id === "t2")!.onToggleStatus();
-    });
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith("t2", {
-      status: "todo",
-    });
-  });
-
-  it("列表项优先级循环：中→高→低→中", async () => {
-    const todos = [
-      createTodo({ id: "medium", priority: "medium" }),
-      createTodo({ id: "high", title: "高优先级", priority: "high" }),
-      createTodo({ id: "low", title: "低优先级", priority: "low" }),
-    ];
-    seedStore({ todos, selectedTodo: todos[0], total: 3 });
-    render(<TodoManager scope="" scopeRef="" />);
-
-    const items = captured.listItems as unknown as {
-      todo: TodoItem;
-      onTogglePriority: () => void;
-    }[];
-    for (const todo of todos) {
-      await act(async () => {
-        items.find((item) => item.todo.id === todo.id)!.onTogglePriority();
-      });
-    }
-
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith("medium", { priority: "high" });
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith("high", { priority: "low" });
-    expect(useTodoStore.getState().update).toHaveBeenCalledWith("low", { priority: "medium" });
+    expect(useTodoStore.getState().update).toHaveBeenCalledWith("target", expected);
   });
 
   it("按状态分组渲染 TodoTagGroup 并翻译分组标签", () => {
@@ -509,27 +439,5 @@ describe("TodoManager", () => {
     });
 
     expect(useTodoStore.getState().reorder).not.toHaveBeenCalled();
-  });
-
-  it("子任务操作透传到 store 对应 action", async () => {
-    const todo = createTodo({ id: "t9" });
-    seedStore({ todos: [todo], selectedTodo: todo, total: 1 });
-    render(<TodoManager scope="" scopeRef="" />);
-
-    const editor = lastEditor() as unknown as {
-      onAddSubtask: (t: string) => void;
-      onToggleSubtask: (id: string) => void;
-      onDeleteSubtask: (id: string) => void;
-    };
-    await act(async () => {
-      editor.onAddSubtask("子任务A");
-      editor.onToggleSubtask("sub-1");
-      editor.onDeleteSubtask("sub-2");
-    });
-
-    const s = useTodoStore.getState();
-    expect(s.addSubtask).toHaveBeenCalledWith("t9", "子任务A");
-    expect(s.toggleSubtask).toHaveBeenCalledWith("sub-1");
-    expect(s.deleteSubtask).toHaveBeenCalledWith("sub-2");
   });
 });

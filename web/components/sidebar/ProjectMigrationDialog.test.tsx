@@ -149,7 +149,6 @@ describe("ProjectMigrationDialog", () => {
       },
     ]);
     renderDialog();
-    await waitFor(() => expect(discoverWslDistros).toHaveBeenCalled());
     expect(
       await screen.findByRole("option", {
         name: new RegExp("Ubuntu" + tt("dialogs:projectMigration.defaultSuffix")),
@@ -166,7 +165,6 @@ describe("ProjectMigrationDialog", () => {
 
     await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") }));
 
-    await waitFor(() => expect(previewProjectMigration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(tt("dialogs:projectMigration.project", { name: "api" }))).toBeVisible();
     expect(screen.getByText(tt("dialogs:projectMigration.targetRoot", { path: "/home/dev/api" }))).toBeVisible();
     expect(screen.getByText("target already exists")).toBeVisible();
@@ -198,7 +196,6 @@ describe("ProjectMigrationDialog", () => {
     await screen.findByText(tt("dialogs:projectMigration.project", { name: "api" }));
     await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") }));
 
-    await waitFor(() => expect(executeProjectMigration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/已复制 7 个文件/)).toBeVisible();
     expect(screen.getByText(tt("dialogs:projectMigration.snapshot", { id: "snap-xyz" }))).toBeVisible();
     expect(load).toHaveBeenCalled();

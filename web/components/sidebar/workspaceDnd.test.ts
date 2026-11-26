@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 import { UNGROUPED_WORKSPACE_FILTER } from "@/stores/useWorkspacesStore";
 import { getReorderedWorkspaceNames, resolveWorkspaceDrop } from "./workspaceDnd";
 
+beforeEach(() => {
+  resetTestDataCounter();
+});
+
 describe("getReorderedWorkspaceNames", () => {
   it("returns reordered workspace names within the same pinned group", () => {
-    resetTestDataCounter();
     const ws1 = createTestWorkspace({ id: "ws-1", name: "ws-1", pinned: false });
     const ws2 = createTestWorkspace({ id: "ws-2", name: "ws-2", pinned: false });
     const ws3 = createTestWorkspace({ id: "ws-3", name: "ws-3", pinned: false });
@@ -13,10 +16,36 @@ describe("getReorderedWorkspaceNames", () => {
     expect(
       getReorderedWorkspaceNames([ws1, ws2, ws3], "ws-3", "ws-1"),
     ).toEqual(["ws-3", "ws-1", "ws-2"]);
+    expect(
+      getReorderedWorkspaceNames([ws1, ws2, ws3], "ws-1", "ws-3"),
+    ).toEqual(["ws-2", "ws-3", "ws-1"]);
+  });
+
+  it("returns null for a self drop or unknown ids", () => {
+    const ws1 = createTestWorkspace({ id: "ws-1", name: "ws-1" });
+    const ws2 = createTestWorkspace({ id: "ws-2", name: "ws-2" });
+
+    expect(getReorderedWorkspaceNames([ws1, ws2], "ws-1", "ws-1")).toBeNull();
+    expect(getReorderedWorkspaceNames([ws1, ws2], "ws-1", "zzz")).toBeNull();
+    expect(getReorderedWorkspaceNames([ws1, ws2], "zzz", "ws-2")).toBeNull();
+  });
+
+  it("never reorders the default workspace, on either side", () => {
+    const def = createTestWorkspace({ id: "ws-0", name: "default", isDefault: true });
+    const ws1 = createTestWorkspace({ id: "ws-1", name: "ws-1" });
+
+    expect(getReorderedWorkspaceNames([def, ws1], "ws-0", "ws-1")).toBeNull();
+    expect(getReorderedWorkspaceNames([def, ws1], "ws-1", "ws-0")).toBeNull();
+  });
+
+  it("allows reorder when both sides are pinned", () => {
+    const pa = createTestWorkspace({ id: "ws-1", name: "ws-1", pinned: true });
+    const pb = createTestWorkspace({ id: "ws-2", name: "ws-2", pinned: true });
+
+    expect(getReorderedWorkspaceNames([pa, pb], "ws-1", "ws-2")).toEqual(["ws-2", "ws-1"]);
   });
 
   it("ignores drag attempts across pinned boundaries", () => {
-    resetTestDataCounter();
     const pinned = createTestWorkspace({ id: "ws-1", name: "ws-1", pinned: true });
     const normal = createTestWorkspace({ id: "ws-2", name: "ws-2", pinned: false });
 
@@ -27,7 +56,6 @@ describe("getReorderedWorkspaceNames", () => {
 
   // 纯排序不跨组——跨组由 resolveWorkspaceDrop 走 regroup 分支处理，不经过这里
   it("ignores drag attempts across workspace groups", () => {
-    resetTestDataCounter();
     const frontend = createTestWorkspace({ id: "ws-1", name: "ws-1", group: "Frontend" });
     const backend = createTestWorkspace({ id: "ws-2", name: "ws-2", group: "Backend" });
 
@@ -37,7 +65,6 @@ describe("getReorderedWorkspaceNames", () => {
   });
 
   it("allows drag reorder within the same workspace group", () => {
-    resetTestDataCounter();
     const ws1 = createTestWorkspace({ id: "ws-1", name: "ws-1", group: "Frontend" });
     const ws2 = createTestWorkspace({ id: "ws-2", name: "ws-2", group: "Frontend" });
 
@@ -55,7 +82,6 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("拖到分组头 → 改组，且不下发排序（位置交给后端排序律）", () => {
-    resetTestDataCounter();
     const loose = createTestWorkspace({ id: "ws-1", name: "alpha" });
     const member = createTestWorkspace({ id: "ws-2", name: "bravo", group: "Backend" });
 
@@ -67,7 +93,6 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("拖到未分组头 → 清空 group", () => {
-    resetTestDataCounter();
     const member = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Backend" });
 
     expect(
@@ -76,14 +101,12 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("拖到自己所在分组的头 → 空操作", () => {
-    resetTestDataCounter();
     const member = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Backend" });
 
     expect(resolveWorkspaceDrop([member], "ws-1", groupTarget("Backend"))).toBeNull();
   });
 
   it("拖到他组成员上 → 改组并插到该成员位置", () => {
-    resetTestDataCounter();
     const front = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Frontend" });
     const back = createTestWorkspace({ id: "ws-2", name: "bravo", group: "Backend" });
 
@@ -96,7 +119,6 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("跨组且跨 pinned 边界 → 只改组，不下发排序", () => {
-    resetTestDataCounter();
     const normal = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Frontend" });
     const pinned = createTestWorkspace({
       id: "ws-2",
@@ -114,7 +136,6 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("同组成员之间 → 退化为纯排序", () => {
-    resetTestDataCounter();
     const a = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Frontend" });
     const b = createTestWorkspace({ id: "ws-2", name: "bravo", group: "Frontend" });
 
@@ -125,7 +146,6 @@ describe("resolveWorkspaceDrop", () => {
   });
 
   it("默认工作空间任一侧命中都拒绝", () => {
-    resetTestDataCounter();
     const def = createTestWorkspace({ id: "ws-0", name: "default", isDefault: true });
     const other = createTestWorkspace({ id: "ws-1", name: "alpha", group: "Backend" });
 

@@ -378,23 +378,7 @@ describe("useWorkspaceActions", () => {
       expect(onOpenTerminal).not.toHaveBeenCalled();
     });
 
-    it("打开项目 / worktree 透传路径与工作空间信息", () => {
-      const ws = makeWorkspace();
-      const project = makeProject({ path: "D:/repos/beta" });
-      const { result } = setup();
-
-      act(() => result.current.handleOpenProject(project, ws));
-      expect(onOpenTerminal).toHaveBeenCalledWith({
-        path: "D:/repos/beta",
-        workspaceName: ws.name,
-        workspacePath: ws.path,
-      });
-
-      act(() => result.current.handleOpenWorktree("D:/repos/beta-wt"));
-      expect(onOpenTerminal).toHaveBeenCalledWith({ path: "D:/repos/beta-wt" });
-    });
-
-    it("技能打开资源库并选中项目，Memory 管理器用别名打开", () => {
+    it("技能打开资源库并选中项目，Memory 管理器优先用别名、无别名回退目录名", () => {
       const { result } = setup();
       useActivityBarStore.setState({ appViewMode: "panes" });
       act(() => result.current.handleOpenSkillManager(makeProject({ alias: undefined })));
@@ -403,6 +387,9 @@ describe("useWorkspaceActions", () => {
 
       act(() => result.current.handleOpenMemoryManager(makeProject({ alias: "记忆" })));
       expect(paneActions.openMemoryManager).toHaveBeenCalledWith("D:/repos/alpha", "记忆");
+
+      act(() => result.current.handleOpenMemoryManager(makeProject({ alias: undefined })));
+      expect(paneActions.openMemoryManager).toHaveBeenLastCalledWith("D:/repos/alpha", "alpha");
     });
 
     it("Todo 管理器缺省 scope 为 global", () => {

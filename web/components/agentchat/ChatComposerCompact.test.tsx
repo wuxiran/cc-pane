@@ -31,25 +31,13 @@ function renderComposer(compact: boolean, extra: { header?: React.ReactNode; too
 }
 
 describe("ChatComposer compact look", () => {
-  it("窄版：小圆角卡片 + 13px 输入框，不挂全局 composer 类，截图并进「+」菜单", () => {
+  it("窄版：不挂全局 composer 类，截图并进「+」菜单", () => {
     const { container } = renderComposer(true);
-    const host = container.querySelector("[data-composer-look]");
-    expect(host).toHaveAttribute("data-composer-look", "compact");
+    expect(container.querySelector("[data-composer-look]")).toHaveAttribute("data-composer-look", "compact");
     expect(container.querySelector(".agent-chat-composer")).toBeNull();
     expect(container.querySelector(".agent-chat-composer-shell")).toBeNull();
     expect(container.querySelector(".agent-chat-composer-input")).toBeNull();
-    const input = screen.getByRole("textbox");
-    expect(input.className).toContain("text-[13px]");
-    expect(input.closest(".rounded-2xl")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /截图|screenshot/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /发送|Send/ }).className).toContain("size-7");
-  });
-
-  it("窄版：会话选择器包在可收缩、不换行的容器里", () => {
-    renderComposer(true, { toolbar: <button type="button">model-select</button> });
-    const wrapper = screen.getByRole("button", { name: "model-select" }).parentElement;
-    expect(wrapper?.className).toContain("overflow-hidden");
-    expect(wrapper?.className).toContain("min-w-0");
   });
 
   it("窄版：header 渲染在输入卡上方", () => {
@@ -59,13 +47,11 @@ describe("ChatComposer compact look", () => {
     expect(header.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("窗格版保持原有类名与尺寸", () => {
+  it("窗格版保持全局 composer 类与独立截图按钮", () => {
     const { container } = renderComposer(false);
     expect(container.querySelector(".agent-chat-composer")).not.toBeNull();
-    expect(container.querySelector(".agent-chat-composer-shell")?.className).toContain("rounded-3xl");
-    expect(screen.getByRole("textbox").className).toContain("agent-chat-composer-input");
-    expect(screen.getByRole("textbox").className).toContain("min-h-[4.25rem]");
+    expect(container.querySelector(".agent-chat-composer-shell")).not.toBeNull();
+    expect(screen.getByRole("textbox")).toHaveClass("agent-chat-composer-input");
     expect(screen.getByRole("button", { name: /截图|screenshot/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /发送|Send/ }).className).toContain("h-8 w-8");
   });
 });

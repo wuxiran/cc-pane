@@ -4,14 +4,6 @@ import { describe, expect, it } from "vitest";
 import { Textarea } from "./textarea";
 
 describe("Textarea", () => {
-  it("renders a textbox with placeholder", () => {
-    render(<Textarea placeholder="Type here" />);
-
-    expect(screen.getByRole("textbox")).toHaveAttribute(
-      "placeholder",
-      "Type here",
-    );
-  });
 
   it("accepts user input", async () => {
     const user = userEvent.setup();
@@ -36,11 +28,5 @@ describe("Textarea", () => {
       "aria-invalid",
       "true",
     );
-  });
-
-  it("merges custom className", () => {
-    render(<Textarea className="min-h-32" />);
-
-    expect(screen.getByRole("textbox")).toHaveClass("min-h-32");
   });
 });

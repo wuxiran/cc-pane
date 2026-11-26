@@ -18,6 +18,14 @@ function DynamicImportCrashingChild(): ReactElement {
   throw new TypeError("Failed to fetch dynamically imported module: http://localhost:14200/chunk.tsx");
 }
 
+function renderCrash(Child: () => ReactElement = CrashingChild) {
+  return render(
+    <ErrorBoundary>
+      <Child />
+    </ErrorBoundary>,
+  );
+}
+
 describe("ErrorBoundary", () => {
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -46,11 +54,7 @@ describe("ErrorBoundary", () => {
   });
 
   test("捕获 React 崩溃后写入日志并显示日志目录", async () => {
-    render(
-      <ErrorBoundary>
-        <CrashingChild />
-      </ErrorBoundary>,
-    );
+    renderCrash();
 
     await waitFor(() => {
       expect(logError).toHaveBeenCalledWith(
@@ -68,11 +72,7 @@ describe("ErrorBoundary", () => {
   test("错误页可以打开日志目录", async () => {
     const user = userEvent.setup();
 
-    render(
-      <ErrorBoundary>
-        <CrashingChild />
-      </ErrorBoundary>,
-    );
+    renderCrash();
 
     await screen.findByText(logDir);
     await user.click(screen.getByRole("button", { name: "打开日志目录" }));
@@ -114,24 +114,16 @@ describe("ErrorBoundary", () => {
     expect(reset).not.toHaveBeenCalled();
   });
 
-  test("resets the boundary for ordinary render errors", async () => {
+  // 「loading chunk」只是普通报错里的偶然词组时不能当成模块加载失败
+  test.each([
+    "ordinary render failure",
+    "still loading chunk of records",
+  ])("resets the boundary for ordinary render errors: %s", async (message) => {
     const reset = vi.fn();
     const reload = vi.fn();
     const canReload = vi.fn();
 
-    await retryAfterError(new Error("ordinary render failure"), reset, reload, canReload);
-
-    expect(reset).toHaveBeenCalledOnce();
-    expect(reload).not.toHaveBeenCalled();
-    expect(canReload).not.toHaveBeenCalled();
-  });
-
-  test("does not treat an incidental loading chunk phrase as a module failure", async () => {
-    const reset = vi.fn();
-    const reload = vi.fn();
-    const canReload = vi.fn();
-
-    await retryAfterError(new Error("still loading chunk of records"), reset, reload, canReload);
+    await retryAfterError(new Error(message), reset, reload, canReload);
 
     expect(reset).toHaveBeenCalledOnce();
     expect(reload).not.toHaveBeenCalled();
@@ -191,11 +183,7 @@ describe("ErrorBoundary", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
     const user = userEvent.setup();
 
-    render(
-      <ErrorBoundary>
-        <DynamicImportCrashingChild />
-      </ErrorBoundary>,
-    );
+    renderCrash(DynamicImportCrashingChild);
 
     await screen.findByText(logDir);
     expect(screen.queryByText(/页面源当前不可达/)).not.toBeInTheDocument();
@@ -211,11 +199,7 @@ describe("ErrorBoundary", () => {
       resolveLog = resolve;
     }));
 
-    render(
-      <ErrorBoundary>
-        <CrashingChild />
-      </ErrorBoundary>,
-    );
+    renderCrash();
 
     const retry = screen.getByRole("button", { name: "重试" });
     expect(retry).toBeDisabled();
@@ -231,11 +215,7 @@ describe("ErrorBoundary", () => {
     })));
     const user = userEvent.setup();
 
-    render(
-      <ErrorBoundary>
-        <DynamicImportCrashingChild />
-      </ErrorBoundary>,
-    );
+    renderCrash(DynamicImportCrashingChild);
 
     await screen.findByText(logDir);
     const retry = screen.getByRole("button", { name: "重试" });

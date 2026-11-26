@@ -8,6 +8,7 @@ import LayoutBar from "./LayoutBar";
 import { useActivityBarStore, useCanvasDisplayStore, usePanesStore } from "@/stores";
 import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
 import { createPanel } from "@/lib/paneTree";
+import type { LayoutEntry } from "@/types";
 
 // LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
@@ -26,28 +27,17 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   },
 }));
 
-function resetStores() {
+function layoutEntry(id: string, name: string, kind: LayoutEntry["kind"] = "normal", rootPane = createPanel()): LayoutEntry {
+  return { id, name, kind, rootPane, activePaneId: rootPane.id };
+}
+
+/** 默认「布局 1」+ 星标；extra 插在两者之间。 */
+function resetStores(...extra: LayoutEntry[]) {
   const rootPane = createPanel();
-  const starredRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
-    layouts: [
-      {
-        id: "layout-1",
-        name: "布局 1",
-        kind: "normal",
-        rootPane,
-        activePaneId: rootPane.id,
-      },
-      {
-        id: "layout-starred",
-        name: "星标",
-        kind: "starred",
-        rootPane: starredRootPane,
-        activePaneId: starredRootPane.id,
-      },
-    ],
+    layouts: [layoutEntry("layout-1", "布局 1", "normal", rootPane), ...extra, layoutEntry("layout-starred", "星标", "starred")],
     currentLayoutId: "layout-1",
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
@@ -61,40 +51,9 @@ function resetStores() {
   useCanvasDisplayStore.setState({ mode: "panel", animationIntensity: "full" });
 }
 
-function addSecondLayout() {
-  const current = usePanesStore.getState();
-  const rootPane = current.rootPane;
-  const secondRootPane = createPanel();
-  const starredRootPane = createPanel();
-  usePanesStore.setState({
-    rootPane,
-    activePaneId: rootPane.id,
-    layouts: [
-      {
-        id: "layout-1",
-        name: "布局 1",
-        kind: "normal",
-        rootPane,
-        activePaneId: rootPane.id,
-      },
-      {
-        id: "layout-2",
-        name: "布局 2",
-        kind: "normal",
-        rootPane: secondRootPane,
-        activePaneId: secondRootPane.id,
-      },
-      {
-        id: "layout-starred",
-        name: "星标",
-        kind: "starred",
-        rootPane: starredRootPane,
-        activePaneId: starredRootPane.id,
-      },
-    ],
-    currentLayoutId: "layout-1",
-  });
-}
+const addSecondLayout = () => resetStores(layoutEntry("layout-2", "布局 2"));
+const switcher = () => screen.getByRole("button", { name: /布局|Layout/i });
+const hoverOpen = (user: ReturnType<typeof userEvent.setup>) => user.hover(switcher());
 
 describe("LayoutBar", () => {
   beforeEach(() => {
@@ -106,7 +65,7 @@ describe("LayoutBar", () => {
     useActivityBarStore.setState({ appViewMode: "home" });
     const { container } = render(<LayoutBar />);
 
-    await user.click(screen.getByRole("button", { name: /布局|Layout/i }));
+    await user.click(switcher());
 
     const dialog = await screen.findByRole("dialog", { name: /布局|Layouts/i });
     expect(dialog).toBeInTheDocument();
@@ -120,7 +79,7 @@ describe("LayoutBar", () => {
     const user = userEvent.setup();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const canvasButton = await screen.findByTestId("layout-selector-canvas");
     expect(canvasButton).toHaveAttribute("aria-pressed", "false");
 
@@ -145,8 +104,8 @@ describe("LayoutBar", () => {
       </>
     );
 
-    const switcher = screen.getByRole("button", { name: /布局|Layout/i });
-    await user.hover(switcher);
+    const trigger = switcher();
+    await user.hover(trigger);
 
     const dialog = await screen.findByRole("dialog", { name: /布局|Layouts/i });
     const pinButton = within(dialog).getByRole("button", { name: /钉住布局面板|Pin Layout Panel/i });
@@ -160,7 +119,7 @@ describe("LayoutBar", () => {
       "true",
     );
 
-    await user.unhover(switcher);
+    await user.unhover(trigger);
     await user.click(screen.getByRole("button", { name: "外部按钮" }));
     expect(dialog).toBeInTheDocument();
 
@@ -182,7 +141,7 @@ describe("LayoutBar", () => {
     const user = userEvent.setup();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const layoutRow = await screen.findByText("布局 1");
     fireEvent.contextMenu(layoutRow);
     await user.click(await screen.findByRole("menuitem", { name: /重命名|Rename/i }));
@@ -207,7 +166,7 @@ describe("LayoutBar", () => {
       </>
     );
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     fireEvent.contextMenu(await screen.findByText("布局 1"));
     await user.click(await screen.findByRole("menuitem", { name: /重命名|Rename/i }));
 
@@ -226,7 +185,7 @@ describe("LayoutBar", () => {
     addSecondLayout();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     fireEvent.contextMenu(await screen.findByText("布局 2"));
 
     const deleteItem = await screen.findByRole("menuitem", { name: /删除布局|Delete Layout/i });
@@ -242,7 +201,7 @@ describe("LayoutBar", () => {
     addSecondLayout();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     await user.click(await screen.findByRole("button", { name: "布局 2" }));
 
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
@@ -254,7 +213,7 @@ describe("LayoutBar", () => {
     addSecondLayout();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
 
     expect(await screen.findAllByRole("button", { name: /拖动排序布局|Reorder layout/i })).toHaveLength(3);
   });
@@ -264,7 +223,7 @@ describe("LayoutBar", () => {
     addSecondLayout();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     expect(await screen.findByRole("button", { name: "星标" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /删除布局|Delete Layout/i })).toHaveLength(2);
 
@@ -275,23 +234,10 @@ describe("LayoutBar", () => {
 
   it("旧 Agent Chat 布局是普通布局：可删除", async () => {
     const user = userEvent.setup();
-    const current = usePanesStore.getState();
-    const agentRoot = createPanel();
-    usePanesStore.setState({
-      layouts: [
-        ...current.layouts,
-        {
-          id: "layout-agent-chat",
-          name: "Agent Chat",
-          kind: "normal",
-          rootPane: agentRoot,
-          activePaneId: agentRoot.id,
-        },
-      ],
-    });
+    resetStores(layoutEntry("layout-agent-chat", "Agent Chat"));
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const agentChatRow = await screen.findByRole("button", { name: /Agent Chat/ });
     expect(agentChatRow).toBeInTheDocument();
     expect(within(agentChatRow.closest(".group") as HTMLElement).getByRole("button", { name: /删除布局|Delete Layout/i })).toBeInTheDocument();
@@ -304,7 +250,7 @@ describe("LayoutBar", () => {
     const user = userEvent.setup();
     render(<LayoutBar />);
 
-    await user.click(screen.getByRole("button", { name: /布局|Layout/i }));
+    await user.click(switcher());
     const dialog = await screen.findByRole("dialog", { name: /布局|Layouts/i });
     expect(dialog).toHaveClass("z-[140]");
 
@@ -319,7 +265,7 @@ describe("LayoutBar", () => {
     addSecondLayout();
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const deleteButtons = await screen.findAllByRole("button", { name: /删除布局|Delete Layout/i });
     await user.click(deleteButtons[0]);
 
@@ -331,7 +277,7 @@ describe("LayoutBar", () => {
     usePanelPreferencesStore.setState({ layoutHeight: null });
     render(<LayoutBar />);
 
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const handle = await screen.findByRole("separator", { name: /调整布局列表高度|Resize layout list height/i });
     fireEvent.pointerDown(handle, { button: 0, clientY: 200 });
     fireEvent.pointerMove(document, { clientY: 360 });
@@ -347,7 +293,7 @@ describe("LayoutBar", () => {
     const previousCursor = document.body.style.cursor;
     const previousSelection = document.body.style.userSelect;
     const view = render(<LayoutBar />);
-    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    await hoverOpen(user);
     const handle = await screen.findByRole("separator", { name: /调整布局列表高度|Resize layout list height/i });
     fireEvent.pointerDown(handle, { button: 0, clientY: 200 });
     fireEvent.pointerMove(document, { clientY: 360 });

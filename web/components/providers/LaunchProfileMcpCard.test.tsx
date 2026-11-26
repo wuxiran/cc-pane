@@ -29,16 +29,13 @@ describe("LaunchProfileMcpCard 隔离提示（docs/110 批 3）", () => {
     );
   });
 
-  it("能真正隔离的 CLI、或没有收窄时不提示", () => {
-    renderCard("claude", { mode: "custom" });
+  it.each<[string, KnownCliTool, Partial<LaunchProfileDraft["mcpPolicy"]>]>([
+    ["能真正隔离的 CLI", "claude", { mode: "custom" }],
+    ["没有收窄", "cursor", {}],
+  ])("%s时不提示", (_label, tool, policy) => {
+    renderCard(tool, policy);
     expect(screen.queryByTestId("mcp-isolation-gap")).not.toBeInTheDocument();
   });
-
-  it("没有收窄时不提示", () => {
-    renderCard("cursor", {});
-    expect(screen.queryByTestId("mcp-isolation-gap")).not.toBeInTheDocument();
-  });
-
 });
 
 describe("LaunchProfileMcpCard 运行时提示（docs/110 批 4）", () => {

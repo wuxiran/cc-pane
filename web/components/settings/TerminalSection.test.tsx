@@ -63,25 +63,18 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 18 }));
   });
 
-  it("clamps fontSize into [10, 32] on blur", () => {
+  it.each([
+    { initial: 99, typed: "99", expected: 32 },
+    { initial: 2, typed: "2", expected: 10 },
+    // 非数字回落到默认 15
+    { initial: 20, typed: "", expected: 15 },
+  ])("normalizes blurred fontSize $typed to $expected", ({ initial, typed, expected }) => {
     const onChange = vi.fn();
-    const { rerender } = render(<TerminalSection value={createValue({ fontSize: 99 })} onChange={onChange} />);
+    render(<TerminalSection value={createValue({ fontSize: initial })} onChange={onChange} />);
 
-    fireEvent.blur(screen.getByDisplayValue("99"), { target: { value: "99" } });
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ fontSize: 32 }));
+    fireEvent.blur(screen.getByDisplayValue(String(initial)), { target: { value: typed } });
 
-    rerender(<TerminalSection value={createValue({ fontSize: 2 })} onChange={onChange} />);
-    fireEvent.blur(screen.getByDisplayValue("2"), { target: { value: "2" } });
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ fontSize: 10 }));
-  });
-
-  it("falls back to 15 when the blurred fontSize is not a number", () => {
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue({ fontSize: 20 })} onChange={onChange} />);
-
-    fireEvent.blur(screen.getByDisplayValue("20"), { target: { value: "" } });
-
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ fontSize: 15 }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ fontSize: expected }));
   });
 
   it("does not emit on blur when the clamped value equals the current one", () => {
@@ -111,39 +104,46 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ rendererMode: "webgl" }));
   });
 
-  it("emits showContextUsage changes", async () => {
+  // 开关的初始态 + 切换后只改自己的字段（不误伤相邻开关）
+  it.each<[RegExp, keyof TerminalSettings, boolean]>([
+    [/显示上下文使用量|Show context usage/i, "showContextUsage", true],
+    [/光标闪烁|Cursor Blink/i, "cursorBlink", true],
+    [/终端文件路径链接|Terminal file path links/i, "pathLinksEnabled", true],
+    [/显示终端状态栏|Show terminal status bar/i, "showStatusBar", true],
+    [/任务队列|Task queue/i, "taskQueueEnabled", true],
+    [/auto-trust|自动信任/i, "autoTrustRegisteredProjects", false],
+    [/允许完成任务自动收窗|Allow completed tasks/i, "autoCloseCompletedTasks", false],
+    // F7.4：beta 能力默认关闭，必须显式开启。
+    [/终端内联图片|Terminal inline images/i, "inlineImagesEnabled", false],
+    // resumeIdBackfill 为 null 视为未勾选
+    [/Resume ID 回填|legacy resume id backfill/i, "resumeIdBackfillEnabled", false],
+  ])("switch %s toggles %s (initially on: %s)", async (name, field, initiallyOn) => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
+    const value = createValue();
+    render(<TerminalSection value={value} onChange={onChange} />);
 
-    const contextUsage = screen.getByRole("switch", { name: /显示上下文使用量|Show context usage/i });
-    expect(contextUsage).toBeChecked();
-    await user.click(contextUsage);
+    const toggle = screen.getByRole("switch", { name });
+    if (initiallyOn) expect(toggle).toBeChecked();
+    else expect(toggle).not.toBeChecked();
+    await user.click(toggle);
 
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showContextUsage: false }));
+    expect(onChange).toHaveBeenLastCalledWith({ ...value, [field]: !initiallyOn });
   });
 
-  it("keeps auto-close off by default and saves explicit color overrides", async () => {
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-    const gate = screen.getByRole("switch", { name: /允许完成任务自动收窗|Allow completed tasks/i });
-    expect(gate).not.toBeChecked();
-    fireEvent.click(gate);
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoCloseCompletedTasks: true }));
-    fireEvent.change(screen.getByLabelText(/^(光标颜色|Cursor color)$/i), { target: { value: "#ffffff" } });
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorColor: "#ffffff" }));
-  });
-
-  it("renders every boolean as a switch and emits cursorBlink changes", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
+  it("renders every boolean as a switch and keeps expert items in a flat advanced section", () => {
+    render(<TerminalSection value={createValue()} onChange={vi.fn()} />);
 
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    const blink = screen.getByRole("switch", { name: /光标闪烁|Cursor Blink/i });
-    expect(blink).toBeChecked();
-    await user.click(blink);
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorBlink: false }));
+    // resumeIdBackfill 是专家项，平铺在页尾「高级设置」分区（不再折叠）
+    expect(screen.getByRole("heading", { name: /高级设置|Advanced/i })).toBeInTheDocument();
+  });
+
+  it("saves explicit color overrides", () => {
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText(/^(光标颜色|Cursor color)$/i), { target: { value: "#ffffff" } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorColor: "#ffffff" }));
   });
 
   it("disables orphan reaper controls while the daemon is off", () => {
@@ -151,71 +151,6 @@ describe("TerminalSection", () => {
 
     expect(screen.getByRole("switch", { name: /永不回收孤儿会话|Never reclaim orphaned sessions/i })).toBeDisabled();
     expect(screen.getByDisplayValue("1440")).toBeDisabled();
-  });
-
-  it("emits terminal path link changes", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    const pathLinks = screen.getByRole("switch", { name: /终端文件路径链接|Terminal file path links/i });
-    expect(pathLinks).toBeChecked();
-    await user.click(pathLinks);
-
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ pathLinksEnabled: false }));
-  });
-
-  it("keeps auto-trust off by default and emits changes", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    const toggle = screen.getByRole("switch", { name: /auto-trust|自动信任/i });
-    expect(toggle).not.toBeChecked();
-    await user.click(toggle);
-
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ autoTrustRegisteredProjects: true }),
-    );
-  });
-
-  it("emits showStatusBar changes", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    const showStatusBar = screen.getByRole("switch", { name: /显示终端状态栏|Show terminal status bar/i });
-    expect(showStatusBar).toBeChecked();
-    await user.click(showStatusBar);
-
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showStatusBar: false }));
-    // 不应误伤相邻开关
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showContextUsage: true }));
-  });
-
-  it("emits task queue feature changes", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    const taskQueue = screen.getByRole("switch", { name: /任务队列|Task queue/i });
-    expect(taskQueue).toBeChecked();
-    await user.click(taskQueue);
-
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ taskQueueEnabled: false }));
-  });
-
-  it("toggles the opt-in inline image feature from its default-off state", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    const inlineImages = screen.getByRole("switch", { name: /终端内联图片|Terminal inline images/i });
-    // F7.4：beta 能力默认关闭，必须显式开启。
-    expect(inlineImages).not.toBeChecked();
-    await user.click(inlineImages);
-
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ inlineImagesEnabled: true }));
   });
 
   it("emits null when the shell input is cleared", () => {
@@ -266,20 +201,5 @@ describe("TerminalSection", () => {
 
     expect(container.querySelector("#terminal-lower-session-priority")).toBeNull();
     expect(screen.queryByRole("switch", { name: /降低会话进程优先级|Lower session process priority/i })).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: /降低会话进程优先级|Lower session process priority/i })).toBeNull();
-  });
-
-  it("treats a null resumeIdBackfillEnabled as unchecked and toggles it on", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
-
-    // resumeIdBackfill 是专家项，平铺在页尾「高级设置」分区（不再折叠）
-    expect(screen.getByRole("heading", { name: /高级设置|Advanced/i })).toBeInTheDocument();
-    const backfill = screen.getByRole("switch", { name: /Resume ID 回填|legacy resume id backfill/i });
-    expect(backfill).not.toBeChecked();
-    await user.click(backfill);
-
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ resumeIdBackfillEnabled: true }));
   });
 });

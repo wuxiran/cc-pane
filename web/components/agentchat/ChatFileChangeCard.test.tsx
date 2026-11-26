@@ -2,6 +2,7 @@ import "@/i18n";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useAgentChatRemoteStore } from "@/stores/useAgentChatRemoteStore";
 import { undoAgentFileEdit } from "@/services/agentEditService";
 import { computeTextDiff } from "@/services/agentChatService";
 import type { AcpToolCall } from "@/types/agentChat";
@@ -19,6 +20,7 @@ const undoButton = () => screen.getByRole("button", { name: /^(撤销|Undo)$/ })
 beforeEach(() => {
   vi.clearAllMocks();
   useAgentChatStore.getState().dropChat(chatId);
+  useAgentChatRemoteStore.getState().setTarget(chatId, null);
   useAgentChatStore.getState().setSnapshot(chatId, { chatId, engineId: "claude", acpSessionId: "session", phase: "ready" });
   vi.mocked(undoAgentFileEdit).mockResolvedValue();
   vi.mocked(computeTextDiff).mockResolvedValue({ hunks: [], stats: { additions: 1, deletions: 1, changes: 1 }, isBinary: false, truncated: false });
@@ -92,5 +94,15 @@ describe("file change cards", () => {
     ]} />);
     expect(screen.getByTestId("chat-file-change")).toBeVisible();
     expect(screen.queryByText("Read A")).not.toBeInTheDocument();
+  });
+
+  it("offers no local undo for edits made on a remote machine", () => {
+    useAgentChatRemoteStore.getState().setTarget(chatId, {
+      machineId: "m1", machineName: "box", host: "10.0.0.2", cwd: "/srv/app", os: "linux",
+      probe: { status: "reachable", latencyMs: 1 }, probeSeq: 1,
+    });
+    render(<ToolCallCard call={call} chatId={chatId} />);
+    expect(screen.getByTestId("chat-file-change")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^(撤销|Undo)$/ })).not.toBeInTheDocument();
   });
 });

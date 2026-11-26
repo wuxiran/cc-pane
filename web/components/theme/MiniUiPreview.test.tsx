@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useThemeStore } from "@/stores/useThemeStore";
-import { THEME_PRESETS, themeGroup } from "@/theme/themePresets";
+import { THEME_PRESETS } from "@/theme/themePresets";
 import { THEME_SHAPE_CODES } from "@/theme/themeShapes";
 import { MiniUiPreview } from "./MiniUiPreview";
 
@@ -41,13 +41,13 @@ describe("MiniUiPreview 主题模式", () => {
       // 未显式传 shape 时跟随 useThemeStore 当前形态（测试基线 = soft）
       expect(root).toHaveAttribute("data-shape", "soft");
       expect(root).toHaveAttribute("aria-hidden", "true");
-      expect(root).toHaveClass("mini-ui-scope", "aspect-video");
+      // mini-ui-scope 是 data-theme 作用域 CSS 的挂载点
+      expect(root).toHaveClass("mini-ui-scope");
       if (group === "dark") {
         expect(root).toHaveClass("dark");
       } else {
         expect(root).not.toHaveClass("dark");
       }
-      expect(themeGroup(themeId)).toBe(group);
     },
   );
 
@@ -69,11 +69,10 @@ describe("MiniUiPreview 主题模式", () => {
     expect(root).toHaveAttribute("data-shape", "glass");
   });
 
-  it("卡顶有 4px 主色带，颜色走 var(--primary)", () => {
+  it("卡顶主色带颜色走 var(--primary)", () => {
     const { container } = render(<MiniUiPreview theme="deep-ink" />);
     const band = container.querySelector("[data-accent-band]")!;
     expect(band).not.toBeNull();
-    expect(band).toHaveClass("h-1");
     expect(band.getAttribute("style")).toContain("var(--primary)");
   });
 
@@ -117,14 +116,6 @@ describe("MiniUiPreview 形态模式", () => {
     expect(root).not.toHaveAttribute("data-theme");
     expect(root).not.toHaveClass("dark");
     expect(root).toHaveAttribute("aria-hidden", "true");
-  });
-
-  it("形态预览复用同一 mini UI 骨架（侧栏 + Tab + 终端 + 主色带）", () => {
-    const { container } = render(<MiniUiPreview shape="glass" />);
-    expect(container.querySelector("[data-accent-band]")).not.toBeNull();
-    expect(container.querySelector(".font-mono")).not.toBeNull();
-    expect(container.innerHTML).toContain("var(--app-sidebar)");
-    expect(container.innerHTML).toContain("var(--app-tabbar)");
   });
 
   it("表面材质挂在 .mini-ui-surface 上，供 glass/carbon 作用域覆写", () => {

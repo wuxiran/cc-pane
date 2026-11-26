@@ -35,6 +35,8 @@ function wt(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return { path: "/home/user/repo", branch: "main", commit: "abc1234", isMain: true, ...overrides };
 }
 
+const withFeatureWorktree = [wt(), wt({ path: "/home/user/repo-feat", branch: "feature", isMain: false })];
+
 function renderManager(props: Partial<React.ComponentProps<typeof WorktreeManager>> = {}) {
   const onOpenChange = vi.fn();
   const onOpenWorktree = vi.fn();
@@ -116,29 +118,10 @@ describe("WorktreeManager", () => {
     );
   });
 
-  it("删除非主 worktree 需二次确认后调用 remove", async () => {
-    const user = userEvent.setup();
-    vi.mocked(worktreeService.list).mockResolvedValue([
-      wt(),
-      wt({ path: "/home/user/repo-feat", branch: "feature", isMain: false }),
-    ]);
-    renderManager();
-    await screen.findByText("feature");
-
-    await user.click(screen.getByRole("button", { name: /删除|Delete/i }));
-
-    await waitFor(() =>
-      expect(worktreeService.remove).toHaveBeenCalledWith(PROJECT, "/home/user/repo-feat"),
-    );
-  });
-
   // 堵源头：worktree 被删后必须同步移除工作空间里的项目记录，否则孤儿项目只增不减
-  it("删除成功后回调 onWorktreeRemoved 并通知列表变化", async () => {
+  it("删除非主 worktree 需确认，调用 remove 后回调 onWorktreeRemoved 并通知列表变化", async () => {
     const user = userEvent.setup();
-    vi.mocked(worktreeService.list).mockResolvedValue([
-      wt(),
-      wt({ path: "/home/user/repo-feat", branch: "feature", isMain: false }),
-    ]);
+    vi.mocked(worktreeService.list).mockResolvedValue(withFeatureWorktree);
     const onWorktreeRemoved = vi.fn();
     const onWorktreesChanged = vi.fn();
     renderManager({ onWorktreeRemoved, onWorktreesChanged });
@@ -149,16 +132,15 @@ describe("WorktreeManager", () => {
     await waitFor(() =>
       expect(onWorktreeRemoved).toHaveBeenCalledWith("/home/user/repo-feat"),
     );
+    expect(window.confirm).toHaveBeenCalled();
+    expect(worktreeService.remove).toHaveBeenCalledWith(PROJECT, "/home/user/repo-feat");
     expect(onWorktreesChanged).toHaveBeenCalled();
   });
 
   // git 那一步已经成功了，联动失败不能让删除动作看起来失败
   it("联动回调抛错不阻断列表刷新", async () => {
     const user = userEvent.setup();
-    vi.mocked(worktreeService.list).mockResolvedValue([
-      wt(),
-      wt({ path: "/home/user/repo-feat", branch: "feature", isMain: false }),
-    ]);
+    vi.mocked(worktreeService.list).mockResolvedValue(withFeatureWorktree);
     const onWorktreeRemoved = vi.fn().mockRejectedValue(new Error("boom"));
     renderManager({ onWorktreeRemoved });
     await screen.findByText("feature");

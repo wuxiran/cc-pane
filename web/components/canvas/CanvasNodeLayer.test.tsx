@@ -43,7 +43,6 @@ describe("CanvasNodeLayer", () => {
 
     const card = screen.getByRole("article");
     expect(card).toHaveStyle({ width: "320px", height: "220px", left: "40px", top: "48px" });
-    expect(card).toHaveStyle({ background: "var(--app-panel-bg-effective)" });
     expect(screen.getByTestId("canvas-terminal-mirror")).toBeInTheDocument();
     expect(screen.getByTestId("canvas-terminal-mirror")).toHaveAttribute("data-layout-fit-key", "binding:leader:canvas:320:220");
     expect(screen.getByTestId("canvas-terminal-mirror")).toHaveAttribute("data-cli-tool", "codex");

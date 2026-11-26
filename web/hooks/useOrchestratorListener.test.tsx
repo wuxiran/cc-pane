@@ -48,6 +48,57 @@ function mockWebviewListeners() {
   return listeners;
 }
 
+type Listeners = Map<string, WebviewListener>;
+
+const LAUNCH_EVENT = "orchestrator-launch-task";
+const BASE_LAUNCH_PAYLOAD = {
+  projectPath: "/tmp/project-a",
+  projectId: "project-a",
+  cliTool: "codex",
+};
+
+/** 挂上 hook 并等到指定事件的监听注册完成。 */
+async function mountListener(eventName: string = LAUNCH_EVENT): Promise<Listeners> {
+  const listeners = mockWebviewListeners();
+  renderHook(() => useOrchestratorListener());
+  await waitFor(() => expect(listeners.has(eventName)).toBe(true));
+  return listeners;
+}
+
+async function fire(listeners: Listeners, eventName: string, payload: Record<string, unknown>) {
+  await act(async () => {
+    await listeners.get(eventName)?.({ payload });
+  });
+}
+
+/** 挂 hook 并派发一次 launch-task；payload 叠加在 BASE_LAUNCH_PAYLOAD 上。 */
+async function fireLaunch(payload: Record<string, unknown>) {
+  const listeners = await mountListener();
+  await fire(listeners, LAUNCH_EVENT, { ...BASE_LAUNCH_PAYLOAD, ...payload });
+}
+
+function seedCallerTab(sessionId: string) {
+  const panes = usePanesStore.getState();
+  panes.addTab(panes.rootPane.id, {
+    projectId: "project-a",
+    projectPath: "/tmp/project-a",
+    sessionId,
+    cliTool: "claude",
+  });
+}
+
+function allTabs() {
+  return usePanesStore.getState().allPanelsAcrossLayouts().flatMap((panel) => panel.tabs);
+}
+
+function bindCurrentLayoutTo(workspaceName: string) {
+  usePanesStore.setState((state) => ({
+    layouts: state.layouts.map((layout) =>
+      layout.id === "layout-1" ? { ...layout, workspaceName } : layout,
+    ),
+  }));
+}
+
 describe("useOrchestratorListener layout placement", () => {
   beforeEach(() => {
     resetTauriInvoke();
@@ -63,23 +114,10 @@ describe("useOrchestratorListener layout placement", () => {
     resetStores();
   });
 
-  it("launch-task 使用 layoutName 自动创建布局并把 tab 放入该布局", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-1",
-          sessionId: "session-1",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          layoutName: "MCP 自动任务",
-          cliTool: "codex",
-        },
-      });
-    });
+  it("launch-task 使用 layoutName 自动创建布局并把 tab 放入该布局（显式意图保留）", async () => {
+    // 从 files 视图起步：显式 layoutName 仍要切过去并拽回 panes
+    useActivityBarStore.setState({ appViewMode: "files" });
+    await fireLaunch({ taskId: "task-1", sessionId: "session-1", layoutName: "MCP 自动任务" });
 
     const state = usePanesStore.getState();
     const layout = state.layouts.find((item) => item.name === "MCP 自动任务");
@@ -91,10 +129,7 @@ describe("useOrchestratorListener layout placement", () => {
     }
     const projectedLayout = state.listLayouts().find((item) => item.id === layout?.id);
     expect(projectedLayout?.rootPane).toBe(state.rootPane);
-    const launchedTab = state
-      .allPanelsAcrossLayouts()
-      .flatMap((panel) => panel.tabs)
-      .find((tab) => tab.sessionId === "session-1");
+    const launchedTab = allTabs().find((tab) => tab.sessionId === "session-1");
     expect(launchedTab?.terminalRootPane).toMatchObject({
       type: "leaf",
     });
@@ -107,35 +142,24 @@ describe("useOrchestratorListener layout placement", () => {
     expect(leaf?.launchId).toMatch(/^launch-/);
     expect(leaf?.launchId).not.toBe("project-a");
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    // 已经切过去了，就不该再弹「已在某布局启动」的提示
+    expect(toastInfo).not.toHaveBeenCalled();
   });
 
   it("重复 launch-task 事件不会创建第二个相同会话标签", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    const event = {
-      payload: {
-        taskId: "task-duplicate",
-        sessionId: "session-duplicate",
-        projectPath: "/tmp/project-a",
-        projectId: "project-a",
-        tabId: "tab-duplicate",
-        terminalPaneId: "terminal-pane-duplicate",
-        cliTool: "opencode",
-      },
+    const listeners = await mountListener();
+    const payload = {
+      ...BASE_LAUNCH_PAYLOAD,
+      taskId: "task-duplicate",
+      sessionId: "session-duplicate",
+      tabId: "tab-duplicate",
+      terminalPaneId: "terminal-pane-duplicate",
+      cliTool: "opencode",
     };
-    const handler = listeners.get("orchestrator-launch-task");
-    await act(async () => {
-      await handler?.(event);
-      await handler?.(event);
-    });
+    await fire(listeners, LAUNCH_EVENT, payload);
+    await fire(listeners, LAUNCH_EVENT, payload);
 
-    const tabs = usePanesStore
-      .getState()
-      .allPanelsAcrossLayouts()
-      .flatMap((panel) => panel.tabs)
-      .filter((tab) => tab.sessionId === "session-duplicate");
+    const tabs = allTabs().filter((tab) => tab.sessionId === "session-duplicate");
     expect(tabs).toHaveLength(1);
     expect(tabs[0]?.id).toBe("tab-duplicate");
   });
@@ -157,31 +181,17 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("launch-task 把显式 launchProfileId 和 modelId 保存在前端 tab 元数据", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-profile",
-          sessionId: "session-profile",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          launchProfileId: "profile-yolo",
-          launchCwd: "/tmp/worktree",
-          workspacePath: "/tmp/workspace",
-          modelId: "claude-sonnet-4-6",
-          cliTool: "claude",
-        },
-      });
+    await fireLaunch({
+      taskId: "task-profile",
+      sessionId: "session-profile",
+      launchProfileId: "profile-yolo",
+      launchCwd: "/tmp/worktree",
+      workspacePath: "/tmp/workspace",
+      modelId: "claude-sonnet-4-6",
+      cliTool: "claude",
     });
 
-    const tab = usePanesStore
-      .getState()
-      .allPanelsAcrossLayouts()
-      .flatMap((panel) => panel.tabs)
-      .find((item) => item.sessionId === "session-profile");
+    const tab = allTabs().find((item) => item.sessionId === "session-profile");
     expect(tab?.launchProfileId).toBe("profile-yolo");
     expect(tab?.modelId).toBe("claude-sonnet-4-6");
     expect(tab?.workspacePath).toBe("/tmp/workspace");
@@ -190,30 +200,8 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("launch-task 有调用者会话时默认在其 pane 旁边分屏打开(并排,不是后台标签)", async () => {
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "caller-1",
-      cliTool: "claude",
-    });
-
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-2",
-          sessionId: "child-1",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          cliTool: "codex",
-          parentSessionId: "caller-1",
-        },
-      });
-    });
+    seedCallerTab("caller-1");
+    await fireLaunch({ taskId: "task-2", sessionId: "child-1", parentSessionId: "caller-1" });
 
     const state = usePanesStore.getState();
     // 调用者 pane 旁边分屏 → rootPane 变 split，调用者与新会话各占一个窗格。
@@ -231,35 +219,20 @@ describe("useOrchestratorListener layout placement", () => {
   // open_terminal_tab 复用 launch-task 事件：cliTool=none + placement=tab，
   // 前端必须落成普通 shell 标签（与用户手开的「仅终端」一致），且原样采用出生锚点。
   it("open_terminal_tab 事件(cliTool=none, placement=tab)在调用者窗格落成普通 shell 标签", async () => {
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "caller-1",
-      cliTool: "claude",
-    });
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-shell",
-          sessionId: "shell-1",
-          projectPath: "/tmp/project-a",
-          projectId: "orch-shell",
-          launchCwd: "/tmp/project-a/sub",
-          tabId: "tab-shell",
-          terminalPaneId: "terminal-pane-shell",
-          title: "ssh heze",
-          cliTool: "none",
-          providerSelection: "none",
-          runtimeKind: "local",
-          placement: "tab",
-          parentSessionId: "caller-1",
-        },
-      });
+    seedCallerTab("caller-1");
+    await fireLaunch({
+      taskId: "task-shell",
+      sessionId: "shell-1",
+      projectId: "orch-shell",
+      launchCwd: "/tmp/project-a/sub",
+      tabId: "tab-shell",
+      terminalPaneId: "terminal-pane-shell",
+      title: "ssh heze",
+      cliTool: "none",
+      providerSelection: "none",
+      runtimeKind: "local",
+      placement: "tab",
+      parentSessionId: "caller-1",
     });
 
     const state = usePanesStore.getState();
@@ -302,55 +275,10 @@ describe("useOrchestratorListener layout placement", () => {
     });
   }
 
-  it("launch-task 无父会话且当前布局未绑定时留在当前布局(不跳回上次布局)", async () => {
-    seedBoundLayout("ws-a");
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-stay",
-          sessionId: "session-stay",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          workspaceName: "ws-a",
-          cliTool: "codex",
-        },
-      });
-    });
-
-    const state = usePanesStore.getState();
-    expect(state.currentLayoutId).toBe("layout-1");
-    const panels = collectPanels(state.rootPane);
-    expect(panels.some((p) => p.tabs.some((t) => t.sessionId === "session-stay"))).toBe(true);
-  });
-
   it("launch-task 无父会话且当前布局绑了其他工作空间时仍自动路由", async () => {
     seedBoundLayout("ws-a");
-    usePanesStore.setState((state) => ({
-      layouts: state.layouts.map((layout) =>
-        layout.id === "layout-1" ? { ...layout, workspaceName: "ws-other" } : layout,
-      ),
-    }));
-
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-route",
-          sessionId: "session-route",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          workspaceName: "ws-a",
-          cliTool: "codex",
-        },
-      });
-    });
+    bindCurrentLayoutTo("ws-other");
+    await fireLaunch({ taskId: "task-route", sessionId: "session-route", workspaceName: "ws-a" });
 
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-bound");
   });
@@ -359,28 +287,12 @@ describe("useOrchestratorListener layout placement", () => {
   // 它不能凌驾于 silent 之上——silent 的契约是完全不打扰，连这种路由也不许切画面。
   it("launch-task placement=silent 时即使当前布局绑了其他工作空间也只落位不切布局", async () => {
     seedBoundLayout("ws-a");
-    usePanesStore.setState((state) => ({
-      layouts: state.layouts.map((layout) =>
-        layout.id === "layout-1" ? { ...layout, workspaceName: "ws-other" } : layout,
-      ),
-    }));
-
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-route-silent",
-          sessionId: "session-route-silent",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          workspaceName: "ws-a",
-          cliTool: "codex",
-          placement: "silent",
-        },
-      });
+    bindCurrentLayoutTo("ws-other");
+    await fireLaunch({
+      taskId: "task-route-silent",
+      sessionId: "session-route-silent",
+      workspaceName: "ws-a",
+      placement: "silent",
     });
 
     const state = usePanesStore.getState();
@@ -396,22 +308,7 @@ describe("useOrchestratorListener layout placement", () => {
   // 否则会退回「每次启动都跳布局」的老毛病。
   it("launch-task 当前布局未绑定时既不切布局也落在当前布局", async () => {
     seedBoundLayout("ws-a");
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-stay-2",
-          sessionId: "session-stay-2",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          workspaceName: "ws-a",
-          cliTool: "codex",
-        },
-      });
-    });
+    await fireLaunch({ taskId: "task-stay-2", sessionId: "session-stay-2", workspaceName: "ws-a" });
 
     const state = usePanesStore.getState();
     expect(state.currentLayoutId).toBe("layout-1");
@@ -420,30 +317,12 @@ describe("useOrchestratorListener layout placement", () => {
 
   it("launch-task 有父会话时不受 workspace 路由影响(leader/worker 同布局)", async () => {
     seedBoundLayout("ws-a");
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "leader-1",
-      cliTool: "claude",
-    });
-
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-worker",
-          sessionId: "worker-1",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          workspaceName: "ws-a",
-          cliTool: "codex",
-          parentSessionId: "leader-1",
-        },
-      });
+    seedCallerTab("leader-1");
+    await fireLaunch({
+      taskId: "task-worker",
+      sessionId: "worker-1",
+      workspaceName: "ws-a",
+      parentSessionId: "leader-1",
     });
 
     const state = usePanesStore.getState();
@@ -453,66 +332,19 @@ describe("useOrchestratorListener layout placement", () => {
     expect(panels.some((p) => p.tabs.some((t) => t.sessionId === "worker-1"))).toBe(true);
   });
 
-  it("launch-task placement=tab 时塞进调用者 pane 的标签页(不分屏)", async () => {
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "caller-1",
-      cliTool: "claude",
-    });
-
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-3",
-          sessionId: "child-2",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          cliTool: "codex",
-          parentSessionId: "caller-1",
-          placement: "tab",
-        },
-      });
-    });
-
-    const state = usePanesStore.getState();
-    // 显式 tab → 不分屏，新会话与调用者同 pane。
-    expect(state.rootPane.type).toBe("panel");
-    if (state.rootPane.type === "panel") {
-      const sids = state.rootPane.tabs.map((t) => t.sessionId);
-      expect(sids).toContain("caller-1");
-      expect(sids).toContain("child-2");
-    }
-  });
-
   it("launch-task 缺少 projectPath 时不创建布局和 tab", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-blank-path",
-          sessionId: "session-blank-path",
-          projectPath: "",
-          projectId: "project-a",
-          layoutName: "不应创建",
-          cliTool: "codex",
-        },
-      });
+    await fireLaunch({
+      taskId: "task-blank-path",
+      sessionId: "session-blank-path",
+      projectPath: "",
+      layoutName: "不应创建",
     });
 
     const state = usePanesStore.getState();
     expect(state.layouts).toHaveLength(1);
     expect(state.layouts.some((layout) => layout.name === "不应创建")).toBe(false);
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
-    expect(state.allPanelsAcrossLayouts().flatMap((panel) => panel.tabs)).not.toEqual(
+    expect(allTabs()).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ sessionId: "session-blank-path" })])
     );
     expect(toastErr).toHaveBeenCalledWith(expect.stringContaining("项目路径"));
@@ -520,33 +352,12 @@ describe("useOrchestratorListener layout placement", () => {
 
   it("leader 在别的布局时不抢当前布局，worker 仍建在 leader 那边并弹可跳转提示", async () => {
     // 布局 1 里放 leader，然后用户切到布局 2 干活
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "leader-1",
-      cliTool: "claude",
-    });
+    seedCallerTab("leader-1");
     const secondLayoutId = usePanesStore.getState().createLayout("布局 2");
     usePanesStore.getState().switchLayout(secondLayoutId);
     useActivityBarStore.setState({ appViewMode: "files" });
 
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-follow",
-          sessionId: "worker-1",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          cliTool: "codex",
-          parentSessionId: "leader-1",
-        },
-      });
-    });
+    await fireLaunch({ taskId: "task-follow", sessionId: "worker-1", parentSessionId: "leader-1" });
 
     const state = usePanesStore.getState();
     // 用户没被弹回布局 1，也没被从 files 视图拽出来
@@ -563,61 +374,17 @@ describe("useOrchestratorListener layout placement", () => {
     );
   });
 
-  it("显式传 layoutName 仍然切过去（显式意图保留）", async () => {
-    useActivityBarStore.setState({ appViewMode: "files" });
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-explicit",
-          sessionId: "session-explicit",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          layoutName: "点名的布局",
-          cliTool: "codex",
-        },
-      });
-    });
-
-    const state = usePanesStore.getState();
-    const layout = state.layouts.find((item) => item.name === "点名的布局");
-    expect(state.currentLayoutId).toBe(layout?.id);
-    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-    // 已经切过去了，就不该再弹「已在某布局启动」的提示
-    expect(toastInfo).not.toHaveBeenCalled();
-  });
-
   it("placement=silent 既不切布局也不切视图、不弹提示", async () => {
-    const panes = usePanesStore.getState();
-    panes.addTab(panes.rootPane.id, {
-      projectId: "project-a",
-      projectPath: "/tmp/project-a",
-      sessionId: "leader-2",
-      cliTool: "claude",
-    });
+    seedCallerTab("leader-2");
     const secondLayoutId = usePanesStore.getState().createLayout("布局 2");
     usePanesStore.getState().switchLayout(secondLayoutId);
     useActivityBarStore.setState({ appViewMode: "files" });
 
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-launch-task")?.({
-        payload: {
-          taskId: "task-silent",
-          sessionId: "worker-silent",
-          projectPath: "/tmp/project-a",
-          projectId: "project-a",
-          cliTool: "codex",
-          parentSessionId: "leader-2",
-          placement: "silent",
-        },
-      });
+    await fireLaunch({
+      taskId: "task-silent",
+      sessionId: "worker-silent",
+      parentSessionId: "leader-2",
+      placement: "silent",
     });
 
     const state = usePanesStore.getState();
@@ -628,19 +395,10 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("query-panes 返回当前 panes 兼容字段和 layouts 详情", async () => {
-    const listeners = mockWebviewListeners();
     const secondLayoutId = usePanesStore.getState().createLayout("第二布局");
     usePanesStore.getState().switchLayout("layout-1");
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-query-panes")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-query-panes")?.({
-        payload: {
-          requestId: "query-1",
-        },
-      });
-    });
+    const listeners = await mountListener("orchestrator-query-panes");
+    await fire(listeners, "orchestrator-query-panes", { requestId: "query-1" });
 
     expect(invoke).toHaveBeenCalledWith(
       "respond_orchestrator_query",
@@ -663,19 +421,12 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("open-browser-tab 事件切回 panes 并打开 browser tab", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-open-browser-tab")?.({
-        payload: {
-          requestId: "browser-request-1",
-          tabId: "browser-tab-1",
-          url: "http://localhost:5173/",
-          title: "Local preview",
-        },
-      });
+    const listeners = await mountListener("orchestrator-open-browser-tab");
+    await fire(listeners, "orchestrator-open-browser-tab", {
+      requestId: "browser-request-1",
+      tabId: "browser-tab-1",
+      url: "http://localhost:5173/",
+      title: "Local preview",
     });
 
     const browserTab = usePanesStore.getState().activePane()?.tabs.find(
@@ -694,15 +445,13 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("closes an inactive layout's browser through lifecycle without switching or closing another tab", async () => {
-    const listeners = mockWebviewListeners();
     const secondPane = createPanel();
     usePanesStore.setState((state) => ({ layouts: [...state.layouts,
       { id: "layout-2", name: "Second", rootPane: secondPane, activePaneId: secondPane.id }] }));
     usePanesStore.getState().openBrowser("https://example.test/", "Remote layout", "browser-close", { layoutId: "layout-2" });
     usePanesStore.getState().openBrowser("https://keep.test/", "Keep", "browser-keep");
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
-    await act(async () => { await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "browser-close" } }); });
+    const listeners = await mountListener("orchestrator-close-browser-tab");
+    await fire(listeners, "orchestrator-close-browser-tab", { tabId: "browser-close" });
     const state = usePanesStore.getState();
     expect(state.findTabAcrossLayouts("browser-close")).toBeNull();
     expect(state.findTabAcrossLayouts("browser-keep")).not.toBeNull();
@@ -712,17 +461,13 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("closes DSH through lifecycle, including its managed process, and ignores wrong types", async () => {
-    const listeners = mockWebviewListeners();
     const dshId = usePanesStore.getState().openDsh("/repo");
     const paneId = usePanesStore.getState().activePaneId;
     usePanesStore.getState().addTab(paneId, { projectId: "p", projectPath: "/repo", tabId: "terminal-keep", sessionId: "live" });
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
-    await act(async () => {
-      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "terminal-keep" } });
-      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: dshId } });
-      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: dshId } });
-    });
+    const listeners = await mountListener("orchestrator-close-browser-tab");
+    await fire(listeners, "orchestrator-close-browser-tab", { tabId: "terminal-keep" });
+    await fire(listeners, "orchestrator-close-browser-tab", { tabId: dshId });
+    await fire(listeners, "orchestrator-close-browser-tab", { tabId: dshId });
     expect(usePanesStore.getState().findTabAcrossLayouts("terminal-keep")).not.toBeNull();
     expect(usePanesStore.getState().findTabAcrossLayouts(dshId!)).toBeNull();
     expect(invoke).toHaveBeenCalledWith("stop_dsh_instance", { tabId: dshId });
@@ -730,33 +475,24 @@ describe("useOrchestratorListener layout placement", () => {
   });
 
   it("refuses a browser identity shared by a different tab type in another layout", async () => {
-    const listeners = mockWebviewListeners();
     usePanesStore.getState().openBrowser("https://example.test/", "Browser", "shared-id");
     const secondPane = createPanel();
     secondPane.tabs = [{ id: "shared-id", title: "Terminal", contentType: "terminal", projectId: "p", projectPath: "/repo", sessionId: "live" }];
     usePanesStore.setState((state) => ({ layouts: [...state.layouts,
       { id: "layout-2", name: "Second", rootPane: secondPane, activePaneId: secondPane.id }] }));
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
-    await act(async () => { await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "shared-id" } }); });
-    expect(usePanesStore.getState().allPanelsAcrossLayouts().flatMap((panel) => panel.tabs).filter((tab) => tab.id === "shared-id")).toHaveLength(2);
+    const listeners = await mountListener("orchestrator-close-browser-tab");
+    await fire(listeners, "orchestrator-close-browser-tab", { tabId: "shared-id" });
+    expect(allTabs().filter((tab) => tab.id === "shared-id")).toHaveLength(2);
   });
 
   it("open-browser-tab 复用时应答已有 tabId", async () => {
-    const listeners = mockWebviewListeners();
     usePanesStore.getState().openBrowser("http://localhost:5173/", "Existing", "existing-tab");
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-open-browser-tab")?.({
-        payload: {
-          requestId: "browser-request-2",
-          tabId: "unused-new-id",
-          url: "http://localhost:5173/",
-          reuse: true,
-        },
-      });
+    const listeners = await mountListener("orchestrator-open-browser-tab");
+    await fire(listeners, "orchestrator-open-browser-tab", {
+      requestId: "browser-request-2",
+      tabId: "unused-new-id",
+      url: "http://localhost:5173/",
+      reuse: true,
     });
 
     expect(invoke).toHaveBeenCalledWith("respond_orchestrator_query", {
@@ -767,8 +503,30 @@ describe("useOrchestratorListener layout placement", () => {
 
   // 「谁指挥的就开到谁那儿」：调用方在别的布局时，标签必须落在它那边，
   // 不能飞到用户此刻正看着的布局，也不能把用户拽走。
-  it("open-browser-tab 落到调用方所在布局，不切走当前布局", async () => {
-    const listeners = mockWebviewListeners();
+  it.each([
+    {
+      eventName: "orchestrator-open-browser-tab",
+      payload: {
+        requestId: "browser-request-3",
+        tabId: "browser-tab-3",
+        url: "http://localhost:5173/from-caller",
+        callerSessionId: "caller-session",
+      },
+      tabKey: (tab: { id: string }) => tab.id,
+      expected: "browser-tab-3",
+    },
+    {
+      eventName: "orchestrator-open-file",
+      payload: {
+        filePath: "/tmp/project-b/main.rs",
+        projectPath: "/tmp/project-b",
+        title: "main.rs",
+        callerSessionId: "caller-session",
+      },
+      tabKey: (tab: { filePath?: string }) => tab.filePath,
+      expected: "/tmp/project-b/main.rs",
+    },
+  ])("$eventName 落到调用方所在布局，不切走当前布局", async ({ eventName, payload, tabKey, expected }) => {
     const secondPane = createPanel();
     usePanesStore.setState((state) => ({
       layouts: [
@@ -783,73 +541,15 @@ describe("useOrchestratorListener layout placement", () => {
       "layout-2",
     );
 
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-open-browser-tab")?.({
-        payload: {
-          requestId: "browser-request-3",
-          tabId: "browser-tab-3",
-          url: "http://localhost:5173/from-caller",
-          callerSessionId: "caller-session",
-        },
-      });
-    });
+    const listeners = await mountListener(eventName);
+    await fire(listeners, eventName, payload);
 
     const state = usePanesStore.getState();
     expect(state.currentLayoutId).toBe("layout-1");
     const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
-    expect(
-      collectPanels(layout2.rootPane)
-        .flatMap((pane) => pane.tabs)
-        .map((tab) => tab.id),
-    ).toContain("browser-tab-3");
-    expect(
-      collectPanels(state.rootPane)
-        .flatMap((pane) => pane.tabs)
-        .map((tab) => tab.id),
-    ).not.toContain("browser-tab-3");
+    expect(collectPanels(layout2.rootPane).flatMap((pane) => pane.tabs).map(tabKey)).toContain(expected);
+    expect(collectPanels(state.rootPane).flatMap((pane) => pane.tabs).map(tabKey)).not.toContain(expected);
     // 落点不在眼前：给一条可点提示，而不是自动切过去
     expect(toastInfo).toHaveBeenCalled();
-  });
-
-  it("open-file 落到调用方所在布局", async () => {
-    const listeners = mockWebviewListeners();
-    const secondPane = createPanel();
-    usePanesStore.setState((state) => ({
-      layouts: [
-        ...state.layouts,
-        { id: "layout-2", name: "第二布局", rootPane: secondPane, activePaneId: secondPane.id },
-      ],
-    }));
-    usePanesStore.getState().addTab(
-      secondPane.id,
-      { projectId: "p", projectPath: "/tmp/project-b", sessionId: "caller-session" },
-      "layout-2",
-    );
-
-    renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(listeners.has("orchestrator-open-file")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("orchestrator-open-file")?.({
-        payload: {
-          filePath: "/tmp/project-b/main.rs",
-          projectPath: "/tmp/project-b",
-          title: "main.rs",
-          callerSessionId: "caller-session",
-        },
-      });
-    });
-
-    const state = usePanesStore.getState();
-    expect(state.currentLayoutId).toBe("layout-1");
-    const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
-    expect(
-      collectPanels(layout2.rootPane)
-        .flatMap((pane) => pane.tabs)
-        .map((tab) => tab.filePath),
-    ).toContain("/tmp/project-b/main.rs");
   });
 });

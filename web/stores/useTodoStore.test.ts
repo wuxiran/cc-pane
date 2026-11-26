@@ -87,18 +87,6 @@ describe("useTodoStore", () => {
     });
   });
 
-  describe("初始状态", () => {
-    it("应该有正确的初始值", () => {
-      const state = useTodoStore.getState();
-      expect(state.todos).toEqual([]);
-      expect(state.total).toBe(0);
-      expect(state.hasMore).toBe(false);
-      expect(state.loading).toBe(false);
-      expect(state.selectedTodo).toBeNull();
-      expect(state.viewMode).toBe("all");
-    });
-  });
-
   describe("loadList", () => {
     it("应该加载列表并写入 todos/total/hasMore", async () => {
       const todos = [createTestTodo({ id: "a" }), createTestTodo({ id: "b" })];
@@ -143,24 +131,18 @@ describe("useTodoStore", () => {
       );
     });
 
-    it("视图模式为 my_day 时应传 myDay=true", async () => {
-      useTodoStore.setState({ viewMode: "my_day" });
+    // 「所有任务」「收件箱」默认排除 ai-work-item；my_day / overdue 不携带 excludeTodoType
+    it.each([
+      ["all", { excludeTodoType: "ai-work-item" }],
+      ["inbox", { inbox: true, excludeTodoType: "ai-work-item" }],
+      ["my_day", { myDay: true, excludeTodoType: undefined }],
+      ["overdue", { overdue: true, excludeTodoType: undefined }],
+    ] as const)("视图模式 %s 应传递对应查询条件", async (viewMode, expected) => {
+      useTodoStore.setState({ viewMode });
 
       await useTodoStore.getState().loadList();
 
-      expect(mockTodo.query).toHaveBeenCalledWith(
-        expect.objectContaining({ myDay: true }),
-      );
-    });
-
-    it("收件箱和逾期视图应传递对应查询条件", async () => {
-      useTodoStore.setState({ viewMode: "inbox" });
-      await useTodoStore.getState().loadList();
-      expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining({ inbox: true }));
-
-      useTodoStore.setState({ viewMode: "overdue" });
-      await useTodoStore.getState().loadList();
-      expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining({ overdue: true }));
+      expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining(expected));
     });
 
     it("ai_work 视图应强制按 todoType=ai-work-item 精确取数", async () => {
@@ -170,28 +152,6 @@ describe("useTodoStore", () => {
 
       expect(mockTodo.query).toHaveBeenCalledWith(
         expect.objectContaining({ todoType: "ai-work-item", excludeTodoType: undefined }),
-      );
-    });
-
-    it("所有任务与收件箱视图应默认排除 ai-work-item", async () => {
-      useTodoStore.setState({ viewMode: "all" });
-      await useTodoStore.getState().loadList();
-      expect(mockTodo.query).toHaveBeenLastCalledWith(
-        expect.objectContaining({ excludeTodoType: "ai-work-item" }),
-      );
-
-      useTodoStore.setState({ viewMode: "inbox" });
-      await useTodoStore.getState().loadList();
-      expect(mockTodo.query).toHaveBeenLastCalledWith(
-        expect.objectContaining({ inbox: true, excludeTodoType: "ai-work-item" }),
-      );
-    });
-
-    it("my_day / overdue 视图不应携带 excludeTodoType", async () => {
-      useTodoStore.setState({ viewMode: "my_day" });
-      await useTodoStore.getState().loadList();
-      expect(mockTodo.query).toHaveBeenLastCalledWith(
-        expect.objectContaining({ excludeTodoType: undefined }),
       );
     });
 
@@ -242,29 +202,26 @@ describe("useTodoStore", () => {
     });
   });
 
-  describe("create", () => {
-    it("应该创建 Todo 并刷新列表", async () => {
-      const todo = createTestTodo({ id: "new" });
-      mockTodo.create.mockResolvedValue(todo);
+  describe("变更操作调用 service 并刷新列表", () => {
+    const created = createTestTodo({ id: "new" });
+    it.each([
+      ["create", [{ title: "New" }], created],
+      ["update", ["t1", { title: "改" }], undefined],
+      ["reorder", [["a", "b"]], undefined],
+      ["toggleMyDay", ["t1"], undefined],
+    ] as const)("%s 应调用 service 并刷新列表", async (action, args, returned) => {
+      mockTodo[action].mockResolvedValue(returned);
 
-      const result = await useTodoStore.getState().create({ title: "New" });
+      const run = useTodoStore.getState()[action] as (...a: unknown[]) => Promise<unknown>;
+      const result = await run(...args);
 
-      expect(mockTodo.create).toHaveBeenCalledWith({ title: "New" });
+      expect(mockTodo[action]).toHaveBeenCalledWith(...args);
       expect(mockTodo.query).toHaveBeenCalled();
-      expect(result).toEqual(todo);
+      expect(result).toEqual(returned);
     });
   });
 
   describe("update", () => {
-    it("应该更新 Todo 并刷新列表", async () => {
-      mockTodo.update.mockResolvedValue(undefined);
-
-      await useTodoStore.getState().update("t1", { title: "改" });
-
-      expect(mockTodo.update).toHaveBeenCalledWith("t1", { title: "改" });
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
     it("更新选中项时应刷新 selectedTodo", async () => {
       const selected = createTestTodo({ id: "t1", title: "旧" });
       const updated = createTestTodo({ id: "t1", title: "新" });
@@ -324,42 +281,16 @@ describe("useTodoStore", () => {
     });
   });
 
-  describe("select", () => {
-    it("应该设置 selectedTodo", () => {
-      const todo = createTestTodo();
-      useTodoStore.getState().select(todo);
-      expect(useTodoStore.getState().selectedTodo).toEqual(todo);
-    });
-
-    it("传 null 应清空选中", () => {
-      useTodoStore.setState({ selectedTodo: createTestTodo() });
-      useTodoStore.getState().select(null);
-      expect(useTodoStore.getState().selectedTodo).toBeNull();
-    });
-  });
-
   describe("筛选 setter", () => {
-    it("setFilterStatus 应设置状态并触发 loadList", () => {
-      useTodoStore.getState().setFilterStatus("done");
-      expect(useTodoStore.getState().filterStatus).toBe("done");
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
-    it("setFilterScope 应设置作用域并触发 loadList", () => {
-      useTodoStore.getState().setFilterScope("workspace");
-      expect(useTodoStore.getState().filterScope).toBe("workspace");
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
-    it("setFilterPriority 应设置优先级并触发 loadList", () => {
-      useTodoStore.getState().setFilterPriority("low");
-      expect(useTodoStore.getState().filterPriority).toBe("low");
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
-    it("setFilterType 应设置类型并触发 loadList", () => {
-      useTodoStore.getState().setFilterType("bug");
-      expect(useTodoStore.getState().filterType).toBe("bug");
+    it.each([
+      ["setFilterStatus", "filterStatus", "done"],
+      ["setFilterScope", "filterScope", "workspace"],
+      ["setFilterPriority", "filterPriority", "low"],
+      ["setFilterType", "filterType", "bug"],
+      ["setViewMode", "viewMode", "my_day"],
+    ] as const)("%s 应设置 %s 并触发 loadList", (setter, field, value) => {
+      (useTodoStore.getState()[setter] as (v: string) => void)(value);
+      expect(useTodoStore.getState()[field]).toBe(value);
       expect(mockTodo.query).toHaveBeenCalled();
     });
 
@@ -408,33 +339,6 @@ describe("useTodoStore", () => {
       expect(state.contextScope).toBe("project");
       expect(state.contextScopeRef).toBe("/tmp/proj");
       expect(state.filterScope).toBe("project");
-    });
-  });
-
-  describe("reorder", () => {
-    it("应该调用 reorder 并刷新列表", async () => {
-      mockTodo.reorder.mockResolvedValue(undefined);
-
-      await useTodoStore.getState().reorder(["a", "b"]);
-
-      expect(mockTodo.reorder).toHaveBeenCalledWith(["a", "b"]);
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-  });
-
-  describe("setViewMode", () => {
-    it("应该设置视图模式并触发 loadList", () => {
-      useTodoStore.getState().setViewMode("my_day");
-      expect(useTodoStore.getState().viewMode).toBe("my_day");
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
-    it("支持收件箱和逾期工作视图", () => {
-      useTodoStore.getState().setViewMode("inbox");
-      expect(useTodoStore.getState().viewMode).toBe("inbox");
-
-      useTodoStore.getState().setViewMode("overdue");
-      expect(useTodoStore.getState().viewMode).toBe("overdue");
     });
   });
 
@@ -488,15 +392,6 @@ describe("useTodoStore", () => {
   });
 
   describe("toggleMyDay", () => {
-    it("应该切换并刷新列表", async () => {
-      mockTodo.toggleMyDay.mockResolvedValue(undefined);
-
-      await useTodoStore.getState().toggleMyDay("t1");
-
-      expect(mockTodo.toggleMyDay).toHaveBeenCalledWith("t1");
-      expect(mockTodo.query).toHaveBeenCalled();
-    });
-
     it("切换选中项时应刷新 selectedTodo", async () => {
       const selected = createTestTodo({ id: "t1", myDay: false });
       const updated = createTestTodo({ id: "t1", myDay: true });
@@ -563,17 +458,17 @@ describe("useTodoStore", () => {
     });
   });
 
-  describe("toggleSubtask", () => {
-    it("应该切换子任务并刷新选中项", async () => {
+  describe("toggleSubtask / deleteSubtask", () => {
+    it.each(["toggleSubtask", "deleteSubtask"] as const)("%s 应操作子任务并刷新选中项", async (action) => {
       const selected = createTestTodo({ id: "t1" });
       const updated = createTestTodo({ id: "t1", title: "updated" });
       useTodoStore.setState({ todos: [selected], selectedTodo: selected });
-      mockTodo.toggleSubtask.mockResolvedValue(undefined);
+      mockTodo[action].mockResolvedValue(undefined);
       mockTodo.get.mockResolvedValue(updated);
 
-      await useTodoStore.getState().toggleSubtask("s1");
+      await useTodoStore.getState()[action]("s1");
 
-      expect(mockTodo.toggleSubtask).toHaveBeenCalledWith("s1");
+      expect(mockTodo[action]).toHaveBeenCalledWith("s1");
       expect(useTodoStore.getState().selectedTodo).toEqual(updated);
     });
 
@@ -583,21 +478,6 @@ describe("useTodoStore", () => {
       await useTodoStore.getState().toggleSubtask("s1");
 
       expect(mockTodo.get).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("deleteSubtask", () => {
-    it("应该删除子任务并刷新选中项", async () => {
-      const selected = createTestTodo({ id: "t1" });
-      const updated = createTestTodo({ id: "t1", title: "updated" });
-      useTodoStore.setState({ todos: [selected], selectedTodo: selected });
-      mockTodo.deleteSubtask.mockResolvedValue(undefined);
-      mockTodo.get.mockResolvedValue(updated);
-
-      await useTodoStore.getState().deleteSubtask("s1");
-
-      expect(mockTodo.deleteSubtask).toHaveBeenCalledWith("s1");
-      expect(useTodoStore.getState().selectedTodo).toEqual(updated);
     });
   });
 

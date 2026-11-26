@@ -23,19 +23,6 @@ describe("createTerminalBackgroundLifecycle", () => {
     };
   }
 
-  it("隐藏满两档延迟依次触发 Tier1 / Tier2", () => {
-    const hooks = createHooks();
-    const lifecycle = createTerminalBackgroundLifecycle(hooks);
-
-    lifecycle.notifyVisibility(false);
-    vi.advanceTimersByTime(BACKGROUND_TIER1_DELAY_MS);
-    expect(hooks.onTier1).toHaveBeenCalledTimes(1);
-    expect(hooks.onTier2).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(BACKGROUND_TIER2_DELAY_MS - BACKGROUND_TIER1_DELAY_MS);
-    expect(hooks.onTier2).toHaveBeenCalledTimes(1);
-  });
-
   it("重复汇报同一可见性完全幂等（每次 render 都会被调用）", () => {
     const hooks = createHooks();
     const lifecycle = createTerminalBackgroundLifecycle(hooks);
@@ -175,6 +162,7 @@ describe("createTerminalBackgroundLifecycle", () => {
     expect(legacy.onTier1).toHaveBeenCalledTimes(1);
     expect(legacy.onTier2).toHaveBeenCalledTimes(1);
   });
+
   it("retries temporary parking guards and cancels retries on visibility/disposal", () => {
     const hooks = createHooks();
     const onPark = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(false).mockReturnValue(true);

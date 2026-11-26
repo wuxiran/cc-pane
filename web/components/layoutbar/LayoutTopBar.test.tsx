@@ -1,5 +1,4 @@
 import "@/i18n";
-import type { ReactElement } from "react";
 import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +15,7 @@ import {
 import { createPanel } from "@/lib/paneTree";
 import type { Panel, PaneNode, SplitPane, Tab, TerminalStatusInfo } from "@/types";
 
-const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
+const renderBar = () => rtlRender(<TooltipProvider><DndContext><LayoutTopBar /></DndContext></TooltipProvider>);
 
 // LayoutDeleteDialog 依赖 tauri webviewWindow 与全局 toast，测试环境不可用需 mock
 vi.mock("@/components/ui/toast", () => ({
@@ -141,7 +140,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
   });
 
   it("舒适档：星标 / 预设纯图标，不再有 Agent Chat 固定入口与自动适配按钮", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     const cluster = screen.getByTestId("layout-preset-cluster");
     expect(cluster).toHaveAttribute("data-density", "comfortable");
@@ -157,7 +156,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
   });
 
   it("布局卡片从最左开始排，工具组（视图 / 星标预设簇 / 新建）固定在右端", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     const bar = screen.getByRole("tablist");
     const strip = screen.getByTestId("layout-strip");
@@ -174,7 +173,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
   });
 
   it("常驻入口收敛为单按钮，点开浮层列出 6 个带文字标签的预设", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     // 初始单 panel 根命中 single；入口改为纯图标，名称走 aria-label / tooltip
     expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
@@ -194,7 +193,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
   });
 
   it("点选预设生效并关闭浮层", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     fireEvent.click(presetTrigger());
 
     const options = within(presetDialog()).getAllByTestId("layout-preset-option");
@@ -213,7 +212,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
   it("重排保留现有 Panel id", () => {
     const pane = createPanel();
     resetStores(pane);
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     fireEvent.click(presetTrigger());
 
     const options = within(presetDialog()).getAllByTestId("layout-preset-option");
@@ -223,34 +222,17 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect((root.children[0] as Panel).id).toBe(pane.id);
   });
 
-  it("Escape 关闭浮层", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
-    fireEvent.click(presetTrigger());
-    expect(presetDialog()).toBeInTheDocument();
-
-    fireEvent.keyDown(presetDialog(), { key: "Escape" });
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("点击浮层外关闭", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
-    fireEvent.click(presetTrigger());
-    expect(presetDialog()).toBeInTheDocument();
-
+  it.each([
+    ["Escape", () => fireEvent.keyDown(presetDialog(), { key: "Escape" })],
     // 顶栏本体（触发按钮容器之外）也算浮层外
-    fireEvent.pointerDown(screen.getByRole("tablist"));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("再次点击触发按钮可收起浮层", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    ["点击浮层外", () => fireEvent.pointerDown(screen.getByRole("tablist"))],
+    ["再次点击触发按钮", () => fireEvent.click(presetTrigger())],
+  ] as const)("%s 关闭浮层", (_label, close) => {
+    renderBar();
     fireEvent.click(presetTrigger());
     expect(presetDialog()).toBeInTheDocument();
 
-    fireEvent.click(presetTrigger());
+    close();
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
@@ -258,15 +240,14 @@ describe("LayoutTopBar 布局预设浮层", () => {
 
   it("当前是星标布局时预设入口仍在，星标按钮呈按下态", () => {
     usePanesStore.setState({ currentLayoutId: "layout-starred" });
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     expect(presetTrigger()).toBeInTheDocument();
     expect(screen.getByTestId("layout-special-starred").getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByRole("tab", { name: /星标|Starred/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /自动适配布局|Auto-fit layout/i })).toBeNull();
   });
 
   it("顶栏卡片不展示星标，点簇上按钮可切过去", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     expect(screen.queryByRole("tab", { name: /星标|Starred/ })).toBeNull();
     expect(screen.getByRole("tab", { name: /布局 1/ })).toBeInTheDocument();
 
@@ -280,7 +261,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
     usePanesStore.setState({
       layouts: [...current.layouts, { id: "layout-agent-chat", name: "Agent Chat", kind: "normal", rootPane: agentRoot, activePaneId: agentRoot.id }],
     });
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     fireEvent.click(screen.getByRole("tab", { name: /Agent Chat/ }));
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-agent-chat");
   });
@@ -294,7 +275,7 @@ describe("LayoutTopBar 布局条密度", () => {
 
   it("默认渲染舒适档，切换后渲染紧凑档且星标布局保持可用", async () => {
     const user = userEvent.setup();
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "comfortable");
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
@@ -329,7 +310,7 @@ describe("LayoutTopBar 布局条密度", () => {
       ]),
     });
 
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     // 运行中 2、等待授权 1；无 error 会话 → 阻塞桶隐藏。
     // 等待授权 title 与名称行状态点共用文案，按"含计数"过滤出摘要桶。
@@ -342,7 +323,7 @@ describe("LayoutTopBar 布局条密度", () => {
   });
 
   it("状态摘要随 panes/status store 更新即时重新派生", () => {
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
 
     const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book", "s-run"));
@@ -378,7 +359,7 @@ describe("LayoutTopBar 布局条密度", () => {
       ]),
     });
 
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     // 舒适档：运行中 1、错误 1，各自带计数；不出现 pane 级的细分状态文案
     expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);
@@ -396,7 +377,7 @@ describe("LayoutTopBar 布局条密度", () => {
 
   it("右键菜单提供同一密度切换动作", async () => {
     const user = userEvent.setup();
-    render(<DndContext><LayoutTopBar /></DndContext>);
+    renderBar();
 
     fireEvent.contextMenu(screen.getByRole("tab", { name: /布局 1/ }));
     await user.click(await screen.findByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));

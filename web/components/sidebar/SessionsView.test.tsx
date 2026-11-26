@@ -82,12 +82,13 @@ describe("SessionsView", () => {
     });
   });
 
-  it("renders the sessions header with the kind filter", async () => {
+  it("renders the header, kind filter and empty state without an active section", async () => {
     render(<SessionsView onOpenTerminal={vi.fn()} />);
 
     expect(screen.getByText(/^Sessions$|^会话$/)).toBeVisible();
     expect(screen.getAllByRole("radio")).toHaveLength(3);
     await waitFor(() => expect(screen.getByText(/No resumable sessions|无可恢复/i)).toBeVisible());
+    expect(screen.queryByText(/Active \(/)).not.toBeInTheDocument();
   });
 
   it("lists active terminal sessions with their titles and count", async () => {
@@ -126,24 +127,6 @@ describe("SessionsView", () => {
     expect(screen.getByText("Live Term")).toBeVisible();
     expect(screen.queryByText("No Session")).not.toBeInTheDocument();
     expect(screen.queryByText("Editor Tab")).not.toBeInTheDocument();
-  });
-
-  it("does not render the active section when there are no live sessions", async () => {
-    render(<SessionsView onOpenTerminal={vi.fn()} />);
-
-    await waitFor(() => expect(screen.getByText(/No resumable sessions|无可恢复/i)).toBeVisible());
-    expect(screen.queryByText(/Active \(/)).not.toBeInTheDocument();
-  });
-
-  it("renders launch history records fetched on mount", async () => {
-    mockTauriInvoke({
-      list_launch_history: [createRecord({ projectName: "History Project" })],
-    });
-
-    render(<SessionsView onOpenTerminal={vi.fn()} />);
-
-    expect(await screen.findByText("History Project")).toBeVisible();
-    expect(screen.getByText("Alpha")).toBeVisible();
   });
 
   it("lists agent chats and CLI launches in one list, each row tagged, and filters by kind", async () => {

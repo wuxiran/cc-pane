@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
 
-function keyboardEvent(
-  overrides: Partial<KeyboardEvent>,
-): Pick<KeyboardEvent, "type" | "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey"> {
+type ShortcutEvent = Pick<KeyboardEvent, "type" | "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
+
+function keyboardEvent(overrides: Partial<ShortcutEvent>): ShortcutEvent {
   return {
     type: "keydown",
     key: "v",
@@ -12,88 +12,33 @@ function keyboardEvent(
     altKey: false,
     shiftKey: false,
     ...overrides,
-  } as KeyboardEvent;
+  };
 }
 
 describe("isTerminalPasteShortcut", () => {
-  it("handles Ctrl+V on non-mac platforms", () => {
-    expect(isTerminalPasteShortcut(keyboardEvent({ ctrlKey: true }), false)).toBe(true);
-  });
-
-  it("handles Ctrl+Shift+V on non-mac platforms", () => {
-    expect(
-      isTerminalPasteShortcut(
-        keyboardEvent({ ctrlKey: true, shiftKey: true }),
-        false,
-      ),
-    ).toBe(true);
-  });
-
-  it("handles Cmd+V on macOS", () => {
-    expect(isTerminalPasteShortcut(keyboardEvent({ metaKey: true }), true)).toBe(true);
-  });
-
-  it("does not handle Ctrl+V on macOS", () => {
-    expect(isTerminalPasteShortcut(keyboardEvent({ ctrlKey: true }), true)).toBe(false);
-  });
-
-  it("does not handle Alt+V", () => {
-    expect(
-      isTerminalPasteShortcut(
-        keyboardEvent({ ctrlKey: true, altKey: true }),
-        false,
-      ),
-    ).toBe(false);
-  });
-
-  it("ignores keyup events", () => {
-    expect(
-      isTerminalPasteShortcut(
-        keyboardEvent({ type: "keyup", ctrlKey: true }),
-        false,
-      ),
-    ).toBe(false);
+  it.each<[string, Partial<ShortcutEvent>, boolean, boolean]>([
+    ["handles Ctrl+V on non-mac", { ctrlKey: true }, false, true],
+    ["handles Ctrl+Shift+V on non-mac", { ctrlKey: true, shiftKey: true }, false, true],
+    ["handles Cmd+V on macOS", { metaKey: true }, true, true],
+    ["does not handle Ctrl+V on macOS", { ctrlKey: true }, true, false],
+    ["does not handle Ctrl+Alt+V", { ctrlKey: true, altKey: true }, false, false],
+    ["ignores keyup events", { type: "keyup", ctrlKey: true }, false, false],
+  ])("%s", (_label, overrides, isMac, expected) => {
+    expect(isTerminalPasteShortcut(keyboardEvent(overrides), isMac)).toBe(expected);
   });
 });
 
 describe("isTerminalCopyShortcut", () => {
-  const copyEvent = (overrides: Partial<KeyboardEvent>) =>
-    keyboardEvent({ key: "c", ...overrides });
-
-  it("handles Ctrl+C on non-mac platforms", () => {
-    expect(isTerminalCopyShortcut(copyEvent({ ctrlKey: true }), false)).toBe(true);
-  });
-
-  it("handles the conventional Ctrl+Shift+C terminal copy on non-mac platforms", () => {
-    expect(
-      isTerminalCopyShortcut(copyEvent({ ctrlKey: true, shiftKey: true }), false),
-    ).toBe(true);
-  });
-
-  it("handles Cmd+C on macOS", () => {
-    expect(isTerminalCopyShortcut(copyEvent({ metaKey: true }), true)).toBe(true);
-  });
-
-  it("does not claim Cmd+Shift+C on macOS", () => {
-    expect(
-      isTerminalCopyShortcut(copyEvent({ metaKey: true, shiftKey: true }), true),
-    ).toBe(false);
-  });
-
-  it("does not handle Ctrl+C on macOS", () => {
-    expect(isTerminalCopyShortcut(copyEvent({ ctrlKey: true }), true)).toBe(false);
-  });
-
-  it("does not handle Alt+C or bare C", () => {
-    expect(
-      isTerminalCopyShortcut(copyEvent({ ctrlKey: true, altKey: true }), false),
-    ).toBe(false);
-    expect(isTerminalCopyShortcut(copyEvent({}), false)).toBe(false);
-  });
-
-  it("ignores keyup events", () => {
-    expect(
-      isTerminalCopyShortcut(copyEvent({ type: "keyup", ctrlKey: true }), false),
-    ).toBe(false);
+  it.each<[string, Partial<ShortcutEvent>, boolean, boolean]>([
+    ["handles Ctrl+C on non-mac", { ctrlKey: true }, false, true],
+    ["handles the conventional Ctrl+Shift+C terminal copy on non-mac", { ctrlKey: true, shiftKey: true }, false, true],
+    ["handles Cmd+C on macOS", { metaKey: true }, true, true],
+    ["does not claim Cmd+Shift+C on macOS", { metaKey: true, shiftKey: true }, true, false],
+    ["does not handle Ctrl+C on macOS", { ctrlKey: true }, true, false],
+    ["does not handle Ctrl+Alt+C", { ctrlKey: true, altKey: true }, false, false],
+    ["does not handle bare C", {}, false, false],
+    ["ignores keyup events", { type: "keyup", ctrlKey: true }, false, false],
+  ])("%s", (_label, overrides, isMac, expected) => {
+    expect(isTerminalCopyShortcut(keyboardEvent({ key: "c", ...overrides }), isMac)).toBe(expected);
   });
 });

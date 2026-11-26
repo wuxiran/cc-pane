@@ -89,6 +89,13 @@ function makeSummary(overrides: Partial<DeleteSummary> = {}): DeleteSummary {
   };
 }
 
+async function confirmAndWaitForDelete() {
+  const user = userEvent.setup();
+  render(<LayoutDeleteDialog summary={makeSummary()} onClose={() => {}} t={t} />);
+  await user.click(screen.getByText("confirmDeleteLayout"));
+  await waitFor(() => expect(callOrder).toContain("deleteLayout"));
+}
+
 describe("LayoutDeleteDialog side effects", () => {
   beforeEach(() => {
     callOrder.length = 0;
@@ -115,12 +122,7 @@ describe("LayoutDeleteDialog side effects", () => {
   });
 
   it("确认删除后按 detach→kill→关弹窗→删布局 的顺序执行副作用", async () => {
-    const user = userEvent.setup();
-    render(<LayoutDeleteDialog summary={makeSummary()} onClose={() => {}} t={t} />);
-
-    await user.click(screen.getByText("confirmDeleteLayout"));
-
-    await waitFor(() => expect(callOrder).toContain("deleteLayout"));
+    await confirmAndWaitForDelete();
 
     // 每个会话先 detachOutput 再 detachExit
     expect(callOrder.indexOf("detachOutput:s1")).toBeLessThan(callOrder.indexOf("detachExit:s1"));
@@ -139,30 +141,18 @@ describe("LayoutDeleteDialog side effects", () => {
       callOrder.push(`killSession:${id}`);
       if (id === "s1") throw new Error("kill failed");
     });
-    const user = userEvent.setup();
-    render(<LayoutDeleteDialog summary={makeSummary()} onClose={() => {}} t={t} />);
-
-    await user.click(screen.getByText("confirmDeleteLayout"));
-
-    await waitFor(() => expect(callOrder).toContain("deleteLayout"));
+    await confirmAndWaitForDelete();
     expect(callOrder).toContain("killSession:s2");
     expect(callOrder).toContain("closePopup");
-    expect(callOrder).toContain("deleteLayout");
   });
 
   it("弹窗关闭失败时不阻塞布局删除", async () => {
     closePopup.mockImplementation(async () => {
       throw new Error("close failed");
     });
-    const user = userEvent.setup();
-    render(<LayoutDeleteDialog summary={makeSummary()} onClose={() => {}} t={t} />);
-
-    await user.click(screen.getByText("confirmDeleteLayout"));
-
-    await waitFor(() => expect(callOrder).toContain("deleteLayout"));
+    await confirmAndWaitForDelete();
     // 关闭失败后未标记回收，但仍完成删除
     expect(markTabReclaimed).not.toHaveBeenCalled();
-    expect(callOrder).toContain("deleteLayout");
   });
 });
 

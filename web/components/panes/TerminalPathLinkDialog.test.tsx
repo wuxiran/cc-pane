@@ -69,7 +69,7 @@ describe("TerminalPathLinkDialog", () => {
 
     render(<TerminalPathLinkDialog />);
 
-    expect(screen.getByText(`${longPath}:12:8`)).toHaveTextContent(`${longPath}:12:8`);
+    expect(screen.getByText(`${longPath}:12:8`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /在编辑器中打开|Open in editor/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /(?:使用)?默认程序打开|Open with default app/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /打开所在目录|Open containing folder/i })).toBeEnabled();
@@ -151,9 +151,7 @@ describe("TerminalPathLinkDialog", () => {
     setReady("file", "C:/repo/assets/logo.png");
     render(<TerminalPathLinkDialog />);
 
-    const editorButton = screen.getAllByRole("button").find((button) => button.textContent?.includes("编辑器"));
-    if (!editorButton) throw new Error("editor action not rendered");
-    await userEvent.click(editorButton);
+    await userEvent.click(screen.getByRole("button", { name: /在编辑器中打开|Open in editor/i }));
 
     expect(openEditor).toHaveBeenCalled();
     expect(useEditorRevealStore.getState().requests["C:/repo/assets/logo.png"]).toBeUndefined();

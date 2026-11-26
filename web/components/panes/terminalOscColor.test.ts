@@ -29,64 +29,42 @@ describe("buildOscColorReply", () => {
 });
 
 describe("resolveOscColorQuery", () => {
+  const transparent = { preserveTransparentBackground: true };
+  const opaque = { preserveTransparentBackground: false };
+
   it("answers logical background queries for transparent CLI surfaces", () => {
-    expect(resolveOscColorQuery(11, "?", DARK_TERMINAL_THEME, {
-      preserveTransparentBackground: true,
-    })).toEqual({
+    expect(resolveOscColorQuery(11, "?", DARK_TERMINAL_THEME, transparent)).toEqual({
       handled: true,
       response: "\x1b]11;rgb:1818/1818/1818\x1b\\",
     });
   });
 
-  it("blocks opaque background changes on transparent CLI surfaces", () => {
-    expect(resolveOscColorQuery(11, "#141414", DARK_TERMINAL_THEME, {
-      preserveTransparentBackground: true,
-    })).toEqual({
-      handled: true,
+  it.each(["#141414", "#ffffff", "rgb:ffff/0000/0000"])(
+    "swallows background set payload %s on transparent CLI surfaces",
+    (payload) => {
+      expect(resolveOscColorQuery(11, payload, DARK_TERMINAL_THEME, transparent)).toEqual({
+        handled: true,
+        response: null,
+      });
+    },
+  );
+
+  it.each([
+    ["background set payloads on opaque surfaces", 11, opaque],
+    ["foreground set payloads on transparent surfaces", 10, transparent],
+  ])("lets %s through", (_label, code, options) => {
+    expect(resolveOscColorQuery(code, "#ffffff", DARK_TERMINAL_THEME, options)).toEqual({
+      handled: false,
       response: null,
     });
-  });
-
-  it("swallows background set payloads on transparent CLI surfaces", () => {
-    const options = { preserveTransparentBackground: true };
-    expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, options)).toEqual({
-      handled: true,
-      response: null,
-    });
-    expect(resolveOscColorQuery(11, "rgb:ffff/0000/0000", DARK_TERMINAL_THEME, options)).toEqual({
-      handled: true,
-      response: null,
-    });
-  });
-
-  it("lets background set payloads through on opaque terminal surfaces", () => {
-    expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
-      preserveTransparentBackground: false,
-    })).toEqual({ handled: false, response: null });
-  });
-
-  it("lets foreground set payloads through on transparent terminal surfaces", () => {
-    expect(resolveOscColorQuery(10, "#ffffff", DARK_TERMINAL_THEME, {
-      preserveTransparentBackground: true,
-    })).toEqual({ handled: false, response: null });
-  });
-
-  it("leaves background changes available to plain terminals", () => {
-    expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
-      preserveTransparentBackground: false,
-    })).toEqual({ handled: false, response: null });
   });
 
   it("keeps foreground and palette query behavior unchanged", () => {
-    const options = {
-      preserveTransparentBackground: true,
-    };
-
-    expect(resolveOscColorQuery(10, "?", LIGHT_TERMINAL_THEME, options)).toEqual({
+    expect(resolveOscColorQuery(10, "?", LIGHT_TERMINAL_THEME, transparent)).toEqual({
       handled: true,
       response: "\x1b]10;rgb:0000/0000/0000\x1b\\",
     });
-    expect(resolveOscColorQuery(4, "12;?", LIGHT_TERMINAL_THEME, options)).toEqual({
+    expect(resolveOscColorQuery(4, "12;?", LIGHT_TERMINAL_THEME, transparent)).toEqual({
       handled: true,
       response: "\x1b]4;12;rgb:5e5e/3434/ffff\x1b\\",
     });

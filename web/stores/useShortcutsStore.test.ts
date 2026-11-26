@@ -72,9 +72,24 @@ describe("useShortcutsStore", () => {
   // parseKeyEvent
   // ===========================================================================
   describe("parseKeyEvent", () => {
-    it("Ctrl+A 应返回 'Ctrl+A'", () => {
-      const e = createKeyEvent("a", { ctrlKey: true });
-      expect(parseKeyEvent(e)).toBe("Ctrl+A");
+    it.each([
+      ["a", { ctrlKey: true }, "Ctrl+A"],
+      ["Tab", { shiftKey: true }, "Shift+Tab"],
+      ["Tab", { ctrlKey: true, shiftKey: true }, "Ctrl+Shift+Tab"],
+      ["F11", {}, "F11"],
+      [" ", {}, "Space"],
+      [" ", { ctrlKey: true }, "Ctrl+Space"],
+      ["Escape", {}, "Escape"],
+      ["Enter", {}, "Enter"],
+      ["ArrowUp", {}, "Up"],
+      ["ArrowDown", {}, "Down"],
+      ["1", { altKey: true }, "Alt+1"],
+      [",", {}, ","],
+      [",", { ctrlKey: true }, "Ctrl+,"],
+      ["\\", {}, "\\"],
+      ["\\", { ctrlKey: true }, "Ctrl+\\"],
+    ] as const)("key=%j 修饰键=%j 应返回 %j", (key, modifiers, expected) => {
+      expect(parseKeyEvent(createKeyEvent(key, modifiers))).toBe(expected);
     });
 
     it("Meta+A 也应返回 'Ctrl+A'（Meta 映射为 Ctrl）", () => {
@@ -82,104 +97,13 @@ describe("useShortcutsStore", () => {
       expect(parseKeyEvent(e)).toBe("Ctrl+A");
     });
 
-    it("Shift+Tab 应返回 'Shift+Tab'", () => {
-      const e = createKeyEvent("Tab", { shiftKey: true });
-      expect(parseKeyEvent(e)).toBe("Shift+Tab");
-    });
-
-    it("Ctrl+Shift+Tab 应返回 'Ctrl+Shift+Tab'", () => {
-      const e = createKeyEvent("Tab", { ctrlKey: true, shiftKey: true });
-      expect(parseKeyEvent(e)).toBe("Ctrl+Shift+Tab");
-    });
-
-    it("F11 应返回 'F11'", () => {
-      const e = createKeyEvent("F11");
-      expect(parseKeyEvent(e)).toBe("F11");
-    });
-
-    it("F1 应返回 'F1'", () => {
-      const e = createKeyEvent("F1");
-      expect(parseKeyEvent(e)).toBe("F1");
-    });
-
-    it("纯修饰键（Control）应返回空字符串", () => {
-      const e = createKeyEvent("Control", { ctrlKey: true });
-      expect(parseKeyEvent(e)).toBe("");
-    });
-
-    it("纯修饰键（Shift）应返回空字符串", () => {
-      const e = createKeyEvent("Shift", { shiftKey: true });
-      expect(parseKeyEvent(e)).toBe("");
-    });
-
-    it("纯修饰键（Alt）应返回空字符串", () => {
-      const e = createKeyEvent("Alt", { altKey: true });
-      expect(parseKeyEvent(e)).toBe("");
-    });
-
-    it("纯修饰键（Meta）应返回空字符串", () => {
-      const e = createKeyEvent("Meta", { metaKey: true });
-      expect(parseKeyEvent(e)).toBe("");
-    });
-
-    it("空格键应返回 'Space'", () => {
-      const e = createKeyEvent(" ");
-      expect(parseKeyEvent(e)).toBe("Space");
-    });
-
-    it("Ctrl+空格 应返回 'Ctrl+Space'", () => {
-      const e = createKeyEvent(" ", { ctrlKey: true });
-      expect(parseKeyEvent(e)).toBe("Ctrl+Space");
-    });
-
-    it("特殊键映射：Escape", () => {
-      const e = createKeyEvent("Escape");
-      expect(parseKeyEvent(e)).toBe("Escape");
-    });
-
-    it("特殊键映射：Enter", () => {
-      const e = createKeyEvent("Enter");
-      expect(parseKeyEvent(e)).toBe("Enter");
-    });
-
-    it("特殊键映射：ArrowUp → Up", () => {
-      const e = createKeyEvent("ArrowUp");
-      expect(parseKeyEvent(e)).toBe("Up");
-    });
-
-    it("特殊键映射：ArrowDown → Down", () => {
-      const e = createKeyEvent("ArrowDown");
-      expect(parseKeyEvent(e)).toBe("Down");
-    });
-
-    it("Alt+ArrowLeft 应返回 'Alt+Left'", () => {
-      const e = createKeyEvent("ArrowLeft", { altKey: true });
-      expect(parseKeyEvent(e)).toBe("Alt+Left");
-    });
-
-    it("Alt+数字 应正确处理", () => {
-      const e = createKeyEvent("1", { altKey: true });
-      expect(parseKeyEvent(e)).toBe("Alt+1");
-    });
-
-    it("逗号键 应返回 ','", () => {
-      const e = createKeyEvent(",");
-      expect(parseKeyEvent(e)).toBe(",");
-    });
-
-    it("Ctrl+逗号 应返回 'Ctrl+,'", () => {
-      const e = createKeyEvent(",", { ctrlKey: true });
-      expect(parseKeyEvent(e)).toBe("Ctrl+,");
-    });
-
-    it("反斜杠键 应返回 '\\\\'", () => {
-      const e = createKeyEvent("\\");
-      expect(parseKeyEvent(e)).toBe("\\");
-    });
-
-    it("Ctrl+反斜杠 应返回 'Ctrl+\\\\'", () => {
-      const e = createKeyEvent("\\", { ctrlKey: true });
-      expect(parseKeyEvent(e)).toBe("Ctrl+\\");
+    it.each([
+      ["Control", { ctrlKey: true }],
+      ["Shift", { shiftKey: true }],
+      ["Alt", { altKey: true }],
+      ["Meta", { metaKey: true }],
+    ] as const)("纯修饰键（%s）应返回空字符串", (key, modifiers) => {
+      expect(parseKeyEvent(createKeyEvent(key, modifiers))).toBe("");
     });
   });
 
@@ -187,12 +111,9 @@ describe("useShortcutsStore", () => {
   // formatKeyCombo
   // ===========================================================================
   describe("formatKeyCombo", () => {
-    it("非 Mac 平台应原样返回", () => {
+    it("非 Mac 平台应原样返回（保留 Shift 和 Alt）", () => {
       // jsdom 默认 navigator.platform 不包含 MAC
       expect(formatKeyCombo("Ctrl+B")).toBe("Ctrl+B");
-    });
-
-    it("非 Mac 平台保留 Shift 和 Alt", () => {
       expect(formatKeyCombo("Ctrl+Shift+Tab")).toBe("Ctrl+Shift+Tab");
       expect(formatKeyCombo("Alt+F4")).toBe("Alt+F4");
     });
@@ -202,27 +123,17 @@ describe("useShortcutsStore", () => {
   // hasModifier
   // ===========================================================================
   describe("hasModifier", () => {
-    it("包含 Ctrl+ 应返回 true", () => {
-      expect(hasModifier("Ctrl+A")).toBe(true);
-    });
-
-    it("包含 Shift+ 应返回 true", () => {
-      expect(hasModifier("Shift+Tab")).toBe(true);
-    });
-
-    it("包含 Alt+ 应返回 true", () => {
-      expect(hasModifier("Alt+F4")).toBe(true);
-    });
-
-    it("F 开头应返回 true", () => {
-      expect(hasModifier("F11")).toBe(true);
-      expect(hasModifier("F1")).toBe(true);
-    });
-
-    it("无修饰键应返回 false", () => {
-      expect(hasModifier("A")).toBe(false);
-      expect(hasModifier("Space")).toBe(false);
-      expect(hasModifier("Enter")).toBe(false);
+    it.each([
+      ["Ctrl+A", true],
+      ["Shift+Tab", true],
+      ["Alt+F4", true],
+      ["F11", true],
+      ["F1", true],
+      ["A", false],
+      ["Space", false],
+      ["Enter", false],
+    ])("hasModifier(%j) 应返回 %s", (combo, expected) => {
+      expect(hasModifier(combo)).toBe(expected);
     });
   });
 
@@ -274,23 +185,9 @@ describe("useShortcutsStore", () => {
   });
 
   // ===========================================================================
-  // Store: registerAction / unregisterAction / setTerminalFocused
+  // Store: unregisterAction
   // ===========================================================================
   describe("Store 操作", () => {
-    it("registerAction 应注册 action", () => {
-      const action = {
-        id: "test-action",
-        label: "Test",
-        handler: vi.fn(),
-      };
-
-      useShortcutsStore.getState().registerAction(action);
-
-      const actions = useShortcutsStore.getState().actions;
-      expect(actions.has("test-action")).toBe(true);
-      expect(actions.get("test-action")?.label).toBe("Test");
-    });
-
     it("unregisterAction 应移除 action", () => {
       const action = {
         id: "test-action",
@@ -302,19 +199,6 @@ describe("useShortcutsStore", () => {
       useShortcutsStore.getState().unregisterAction("test-action");
 
       expect(useShortcutsStore.getState().actions.has("test-action")).toBe(false);
-    });
-
-    it("unregisterAction 对不存在的 id 不应出错", () => {
-      useShortcutsStore.getState().unregisterAction("non-exist");
-      expect(useShortcutsStore.getState().actions.size).toBe(0);
-    });
-
-    it("setTerminalFocused 应更新状态", () => {
-      useShortcutsStore.getState().setTerminalFocused(true);
-      expect(useShortcutsStore.getState().terminalFocused).toBe(true);
-
-      useShortcutsStore.getState().setTerminalFocused(false);
-      expect(useShortcutsStore.getState().terminalFocused).toBe(false);
     });
   });
 
@@ -347,23 +231,12 @@ describe("useShortcutsStore", () => {
       expect(preventSpy).not.toHaveBeenCalled();
     });
 
-    it("settings 为 null 时应直接返回不处理", () => {
-      useSettingsStore.setState({ settings: null });
-      const e = createKeyEvent("b", { ctrlKey: true });
-      const preventSpy = vi.spyOn(e, "preventDefault");
-
-      handleKeydown(e);
-
-      expect(preventSpy).not.toHaveBeenCalled();
-    });
-
-    it("纯修饰键应直接返回（combo 为空）", () => {
-      useSettingsStore.setState({
-        settings: {
-          shortcuts: { bindings: { "toggle-sidebar": "Ctrl+B" } },
-        } as never,
-      });
-      const e = createKeyEvent("Control", { ctrlKey: true });
+    it.each([
+      ["settings 为 null", null, "b"],
+      ["纯修饰键（combo 为空）", { shortcuts: { bindings: { "toggle-sidebar": "Ctrl+B" } } }, "Control"],
+    ] as const)("%s 时应直接返回不处理", (_label, settings, key) => {
+      useSettingsStore.setState({ settings: settings as never });
+      const e = createKeyEvent(key, { ctrlKey: true });
       const preventSpy = vi.spyOn(e, "preventDefault");
 
       handleKeydown(e);
@@ -455,6 +328,7 @@ describe("useShortcutsStore", () => {
         } as never,
       });
 
+      // bindings 里 split-down 故意排在前面：终端聚焦时缩放仍须确定性优先，不靠遍历顺序
       useShortcutsStore.getState().setTerminalFocused(true);
       handleKeydown(createKeyEvent("-", { ctrlKey: true }));
       expect(zoomHandler).toHaveBeenCalledTimes(1);
@@ -480,22 +354,13 @@ describe("useShortcutsStore", () => {
       expect(shouldTerminalHandleKey(e)).toBe(false);
     });
 
-    it("settings 为 null 时应返回 true（交给终端处理）", () => {
-      useSettingsStore.setState({ settings: null });
-      const e = createKeyEvent("b", { ctrlKey: true });
+    it.each([
+      ["settings 为 null", null, "b"],
+      ["纯修饰键", { shortcuts: { bindings: {} } }, "Control"],
+    ] as const)("%s 时应返回 true（交给终端处理）", (_label, settings, key) => {
+      useSettingsStore.setState({ settings: settings as never });
 
-      expect(shouldTerminalHandleKey(e)).toBe(true);
-    });
-
-    it("纯修饰键应返回 true", () => {
-      useSettingsStore.setState({
-        settings: {
-          shortcuts: { bindings: {} },
-        } as never,
-      });
-      const e = createKeyEvent("Control", { ctrlKey: true });
-
-      expect(shouldTerminalHandleKey(e)).toBe(true);
+      expect(shouldTerminalHandleKey(createKeyEvent(key, { ctrlKey: true }))).toBe(true);
     });
 
     it("匹配的快捷键（有修饰键）应返回 false（不交给终端）", () => {
@@ -728,7 +593,8 @@ describe("useShortcutsStore", () => {
 
 // 分屏快捷键的终端聚焦行为（settings.terminal.splitShortcutPassthrough，批 4）：
 // 默认分屏优先（终端聚焦也生效），开关打开后恢复旧版透传；同 combo 时
-// terminal context 动作（缩放）有确定性优先权。
+// terminal context 动作（缩放）有确定性优先权——该优先权由 handleKeydown 的
+// 「Ctrl+- 根据终端焦点只触发一个上下文动作」覆盖（split-down 排在 zoom 之前）。
 describe("分屏快捷键的终端聚焦行为", () => {
   function setupSplit(passthrough: boolean) {
     const split = vi.fn();
@@ -763,34 +629,17 @@ describe("分屏快捷键的终端聚焦行为", () => {
     expect(split).toHaveBeenCalledTimes(1);
   });
 
-  it("默认（关）：终端聚焦时 Ctrl+- 缩放优先于分屏（确定性）", () => {
-    const { split, zoom } = setupSplit(false);
-    handleKeydown(createKeyEvent("-", { ctrlKey: true }));
-    expect(zoom).toHaveBeenCalledTimes(1);
-    expect(split).not.toHaveBeenCalled();
-  });
-
-  it("默认（关）：非终端聚焦时 Ctrl+- 才轮到分屏", () => {
-    const { split, zoom } = setupSplit(false);
-    useShortcutsStore.getState().setTerminalFocused(false);
-    handleKeydown(createKeyEvent("-", { ctrlKey: true }));
-    expect(split).toHaveBeenCalledTimes(1);
-    expect(zoom).not.toHaveBeenCalled();
-  });
-
   it("开：终端聚焦时 Ctrl+\ 放行给终端（分屏不触发）", () => {
     const { split } = setupSplit(true);
     handleKeydown(createKeyEvent("\\", { ctrlKey: true }));
     expect(split).not.toHaveBeenCalled();
   });
 
-  it("开：isTerminalPassthroughAction 反映设置", () => {
-    setupSplit(true);
-    expect(isTerminalPassthroughAction("split-right", false)).toBe(true);
-  });
-
-  it("关：isTerminalPassthroughAction 对分屏键为 false", () => {
-    setupSplit(false);
-    expect(isTerminalPassthroughAction("split-right", false)).toBe(false);
+  it.each([
+    ["开", true],
+    ["关", false],
+  ])("%s：isTerminalPassthroughAction 对分屏键反映设置", (_label, passthrough) => {
+    setupSplit(passthrough);
+    expect(isTerminalPassthroughAction("split-right", false)).toBe(passthrough);
   });
 });

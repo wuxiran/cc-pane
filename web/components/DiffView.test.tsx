@@ -1,5 +1,6 @@
 import "@/i18n";
 import { render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it } from "vitest";
 import DiffView from "./DiffView";
 import type { DiffResult, DiffLine } from "@/services";
@@ -39,24 +40,15 @@ function makeDiff(overrides: Partial<DiffResult> = {}): DiffResult {
 }
 
 describe("DiffView", () => {
-  it("loading 时显示计算中提示", () => {
-    render(<DiffView diff={null} loading />);
-    expect(screen.getByText(/计算差异中|Computing/i)).toBeInTheDocument();
-  });
-
-  it("diff 为 null 时提示选择版本", () => {
-    render(<DiffView diff={null} />);
-    expect(screen.getByText(/选择一个版本查看差异|Select a version/i)).toBeInTheDocument();
-  });
-
-  it("二进制文件显示对应提示", () => {
-    render(<DiffView diff={makeDiff({ isBinary: true })} />);
-    expect(screen.getByText(/二进制文件|Binary/i)).toBeInTheDocument();
-  });
-
-  it("行数截断显示 10000 行提示", () => {
-    render(<DiffView diff={makeDiff({ truncated: true, truncationReason: "lineCount" })} />);
-    expect(screen.getByText(/超过 10000 行|too large|skipped/i)).toBeInTheDocument();
+  it.each<[string, ComponentProps<typeof DiffView>, RegExp]>([
+    ["loading 时显示计算中提示", { diff: null, loading: true }, /计算差异中|Computing/i],
+    ["diff 为 null 时提示选择版本", { diff: null }, /选择一个版本查看差异|Select a version/i],
+    ["二进制文件显示对应提示", { diff: makeDiff({ isBinary: true }) }, /二进制文件|Binary/i],
+    ["行数截断显示 10000 行提示", { diff: makeDiff({ truncated: true, truncationReason: "lineCount" }) }, /超过 10000 行|too large|skipped/i],
+    ["无 hunks 时显示无变更提示", { diff: makeDiff({ hunks: [] }) }, /没有变更|No changes/i],
+  ])("%s", (_name, props, text) => {
+    render(<DiffView {...props} />);
+    expect(screen.getByText(text)).toBeInTheDocument();
   });
 
   it("文件大小截断显示两侧字节大小", () => {
@@ -67,11 +59,6 @@ describe("DiffView", () => {
       newSize: 6 * 1024 * 1024,
     })} />);
     expect(screen.getByText(/1 KB.*6 MB|6 MB.*1 KB/i)).toBeInTheDocument();
-  });
-
-  it("无 hunks 时显示无变更提示", () => {
-    render(<DiffView diff={makeDiff({ hunks: [] })} />);
-    expect(screen.getByText(/没有变更|No changes/i)).toBeInTheDocument();
   });
 
   it("渲染统计信息与 hunk 头以及三类行", () => {

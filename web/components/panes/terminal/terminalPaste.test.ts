@@ -53,32 +53,19 @@ describe("createTerminalPasteHandlers file-path runtime handling", () => {
     toastErrorMock.mockReset();
   });
 
-  it("escapes local file paths before pasting", async () => {
-    resolveMock.mockResolvedValue({
-      kind: "file",
-      text: "/home/me/my dir/a.txt", // 裸 join 文本应被忽略
-      filePaths: ["/home/me/my dir/a.txt"],
-    });
-    const { term, handlers } = makeHandlers("local");
+  it.each<[string, TerminalRuntimeKind | undefined, string, string]>([
+    // 裸 join 的 payload.text 应被忽略，按 filePaths 重新格式化
+    ["escapes local file paths before pasting", "local", "/home/me/my dir/a.txt", "'/home/me/my dir/a.txt'"],
+    ["converts Windows paths to /mnt for WSL sessions", "wsl", "D:\\repos\\app", "'/mnt/d/repos/app'"],
+    ["defaults to local runtime when getRuntimeKind is absent", undefined, "/home/me/a b.txt", "'/home/me/a b.txt'"],
+  ])("%s", async (_label, runtimeKind, filePath, expected) => {
+    resolveMock.mockResolvedValue({ kind: "file", text: filePath, filePaths: [filePath] });
+    const { term, handlers } = makeHandlers(runtimeKind);
 
     handlers.pasteTerminalPayload(null);
     await flush();
 
-    expect(term.paste).toHaveBeenCalledWith("'/home/me/my dir/a.txt'");
-  });
-
-  it("converts Windows paths to /mnt for WSL sessions", async () => {
-    resolveMock.mockResolvedValue({
-      kind: "file",
-      text: "D:\\repos\\app",
-      filePaths: ["D:\\repos\\app"],
-    });
-    const { term, handlers } = makeHandlers("wsl");
-
-    handlers.pasteTerminalPayload(null);
-    await flush();
-
-    expect(term.paste).toHaveBeenCalledWith("'/mnt/d/repos/app'");
+    expect(term.paste).toHaveBeenCalledWith(expected);
   });
 
   it("does not paste host paths into SSH sessions and reports honestly", async () => {
@@ -94,20 +81,6 @@ describe("createTerminalPasteHandlers file-path runtime handling", () => {
 
     expect(term.paste).not.toHaveBeenCalled();
     expect(onUnsupportedPaths).toHaveBeenCalledWith(2);
-  });
-
-  it("defaults to local runtime when getRuntimeKind is absent", async () => {
-    resolveMock.mockResolvedValue({
-      kind: "file",
-      text: "/home/me/a b.txt",
-      filePaths: ["/home/me/a b.txt"],
-    });
-    const { term, handlers } = makeHandlers();
-
-    handlers.pasteTerminalPayload(null);
-    await flush();
-
-    expect(term.paste).toHaveBeenCalledWith("'/home/me/a b.txt'");
   });
 
   it("passes image and text payloads through unchanged", async () => {

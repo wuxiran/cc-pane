@@ -113,6 +113,28 @@ function makeLayout(id: string, name: string, tab: Tab): LayoutEntry {
   };
 }
 
+function pushLayouts(...entries: LayoutEntry[]) {
+  usePanesStore.setState((state) => {
+    state.layouts.push(...entries);
+  });
+}
+
+/** 追加 id 为 layout-hidden 的隐藏布局（默认含单个 hidden-tab 终端标签）。 */
+function pushHiddenLayout(tab: Tab = makeTerminalTab("hidden-tab")): LayoutEntry {
+  const hidden = makeLayout("layout-hidden", "隐藏", tab);
+  pushLayouts(hidden);
+  return hidden;
+}
+
+/** 追加 layout-N（名称「布局 N」，含 tab-N）。 */
+function pushNumberedLayouts(...nums: number[]) {
+  pushLayouts(...nums.map((n) => makeLayout(`layout-${n}`, `布局 ${n}`, makeTerminalTab(`tab-${n}`))));
+}
+
+function layoutWorkspace(layoutId: string) {
+  return usePanesStore.getState().layouts.find((l) => l.id === layoutId)?.workspaceName;
+}
+
 function hiddenLayout() {
   return usePanesStore.getState().layouts.find((layout) => layout.id === "layout-hidden")!;
 }
@@ -169,10 +191,7 @@ describe("usePanesStore layouts", () => {
       fullscreenPaneId: root.id,
       fullscreenTabId: panel(root).activeTabId,
     });
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
+    const hidden = pushHiddenLayout();
 
     usePanesStore.getState().switchLayout("layout-hidden");
     await waitForMicrotasks();
@@ -182,17 +201,6 @@ describe("usePanesStore layouts", () => {
     expect(state.rootPane).toBe(hidden.rootPane);
     expect(panel(state.layouts[0].rootPane).tabs).toHaveLength(2);
     expect(useFullscreenStore.getState().isFullscreen).toBe(false);
-  });
-
-  it("switchLayoutByIndex 按布局列表顺序切换", () => {
-    const layout2 = makeLayout("layout-2", "布局 2", makeTerminalTab("tab-2"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(layout2);
-    });
-
-    usePanesStore.getState().switchLayoutByIndex(2);
-
-    expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
   });
 
   it("switchLayoutByIndex 越界索引静默忽略", () => {
@@ -205,11 +213,7 @@ describe("usePanesStore layouts", () => {
 
   it("reorderLayouts 重排布局顺序且不切换当前工作副本", () => {
     const currentRoot = usePanesStore.getState().rootPane;
-    const layout2 = makeLayout("layout-2", "布局 2", makeTerminalTab("tab-2"));
-    const layout3 = makeLayout("layout-3", "布局 3", makeTerminalTab("tab-3"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(layout2, layout3);
-    });
+    pushNumberedLayouts(2, 3);
 
     usePanesStore.getState().reorderLayouts(0, 2);
 
@@ -220,11 +224,7 @@ describe("usePanesStore layouts", () => {
   });
 
   it("reorderLayouts 越界和同位置静默忽略", () => {
-    const layout2 = makeLayout("layout-2", "布局 2", makeTerminalTab("tab-2"));
-    const layout3 = makeLayout("layout-3", "布局 3", makeTerminalTab("tab-3"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(layout2, layout3);
-    });
+    pushNumberedLayouts(2, 3);
     const before = usePanesStore.getState().layouts.map((layout) => layout.id);
 
     expect(() => usePanesStore.getState().reorderLayouts(0, 5)).not.toThrow();
@@ -234,12 +234,11 @@ describe("usePanesStore layouts", () => {
     expect(usePanesStore.getState().layouts.map((layout) => layout.id)).toEqual(before);
   });
 
-  it("reorderLayouts 后 switchLayoutByIndex 按新顺序切换", () => {
-    const layout2 = makeLayout("layout-2", "布局 2", makeTerminalTab("tab-2"));
-    const layout3 = makeLayout("layout-3", "布局 3", makeTerminalTab("tab-3"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(layout2, layout3);
-    });
+  it("switchLayoutByIndex 按布局列表顺序切换，reorderLayouts 后按新顺序切换", () => {
+    pushNumberedLayouts(2, 3);
+
+    usePanesStore.getState().switchLayoutByIndex(2);
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
 
     usePanesStore.getState().reorderLayouts(3, 0);
     usePanesStore.getState().switchLayoutByIndex(0);
@@ -248,11 +247,7 @@ describe("usePanesStore layouts", () => {
   });
 
   it("deleteLayout 删除当前布局时切到相邻布局，最后一个布局拒绝删除", () => {
-    const layout2 = makeLayout("layout-2", "布局 2", makeTerminalTab("tab-2"));
-    const layout3 = makeLayout("layout-3", "布局 3", makeTerminalTab("tab-3"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(layout2, layout3);
-    });
+    pushNumberedLayouts(2, 3);
     usePanesStore.getState().switchLayout("layout-3");
 
     usePanesStore.getState().deleteLayout("layout-3");
@@ -295,29 +290,20 @@ describe("usePanesStore layouts", () => {
     useTabAttentionStore.getState().clearAttention("mirrored-tab");
   });
 
-  it("allPanels 只返回当前布局，allPanelsAcrossLayouts 返回全部布局", () => {
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
+  it("默认带星标布局但跨布局遍历排除它；allPanels 只返回当前布局，allPanelsAcrossLayouts 含隐藏布局", () => {
+    const initial = usePanesStore.getState();
+    expect(initial.layouts.some((layout) => layout.kind === "starred" && layout.name === "星标")).toBe(true);
+    expect(initial.allPanelsAcrossLayouts()).toHaveLength(1);
+    expect(initial.listLayouts().some((layout) => layout.kind === "starred")).toBe(false);
+
+    pushHiddenLayout();
 
     expect(usePanesStore.getState().allPanels()).toHaveLength(1);
     expect(usePanesStore.getState().allPanelsAcrossLayouts()).toHaveLength(2);
   });
 
-  it("默认带星标布局，但跨布局 pane 遍历只返回真实布局", () => {
-    const state = usePanesStore.getState();
-
-    expect(state.layouts.some((layout) => layout.kind === "starred" && layout.name === "星标")).toBe(true);
-    expect(state.allPanelsAcrossLayouts()).toHaveLength(1);
-    expect(state.listLayouts().some((layout) => layout.kind === "starred")).toBe(false);
-  });
-
   it("toggleStarTab 后 starredTabs 返回原 tab 位置并可切回原布局", () => {
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
+    const hidden = pushHiddenLayout();
     usePanesStore.getState().switchLayout("layout-hidden");
 
     usePanesStore.getState().toggleStarTab("hidden-tab");
@@ -355,11 +341,8 @@ describe("usePanesStore layouts", () => {
       projectPath: "/tmp/current",
     });
     const tabToMove = panel(usePanesStore.getState().rootPane).tabs[1];
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
+    const hidden = pushHiddenLayout();
     const hiddenPaneId = hidden.rootPane.id;
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
 
     usePanesStore.getState().moveTabToLayoutPane(
       currentPaneId,
@@ -387,11 +370,8 @@ describe("usePanesStore layouts", () => {
       projectPath: "/tmp/current",
     });
     const tabToMove = panel(usePanesStore.getState().rootPane).tabs[1];
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
+    const hidden = pushHiddenLayout();
     const hiddenPaneId = hidden.rootPane.id;
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
 
     usePanesStore.getState().moveTabToLayoutPane(currentPaneId, "layout-hidden", tabToMove.id);
 
@@ -406,9 +386,7 @@ describe("usePanesStore layouts", () => {
     leaf.restoring = true;
     leaf.savedSessionId = "saved-1";
     tab.savedSessionId = "saved-1";
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
-    });
+    pushHiddenLayout(tab);
 
     usePanesStore.getState().updateTabSession("ignored", "hidden-tab", "session-new");
     usePanesStore.getState().clearRestoring("ignored", "hidden-tab", leaf.id);
@@ -430,9 +408,7 @@ describe("usePanesStore layouts", () => {
     tab.sessionId = null;
     tab.restoring = true;
     tab.savedSessionId = "daemon-live";
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
-    });
+    pushHiddenLayout(tab);
 
     const restored = usePanesStore.getState().restoreLiveDaemonSessions([{
       sessionId: "daemon-live",
@@ -458,9 +434,7 @@ describe("usePanesStore layouts", () => {
     right.sessionId = null;
     right.restoring = true;
     right.savedSessionId = "daemon-right";
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
-    });
+    pushHiddenLayout(tab);
 
     const restored = usePanesStore.getState().restoreLiveDaemonSessions([{
       sessionId: "daemon-right",
@@ -494,9 +468,7 @@ describe("usePanesStore layouts", () => {
     tab.machineName = "远端";
     const leaf = tab.terminalRootPane as TerminalPaneLeaf;
     leaf.ssh = tab.ssh;
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
-    });
+    pushHiddenLayout(tab);
 
     usePanesStore.getState().setTabDisconnected("ignored", "hidden-tab", true, leaf.id);
     usePanesStore.getState().setTabDirty("ignored", "hidden-tab", true);
@@ -521,9 +493,7 @@ describe("usePanesStore layouts", () => {
       rootPane: hiddenRoot,
       activePaneId: hiddenRoot.id,
     };
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
+    pushLayouts(hidden);
 
     usePanesStore.getState().closeTabBySessionId("session-right");
     let tabs = panel(hiddenLayout().rootPane).tabs;
@@ -537,20 +507,6 @@ describe("usePanesStore layouts", () => {
     usePanesStore.getState().closeTabBySessionId("single-session");
     tabs = panel(hiddenLayout().rootPane).tabs;
     expect(tabs.map((tab) => tab.id)).toEqual(["split-tab"]);
-  });
-
-  it("closeTabBySessionId 能关闭星标布局中的标签", () => {
-    const starredTab = makeTerminalTab("starred-tab", "session-starred");
-    usePanesStore.setState((state) => {
-      const starred = state.layouts.find((layout) => layout.kind === "starred");
-      panel(starred!.rootPane).tabs.push(starredTab);
-    });
-
-    const result = usePanesStore.getState().closeTabBySessionId("session-starred");
-
-    expect(result).toEqual({ closed: 1 });
-    const starred = usePanesStore.getState().layouts.find((layout) => layout.kind === "starred");
-    expect(panel(starred!.rootPane).tabs.map((tab) => tab.id)).not.toContain("starred-tab");
   });
 
   it("closeTabBySessionId 对同一会话在普通布局和星标布局的镜像各关一次", () => {
@@ -607,26 +563,16 @@ describe("usePanesStore layouts", () => {
     expect(restorable.some((item) => item.tab.id === "hidden-tab")).toBe(true);
   });
 
-  it("findTabAcrossLayouts 返回目标 layoutId", () => {
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab")));
-    });
+  it("findTabAcrossLayouts / findPaneAcrossLayouts 命中隐藏布局并返回其 layoutId", () => {
+    const hidden = pushHiddenLayout();
 
-    const location = usePanesStore.getState().findTabAcrossLayouts("hidden-tab");
-    expect(location?.layoutId).toBe("layout-hidden");
-    expect(location?.tab.id).toBe("hidden-tab");
-  });
+    const tabLocation = usePanesStore.getState().findTabAcrossLayouts("hidden-tab");
+    expect(tabLocation?.layoutId).toBe("layout-hidden");
+    expect(tabLocation?.tab.id).toBe("hidden-tab");
 
-  it("findPaneAcrossLayouts 返回隐藏布局 pane 位置", () => {
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
-
-    const location = usePanesStore.getState().findPaneAcrossLayouts(hidden.rootPane.id);
-
-    expect(location?.layoutId).toBe("layout-hidden");
-    expect(location?.pane.id).toBe(hidden.rootPane.id);
+    const paneLocation = usePanesStore.getState().findPaneAcrossLayouts(hidden.rootPane.id);
+    expect(paneLocation?.layoutId).toBe("layout-hidden");
+    expect(paneLocation?.pane.id).toBe(hidden.rootPane.id);
   });
 
   it("migrate v3 到 v4 时把 rootPane 装箱成单 layout", () => {
@@ -792,15 +738,26 @@ describe("usePanesStore layouts", () => {
     expect(state.layouts.find((l) => l.id === "layout-1")?.workspaceName).toBeUndefined();
   });
 
-  it("openProject 首次落位时自动固化布局工作空间绑定", () => {
-    usePanesStore.getState().openProject({
-      projectId: "proj-a",
-      projectPath: "/tmp/proj-a",
-      workspaceName: "ws-a",
+  type OpenEntry = (paneId: string, args: { projectId: string; projectPath: string; workspaceName: string }) => void;
+  const openEntries: Array<[string, OpenEntry]> = [
+    ["openProject", (_paneId, args) => usePanesStore.getState().openProject(args)],
+    ["addTab", (paneId, args) => { usePanesStore.getState().addTab(paneId, args); }],
+    ["openSessionBesidePane", (paneId, args) => {
+      usePanesStore.getState().openSessionBesidePane(paneId, "right", args);
+    }],
+  ];
+
+  it.each(openEntries)("%s 首次落位后自动固化布局工作空间绑定", (name, open) => {
+    const projectPath = `/tmp/proj-${name}`;
+    open(usePanesStore.getState().activePaneId, {
+      projectId: `proj-${name}`,
+      projectPath,
+      workspaceName: `ws-${name}`,
     });
 
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBe("ws-a");
+    // 标签落在（落位后的）活动面板里
+    expect(usePanesStore.getState().activePane()!.tabs.some((t) => t.projectPath === projectPath)).toBe(true);
+    expect(layoutWorkspace("layout-1")).toBe(`ws-${name}`);
   });
 
   it("自动绑定不覆盖已有布局绑定", () => {
@@ -812,8 +769,7 @@ describe("usePanesStore layouts", () => {
       workspaceName: "ws-new",
     });
 
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBe("ws-existing");
+    expect(layoutWorkspace("layout-1")).toBe("ws-existing");
   });
 
   it("无 workspaceName 时等待后续带工作空间的 tab 再固化", () => {
@@ -821,16 +777,14 @@ describe("usePanesStore layouts", () => {
       projectId: "proj-unbound",
       projectPath: "/tmp/proj-unbound",
     });
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBeUndefined();
+    expect(layoutWorkspace("layout-1")).toBeUndefined();
 
     usePanesStore.getState().openProject({
       projectId: "proj-bound",
       projectPath: "/tmp/proj-bound",
       workspaceName: "ws-later",
     });
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBe("ws-later");
+    expect(layoutWorkspace("layout-1")).toBe("ws-later");
   });
 
   it("星标布局不会自动固化工作空间绑定", () => {
@@ -845,34 +799,7 @@ describe("usePanesStore layouts", () => {
 
     usePanesStore.getState().autoBindLayoutWorkspaceFromTabs();
 
-    expect(usePanesStore.getState().layouts.find((l) => l.id === starred.id)?.workspaceName)
-      .toBeUndefined();
-  });
-
-  it("addTab 落位后自动固化布局工作空间绑定", () => {
-    const paneId = usePanesStore.getState().activePaneId;
-
-    usePanesStore.getState().addTab(paneId, {
-      projectId: "proj-add",
-      projectPath: "/tmp/proj-add",
-      workspaceName: "ws-add",
-    });
-
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBe("ws-add");
-  });
-
-  it("openSessionBesidePane 落位后自动固化布局工作空间绑定", () => {
-    const paneId = usePanesStore.getState().activePaneId;
-
-    usePanesStore.getState().openSessionBesidePane(paneId, "right", {
-      projectId: "proj-beside",
-      projectPath: "/tmp/proj-beside",
-      workspaceName: "ws-beside",
-    });
-
-    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
-      .toBe("ws-beside");
+    expect(layoutWorkspace(starred.id)).toBeUndefined();
   });
 
   it("createLayout 后首个 openProject 自动绑定新布局", () => {
@@ -884,8 +811,7 @@ describe("usePanesStore layouts", () => {
       workspaceName: "ws-created",
     });
 
-    expect(usePanesStore.getState().layouts.find((l) => l.id === layoutId)?.workspaceName)
-      .toBe("ws-created");
+    expect(layoutWorkspace(layoutId)).toBe("ws-created");
   });
 
   it("createLayout / switchLayout 打 lastActiveAt 最近使用时间", () => {
@@ -900,10 +826,7 @@ describe("usePanesStore layouts", () => {
   });
 
   it("openProject 带 targetLayoutId 时先切到目标布局再落位", () => {
-    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
-    usePanesStore.setState((state) => {
-      state.layouts.push(hidden);
-    });
+    pushHiddenLayout();
 
     usePanesStore.getState().openProject({
       projectId: "proj-target",
@@ -972,9 +895,7 @@ describe("usePanesStore layouts", () => {
   // 异常退出会恢复到旧会话）；同值重放（daemon identity 事件补拉）零触发。
   it("updateTabAgentResumeId 变更触发 resume-id.update，同值重放不触发", async () => {
     const tab = makeTerminalTab("resume-tab", "session-resume");
-    usePanesStore.setState((state) => {
-      state.layouts.push(makeLayout("layout-resume", "恢复", tab));
-    });
+    pushLayouts(makeLayout("layout-resume", "恢复", tab));
 
     const reasons: string[] = [];
     const listener = (event: Event) => {

@@ -38,6 +38,9 @@ function makeScanResult(processes: ClaudeProcess[]): ProcessScanResult {
   };
 }
 
+// 真实的 toggleSelect 是纯状态更新，保留它以断言勾选后的可见结果
+const realToggleSelect = useProcessMonitorStore.getState().toggleSelect;
+
 const actions = {
   scan: vi.fn(async () => {}),
   killProcess: vi.fn(async () => true),
@@ -57,6 +60,12 @@ function setStore(partial: Partial<ReturnType<typeof useProcessMonitorStore.getS
     ...actions,
     ...partial,
   });
+}
+
+function openKillAllConfirm(user: ReturnType<typeof userEvent.setup>) {
+  const killAllBtn = document.querySelector("button .lucide-triangle-alert")?.closest("button");
+  expect(killAllBtn).toBeTruthy();
+  return user.click(killAllBtn as HTMLElement);
 }
 
 function renderSection() {
@@ -120,28 +129,23 @@ describe("ProcessMonitorSection", () => {
     expect(screen.getByText("(unknown)")).toBeVisible();
   });
 
-  it("点击刷新按钮调用 scan", async () => {
+  it("勾选进程复选框后进程被选中并出现批量终止入口", async () => {
     const user = userEvent.setup();
-    setStore({ scanResult: makeScanResult([makeProcess()]) });
+    setStore({
+      scanResult: makeScanResult([makeProcess({ pid: 77, name: "claude-x" })]),
+      toggleSelect: realToggleSelect,
+    });
     renderSection();
-
-    // 标题栏总有刷新按钮；scan 在挂载后按钮点击时应再被调用
-    const refreshBtn = document.querySelector("button .lucide-refresh-cw")?.closest("button");
-    expect(refreshBtn).toBeTruthy();
-    await user.click(refreshBtn as HTMLElement);
-    expect(actions.scan).toHaveBeenCalled();
-  });
-
-  it("勾选进程复选框调用 toggleSelect", async () => {
-    const user = userEvent.setup();
-    setStore({ scanResult: makeScanResult([makeProcess({ pid: 77, name: "claude-x" })]) });
-    renderSection();
+    expect(document.querySelector("button .lucide-trash-2")).toBeNull();
 
     await user.click(screen.getByRole("checkbox"));
-    expect(actions.toggleSelect).toHaveBeenCalledWith(77);
+
+    expect(screen.getByRole("checkbox")).toBeChecked();
+    expect(useProcessMonitorStore.getState().selectedPids).toEqual(new Set([77]));
+    expect(document.querySelector("button .lucide-trash-2")).not.toBeNull();
   });
 
-  it("有选中进程时显示批量终止入口并弹出确认框", async () => {
+  it("终止选中：确认框显示选中数量，确认后调用 killSelected", async () => {
     const user = userEvent.setup();
     setStore({
       scanResult: makeScanResult([makeProcess({ pid: 5 }), makeProcess({ pid: 6 })]),
@@ -154,21 +158,7 @@ describe("ProcessMonitorSection", () => {
     expect(killSelectedBtn).toBeTruthy();
     await user.click(killSelectedBtn as HTMLElement);
 
-    expect(await screen.findByText(/确定终止 1 个进程？/)).toBeVisible();
-  });
-
-  it("确认终止选中进程调用 killSelected", async () => {
-    const user = userEvent.setup();
-    setStore({
-      scanResult: makeScanResult([makeProcess({ pid: 5 })]),
-      selectedPids: new Set<number>([5]),
-    });
-    renderSection();
-
-    const killSelectedBtn = document.querySelector("button .lucide-trash-2")?.closest("button");
-    await user.click(killSelectedBtn as HTMLElement);
-
-    const confirmPanel = (await screen.findByText(/确定终止/)).closest("div")?.parentElement as HTMLElement;
+    const confirmPanel = (await screen.findByText(/确定终止 1 个进程？/)).closest("div")?.parentElement as HTMLElement;
     await user.click(within(confirmPanel).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(actions.killSelected).toHaveBeenCalledTimes(1));
@@ -179,9 +169,7 @@ describe("ProcessMonitorSection", () => {
     setStore({ scanResult: makeScanResult([makeProcess({ pid: 5 }), makeProcess({ pid: 6 })]) });
     renderSection();
 
-    const killAllBtn = document.querySelector("button .lucide-triangle-alert")?.closest("button");
-    expect(killAllBtn).toBeTruthy();
-    await user.click(killAllBtn as HTMLElement);
+    await openKillAllConfirm(user);
 
     expect(await screen.findByText(/确定终止 2 个进程？/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "确认" }));
@@ -193,8 +181,7 @@ describe("ProcessMonitorSection", () => {
     setStore({ scanResult: makeScanResult([makeProcess({ pid: 6 })]) });
     renderSection();
 
-    const killAllBtn = document.querySelector("button .lucide-triangle-alert")?.closest("button");
-    await user.click(killAllBtn as HTMLElement);
+    await openKillAllConfirm(user);
     await screen.findByText(/确定终止/);
 
     await user.click(screen.getByRole("button", { name: "取消" }));
@@ -207,8 +194,7 @@ describe("ProcessMonitorSection", () => {
     setStore({ scanResult: makeScanResult([makeProcess({ pid: 6 })]) });
     renderSection();
 
-    const killAllBtn = document.querySelector("button .lucide-triangle-alert")?.closest("button");
-    await user.click(killAllBtn as HTMLElement);
+    await openKillAllConfirm(user);
     await screen.findByText(/确定终止/);
 
     await user.keyboard("{Escape}");
@@ -220,10 +206,7 @@ describe("ProcessMonitorSection", () => {
     setStore({ scanResult: makeScanResult([makeProcess({ pid: 321, name: "claude-kill" })]) });
     renderSection();
 
-    // 进程行内的 X 按钮（lucide-x），排除标题区
-    const xBtn = document.querySelector("button .lucide-x")?.closest("button");
-    expect(xBtn).toBeTruthy();
-    await user.click(xBtn as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "终止进程 claude-kill" }));
     expect(actions.killProcess).toHaveBeenCalledWith(321);
   });
 

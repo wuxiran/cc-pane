@@ -69,25 +69,19 @@ describe("ModulesSection", () => {
     });
   });
 
-  it("keeps AI panel auto-open disabled until explicitly enabled", async () => {
+  // autoOpen 默认关、allowAiDialog 默认开：两者的出厂默认值都是产品决策
+  it.each([
+    ["modules.autoOpenLabel", "autoOpen", false],
+    ["modules.allowAiDialogLabel", "allowAiDialog", true],
+  ] as const)("toggles the AI panel %s switch away from its shipped default", async (label, key, shipped) => {
     const user = userEvent.setup();
     renderSection();
 
-    const autoOpen = screen.getByRole("switch", { name: t("modules.autoOpenLabel") });
-    expect(autoOpen).not.toBeChecked();
-    await user.click(autoOpen);
+    const toggle = screen.getByRole("switch", { name: t(label) });
+    if (shipped) expect(toggle).toBeChecked();
+    else expect(toggle).not.toBeChecked();
+    await user.click(toggle);
 
-    expect(useModulePrefsStore.getState().preferences.aiPanel.autoOpen).toBe(true);
-  });
-
-  it("lets the user revoke the AI popup permission that ships enabled", async () => {
-    const user = userEvent.setup();
-    renderSection();
-
-    const allowAiDialog = screen.getByRole("switch", { name: t("modules.allowAiDialogLabel") });
-    expect(allowAiDialog).toBeChecked();
-    await user.click(allowAiDialog);
-
-    expect(useModulePrefsStore.getState().preferences.aiPanel.allowAiDialog).toBe(false);
+    expect(useModulePrefsStore.getState().preferences.aiPanel[key]).toBe(!shipped);
   });
 });

@@ -58,24 +58,13 @@ describe("normalizeSidebarFavoriteLaunchActionIds", () => {
     ).toEqual(["terminal-default", "claude-default", "codex-default"]);
   });
 
-  it("passes through a user-customized favorite list unchanged", () => {
-    const custom = ["terminal-wsl", "codex-default"];
-    expect(normalizeSidebarFavoriteLaunchActionIds(custom)).toBe(custom);
-  });
-
-  it("does not migrate when order differs from the legacy set", () => {
-    const reordered = ["claude-local", "terminal-default", "codex-local"];
-    expect(normalizeSidebarFavoriteLaunchActionIds(reordered)).toBe(reordered);
-  });
-
-  it("does not migrate when length differs", () => {
-    const shorter = ["terminal-default", "claude-local"];
-    expect(normalizeSidebarFavoriteLaunchActionIds(shorter)).toBe(shorter);
-  });
-
-  it("passes through empty list unchanged", () => {
-    const empty: string[] = [];
-    expect(normalizeSidebarFavoriteLaunchActionIds(empty)).toBe(empty);
+  it.each<[string, string[]]>([
+    ["a user-customized favorite list", ["terminal-wsl", "codex-default"]],
+    ["the legacy set in a different order", ["claude-local", "terminal-default", "codex-local"]],
+    ["a legacy-prefix list of different length", ["terminal-default", "claude-local"]],
+    ["an empty list", []],
+  ])("passes through %s unchanged (same reference)", (_name, ids) => {
+    expect(normalizeSidebarFavoriteLaunchActionIds(ids)).toBe(ids);
   });
 });
 

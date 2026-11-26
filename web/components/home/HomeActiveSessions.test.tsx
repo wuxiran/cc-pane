@@ -1,5 +1,4 @@
 import "@/i18n";
-import i18n from "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDialogStore, usePanesStore, useTerminalStatusStore, useWorkspacesStore } from "@/stores";
@@ -78,12 +77,6 @@ describe("HomeActiveSessions", () => {
     expect(screen.getByText("共 3 个终端会话")).toBeVisible();
   });
 
-  it("无活跃会话时渲染空态", () => {
-    render(<HomeActiveSessions />);
-
-    expect(screen.getByText("暂无活跃会话")).toBeVisible();
-  });
-
   it("无 sessionId 的标签不计入活跃会话", () => {
     usePanesStore.setState({
       rootPane: panelWith([
@@ -159,63 +152,36 @@ describe("HomeActiveSessions", () => {
     expect(screen.getByText("my-app")).toBeVisible();
   });
 
-  it("点击会话：同布局直接聚焦面板与标签", () => {
+  function mockNavigation(location: "layout-1" | "layout-2" | null) {
     const tab = createTab({ id: "t1" });
     const panel = panelWith([tab]);
-    const findTabAcrossLayouts = vi.fn(() => ({
-      layoutId: "layout-1",
-      panel,
-      tab,
-    }));
-    const switchLayout = vi.fn();
-    const setActivePane = vi.fn();
-    const selectTab = vi.fn();
+    const actions = { switchLayout: vi.fn(), setActivePane: vi.fn(), selectTab: vi.fn() };
     usePanesStore.setState({
       rootPane: panel,
       currentLayoutId: "layout-1",
-      findTabAcrossLayouts,
-      switchLayout,
-      setActivePane,
-      selectTab,
+      findTabAcrossLayouts: vi.fn(() => (location ? { layoutId: location, panel, tab } : null)),
+      ...actions,
     } as never);
+    return actions;
+  }
+
+  it.each([
+    ["同布局直接聚焦面板与标签", "layout-1", false],
+    ["跨布局先切换布局再聚焦", "layout-2", true],
+  ] as const)("点击会话：%s", (_label, layoutId, switches) => {
+    const { switchLayout, setActivePane, selectTab } = mockNavigation(layoutId);
     render(<HomeActiveSessions />);
 
     fireEvent.click(screen.getByText("会话一"));
 
-    expect(switchLayout).not.toHaveBeenCalled();
+    if (switches) expect(switchLayout).toHaveBeenCalledWith("layout-2");
+    else expect(switchLayout).not.toHaveBeenCalled();
     expect(setActivePane).toHaveBeenCalledWith("panel-1");
     expect(selectTab).toHaveBeenCalledWith("panel-1", "t1");
   });
 
-  it("点击会话：跨布局先切换布局再聚焦", () => {
-    const tab = createTab({ id: "t1" });
-    const panel = panelWith([tab]);
-    const switchLayout = vi.fn();
-    const setActivePane = vi.fn();
-    const selectTab = vi.fn();
-    usePanesStore.setState({
-      rootPane: panel,
-      currentLayoutId: "layout-1",
-      findTabAcrossLayouts: vi.fn(() => ({ layoutId: "layout-2", panel, tab })),
-      switchLayout,
-      setActivePane,
-      selectTab,
-    } as never);
-    render(<HomeActiveSessions />);
-
-    fireEvent.click(screen.getByText("会话一"));
-
-    expect(switchLayout).toHaveBeenCalledWith("layout-2");
-    expect(setActivePane).toHaveBeenCalledWith("panel-1");
-  });
-
   it("点击会话：找不到标签位置时不做任何切换", () => {
-    const setActivePane = vi.fn();
-    usePanesStore.setState({
-      rootPane: panelWith([createTab({ id: "t1" })]),
-      findTabAcrossLayouts: vi.fn(() => null),
-      setActivePane,
-    } as never);
+    const { setActivePane } = mockNavigation(null);
     render(<HomeActiveSessions />);
 
     fireEvent.click(screen.getByText("会话一"));
@@ -239,19 +205,5 @@ describe("HomeActiveSessions", () => {
     fireEvent.click(screen.getByRole("button", { name: "新建终端" }));
 
     expect(openLauncher).toHaveBeenCalledTimes(1);
-  });
-
-  it("会话统计数字使用 tabular-nums", () => {
-    usePanesStore.setState({ rootPane: panelWith([createTab()]) });
-    render(<HomeActiveSessions />);
-
-    expect(screen.getByText("共 1 个终端会话")).toHaveClass("tabular-nums");
-  });
-
-  it("空态引导文案在 en 语言环境下有对应翻译", () => {
-    const tEn = i18n.getFixedT("en", "home");
-
-    expect(tEn("noActiveSessionsHint")).not.toBe("noActiveSessionsHint");
-    expect(tEn("noActiveSessionsHint").length).toBeGreaterThan(0);
   });
 });

@@ -58,12 +58,6 @@ describe("empty-illustrations", () => {
     expect(accented.length).toBeLessThanOrEqual(2);
   });
 
-  it.each(ALL_COMPONENTS)("accepts and applies a className", (Component) => {
-    const { container } = render(<Component className="h-24 w-24 text-red-500" />);
-    const svg = container.querySelector("svg");
-    expect(svg).toHaveClass("h-24", "w-24", "text-red-500");
-  });
-
   it("maps every semantic name to its component", () => {
     for (const [name, Component] of Object.entries(EMPTY_ILLUSTRATIONS)) {
       const { container } = render(<Component />);

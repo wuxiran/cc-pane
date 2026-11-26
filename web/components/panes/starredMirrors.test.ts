@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectStarredMirrorTiles, mirrorGridClass } from "./starredMirrors";
+import { collectStarredMirrorTiles } from "./starredMirrors";
 import type { StarredShortcutSource } from "./starredMirrors";
 import type { Tab, TerminalPaneNode } from "@/types";
 
@@ -67,15 +67,5 @@ describe("collectStarredMirrorTiles", () => {
     ]);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].sessionId).toBeNull();
-  });
-});
-
-describe("mirrorGridClass", () => {
-  it("scales layout with tile count", () => {
-    expect(mirrorGridClass(1)).toBe("grid-cols-1");
-    expect(mirrorGridClass(2)).toBe("grid-cols-2");
-    expect(mirrorGridClass(3)).toBe("grid-cols-2 grid-rows-2");
-    expect(mirrorGridClass(4)).toBe("grid-cols-2 grid-rows-2");
-    expect(mirrorGridClass(5)).toContain("auto-rows-");
   });
 });

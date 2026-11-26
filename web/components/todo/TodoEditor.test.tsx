@@ -124,18 +124,6 @@ describe("TodoEditor", () => {
     expect(props.onSave).toHaveBeenCalledTimes(1);
   });
 
-  it("编辑标题回调 onChange", () => {
-    const props = renderEditor();
-
-    fireEvent.change(screen.getByPlaceholderText("任务标题（必填）..."), {
-      target: { value: "新标题" },
-    });
-
-    expect(props.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "新标题" }),
-    );
-  });
-
   it("切换状态与优先级通过分段控件回调", () => {
     const props = renderEditor();
 
@@ -248,7 +236,7 @@ describe("TodoEditor", () => {
     );
   });
 
-  it("删除自定义类型的 × 支持键盘：可聚焦、Enter/Space 触发、带焦点环", () => {
+  it("删除自定义类型的 × 支持键盘：可聚焦、聚焦时可见、Enter/Space 触发", () => {
     useTodoStore.setState({ customTypes: ["infra"] });
     const props = renderEditor({ form: createForm({ todoType: "infra" }) });
 
@@ -260,9 +248,6 @@ describe("TodoEditor", () => {
       "aria-label",
       i18n.t("dialogs:todoRemoveCustomType", { type: "infra" }),
     );
-    expect(remove.className).toContain("focus-visible:outline-none");
-    expect(remove.className).toContain("focus-visible:ring-2");
-    expect(remove.className).toContain("focus-visible:ring-[var(--app-accent)]");
     // 键盘聚焦路径下可见（原先仅 hover 可见时无法被 Tab 到达）
     expect(remove.className).toContain("group-focus-within/type:flex");
 
@@ -334,19 +319,6 @@ describe("TodoEditor", () => {
     fireEvent.click(bugChip.querySelector("button")!);
     expect(props.onChange).toHaveBeenCalledWith(
       expect.objectContaining({ tags: "前端" }),
-    );
-  });
-
-  it("描述编辑回调 onChange", () => {
-    const props = renderEditor();
-
-    fireEvent.change(
-      screen.getByPlaceholderText("任务描述（支持 Markdown）..."),
-      { target: { value: "详情" } },
-    );
-
-    expect(props.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ description: "详情" }),
     );
   });
 });

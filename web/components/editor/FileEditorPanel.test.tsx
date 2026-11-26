@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -39,22 +39,37 @@ function makeTab(id: string, overrides: Partial<EditorTab> = {}): EditorTab {
 }
 
 function setupStore(tabs: EditorTab[], activeTabId: string | null = tabs[0]?.id ?? null) {
-  const actions = {
-    selectTab: vi.fn(),
-    closeTab: vi.fn(),
-    closeOtherTabs: vi.fn(),
-    closeTabsToRight: vi.fn(),
-    closeTabsToLeft: vi.fn(),
-    togglePin: vi.fn(),
-    reorderTabs: vi.fn(),
-    setDirty: vi.fn(),
-  };
-  useEditorTabsStore.setState({ tabs, activeTabId, ...actions });
-  return actions;
+  useEditorTabsStore.setState({ tabs, activeTabId });
 }
 
 function tabElement(title: string): HTMLElement {
   return screen.getByText(title).closest("div[draggable]") as HTMLElement;
+}
+
+function tabTitles(): string[] {
+  return Array.from(document.querySelectorAll("div[draggable]"), (el) => el.textContent ?? "");
+}
+
+function activeFile(): string | null {
+  return screen.queryByTestId("editor-view")?.textContent ?? null;
+}
+
+const closeLabel = i18n.t("panes:closeTab", { defaultValue: "Close Tab" });
+
+function closeControl(title: string): HTMLElement | undefined {
+  return within(tabElement(title)).queryByRole("button", { name: closeLabel }) ?? undefined;
+}
+
+function makeDataTransfer() {
+  const data: Record<string, string> = {};
+  return {
+    effectAllowed: "",
+    dropEffect: "",
+    setData: (type: string, val: string) => {
+      data[type] = val;
+    },
+    getData: (type: string) => data[type],
+  };
 }
 
 describe("FileEditorPanel", () => {
@@ -90,36 +105,33 @@ describe("FileEditorPanel", () => {
   it("renders tabs and mounts the editor for the active tab", () => {
     setupStore([makeTab("a"), makeTab("b")], "b");
     render(<FileEditorPanel />);
-    expect(screen.getByText("a.ts")).toBeInTheDocument();
-    expect(screen.getByText("b.ts")).toBeInTheDocument();
-    expect(screen.getByTestId("editor-view")).toHaveTextContent("/proj/src/b.ts");
+    expect(tabTitles()).toEqual(["a.ts", "b.ts"]);
+    expect(activeFile()).toBe("/proj/src/b.ts");
   });
 
   it("selects a tab on click", async () => {
     const user = userEvent.setup();
-    const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+    setupStore([makeTab("a"), makeTab("b")], "a");
     render(<FileEditorPanel />);
     await user.click(screen.getByText("b.ts"));
-    expect(actions.selectTab).toHaveBeenCalledWith("b");
+    expect(activeFile()).toBe("/proj/src/b.ts");
   });
 
   it("closes a tab from its close control without selecting it", async () => {
     const user = userEvent.setup();
-    const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+    setupStore([makeTab("a"), makeTab("b")], "a");
     render(<FileEditorPanel />);
-
-    const closeIcon = tabElement("b.ts").querySelector("svg.lucide-x")!;
-    await user.click(closeIcon.parentElement as HTMLElement);
-    expect(actions.closeTab).toHaveBeenCalledWith("b");
-    expect(actions.selectTab).not.toHaveBeenCalled();
+    await user.click(closeControl("b.ts")!);
+    expect(tabTitles()).toEqual(["a.ts"]);
+    expect(activeFile()).toBe("/proj/src/a.ts");
   });
 
   it("hides the close control and shows the pin marker for pinned tabs", () => {
     setupStore([makeTab("a", { pinned: true } as Partial<EditorTab>)]);
     render(<FileEditorPanel />);
-    const tab = tabElement("a.ts");
-    expect(tab.querySelector("svg.lucide-x")).toBeNull();
-    expect(tab.querySelector("svg.lucide-pin")).not.toBeNull();
+    expect(closeControl("a.ts")).toBeUndefined();
+    // Pin 图标无 aria，只能按 lucide 类名定位
+    expect(tabElement("a.ts").querySelector("svg.lucide-pin")).not.toBeNull();
   });
 
   it("marks dirty tabs with a dot", () => {
@@ -129,41 +141,14 @@ describe("FileEditorPanel", () => {
   });
 
   it("reorders tabs via drag and drop", () => {
-    const actions = setupStore([makeTab("a"), makeTab("b"), makeTab("c")], "a");
+    setupStore([makeTab("a"), makeTab("b"), makeTab("c")], "a");
     render(<FileEditorPanel />);
 
-    const data: Record<string, string> = {};
-    const dataTransfer = {
-      effectAllowed: "",
-      dropEffect: "",
-      setData: (type: string, val: string) => {
-        data[type] = val;
-      },
-      getData: (type: string) => data[type],
-    };
-
+    const dataTransfer = makeDataTransfer();
     fireEvent.dragStart(tabElement("a.ts"), { dataTransfer });
     fireEvent.dragOver(tabElement("c.ts"), { dataTransfer });
     fireEvent.drop(tabElement("c.ts"), { dataTransfer });
-    expect(actions.reorderTabs).toHaveBeenCalledWith(0, 2);
-  });
-
-  it("ignores drops onto the same position", () => {
-    const actions = setupStore([makeTab("a"), makeTab("b")], "a");
-    render(<FileEditorPanel />);
-
-    const data: Record<string, string> = {};
-    const dataTransfer = {
-      effectAllowed: "",
-      dropEffect: "",
-      setData: (type: string, val: string) => {
-        data[type] = val;
-      },
-      getData: (type: string) => data[type],
-    };
-    fireEvent.dragStart(tabElement("a.ts"), { dataTransfer });
-    fireEvent.drop(tabElement("a.ts"), { dataTransfer });
-    expect(actions.reorderTabs).not.toHaveBeenCalled();
+    expect(tabTitles()).toEqual(["b.ts", "c.ts", "a.ts"]);
   });
 
   describe("context menu", () => {
@@ -174,99 +159,81 @@ describe("FileEditorPanel", () => {
       });
     }
 
-    it("pins and unpins from the menu", async () => {
-      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+    function menuItem(key: string): HTMLElement {
+      return screen.getByText(i18n.t(`panes:${key}` as never)).closest("[role='menuitem']") as HTMLElement;
+    }
+
+    it("pins from the menu", async () => {
+      setupStore([makeTab("a"), makeTab("b")], "a");
       render(<FileEditorPanel />);
       await openTabMenu("a.ts");
-      fireEvent.click(
-        screen.getByText(i18n.t("panes:pinTab", { defaultValue: "Pin Tab" }))
-      );
-      expect(actions.togglePin).toHaveBeenCalledWith("a");
+      fireEvent.click(menuItem("pinTab"));
+      expect(closeControl("a.ts")).toBeUndefined();
+      expect(useEditorTabsStore.getState().tabs[0].pinned).toBe(true);
     });
 
     it("disables close-to-left when nothing closable exists on the left", async () => {
-      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+      setupStore([makeTab("a"), makeTab("b")], "a");
       render(<FileEditorPanel />);
       await openTabMenu("a.ts");
 
-      const closeLeft = screen
-        .getByText(i18n.t("panes:closeTabsToLeft", { defaultValue: "Close Tabs to the Left" }))
-        .closest("[role='menuitem']") as HTMLElement;
-      expect(closeLeft).toHaveAttribute("aria-disabled", "true");
-
-      const closeRight = screen
-        .getByText(i18n.t("panes:closeTabsToRight", { defaultValue: "Close Tabs to the Right" }))
-        .closest("[role='menuitem']") as HTMLElement;
+      expect(menuItem("closeTabsToLeft")).toHaveAttribute("aria-disabled", "true");
+      const closeRight = menuItem("closeTabsToRight");
       expect(closeRight).not.toHaveAttribute("aria-disabled", "true");
       fireEvent.click(closeRight);
-      expect(actions.closeTabsToRight).toHaveBeenCalledWith("a");
+      expect(tabTitles()).toEqual(["a.ts"]);
     });
 
     it("closes other tabs from the menu", async () => {
-      const actions = setupStore([makeTab("a"), makeTab("b"), makeTab("c")], "b");
+      setupStore([makeTab("a"), makeTab("b"), makeTab("c")], "b");
       render(<FileEditorPanel />);
       await openTabMenu("b.ts");
-      fireEvent.click(
-        screen.getByText(i18n.t("panes:closeOtherTabs", { defaultValue: "Close Other Tabs" }))
-      );
-      expect(actions.closeOtherTabs).toHaveBeenCalledWith("b");
+      fireEvent.click(menuItem("closeOtherTabs"));
+      expect(tabTitles()).toEqual(["b.ts"]);
     });
 
     it("omits the close item for pinned tabs", async () => {
       setupStore([makeTab("a", { pinned: true } as Partial<EditorTab>), makeTab("b")], "a");
       render(<FileEditorPanel />);
       await openTabMenu("a.ts");
-      expect(
-        screen.queryByText(i18n.t("panes:closeTab", { defaultValue: "Close Tab" }))
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText(closeLabel)).not.toBeInTheDocument();
     });
   });
 
   describe("keyboard accessibility", () => {
-    it("tab body is Tab-focusable with a focus-visible ring and selects on Enter/Space", async () => {
+    it("tab body is Tab-focusable and selects on Enter/Space", async () => {
       const user = userEvent.setup();
-      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+      setupStore([makeTab("a"), makeTab("b")], "a");
       render(<FileEditorPanel />);
-
-      const tabB = screen.getByRole("button", { name: /b\.ts/ });
-      expect(tabB).toHaveAttribute("tabindex", "0");
-      expect(tabB.className).toContain("focus-visible:outline-none");
-      expect(tabB.className).toContain("focus-visible:ring-2");
-      expect(tabB.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       // 第一个 tab 是标签栏首个 Tab 停留点
       await user.tab();
-      expect(screen.getByRole("button", { name: /a\.ts/ })).toHaveFocus();
+      const tabA = screen.getByRole("button", { name: /a\.ts/ });
+      expect(tabA).toHaveFocus();
 
-      tabB.focus();
+      const tabB = screen.getByRole("button", { name: /b\.ts/ });
+      expect(tabB).toHaveAttribute("tabindex", "0");
       fireEvent.keyDown(tabB, { key: "Enter" });
-      expect(actions.selectTab).toHaveBeenCalledWith("b");
-      fireEvent.keyDown(tabB, { key: " " });
-      expect(actions.selectTab).toHaveBeenCalledTimes(2);
+      expect(activeFile()).toBe("/proj/src/b.ts");
+      fireEvent.keyDown(tabA, { key: " " });
+      expect(activeFile()).toBe("/proj/src/a.ts");
     });
 
     it("close control is focusable and closes on Enter/Space without selecting", () => {
-      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+      setupStore([makeTab("a"), makeTab("b"), makeTab("c")], "a");
       render(<FileEditorPanel />);
 
-      const closeLabel = i18n.t("panes:closeTab", { defaultValue: "Close Tab" });
-      const closeB = screen
-        .getAllByRole("button", { name: closeLabel })
-        .find((el) => tabElement("b.ts").contains(el)) as HTMLElement;
+      const closeB = closeControl("b.ts")!;
       expect(closeB).toHaveAttribute("tabindex", "0");
-      expect(closeB.className).toContain("focus-visible:outline-none");
-      expect(closeB.className).toContain("focus-visible:ring-2");
-      expect(closeB.className).toContain("focus-visible:ring-[var(--app-accent)]");
-
       closeB.focus();
       expect(closeB).toHaveFocus();
       fireEvent.keyDown(closeB, { key: "Enter" });
-      expect(actions.closeTab).toHaveBeenCalledWith("b");
-      expect(actions.selectTab).not.toHaveBeenCalled();
+      expect(tabTitles()).toEqual(["a.ts", "c.ts"]);
+      expect(activeFile()).toBe("/proj/src/a.ts");
 
-      fireEvent.keyDown(closeB, { key: " " });
-      expect(actions.closeTab).toHaveBeenCalledTimes(2);
-      expect(actions.selectTab).not.toHaveBeenCalled();
+      fireEvent.keyDown(closeControl("c.ts")!, { key: " " });
+      expect(tabTitles()).toEqual(["a.ts"]);
+      expect(activeFile()).toBe("/proj/src/a.ts");
     });
   });
 });

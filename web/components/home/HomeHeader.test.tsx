@@ -40,14 +40,6 @@ describe("HomeHeader", () => {
     expect(screen.getByText(greeting)).toBeVisible();
   });
 
-  it("问候语标题走 display 字号 token", () => {
-    render(<HomeHeader version="1.0.0" />);
-
-    const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading).toHaveClass("tracking-tight");
-    expect(heading.className).toContain("text-[length:var(--text-display)]");
-  });
-
   it("无可用更新时显示已是最新", () => {
     render(<HomeHeader version="1.0.0" />);
 

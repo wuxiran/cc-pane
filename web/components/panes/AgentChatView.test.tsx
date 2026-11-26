@@ -22,32 +22,31 @@ import { agentTranscriptService } from "@/services/agentTranscriptService";
 
 const readMock = agentTranscriptService.read as ReturnType<typeof vi.fn>;
 
+type ViewProps = { cliTool?: string; resumeId?: string | null; onBackToTerminal?: () => void };
+
+function renderView(props: ViewProps = {}) {
+  render(
+    <AgentChatView
+      cliTool={props.cliTool ?? "grok"}
+      resumeId={props.resumeId === undefined ? "sess-1" : props.resumeId}
+      cwd="D:\\x"
+      onBackToTerminal={props.onBackToTerminal ?? vi.fn()}
+    />,
+  );
+}
+
 describe("AgentChatView", () => {
   beforeEach(() => {
     readMock.mockReset();
   });
 
-  it("shows no-resume empty state without calling service", async () => {
-    render(
-      <AgentChatView cliTool="grok" resumeId={null} cwd="D:\\x" onBackToTerminal={vi.fn()} />,
-    );
+  it.each<[string, ViewProps, string]>([
+    ["no-resume empty state", { resumeId: null }, "chatNoResumeId"],
+    ["unsupported for non-grok cli", { cliTool: "claude" }, "chatUnsupported"],
+  ])("shows %s without calling the service", async (_label, props, text) => {
+    renderView(props);
     await waitFor(() => {
-      expect(screen.getByText("chatNoResumeId")).toBeInTheDocument();
-    });
-    expect(readMock).not.toHaveBeenCalled();
-  });
-
-  it("shows unsupported for non-grok cli", async () => {
-    render(
-      <AgentChatView
-        cliTool="claude"
-        resumeId="sess-1"
-        cwd="D:\\x"
-        onBackToTerminal={vi.fn()}
-      />,
-    );
-    await waitFor(() => {
-      expect(screen.getByText("chatUnsupported")).toBeInTheDocument();
+      expect(screen.getByText(text)).toBeInTheDocument();
     });
     expect(readMock).not.toHaveBeenCalled();
   });
@@ -84,9 +83,7 @@ describe("AgentChatView", () => {
   it("back button calls onBackToTerminal", async () => {
     readMock.mockResolvedValue({ messages: [], truncated: false, totalEstimate: 0 });
     const onBack = vi.fn();
-    render(
-      <AgentChatView cliTool="grok" resumeId="sess-1" cwd="D:\\x" onBackToTerminal={onBack} />,
-    );
+    renderView({ onBackToTerminal: onBack });
     await waitFor(() => expect(screen.getByTestId("agent-chat-back")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("agent-chat-back"));
     expect(onBack).toHaveBeenCalled();
@@ -107,15 +104,11 @@ describe("AgentChatView", () => {
         errorCode: "cursorExpired",
         errorMessage: "refresh",
       });
-    render(
-      <AgentChatView cliTool="grok" resumeId="session" cwd="D:\\x" onBackToTerminal={vi.fn()} />,
-    );
+    renderView({ resumeId: "session" });
     await waitFor(() => expect(screen.getByTestId("agent-chat-load-earlier")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("agent-chat-load-earlier"));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("chatHistoryChanged"));
     expect(readMock).toHaveBeenLastCalledWith(expect.objectContaining({ beforeMessageId: "L10:m10" }));
     expect(screen.queryByTestId("agent-chat-load-earlier")).not.toBeInTheDocument();
   });
-
-
 });

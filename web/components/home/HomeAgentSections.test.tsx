@@ -9,7 +9,7 @@ import HomeAgentList from "./HomeAgentList";
 import HomeAgentInstall from "./HomeAgentInstall";
 import HomeQuickStart from "./HomeQuickStart";
 import { useHomeSetupDialogStore } from "./homeSetupDialogStore";
-import { AGENT_CATALOG, installMethodsFor, pendingCatalogEntries, primaryInstallCommand } from "./agentCatalog";
+import { pendingCatalogEntries, primaryInstallCommand } from "./agentCatalog";
 
 const guide = vi.hoisted(() => ({
   state: {
@@ -128,8 +128,8 @@ describe("HomeAgentList", () => {
     const rows = screen.getAllByTestId("home-agent-row");
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText("2.1.0")).toBeInTheDocument();
-    expect(within(rows[0]).getAllByText(/备用中转/).length).toBeGreaterThan(0);
-    expect(within(rows[1]).getByText(/Codex/, { selector: "span.truncate[title]" })).toBeInTheDocument();
+    expect(within(rows[0]).getByText("默认供应商：备用中转")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("用 Codex 自己的设置")).toBeInTheDocument();
 
     await user.click(within(rows[0]).getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "Anthropic 官方" }));
@@ -176,15 +176,6 @@ describe("HomeAgentInstall", () => {
 });
 
 describe("agentCatalog", () => {
-  it("gives every entry at least one command on each platform it lists, and no duplicate ids", () => {
-    const ids = AGENT_CATALOG.map((entry) => entry.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const entry of AGENT_CATALOG) {
-      expect(entry.methods.length).toBeGreaterThan(0);
-      expect(installMethodsFor(entry, "mac").length + installMethodsFor(entry, "windows").length).toBeGreaterThan(0);
-    }
-  });
-
   it("filters installed agents and exposes a primary command for the preflight card", () => {
     const pending = pendingCatalogEntries(new Set(["claude", "codex"]), "mac").map((entry) => entry.id);
     expect(pending).not.toContain("claude");

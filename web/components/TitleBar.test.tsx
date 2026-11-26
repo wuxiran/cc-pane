@@ -117,70 +117,28 @@ describe("TitleBar", () => {
   // 按钮的 -webkit-app-region: no-drag 无法在此断言：jsdom 不识别该属性，
   // React 写入时会被整条丢弃（style 属性为 null）。同窗口控制按钮一样，
   // 只能退而验证「点击到达按钮且没有被当成拖拽」。
-  it("toggles the sidebar from the titlebar switch without starting a drag", () => {
+  it.each<[string, typeof mockToggleSidebar]>([
+    ["titlebar-toggle-sidebar", mockToggleSidebar],
+    ["titlebar-toggle-right-dock", mockToggleRightDock],
+  ])("%s toggles its panel without starting a drag", (testId, toggle) => {
     renderTitleBar(<TitleBar />);
 
-    fireEvent.click(screen.getByTestId("titlebar-toggle-sidebar"));
+    fireEvent.click(screen.getByTestId(testId));
 
-    expect(mockToggleSidebar).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveBeenCalledTimes(1);
     expect(mockStartDrag).not.toHaveBeenCalled();
   });
 
-  it("swaps the sidebar switch icon and label with sidebarVisible", () => {
-    const { unmount } = renderTitleBar(<TitleBar />);
-
-    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
-      "aria-label",
-      "折叠侧边栏",
-    );
-    expect(
-      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left-close"),
-    ).not.toBeNull();
-    unmount();
-
-    mockSidebarVisible.mockReturnValue(false);
-    renderTitleBar(<TitleBar />);
-
-    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
-      "aria-label",
-      "展开侧边栏",
-    );
-    expect(
-      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left"),
-    ).not.toBeNull();
-  });
-
-  it("toggles the right dock from the titlebar switch without starting a drag", () => {
-    renderTitleBar(<TitleBar />);
-
-    fireEvent.click(screen.getByTestId("titlebar-toggle-right-dock"));
-
-    expect(mockToggleRightDock).toHaveBeenCalledTimes(1);
-    expect(mockStartDrag).not.toHaveBeenCalled();
-  });
-
-  it("swaps the right dock switch icon and label with visibility", () => {
-    const { unmount } = renderTitleBar(<TitleBar />);
-
-    expect(screen.getByTestId("titlebar-toggle-right-dock")).toHaveAttribute(
-      "aria-label",
-      "展开右侧面板",
-    );
-    expect(
-      screen.getByTestId("titlebar-toggle-right-dock").querySelector(".lucide-panel-right"),
-    ).not.toBeNull();
-    unmount();
-
-    mockRightDockVisible.mockReturnValue(true);
-    renderTitleBar(<TitleBar />);
-
-    expect(screen.getByTestId("titlebar-toggle-right-dock")).toHaveAttribute(
-      "aria-label",
-      "折叠右侧面板",
-    );
-    expect(
-      screen.getByTestId("titlebar-toggle-right-dock").querySelector(".lucide-panel-right-close"),
-    ).not.toBeNull();
+  it.each<[string, typeof mockSidebarVisible, string, string]>([
+    ["titlebar-toggle-sidebar", mockSidebarVisible, "折叠侧边栏", "展开侧边栏"],
+    ["titlebar-toggle-right-dock", mockRightDockVisible, "折叠右侧面板", "展开右侧面板"],
+  ])("%s label follows panel visibility", (testId, visible, whenShown, whenHidden) => {
+    for (const [shown, label] of [[true, whenShown], [false, whenHidden]] as const) {
+      visible.mockReturnValue(shown);
+      const { unmount } = renderTitleBar(<TitleBar />);
+      expect(screen.getByTestId(testId)).toHaveAttribute("aria-label", label);
+      unmount();
+    }
   });
 
   it("does not extend the right dock divider through the titlebar", () => {

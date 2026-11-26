@@ -50,11 +50,8 @@ describe("buildImageAddonOptions", () => {
   // 字节数（如 32*1024*1024）传进来，此断言会失败，避免该回归重新混入。
   it("storageLimit 取 MB 量级并落在 addon 校验区间 [0.5, 1000] 内", () => {
     const { storageLimit } = buildImageAddonOptions();
-    expect(typeof storageLimit).toBe("number");
     expect(storageLimit!).toBeGreaterThanOrEqual(0.5);
     expect(storageLimit!).toBeLessThanOrEqual(1000);
-    // 反例：字节量级（MB * 1024 * 1024）必然越界，证明区间断言确有约束力。
-    expect(TERMINAL_IMAGE_STORAGE_LIMIT_MB * 1024 * 1024).toBeGreaterThan(1000);
   });
 });
 
@@ -69,9 +66,9 @@ describe("attachTerminalImageAddon", () => {
     });
 
     expect(addon).toBe(mocks.instance);
-    expect(mocks.loadAddon).toHaveBeenCalledTimes(1);
-    expect(mocks.loadAddon).toHaveBeenCalledWith(mocks.instance);
-    expect(mocks.ctor).toHaveBeenCalledTimes(1);
+    expect(mocks.loadAddon).toHaveBeenCalledExactlyOnceWith(mocks.instance);
+    // 保守上限必须真的传进 addon 构造，而不只是记在日志里。
+    expect(mocks.ctor).toHaveBeenCalledExactlyOnceWith(buildImageAddonOptions());
     expect(debugLog).toHaveBeenCalledWith(
       "image.addon.attached",
       expect.objectContaining({

@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -6,21 +6,17 @@ import { PRESET_CATEGORIES, PROVIDER_PRESETS } from "@/constants/providerPresets
 import ProviderPresetPicker from "./ProviderPresetPicker";
 
 describe("ProviderPresetPicker", () => {
-  it("renders one button per preset", () => {
+  it("labels every non-empty preset category", () => {
     render(<ProviderPresetPicker onSelect={vi.fn()} />);
 
-    expect(screen.getAllByRole("button")).toHaveLength(PROVIDER_PRESETS.length);
-  });
-
-  it("only renders categories that have presets", () => {
-    render(<ProviderPresetPicker onSelect={vi.fn()} />);
-
-    const nonEmptyCategories = PRESET_CATEGORIES.filter((cat) =>
-      PROVIDER_PRESETS.some((p) => p.category === cat.key),
-    );
-    // 每个非空分类有一个标题节点（uppercase tracking-wide 的分组标签）
-    const groupLabels = document.querySelectorAll(".uppercase");
-    expect(groupLabels).toHaveLength(nonEmptyCategories.length);
+    for (const cat of PRESET_CATEGORIES) {
+      const label = i18n.t(`settings:${cat.labelKey}` as never);
+      if (PROVIDER_PRESETS.some((p) => p.category === cat.key)) {
+        expect(screen.getByText(label)).toBeInTheDocument();
+      } else {
+        expect(screen.queryByText(label)).not.toBeInTheDocument();
+      }
+    }
   });
 
   it("calls onSelect with the clicked preset", async () => {

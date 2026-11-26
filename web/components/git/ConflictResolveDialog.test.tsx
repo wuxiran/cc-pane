@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import type {
@@ -73,11 +74,15 @@ beforeEach(() => {
   } satisfies GitResolveConflictResult);
 });
 
+function renderDialog(props: Partial<ComponentProps<typeof ConflictResolveDialog>> = {}) {
+  return render(
+    <ConflictResolveDialog open onOpenChange={vi.fn()} projectPath="/repo" initialFile={null} {...props} />,
+  );
+}
+
 describe("ConflictResolveDialog", () => {
   it("loads conflicts and renders the editable result pane seeded from the worktree", async () => {
-    render(
-      <ConflictResolveDialog open onOpenChange={vi.fn()} projectPath="/repo" initialFile={null} />,
-    );
+    renderDialog();
     await waitFor(() => expect(listConflicts).toHaveBeenCalledWith("/repo"));
     const editor = await screen.findByTestId("conflict-result-editor");
     expect((editor as HTMLTextAreaElement).value).toBe("<<<<<<< ours");
@@ -87,21 +92,12 @@ describe("ConflictResolveDialog", () => {
 
   it("preselects the initialFile when provided", async () => {
     listConflicts.mockResolvedValue(summary([TEXT_FILE, BINARY_FILE]));
-    render(
-      <ConflictResolveDialog
-        open
-        onOpenChange={vi.fn()}
-        projectPath="/repo"
-        initialFile="logo.png"
-      />,
-    );
+    renderDialog({ initialFile: "logo.png" });
     await waitFor(() => expect(getConflictVersions).toHaveBeenCalledWith("/repo", "logo.png"));
   });
 
   it("accepting theirs overwrites the result editor", async () => {
-    render(
-      <ConflictResolveDialog open onOpenChange={vi.fn()} projectPath="/repo" initialFile={null} />,
-    );
+    renderDialog();
     const editor = (await screen.findByTestId("conflict-result-editor")) as HTMLTextAreaElement;
     await userEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:gitConflict.useTheirs") }));
     expect(editor.value).toBe("theirs-content");
@@ -109,15 +105,7 @@ describe("ConflictResolveDialog", () => {
 
   it("saving stages the file and reports zero remaining", async () => {
     const onResolved = vi.fn();
-    render(
-      <ConflictResolveDialog
-        open
-        onOpenChange={vi.fn()}
-        projectPath="/repo"
-        initialFile={null}
-        onResolved={onResolved}
-      />,
-    );
+    renderDialog({ onResolved });
     await screen.findByTestId("conflict-result-editor");
     await userEvent.click(screen.getByTestId("conflict-save"));
     await waitFor(() =>
@@ -141,9 +129,7 @@ describe("ConflictResolveDialog", () => {
         base: text(null),
       }),
     );
-    render(
-      <ConflictResolveDialog open onOpenChange={vi.fn()} projectPath="/repo" initialFile={null} />,
-    );
+    renderDialog();
     await waitFor(() => expect(getConflictVersions).toHaveBeenCalledWith("/repo", "logo.png"));
     expect(await screen.findByTestId("conflict-save")).toBeDisabled();
     expect(screen.queryByTestId("conflict-result-editor")).not.toBeInTheDocument();
@@ -151,9 +137,7 @@ describe("ConflictResolveDialog", () => {
 
   it("shows the empty state when there are no conflicts", async () => {
     listConflicts.mockResolvedValue(summary([], "clean"));
-    render(
-      <ConflictResolveDialog open onOpenChange={vi.fn()} projectPath="/repo" initialFile={null} />,
-    );
+    renderDialog();
     await waitFor(() => expect(listConflicts).toHaveBeenCalled());
     expect(await screen.findByText(i18n.t("dialogs:gitConflict.noFiles"))).toBeInTheDocument();
   });

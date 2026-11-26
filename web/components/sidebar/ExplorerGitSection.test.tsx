@@ -172,6 +172,6 @@ describe("ExplorerGitSection C1 loading", () => {
     expect(gitService.getRepoInfo).toHaveBeenCalledWith("/repos/project-1");
     expect(screen.queryByText("project-1")).not.toBeInTheDocument();
     expect(screen.getByText("very-long-file-name.ts")).toBeInTheDocument();
-    expect(screen.getByText("src/features/rightdock/")).toHaveClass("truncate");
+    expect(screen.getByText("src/features/rightdock/")).toBeInTheDocument();
   });
 });

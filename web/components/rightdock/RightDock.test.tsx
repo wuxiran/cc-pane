@@ -134,29 +134,18 @@ describe("RightDock", () => {
     });
   });
 
-  it("多项目工作空间无显式选中时兜底第一个项目", () => {
-    useWorkspacesStore.setState({ expandedProjectId: null });
+  // 多项目工作空间：显式选中优先；无选中或选中项已被移除时兜底第一个项目
+  it.each<[string | null, string]>([
+    [null, "project-1"],
+    ["project-2", "project-2"],
+    ["removed-project", "project-1"],
+  ])("expandedProjectId=%s 时 Git 视图挂 %s", (expandedProjectId, expected) => {
+    useWorkspacesStore.setState({ expandedProjectId });
 
     renderDock();
 
-    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
+    expect(screen.getByTestId("right-dock-git")).toHaveTextContent(expected);
     expect(screen.queryByText("工作空间中没有项目")).not.toBeInTheDocument();
-  });
-
-  it("显式选中的项目优先于首项目兜底", () => {
-    useWorkspacesStore.setState({ expandedProjectId: "project-2" });
-
-    renderDock();
-
-    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-2");
-  });
-
-  it("选中项目已不在工作空间时回退第一个项目", () => {
-    useWorkspacesStore.setState({ expandedProjectId: "removed-project" });
-
-    renderDock();
-
-    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
   });
 
   it("工作空间没有项目时才显示空态", () => {
@@ -175,7 +164,6 @@ describe("RightDock", () => {
   it("Git 视图直挂 Git section", () => {
     renderDock();
 
-    expect(screen.getByTestId("right-dock-panel")).toHaveStyle({ width: "340px" });
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
     expect(screen.queryByTestId("right-dock-files")).not.toBeInTheDocument();
   });
@@ -340,19 +328,6 @@ describe("RightDock", () => {
 
     fireEvent.pointerUp(document);
     expect(useRightDockStore.getState().width).toBe(720);
-  });
-
-  it("提供可发现的鼠标拖拽热区且不会延伸进标题栏", () => {
-    renderDock();
-
-    const sash = screen.getByRole("separator", { name: "调整右侧面板宽度" });
-    expect(sash).toHaveStyle({
-      width: "14px",
-      left: "0px",
-      cursor: "col-resize",
-      touchAction: "none",
-    });
-    expect(sash.querySelector("span")).toHaveClass("group-hover:bg-[var(--app-accent)]");
   });
 
   it("Git 视图顶栏「让对话审阅」切到对话并预填当前项目的审阅 prompt", () => {

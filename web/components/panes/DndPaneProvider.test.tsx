@@ -170,20 +170,6 @@ describe("DndPaneProvider", () => {
     expect(reorderLayouts).toHaveBeenCalledWith(0, 1);
   });
 
-  it("does not reorder when dropping a tab onto itself", () => {
-    const tabA = makeTab("tab-a");
-    const panel = makePanel("pane-1", [tabA, makeTab("tab-b")]);
-    const reorderTabs = vi.fn();
-    usePanesStore.setState({ allPanels: () => [panel], reorderTabs });
-
-    render(<DndPaneProvider>{null}</DndPaneProvider>);
-    act(() => {
-      dndProps!.onDragEnd(dragEvent(tabA, "pane-1", { id: "tab-a", paneId: "pane-1" }));
-    });
-
-    expect(reorderTabs).not.toHaveBeenCalled();
-  });
-
   it("moves the tab with target index when dropping onto a tab in another pane", () => {
     const tabA = makeTab("tab-a");
     const other = makePanel("pane-2", [makeTab("tab-x"), makeTab("tab-y")]);
@@ -220,18 +206,27 @@ describe("DndPaneProvider", () => {
     expect(screen.queryByText("Floating")).not.toBeInTheDocument();
   });
 
-  it("ignores drags whose active payload is not a tab", () => {
-    const moveTab = vi.fn();
-    usePanesStore.setState({ allPanels: () => [], moveTab });
+  // 路由判定（含落回自身、非 tab payload 的拒绝）见 paneDndRouting.test；
+  // 这里只验 provider 自己的派发映射：edge → splitAndDropTab 的方向参数
+  it.each([
+    ["right", "right"],
+    ["bottom", "down"],
+  ])("splits the target pane when dropping a tab on its %s edge", (edge, direction) => {
+    const tabA = makeTab("tab-a");
+    const splitAndDropTab = vi.fn();
+    usePanesStore.setState({
+      allPanels: () => [makePanel("pane-1", [tabA]), makePanel("pane-2", [makeTab("tab-x")])],
+      splitAndDropTab,
+    } as never);
 
     render(<DndPaneProvider>{null}</DndPaneProvider>);
     act(() => {
       dndProps!.onDragEnd({
-        active: { id: "x", data: { current: { type: "file" } } },
-        over: { id: "tab-b", data: { current: { type: "tab", paneId: "pane-1" } } },
+        active: { id: tabA.id, data: { current: { type: "tab", tab: tabA, paneId: "pane-1" } } },
+        over: { id: `pane-edge-pane-2-${edge}`, data: { current: { type: "pane-edge", paneId: "pane-2", edge } } },
       });
     });
 
-    expect(moveTab).not.toHaveBeenCalled();
+    expect(splitAndDropTab).toHaveBeenCalledWith("pane-2", "pane-1", "tab-a", direction);
   });
 });

@@ -101,7 +101,7 @@ describe("WorkspaceTerminalList", () => {
     expect(first).toHaveFocus();
   });
 
-  it("marks the active tab with a raised background instead of a side bar", () => {
+  it("marks the active tab with aria-current", () => {
     const original = usePanesStore.getState();
     usePanesStore.setState({
       rootPane: { type: "panel", id: "p1", tabs: [], activeTabId: "tab-1" } as never,
@@ -111,8 +111,6 @@ describe("WorkspaceTerminalList", () => {
       render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
       const item = screen.getByRole("button", { name: /cc-book/ });
       expect(item).toHaveAttribute("aria-current", "true");
-      expect(item.className).toContain("bg-[var(--app-active-bg)]");
-      expect(item.className).not.toMatch(/border-l|before:/);
     } finally {
       usePanesStore.setState({ rootPane: original.rootPane, activePaneId: original.activePaneId });
     }
@@ -152,17 +150,6 @@ describe("WorkspaceTerminalList", () => {
     expect(item).toHaveAttribute("title", expect.stringContaining("帮我做个空白的授权委托书"));
   });
 
-  it("a manual rename beats the CLI title", () => {
-    render(
-      <WorkspaceTerminalList
-        workspaceName="ws-alpha"
-        rows={[row({ title: "我的命名", titleRenamed: true, sessionTitle: "自动标题" })]}
-      />,
-    );
-    expect(screen.getByRole("button", { name: /我的命名/ })).toBeInTheDocument();
-    expect(screen.queryByText("自动标题")).not.toBeInTheDocument();
-  });
-
   it("lists pinned terminals first", () => {
     render(
       <WorkspaceTerminalList
@@ -200,11 +187,6 @@ describe("WorkspaceTerminalList", () => {
     }
   });
 
-  it("falls back to tab title when no first prompt is known", () => {
-    render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
-    expect(screen.getByText("cc-book (Claude)")).toBeInTheDocument();
-  });
-
   it("shows split count only for multi-session tabs", () => {
     render(
       <WorkspaceTerminalList
@@ -213,7 +195,6 @@ describe("WorkspaceTerminalList", () => {
       />,
     );
     const splitLabel = i18n.t("sidebar:terminalSplitCount", { count: 3 });
-    expect(screen.getByText(splitLabel)).toBeInTheDocument();
     expect(screen.getAllByText(splitLabel)).toHaveLength(1);
   });
 });

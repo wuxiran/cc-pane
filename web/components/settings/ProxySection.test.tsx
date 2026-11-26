@@ -94,25 +94,17 @@ describe("ProxySection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ noProxy: null }));
   });
 
-  it("shows a success toast when the proxy test passes", async () => {
+  it.each([
+    ["success", () => vi.mocked(settingsService.testProxy).mockResolvedValue(undefined as never), toast.success, toast.error],
+    ["error", () => vi.mocked(settingsService.testProxy).mockRejectedValue(new Error("connect refused")), toast.error, toast.success],
+  ] as const)("shows a %s toast for the proxy test result", async (_label, arrange, shown, hidden) => {
     const user = userEvent.setup();
-    vi.mocked(settingsService.testProxy).mockResolvedValue(undefined as never);
+    arrange();
     render(<ProxySection value={createValue()} onChange={vi.fn()} />);
 
     await user.click(screen.getByRole("button"));
 
-    await waitFor(() => expect(toast.success).toHaveBeenCalled());
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it("shows an error toast when the proxy test fails", async () => {
-    const user = userEvent.setup();
-    vi.mocked(settingsService.testProxy).mockRejectedValue(new Error("connect refused"));
-    render(<ProxySection value={createValue()} onChange={vi.fn()} />);
-
-    await user.click(screen.getByRole("button"));
-
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(toast.success).not.toHaveBeenCalled();
+    await waitFor(() => expect(shown).toHaveBeenCalled());
+    expect(hidden).not.toHaveBeenCalled();
   });
 });

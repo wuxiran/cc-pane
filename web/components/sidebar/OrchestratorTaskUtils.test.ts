@@ -43,20 +43,16 @@ function makeWorkspace(name: string, projects: WorkspaceProject[]): Workspace {
 }
 
 describe("getMetadataUi", () => {
-  it("returns empty object when metadata missing", () => {
-    expect(getMetadataUi(makeBinding({ metadata: undefined }))).toEqual({});
-  });
-
-  it("returns empty object when metadata is not an object", () => {
-    expect(getMetadataUi(makeBinding({ metadata: "string" }))).toEqual({});
-    expect(getMetadataUi(makeBinding({ metadata: 42 }))).toEqual({});
-    expect(getMetadataUi(makeBinding({ metadata: null }))).toEqual({});
-  });
-
-  it("returns empty object when ui key missing or not an object", () => {
-    expect(getMetadataUi(makeBinding({ metadata: {} }))).toEqual({});
-    expect(getMetadataUi(makeBinding({ metadata: { ui: "nope" } }))).toEqual({});
-    expect(getMetadataUi(makeBinding({ metadata: { ui: null } }))).toEqual({});
+  it.each<[string, unknown]>([
+    ["missing", undefined],
+    ["a string", "string"],
+    ["a number", 42],
+    ["null", null],
+    ["an object without ui", {}],
+    ["an object with non-object ui", { ui: "nope" }],
+    ["an object with null ui", { ui: null }],
+  ])("returns empty object when metadata is %s", (_name, metadata) => {
+    expect(getMetadataUi(makeBinding({ metadata }))).toEqual({});
   });
 
   it("returns the ui payload when present", () => {
@@ -66,22 +62,17 @@ describe("getMetadataUi", () => {
 });
 
 describe("getProjectName", () => {
-  it("extracts last segment from forward-slash paths", () => {
-    expect(getProjectName("/home/dev/repo")).toBe("repo");
-  });
-
-  it("extracts last segment from backslash paths", () => {
-    expect(getProjectName("D:\\workspace\\my-app")).toBe("my-app");
-  });
-
-  it("ignores trailing separators", () => {
-    expect(getProjectName("/home/dev/repo/")).toBe("repo");
-    expect(getProjectName("D:\\workspace\\app\\\\")).toBe("app");
-  });
-
-  it("falls back to the original path when no segments", () => {
-    expect(getProjectName("")).toBe("");
-    expect(getProjectName("/")).toBe("/");
+  it.each([
+    ["/home/dev/repo", "repo"],
+    ["D:\\workspace\\my-app", "my-app"],
+    // trailing separators are ignored
+    ["/home/dev/repo/", "repo"],
+    ["D:\\workspace\\app\\\\", "app"],
+    // falls back to the original path when there are no segments
+    ["", ""],
+    ["/", "/"],
+  ])("getProjectName(%j) -> %j", (path, expected) => {
+    expect(getProjectName(path)).toBe(expected);
   });
 });
 
@@ -118,9 +109,9 @@ describe("findWorkspaceProject", () => {
   });
 
   it("returns the first workspace match in iteration order", () => {
-    const found = findWorkspaceProject([wsA, wsB], "/tmp/a2");
-    expect(found?.workspace.name).toBe("A");
-    expect(found?.project.path).toBe("/tmp/a2");
+    const wsC = makeWorkspace("C", [makeWorkspaceProject({ path: "/tmp/b1" })]);
+    expect(findWorkspaceProject([wsA, wsB, wsC], "/tmp/b1")?.workspace.name).toBe("B");
+    expect(findWorkspaceProject([wsC, wsB], "/tmp/b1")?.workspace.name).toBe("C");
   });
 });
 
@@ -141,10 +132,5 @@ describe("flattenTaskTree", () => {
       "child1b",
       "root2",
     ]);
-  });
-
-  it("includes every node exactly once", () => {
-    const tree: TaskBindingNode[] = [makeNode("a", [makeNode("b"), makeNode("c", [makeNode("d")])])];
-    expect(flattenTaskTree(tree)).toHaveLength(4);
   });
 });

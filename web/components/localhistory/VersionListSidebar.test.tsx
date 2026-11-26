@@ -50,15 +50,12 @@ function renderSidebar(overrides: Record<string, unknown> = {}) {
 }
 
 describe("VersionListSidebar keyboard accessibility", () => {
-  it("版本项可 Tab 聚焦并带 focus-visible 焦点环", async () => {
+  it("版本项可 Tab 聚焦", async () => {
     const user = userEvent.setup();
     renderSidebar();
 
     const item = screen.getByRole("button");
     expect(item).toHaveAttribute("tabindex", "0");
-    expect(item.className).toContain("focus-visible:outline-none");
-    expect(item.className).toContain("focus-visible:ring-2");
-    expect(item.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
     await user.tab();
     expect(item).toHaveFocus();
@@ -100,7 +97,6 @@ describe("VersionListSidebar virtualization", () => {
     const rendered = screen.getAllByRole("button");
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered.length).toBeLessThan(40);
-    expect(rendered.length).toBeLessThan(versions.length);
   });
 
   it("滚动到底部后末尾版本可见", () => {

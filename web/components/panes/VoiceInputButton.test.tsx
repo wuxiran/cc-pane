@@ -120,8 +120,12 @@ describe("VoiceInputButton", () => {
     vi.clearAllMocks();
   });
 
-  it("showFloatingButton=false 时完全不渲染悬浮按钮", () => {
-    setVoiceSettings({ showFloatingButton: false });
+  it.each<[string, Record<string, unknown>]>([
+    ["showFloatingButton=false", { showFloatingButton: false }],
+    ["voice input is disabled", { enabled: false }],
+    ["the provider api key is blank", { dashscopeApiKey: "   " }],
+  ])("does not render the floating button when %s", (_label, overrides) => {
+    setVoiceSettings(overrides);
     renderButton();
 
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -151,18 +155,6 @@ describe("VoiceInputButton", () => {
     await user.click(screen.getByRole("button"));
 
     expect(toast.error).toHaveBeenCalledWith(tPanes("voiceNoSession"));
-  });
-
-  it("is hidden when voice input is disabled", () => {
-    setVoiceSettings({ enabled: false });
-    renderButton();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  });
-
-  it("is hidden when the provider api key is missing", () => {
-    setVoiceSettings({ dashscopeApiKey: "   " });
-    renderButton();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("allows the custom provider to record with an empty api key", async () => {

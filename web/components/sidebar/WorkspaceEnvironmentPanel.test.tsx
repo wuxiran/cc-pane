@@ -7,6 +7,7 @@ import { toast } from "@/components/ui/toast";
 import { useDialogStore, useEnvironmentStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import * as workspaceService from "@/services/workspaceService";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
+import type { Workspace } from "@/types";
 import WorkspaceEnvironmentPanel from "./WorkspaceEnvironmentPanel";
 
 vi.mock("@/services/workspaceService", () => ({
@@ -43,9 +44,29 @@ const baseWslState = {
   detectedAt: 1,
 };
 
-function renderPanel() {
-  return render(<WorkspaceEnvironmentPanel />);
+function makeWorkspace(overrides: Parameters<typeof createTestWorkspace>[0] = {}) {
+  return createTestWorkspace({
+    id: "ws-1",
+    name: "workspace-alpha",
+    path: "D:/workspace-alpha",
+    defaultEnvironment: "local",
+    ...overrides,
+  });
 }
+
+/** 把工作空间放进 store、打开它的环境面板并渲染 */
+function openPanel(workspace: Workspace) {
+  useWorkspacesStore.setState({ workspaces: [workspace] });
+  useDialogStore.setState({
+    workspaceEnvironmentOpen: true,
+    workspaceEnvironmentWorkspaceId: workspace.id,
+  });
+  render(<WorkspaceEnvironmentPanel />);
+}
+
+const openPanelFor = (overrides: Parameters<typeof createTestWorkspace>[0] = {}) => openPanel(makeWorkspace(overrides));
+
+const saveButton = () => screen.getByRole("button", { name: /保存更改|Save Changes/i });
 
 describe("WorkspaceEnvironmentPanel", () => {
   beforeEach(() => {
@@ -82,22 +103,8 @@ describe("WorkspaceEnvironmentPanel", () => {
 
   it("re-fetches and saves the full workspace draft through the store", async () => {
     const user = userEvent.setup();
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: "D:/workspace-alpha",
-      defaultEnvironment: "local",
-      wsl: {
-        distro: "Ubuntu",
-        remotePath: "/mnt/d/workspace-alpha",
-      },
-      sshLaunch: {
-        machineId: "machine-1",
-        remotePath: "/home/dev/workspace-alpha",
-      },
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const sshLaunch = { machineId: "machine-1", remotePath: "/home/dev/workspace-alpha" };
+    const wsl = { distro: "Ubuntu", remotePath: "/mnt/d/workspace-alpha" };
     useSshMachinesStore.setState({
       machines: [
         {
@@ -114,22 +121,15 @@ describe("WorkspaceEnvironmentPanel", () => {
         },
       ],
     });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-    vi.mocked(workspaceService.getWorkspace).mockResolvedValue({
-      ...workspace,
-      providerId: "provider-latest",
-    });
-
-    renderPanel();
+    const workspace = makeWorkspace({ wsl, sshLaunch });
+    vi.mocked(workspaceService.getWorkspace).mockResolvedValue({ ...workspace, providerId: "provider-latest" });
+    openPanel(workspace);
 
     const localPathInput = await screen.findByDisplayValue("D:/workspace-alpha");
     await user.clear(localPathInput);
     await user.type(localPathInput, "D:/workspace-alpha-next");
 
-    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+    await user.click(saveButton());
 
     expect(workspaceService.getWorkspace).toHaveBeenCalledWith("workspace-alpha");
     expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", {
@@ -137,32 +137,13 @@ describe("WorkspaceEnvironmentPanel", () => {
       providerId: "provider-latest",
       path: "D:/workspace-alpha-next",
       defaultEnvironment: "local",
-      wsl: {
-        distro: "Ubuntu",
-        remotePath: "/mnt/d/workspace-alpha",
-      },
-      sshLaunch: {
-        machineId: "machine-1",
-        remotePath: "/home/dev/workspace-alpha",
-      },
+      wsl,
+      sshLaunch,
     });
   });
 
   it("shows CLI defaults with inherit labels", async () => {
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: "D:/workspace-alpha",
-      defaultEnvironment: "local",
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor();
 
     expect(await screen.findByText(/CLI 默认环境|CLI Default Environment/i)).toBeVisible();
     expect(screen.getByRole("radio", { name: /Claude Code: (继承默认|Inherit Default)/i })).toBeChecked();
@@ -171,23 +152,10 @@ describe("WorkspaceEnvironmentPanel", () => {
 
   it("saves a Claude CLI default environment", async () => {
     const user = userEvent.setup();
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: "D:/workspace-alpha",
-      defaultEnvironment: "local",
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor();
 
     await user.click(await screen.findByRole("radio", { name: /^Claude Code: WSL$/i }));
-    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+    await user.click(saveButton());
 
     expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", expect.objectContaining({
       cliEnvironmentDefaults: {
@@ -199,26 +167,10 @@ describe("WorkspaceEnvironmentPanel", () => {
 
   it("omits CLI defaults when both tools inherit", async () => {
     const user = userEvent.setup();
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: "D:/workspace-alpha",
-      defaultEnvironment: "local",
-      cliEnvironmentDefaults: {
-        claude: "wsl",
-      },
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor({ cliEnvironmentDefaults: { claude: "wsl" } });
 
     await user.click(await screen.findByRole("radio", { name: /Claude Code: (继承默认|Inherit Default)/i }));
-    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+    await user.click(saveButton());
 
     expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", expect.objectContaining({
       cliEnvironmentDefaults: undefined,
@@ -226,21 +178,7 @@ describe("WorkspaceEnvironmentPanel", () => {
   });
 
   it("disables invalid concrete CLI default choices", async () => {
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: undefined,
-      projects: [],
-      defaultEnvironment: "local",
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor({ path: undefined, projects: [] });
 
     expect(await screen.findByRole("radio", { name: /^Claude Code: WSL$/i })).toBeDisabled();
     expect(screen.getByRole("radio", { name: /^Codex CLI: WSL$/i })).toBeDisabled();
@@ -253,28 +191,15 @@ describe("WorkspaceEnvironmentPanel", () => {
     const hostPath = navigator.platform.toLowerCase().startsWith("win")
       ? "C:\\tmp\\workspace-alpha"
       : "/tmp/workspace-alpha";
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
+    openPanelFor({
       path: hostPath,
-      defaultEnvironment: "local",
       // claude 默认 ssh 且无 ssh 配置 → 任何平台都必然"未配置":
       // wsl 前提在 Windows 上会被盘符路径自动推导补全,不再产生 issue
-      cliEnvironmentDefaults: {
-        claude: "ssh",
-      },
+      cliEnvironmentDefaults: { claude: "ssh" },
     });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
 
     await user.click(await screen.findByRole("radio", { name: /^Codex CLI: Local$|^Codex CLI: 本机$/i }));
-    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+    await user.click(saveButton());
 
     expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/CLI 默认环境|CLI default environment/i));
     expect(workspaceService.saveWorkspace).not.toHaveBeenCalled();
@@ -282,19 +207,7 @@ describe("WorkspaceEnvironmentPanel", () => {
 
   it("shows a discard confirmation when closing with unsaved changes", async () => {
     const user = userEvent.setup();
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      path: "D:/workspace-alpha",
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor({ defaultEnvironment: undefined });
 
     const localPathInput = await screen.findByDisplayValue("D:/workspace-alpha");
     await user.clear(localPathInput);
@@ -309,23 +222,10 @@ describe("WorkspaceEnvironmentPanel", () => {
   });
 
   it("disables save when the default environment is invalid", async () => {
-    const workspace = createTestWorkspace({
-      id: "ws-1",
-      name: "workspace-alpha",
-      defaultEnvironment: "ssh",
-      path: "D:/workspace-alpha",
-    });
-
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useDialogStore.setState({
-      workspaceEnvironmentOpen: true,
-      workspaceEnvironmentWorkspaceId: workspace.id,
-    });
-
-    renderPanel();
+    openPanelFor({ defaultEnvironment: "ssh" });
 
     const issueTexts = await screen.findAllByText(/SSH 环境需要先选择机器|SSH launch requires a selected machine/i);
     expect(issueTexts.length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /保存更改|Save Changes/i })).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
   });
 });

@@ -30,6 +30,16 @@ function dispatchWheel(target: HTMLElement, init: WheelEventInit): WheelEvent {
   return event;
 }
 
+/** host 内嵌一个自带 wheel 监听的 inner（模拟 xterm 自己的滚轮处理） */
+function nestedHost() {
+  const host = document.createElement("div");
+  const inner = document.createElement("div");
+  const innerWheel = vi.fn();
+  host.appendChild(inner);
+  inner.addEventListener("wheel", innerWheel);
+  return { host, inner, innerWheel, onZoom: vi.fn() };
+}
+
 describe("attachTerminalWheelZoom", () => {
   beforeEach(() => {
     updateSettings.mockClear();
@@ -38,12 +48,7 @@ describe("attachTerminalWheelZoom", () => {
   });
 
   it("captures Ctrl+wheel before an inner terminal handler", () => {
-    const host = document.createElement("div");
-    const inner = document.createElement("div");
-    const innerWheel = vi.fn();
-    const onZoom = vi.fn();
-    host.appendChild(inner);
-    inner.addEventListener("wheel", innerWheel);
+    const { host, inner, innerWheel, onZoom } = nestedHost();
 
     const detach = attachTerminalWheelZoom(host, onZoom);
     const event = dispatchWheel(inner, { ctrlKey: true, deltaY: -1 });
@@ -55,12 +60,7 @@ describe("attachTerminalWheelZoom", () => {
   });
 
   it("passes ordinary wheel events through and detaches cleanly", () => {
-    const host = document.createElement("div");
-    const inner = document.createElement("div");
-    const innerWheel = vi.fn();
-    const onZoom = vi.fn();
-    host.appendChild(inner);
-    inner.addEventListener("wheel", innerWheel);
+    const { host, inner, innerWheel, onZoom } = nestedHost();
 
     const detach = attachTerminalWheelZoom(host, onZoom);
     dispatchWheel(inner, { deltaY: 1 });

@@ -82,23 +82,22 @@ describe("TabContentRenderer", () => {
     vi.clearAllMocks();
   });
 
-  it("renders terminal content for a terminal tab with a project path", () => {
-    renderContent(makeTab());
+  it("renders terminal content with the grid status-bar flag for a terminal tab with a project path", () => {
+    renderContent(makeTab(), { showTerminalStatusBar: true });
 
     const terminal = screen.getByTestId("terminal-tab-content");
     expect(terminal).toHaveAttribute("data-tab-id", "tab-1");
+    expect(terminal).toHaveAttribute("data-status-bar", "true");
   });
 
-  it("renders nothing for a terminal tab without a project path", () => {
-    const { container } = renderContent(makeTab({ projectPath: "" }));
+  it.each<[string, Partial<Tab>]>([
+    ["a terminal tab without a project path", { projectPath: "" }],
+    ["an editor tab missing a file path", { contentType: "editor" }],
+    ["an unknown content type", { contentType: "unknown" as Tab["contentType"] }],
+  ])("renders nothing for %s", (_label, overrides) => {
+    const { container } = renderContent(makeTab(overrides));
 
     expect(container).toBeEmptyDOMElement();
-  });
-
-  it("forwards the grid status-bar flag to terminal content", () => {
-    renderContent(makeTab(), { showTerminalStatusBar: true });
-
-    expect(screen.getByTestId("terminal-tab-content")).toHaveAttribute("data-status-bar", "true");
   });
 
   it("shows the popped-out placeholder and reclaims via store and service", async () => {
@@ -126,12 +125,6 @@ describe("TabContentRenderer", () => {
     );
   });
 
-  it("renders nothing for an editor tab missing a file path", () => {
-    const { container } = renderContent(makeTab({ contentType: "editor" }));
-
-    expect(container).toBeEmptyDOMElement();
-  });
-
   it("renders the editor with file, tab and pane wiring", async () => {
     renderContent(makeTab({ contentType: "editor", filePath: "/tmp/proj/a.ts" }));
 
@@ -146,13 +139,7 @@ describe("TabContentRenderer", () => {
     expect(await screen.findByTestId("memory-manager")).toBeInTheDocument();
   });
 
-  it("renders nothing for an unknown content type", () => {
-    const { container } = renderContent(makeTab({ contentType: "unknown" as Tab["contentType"] }));
-
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("renders browser content with visibility and active state", async () => {
+  it("renders browser content for a browser tab with a real URL", async () => {
     renderContent(makeTab({
       contentType: "browser",
       browserUrl: "http://localhost:5173/",

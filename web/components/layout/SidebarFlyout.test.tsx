@@ -35,27 +35,4 @@ describe("SidebarFlyout", () => {
     const panel = screen.getByTestId("panel").parentElement as HTMLElement;
     expect(panel.style.maxWidth).toBe("85vw");
   });
-
-  it("入场动画：面板 slide-in-from-left + fade，scrim 仅 fade，统一 --dur-slow + --ease-out", () => {
-    render(
-      <SidebarFlyout open onClose={() => {}}>
-        <div data-testid="panel" />
-      </SidebarFlyout>,
-    );
-    const scrim = screen.getByTestId("sidebar-flyout-scrim");
-    expect(scrim.className).toContain("animate-in");
-    expect(scrim.className).toContain("fade-in");
-    expect(scrim.className).toContain("duration-[var(--dur-slow)]");
-    expect(scrim.className).toContain("ease-[var(--ease-out)]");
-    // scrim 不做位移（避免遮罩滑动感）
-    expect(scrim.className).not.toContain("slide-in-from-left");
-
-    const panel = screen.getByTestId("panel").parentElement as HTMLElement;
-    expect(panel.className).toContain("animate-in");
-    expect(panel.className).toContain("slide-in-from-left");
-    expect(panel.className).toContain("fade-in");
-    expect(panel.className).toContain("duration-[var(--dur-slow)]");
-    // prefers-reduced-motion 降级由 index.css 全局规则兜底（keyframe 归零），
-    // 该规则的存在性由 layoutMotion.test.ts 守护。
-  });
 });

@@ -55,6 +55,7 @@ describe("OrchestratorInput", () => {
   });
 
   const getSendButton = () => screen.getByRole("button", { name: /Send|发送/i });
+  const getTextarea = () => screen.getByPlaceholderText(/Enter task|输入任务/i) as HTMLTextAreaElement;
 
   it("renders the target label with the first project and default CLI", () => {
     render(<OrchestratorInput />);
@@ -83,11 +84,11 @@ describe("OrchestratorInput", () => {
     expect(getSendButton()).toBeDisabled();
   });
 
-  it("enables send after typing and creates a task on click", async () => {
+  it("enables send after typing, creates a task on click and clears the textarea", async () => {
     const user = userEvent.setup();
     render(<OrchestratorInput />);
 
-    const textarea = screen.getByPlaceholderText(/Enter task|输入任务/i);
+    const textarea = getTextarea();
     await user.type(textarea, "Build feature X");
 
     const sendBtn = getSendButton();
@@ -106,24 +107,15 @@ describe("OrchestratorInput", () => {
         cliTool: "claude",
       }),
     );
-  });
-
-  it("clears the textarea after a successful submit", async () => {
-    const user = userEvent.setup();
-    render(<OrchestratorInput />);
-
-    const textarea = screen.getByPlaceholderText(/Enter task|输入任务/i) as HTMLTextAreaElement;
-    await user.type(textarea, "hello");
-    await user.click(getSendButton());
-
-    await waitFor(() => expect(textarea.value).toBe(""));
+    expect((arg as { metadata: { ui: { gitBranch?: string } } }).metadata.ui.gitBranch).toBe("main");
+    await waitFor(() => expect(textarea).toHaveValue(""));
   });
 
   it("submits on Enter and preserves newline on Shift+Enter", async () => {
     const user = userEvent.setup();
     render(<OrchestratorInput />);
 
-    const textarea = screen.getByPlaceholderText(/Enter task|输入任务/i);
+    const textarea = getTextarea();
     await user.type(textarea, "line1{Shift>}{Enter}{/Shift}line2");
     // Shift+Enter should not submit.
     expect(createMock).not.toHaveBeenCalled();
@@ -137,7 +129,7 @@ describe("OrchestratorInput", () => {
     render(<OrchestratorInput />);
 
     const longText = "x".repeat(120);
-    await user.type(screen.getByPlaceholderText(/Enter task|输入任务/i), longText);
+    await user.type(getTextarea(), longText);
     await user.click(getSendButton());
 
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
@@ -151,7 +143,7 @@ describe("OrchestratorInput", () => {
     const user = userEvent.setup();
     render(<OrchestratorInput />);
 
-    await user.type(screen.getByPlaceholderText(/Enter task|输入任务/i), "task");
+    await user.type(getTextarea(), "task");
     await user.click(getSendButton());
 
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));

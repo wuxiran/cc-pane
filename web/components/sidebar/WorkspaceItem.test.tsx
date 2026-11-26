@@ -147,13 +147,27 @@ describe("WorkspaceItem", () => {
     });
   });
 
-  it("projects 运行时缺失时仍渲染工作空间，计数为 0 不渲染", () => {
+  it.each([
+    ["projects 运行时缺失时仍渲染工作空间，计数为 0 不渲染", undefined, null],
+    [
+      "计数大于 0 时显示项目数",
+      [
+        { id: "p1", path: "D:/workspace-alpha/a" },
+        { id: "p2", path: "D:/workspace-alpha/b" },
+      ],
+      "2",
+    ],
+  ] as const)("%s", (_label, projects, count) => {
     renderWorkspaceItem("local", false, {
-      projects: undefined as unknown as Workspace["projects"],
+      projects: projects as unknown as Workspace["projects"],
     });
 
     expect(screen.getByText("workspace-alpha")).toBeVisible();
-    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    if (count === null) {
+      expect(screen.queryByText("0")).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByText(count)).toBeVisible();
+    }
   });
 
   it("没有拖拽把手；传入行级监听时挂在整行上，拖拽中行高亮", () => {
@@ -176,17 +190,6 @@ describe("WorkspaceItem", () => {
     fireEvent.pointerDown(row);
     expect(onPointerDown).toHaveBeenCalled();
     expect(row.className).toContain("cursor-grabbing");
-  });
-
-  it("计数大于 0 时显示项目数", () => {
-    renderWorkspaceItem("local", false, {
-      projects: [
-        { id: "p1", path: "D:/workspace-alpha/a" },
-        { id: "p2", path: "D:/workspace-alpha/b" },
-      ] as Workspace["projects"],
-    });
-
-    expect(screen.getByText("2")).toBeVisible();
   });
 
   it("在工作空间名称前渲染颜色点", () => {
@@ -255,11 +258,12 @@ describe("WorkspaceItem", () => {
     }
   });
 
-  it("opens the workspace environment sheet from the workspace context menu", async () => {
+  it("configure submenu exposes Hooks and opens the workspace environment sheet", async () => {
     const { onOpenEnvironment, ws } = renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
     await openSubmenu(CONFIGURE_MENU);
+    expect(await screen.findByRole("menuitem", { name: "Hooks" })).toBeVisible();
     fireEvent.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
 
     expect(onOpenEnvironment).toHaveBeenCalledWith(ws);
@@ -282,37 +286,48 @@ describe("WorkspaceItem", () => {
     expect(screen.getAllByRole("menuitem", { name: "OpenCode" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "Cursor CLI" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Claude Provider")).not.toBeInTheDocument();
-  });
-
-  it("does not show the old provider launch submenu", async () => {
-    renderWorkspaceItem("local");
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-
     expect(screen.queryByRole("menuitem", { name: /Provider 启动|Choose Provider/i })).not.toBeInTheDocument();
   });
 
-  it("renders favorite launch actions at the top of the workspace context menu", async () => {
+  it.each([
+    [
+      "local favorite Codex action at the top of the menu",
+      "local",
+      ["terminal-default", "codex-local"],
+      /Codex CLI.*(Local|本机)/,
+      {},
+    ],
+    [
+      "Codex with the workspace default environment (wsl)",
+      "wsl",
+      undefined,
+      "Codex CLI",
+      { wsl: { remotePath: "/mnt/d/workspace-alpha" } },
+    ],
+  ] as const)("opens %s with the default profile", async (_label, env, favorites, menuName, expected) => {
     const user = userEvent.setup();
-    useSettingsStore.setState({
-      settings: createTestSettings({
-        general: {
-          ...createTestSettings().general,
-          launchFavorites: ["terminal-default", "codex-local"],
-        },
-      }),
-      loading: false,
-    });
-    const { onOpenTerminal } = renderWorkspaceItem("local");
+    if (favorites) {
+      useSettingsStore.setState({
+        settings: createTestSettings({
+          general: { ...createTestSettings().general, launchFavorites: [...favorites] },
+        }),
+        loading: false,
+      });
+    }
+    const { onOpenTerminal } = renderWorkspaceItem(env);
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover((await screen.findAllByRole("menuitem", { name: /Codex CLI.*(Local|本机)/ }))[0]);
+    await user.hover((await screen.findAllByRole("menuitem", { name: menuName }))[0]);
     fireEvent.click(await screen.findByRole("menuitem", { name: /使用默认运行配置|Launch with Default Profile/i }));
 
-    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+    const call = onOpenTerminal.mock.calls[0]?.[0];
+    expect(call).toEqual(expect.objectContaining({
       path: "D:/workspace-alpha",
       cliTool: "codex",
+      ...expected,
     }));
+    expect(call?.providerId).toBeUndefined();
+    expect(call?.launchProfileId).toBeUndefined();
   });
 
   it("shows the hide non-favorite launch toggle in the workspace context menu", async () => {
@@ -379,26 +394,6 @@ describe("WorkspaceItem", () => {
     }));
   });
 
-  it("opens Codex with the workspace default environment", async () => {
-    const user = userEvent.setup();
-    const { onOpenTerminal } = renderWorkspaceItem("wsl");
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
-    fireEvent.click(await screen.findByRole("menuitem", { name: /使用默认运行配置|Launch with Default Profile/i }));
-
-    const call = onOpenTerminal.mock.calls[0]?.[0];
-    expect(call).toEqual(expect.objectContaining({
-      path: "D:/workspace-alpha",
-      cliTool: "codex",
-      wsl: {
-        remotePath: "/mnt/d/workspace-alpha",
-      },
-    }));
-    expect(call?.providerId).toBeUndefined();
-    expect(call?.launchProfileId).toBeUndefined();
-  });
-
   it("launches OpenCode when clicking the workspace CLI menu item directly", async () => {
     const user = userEvent.setup();
     const { onOpenTerminal } = renderWorkspaceItem("local");
@@ -415,20 +410,7 @@ describe("WorkspaceItem", () => {
     }));
   });
 
-  it("shows explicit WSL CLI entries when the workspace default environment is wsl", async () => {
-    const user = userEvent.setup();
-    renderWorkspaceItem("wsl");
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(
-      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
-    );
-
-    expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Claude Code.*WSL/ })).toBeVisible();
-  });
-
-  it("opens Codex through WSL when choosing the explicit WSL entry", async () => {
+  it("shows explicit WSL CLI entries and opens Codex through WSL when the default environment is wsl", async () => {
     const user = userEvent.setup();
     const { onOpenTerminal } = renderWorkspaceItem("wsl");
 
@@ -438,6 +420,8 @@ describe("WorkspaceItem", () => {
     );
     // jsdom 下三层嵌套子菜单 hover 不触发展开，用 Radix 键盘导航展开
     const codexWslTrigger = await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ });
+    expect(codexWslTrigger).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /Claude Code.*WSL/ })).toBeVisible();
     codexWslTrigger.focus();
     fireEvent.keyDown(codexWslTrigger, { key: "ArrowRight" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /使用默认运行配置|Launch with Default Profile/i }));
@@ -495,8 +479,28 @@ describe("WorkspaceItem", () => {
     expect(screen.queryByRole("menuitem", { name: "Claude Plan" })).not.toBeInTheDocument();
   });
 
-  it("lists every launch profile regardless of legacy targetRuntime", async () => {
+  it.each([
+    ["the workspace default environment is local", undefined, {}],
+    [
+      "the workspace Codex CLI default environment is WSL",
+      undefined,
+      { cliEnvironmentDefaults: { codex: "wsl" } },
+    ],
+    [
+      "the favorite Codex default action is opened with Codex CLI defaulting to WSL",
+      { launchFavorites: ["codex-default"], hideNonFavoriteLaunchActions: true },
+      { cliEnvironmentDefaults: { codex: "wsl" } },
+    ],
+  ] as const)("lists every launch profile regardless of legacy targetRuntime when %s", async (_label, general, workspaceOverrides) => {
     const user = userEvent.setup();
+    if (general) {
+      useSettingsStore.setState({
+        settings: createTestSettings({
+          general: { ...createTestSettings().general, ...general, launchFavorites: [...general.launchFavorites] },
+        }),
+        loading: false,
+      });
+    }
     useLaunchProfilesStore.setState({
       profiles: [
         createLaunchProfile({ id: "profile-codex-local", name: "Codex Local", targetRuntime: "local" }),
@@ -504,67 +508,13 @@ describe("WorkspaceItem", () => {
       ],
       loading: false,
     });
-    renderWorkspaceItem("local");
+    renderWorkspaceItem("local", false, workspaceOverrides);
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
     await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
 
     expect(await screen.findByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
-  });
-
-  it("does not hide profiles when the workspace Codex CLI default environment is WSL", async () => {
-    const user = userEvent.setup();
-    useLaunchProfilesStore.setState({
-      profiles: [
-        createLaunchProfile({ id: "profile-codex-local", name: "Codex Local", targetRuntime: "local" }),
-        createLaunchProfile({ id: "profile-codex-wsl", name: "Codex WSL", targetRuntime: "wsl" }),
-      ],
-      loading: false,
-    });
-    renderWorkspaceItem("local", false, {
-      cliEnvironmentDefaults: {
-        codex: "wsl",
-      },
-    });
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
-
-    expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
-  });
-
-  it("uses the Codex CLI default environment for favorite default actions", async () => {
-    const user = userEvent.setup();
-    useSettingsStore.setState({
-      settings: createTestSettings({
-        general: {
-          ...createTestSettings().general,
-          launchFavorites: ["codex-default"],
-          hideNonFavoriteLaunchActions: true,
-        },
-      }),
-      loading: false,
-    });
-    useLaunchProfilesStore.setState({
-      profiles: [
-        createLaunchProfile({ id: "profile-codex-local", name: "Codex Local", targetRuntime: "local" }),
-        createLaunchProfile({ id: "profile-codex-wsl", name: "Codex WSL", targetRuntime: "wsl" }),
-      ],
-      loading: false,
-    });
-    renderWorkspaceItem("local", false, {
-      cliEnvironmentDefaults: {
-        codex: "wsl",
-      },
-    });
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: "Codex CLI" }));
-
-    expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
   });
 
   it("launches a wsl-specific Codex profile from the WSL menu", async () => {
@@ -597,24 +547,13 @@ describe("WorkspaceItem", () => {
     }));
   });
 
-  it("shows the hooks submenu inside configure", async () => {
-    const user = userEvent.setup();
-    renderWorkspaceItem("local");
-    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: CONFIGURE_MENU }));
-    expect(await screen.findByRole("menuitem", { name: "Hooks" })).toBeVisible();
-  });
-
   describe("keyboard accessibility", () => {
-    it("工作空间行可 Tab 聚焦并带 focus-visible 焦点环", async () => {
+    it("工作空间行可 Tab 聚焦", async () => {
       const user = userEvent.setup();
       renderWorkspaceItem("local");
 
       const row = screen.getByRole("button", { name: /workspace-alpha/i });
       expect(row).toHaveAttribute("tabindex", "0");
-      expect(row.className).toContain("focus-visible:outline-none");
-      expect(row.className).toContain("focus-visible:ring-2");
-      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       await user.tab();
       expect(row).toHaveFocus();

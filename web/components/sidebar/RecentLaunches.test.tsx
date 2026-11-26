@@ -79,15 +79,10 @@ describe("RecentLaunches", () => {
     useSshMachinesStore.setState({ machines: [] });
   });
 
-  it("shows the empty state when there are no resumable records", () => {
+  it("shows the empty state without a clear button when history is empty", () => {
     renderRecent([]);
 
     expect(screen.getByText(/No resumable sessions|无可恢复的会话|无可恢复会话/i)).toBeVisible();
-  });
-
-  it("does not render a clear button in the empty state when history is empty", () => {
-    renderRecent([]);
-
     expect(screen.queryByRole("button", { name: /Clear history|清空/i })).not.toBeInTheDocument();
   });
 

@@ -45,23 +45,11 @@ describe("EditorToolbar", () => {
     expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument();
   });
 
-  it("disables save unless dirty and writable", () => {
-    const { unmount } = render(
-      <EditorToolbar
-        language="rust"
-        dirty={false}
-        isMarkdown={false}
-        previewMode="edit"
-        onSave={vi.fn()}
-        onUndo={vi.fn()}
-        onRedo={vi.fn()}
-        onPreviewModeChange={vi.fn()}
-      />
-    );
-    expect(screen.getAllByRole("button")[0]).toBeDisabled();
-    unmount();
-
-    renderToolbar({ dirty: true, readOnly: true });
+  it.each([
+    ["clean", { dirty: false }],
+    ["dirty but read-only", { dirty: true, readOnly: true }],
+  ])("disables save when %s", (_label, overrides) => {
+    renderToolbar(overrides);
     expect(screen.getAllByRole("button")[0]).toBeDisabled();
   });
 
@@ -99,30 +87,14 @@ describe("EditorToolbar", () => {
     expect(props.onPreviewModeChange).toHaveBeenCalledWith("edit");
   });
 
-  it("cycles preview mode from the split button: edit → preview → split → edit", async () => {
+  it.each([
+    ["edit", "preview"],
+    ["preview", "split"],
+    ["split", "edit"],
+  ] as const)("cycles preview mode from the split button: %s → %s", async (current, expected) => {
     const user = userEvent.setup();
-    for (const [current, expected] of [
-      ["edit", "preview"],
-      ["preview", "split"],
-      ["split", "edit"],
-    ] as const) {
-      const onPreviewModeChange = vi.fn();
-      const { unmount } = render(
-        <EditorToolbar
-          language="markdown"
-          dirty={false}
-          isMarkdown
-          previewMode={current}
-          onSave={vi.fn()}
-          onUndo={vi.fn()}
-          onRedo={vi.fn()}
-          onPreviewModeChange={onPreviewModeChange}
-        />
-      );
-      const splitBtn = screen.getAllByRole("button")[5];
-      await user.click(splitBtn);
-      expect(onPreviewModeChange).toHaveBeenCalledWith(expected);
-      unmount();
-    }
+    const props = renderToolbar({ language: "markdown", isMarkdown: true, previewMode: current });
+    await user.click(screen.getAllByRole("button")[5]);
+    expect(props.onPreviewModeChange).toHaveBeenCalledWith(expected);
   });
 });

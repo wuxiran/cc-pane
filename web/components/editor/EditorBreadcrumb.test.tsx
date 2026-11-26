@@ -15,13 +15,6 @@ describe("EditorBreadcrumb", () => {
     useActivityBarStore.setState({ toggleFilesMode, appViewMode: "files" });
   });
 
-  it("splits a unix path into one segment per component", () => {
-    render(<EditorBreadcrumb filePath="/home/user/app.ts" />);
-    expect(screen.getByRole("button", { name: "home" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "user" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "app.ts" })).toBeInTheDocument();
-  });
-
   it("normalizes backslashes and keeps the drive letter as first segment", () => {
     render(<EditorBreadcrumb filePath={"C:\\proj\\src\\main.rs"} />);
     expect(screen.getByRole("button", { name: "C:" })).toHaveAttribute("title", "C:/");

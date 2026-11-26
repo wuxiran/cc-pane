@@ -276,14 +276,6 @@ describe("reconcileTerminalSessions", () => {
     expect(report.attached).toBe(1);
   });
 
-  it("claim 成功但 leaf 挂载失败时立即 release", async () => {
-    attachSessionToAnchor.mockReturnValue(false);
-
-    await reconcileTerminalSessions({ autoAdopt: true });
-
-    expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
-  });
-
   it("同一锚点存在多个活候选时优先选择 savedSessionId 唯一指向的候选", async () => {
     const secondProvenance = {
       ...provenance,

@@ -5,21 +5,15 @@ import {
 } from "./terminalAtlasRefresh";
 
 describe("invalidateWebglGlyphModel", () => {
-  it("busts the skip cache via _clearModel(false) so UVs rebuild without wiping GPU buffers", () => {
+  it("busts the skip cache via _clearModel(false) and never calls renderer.clear()", () => {
+    // clear() 会在下一帧前把 GPU 绑定的双缓冲清零；只能用 _clearModel(false) 让 UV 重建。
     const clearModel = vi.fn();
+    const clear = vi.fn();
     const cleared = invalidateWebglGlyphModel({
-      _renderer: { _clearModel: clearModel },
+      _renderer: { _clearModel: clearModel, clear },
     });
     expect(cleared).toBe(true);
     expect(clearModel).toHaveBeenCalledWith(false);
-  });
-
-  it("does not call renderer.clear() — that zeros GPU-bound double buffers before the next draw", () => {
-    const clearModel = vi.fn();
-    const clear = vi.fn();
-    invalidateWebglGlyphModel({
-      _renderer: { _clearModel: clearModel, clear },
-    });
     expect(clear).not.toHaveBeenCalled();
   });
 

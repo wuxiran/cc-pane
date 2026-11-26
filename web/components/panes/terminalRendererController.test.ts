@@ -102,6 +102,17 @@ function createMockTerminal(): Terminal {
   } as unknown as Terminal;
 }
 
+type ControllerOptions = Parameters<typeof createTerminalRendererController>[0];
+
+function createController(term: Terminal, overrides: Partial<ControllerOptions> = {}) {
+  return createTerminalRendererController({
+    term,
+    logger: vi.fn(),
+    onRendererChanged: vi.fn(),
+    ...overrides,
+  });
+}
+
 describe("terminal renderer controller", () => {
   let originalGetContext: HTMLCanvasElement["getContext"];
 
@@ -134,11 +145,7 @@ describe("terminal renderer controller", () => {
 
   it("refreshDisplay busts the WebGL skip cache then refreshes without clearing the atlas", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("webgl");
     expect(controller.refreshDisplay("layout.activated")).toBe(true);
@@ -151,11 +158,7 @@ describe("terminal renderer controller", () => {
 
   it("consumes the shared atlas latch on a structure change, not on every render", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("webgl");
     const atlas = webglMock.instances[0]._renderer?._glyphRenderer._atlas;
@@ -171,11 +174,7 @@ describe("terminal renderer controller", () => {
 
   it("repaints WebGL terminals without clearing the texture atlas", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("webgl");
     controller.repaint("active.refit");
@@ -188,11 +187,7 @@ describe("terminal renderer controller", () => {
 
   it("clears the texture atlas only for explicit recovery requests", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("webgl");
 
@@ -205,11 +200,7 @@ describe("terminal renderer controller", () => {
   it("recreates the WebGL addon without replacing the terminal", () => {
     const term = createMockTerminal();
     const onRendererChanged = vi.fn();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged,
-    });
+    const controller = createController(term, { onRendererChanged });
 
     controller.configure("webgl");
 
@@ -231,11 +222,7 @@ describe("terminal renderer controller", () => {
 
   it("skips WebGL recreation when the active renderer is DOM", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("dom");
 
@@ -261,11 +248,7 @@ describe("terminal renderer controller", () => {
       screen?.appendChild(addon.canvas);
       throw new Error("shader init failed");
     });
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
 
     controller.configure("webgl");
 
@@ -284,11 +267,7 @@ describe("terminal renderer controller", () => {
   it("falls back to DOM and keeps the context-loss latch across suspend/resume", () => {
     const term = createMockTerminal();
     const onRendererChanged = vi.fn();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged,
-    });
+    const controller = createController(term, { onRendererChanged });
 
     controller.configure("webgl");
     rendererProbeMock.reset.mockClear();
@@ -336,11 +315,7 @@ describe("terminal renderer controller", () => {
     vi.useFakeTimers();
     try {
       const term = createMockTerminal();
-      const controller = createTerminalRendererController({
-        term,
-        logger: vi.fn(),
-        onRendererChanged: vi.fn(),
-      });
+      const controller = createController(term);
       controller.configure("webgl");
       expect(webglMock.instances).toHaveLength(1);
 
@@ -387,11 +362,7 @@ describe("terminal renderer controller", () => {
     vi.useFakeTimers();
     try {
       const term = createMockTerminal();
-      const controller = createTerminalRendererController({
-        term,
-        logger: vi.fn(),
-        onRendererChanged: vi.fn(),
-      });
+      const controller = createController(term);
       controller.configure("webgl");
       webglMock.instances[0].contextLossHandler?.();
       controller.suspendWebgl("background");
@@ -416,16 +387,8 @@ describe("terminal renderer controller", () => {
     const second = createMockTerminal();
     const firstLogger = vi.fn();
     const secondLogger = vi.fn();
-    const firstController = createTerminalRendererController({
-      term: first,
-      logger: firstLogger,
-      onRendererChanged: vi.fn(),
-    });
-    const secondController = createTerminalRendererController({
-      term: second,
-      logger: secondLogger,
-      onRendererChanged: vi.fn(),
-    });
+    const firstController = createController(first, { logger: firstLogger });
+    const secondController = createController(second, { logger: secondLogger });
 
     firstController.configure("webgl");
     secondController.configure("webgl");
@@ -451,11 +414,7 @@ describe("terminal renderer controller", () => {
 
   it("full-refreshes shared panes when the atlas grows a same-size page", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
     const page = document.createElement("canvas");
     page.width = 512;
@@ -476,11 +435,7 @@ describe("terminal renderer controller", () => {
   it("logs renderer.webgl.atlas.invalidate.unavailable when _clearModel is missing", () => {
     const term = createMockTerminal();
     const logger = vi.fn();
-    const controller = createTerminalRendererController({
-      term,
-      logger,
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term, { logger });
 
     controller.configure("webgl");
     const renderer = webglMock.instances[0]._renderer;
@@ -502,11 +457,7 @@ describe("terminal renderer controller", () => {
   // 切回去时它仍用着失效的字形坐标 → 采样到别的字形碎片（连 ASCII 都会坏）。
   it("defers the atlas repaint while hidden and replays it once visible again", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
 
     // 隐藏态：祖先 display:none 的 tab / 非活动布局就是这个形态。
@@ -532,11 +483,7 @@ describe("terminal renderer controller", () => {
   // 不会回调（没有跨越阈值）。xterm 画出一帧就是它确实可见的证据，作为第三个补刷时机。
   it("replays a deferred repaint on the next rendered frame", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
     let visible = false;
     Object.defineProperty(term.element as HTMLElement, "checkVisibility", {
@@ -557,11 +504,7 @@ describe("terminal renderer controller", () => {
   // context-loss 事件还没到时会走到这里。
   it("keeps the deferred repaint pending when the repaint itself fails", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
     vi.mocked(term.refresh).mockImplementationOnce(() => {
       throw new Error("context lost");
@@ -579,11 +522,7 @@ describe("terminal renderer controller", () => {
 
   it("stops replaying a deferred repaint after WebGL is torn down", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
     Object.defineProperty(term.element as HTMLElement, "checkVisibility", {
       configurable: true,
@@ -602,11 +541,7 @@ describe("terminal renderer controller", () => {
 
   it("broadcasts atlas refresh on same-size add, merge add, and remove", () => {
     const term = createMockTerminal();
-    const controller = createTerminalRendererController({
-      term,
-      logger: vi.fn(),
-      onRendererChanged: vi.fn(),
-    });
+    const controller = createController(term);
     controller.configure("webgl");
     const addon = webglMock.instances[0];
 

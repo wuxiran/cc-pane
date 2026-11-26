@@ -9,13 +9,9 @@ vi.mock("@/components/sidebar/ProcessMonitorSection", () => ({
 }));
 
 describe("ProcessView", () => {
-  it("renders the PROCESSES header label", () => {
+  it("renders the PROCESSES header above the ProcessMonitorSection child", () => {
     render(<ProcessView />);
     expect(screen.getByText("PROCESSES")).toBeVisible();
-  });
-
-  it("renders the ProcessMonitorSection child", () => {
-    render(<ProcessView />);
     expect(screen.getByText("process-monitor-stub")).toBeVisible();
   });
 });

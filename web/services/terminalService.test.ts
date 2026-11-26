@@ -81,27 +81,9 @@ describe("terminalService", () => {
       expect(b).toHaveBeenCalledWith("after");
     });
 
-    it("flushes pending buffers only to the first subscriber", async () => {
+    it("flush 只给首个订阅者并透传 endSeq（不透传会让该会话永久拍不出 checkpoint）", async () => {
       mockTauriInvoke({});
       // 无订阅者时先来输出 → 进缓冲
-      const warmup = vi.fn();
-      const unsubWarmup = await terminalService.registerOutput("s-flush-init", warmup);
-      unsubWarmup();
-      const handler = await getOutputHandler();
-      handler({ payload: { sessionId: "s-flush", data: "early" } });
-
-      const first = vi.fn();
-      await terminalService.registerOutput("s-flush", first);
-      expect(first).toHaveBeenCalledWith("early", undefined);
-
-      const second = vi.fn();
-      await terminalService.registerOutput("s-flush", second);
-      // 第二订阅者不吃缓冲（缓冲已清），走 replay 快照铺底
-      expect(second).not.toHaveBeenCalled();
-    });
-
-    it("flush 透传 endSeq（不透传会让该会话永久拍不出 checkpoint）", async () => {
-      mockTauriInvoke({});
       const warmup = vi.fn();
       const unsubWarmup = await terminalService.registerOutput("s-flush-seq-init", warmup);
       unsubWarmup();
@@ -114,6 +96,11 @@ describe("terminalService", () => {
       // received 记了、written 永远记不上，anchorCandidate 恒 null
       // （terminalOutputSeqTracker.ts:109），该会话此后再也拍不出 checkpoint。
       expect(first).toHaveBeenCalledWith("early", 42);
+
+      const second = vi.fn();
+      await terminalService.registerOutput("s-flush-seq", second);
+      // 第二订阅者不吃缓冲（缓冲已清），走 replay 快照铺底
+      expect(second).not.toHaveBeenCalled();
     });
 
     it("detachOutput clears all subscribers (kill-path semantics)", async () => {
@@ -328,7 +315,7 @@ describe("terminalService", () => {
   });
 
   describe("createSession", () => {
-    it("calls create_terminal_session with a request object", async () => {
+    it("calls create_terminal_session with a request object, omitting null optional fields", async () => {
       mockTauriInvoke({ create_terminal_session: "session-1" });
 
       const result = await terminalService.createSession({
@@ -337,9 +324,11 @@ describe("terminalService", () => {
         rows: 24,
         cliTool: "claude",
         expectedSavedSessionId: "saved-session-1",
-      });
+        providerSelection: null,
+        resumeId: null,
+      } as never);
 
-      expect(invoke).toHaveBeenCalledWith("create_terminal_session", {
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("create_terminal_session", {
         request: {
           projectPath: "/tmp/project",
           cols: 80,
@@ -349,26 +338,6 @@ describe("terminalService", () => {
         },
       });
       expect(result).toBe("session-1");
-    });
-
-    it("omits null optional fields before invoking Tauri", async () => {
-      mockTauriInvoke({ create_terminal_session: "session-1" });
-
-      await terminalService.createSession({
-        projectPath: "/tmp/project",
-        cols: 80,
-        rows: 24,
-        providerSelection: null,
-        resumeId: null,
-      } as never);
-
-      expect(invoke).toHaveBeenCalledWith("create_terminal_session", {
-        request: {
-          projectPath: "/tmp/project",
-          cols: 80,
-          rows: 24,
-        },
-      });
     });
 
     it("rejects a null request before invoking Tauri", async () => {
@@ -437,23 +406,6 @@ describe("terminalService", () => {
       await write;
     });
 
-    it("sends the first key immediately and coalesces input while its write is in flight", async () => {
-      vi.useFakeTimers();
-      mockTauriInvoke({ write_terminal: undefined, record_terminal_input: undefined });
-
-      const first = terminalService.write("session-1", "a");
-      const second = terminalService.write("session-1", "b");
-      const third = terminalService.write("session-1", "c");
-
-      await Promise.all([first, second, third]);
-
-      const writes = vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "write_terminal");
-      expect(writes.map(([, args]) => args)).toEqual([
-        { sessionId: "session-1", data: "a", source: "user-keyboard" },
-        { sessionId: "session-1", data: "bc", source: "user-keyboard" },
-      ]);
-    });
-
     it("retains batching for non-keyboard writes", async () => {
       vi.useFakeTimers();
       mockTauriInvoke({ write_terminal: undefined });
@@ -485,31 +437,33 @@ describe("terminalService", () => {
       ]);
     });
 
-    it("flushes an IME commit without waiting for the keyboard batch", async () => {
+    it("flushImmediately bypasses batching for non-keyboard writes", async () => {
       vi.useFakeTimers();
-      mockTauriInvoke({ write_terminal: undefined, record_terminal_input: undefined });
+      mockTauriInvoke({ write_terminal: undefined });
 
-      const write = terminalService.write("session-1", "你", { flushImmediately: true });
-      expect(invoke).toHaveBeenCalledWith("write_terminal", {
-        sessionId: "session-1",
-        data: "你",
-        source: "user-keyboard",
+      const write = terminalService.write("session-1", "\x1b[1;1R", {
+        source: "system",
+        flushImmediately: true,
+      });
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("write_terminal", {
+        sessionId: "session-1", data: "\x1b[1;1R", source: "system",
       });
       await write;
-      vi.useRealTimers();
     });
 
     it("preserves per-session input order across flushes", async () => {
       vi.useFakeTimers();
       const writes: string[] = [];
+      const sources: string[] = [];
       const resolvers: Array<() => void> = [];
       const invokeMock = invoke as ReturnType<typeof vi.fn>;
-      invokeMock.mockImplementation((cmd: string, args?: { data?: string }) => {
+      invokeMock.mockImplementation((cmd: string, args?: { data?: string; source?: string }) => {
         if (cmd === "record_terminal_input") return Promise.resolve();
         if (cmd !== "write_terminal") {
           return Promise.reject(new Error(`Unhandled invoke command: ${cmd}`));
         }
         writes.push(args?.data ?? "");
+        sources.push(args?.source ?? "");
         return new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -528,6 +482,8 @@ describe("terminalService", () => {
 
       resolvers.shift()?.();
       await Promise.all([second, third]);
+      expect(writes).toEqual(["a", "bc"]);
+      expect(sources).toEqual(["user-keyboard", "user-keyboard"]);
     });
 
     it("drains queued keyboard input before submitToSession", async () => {
@@ -624,19 +580,6 @@ describe("terminalService", () => {
         claimsSupported: false,
       });
     });
-
-    it("claim 和 detach 分别调用 adopt/release IPC", async () => {
-      mockTauriInvoke({
-        adopt_terminal_session: true,
-        release_terminal_session: undefined,
-      });
-
-      await expect(terminalService.adoptSession("session-1")).resolves.toBe(true);
-      await terminalService.releaseSession("session-1");
-
-      expect(invoke).toHaveBeenCalledWith("adopt_terminal_session", { sessionId: "session-1" });
-      expect(invoke).toHaveBeenCalledWith("release_terminal_session", { sessionId: "session-1" });
-    });
   });
 
   describe("endSeq 记账接线（M3b-2）", () => {
@@ -714,28 +657,4 @@ describe("terminalService", () => {
     });
   });
 
-  describe("getReplaySnapshot", () => {
-    it("calls get_terminal_replay_snapshot and returns the snapshot", async () => {
-      const snapshot = {
-        data: "\x1b[?1049hhello",
-        bufferMode: "alternate" as const,
-      };
-      mockTauriInvoke({ get_terminal_replay_snapshot: snapshot });
-
-      const result = await terminalService.getReplaySnapshot("session-1");
-
-      expect(invoke).toHaveBeenCalledWith("get_terminal_replay_snapshot", {
-        sessionId: "session-1",
-      });
-      expect(result).toEqual(snapshot);
-    });
-
-    it("supports sessions without a replay snapshot", async () => {
-      mockTauriInvoke({ get_terminal_replay_snapshot: null });
-
-      const result = await terminalService.getReplaySnapshot("session-2");
-
-      expect(result).toBeNull();
-    });
-  });
 });

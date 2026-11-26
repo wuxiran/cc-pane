@@ -69,12 +69,21 @@ function setupStore() {
 
 function renderMenu(node: FileTreeNode, onOpenTerminal?: (path: string) => void) {
   const nodeRef = { current: node };
-  render(
+  const view = render(
     <FileTreeContextMenu nodeRef={nodeRef} rootPath={ROOT} onOpenTerminal={onOpenTerminal}>
       <div data-testid="tree-area">tree</div>
     </FileTreeContextMenu>
   );
-  return nodeRef;
+  return view;
+}
+
+function mockClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+  });
+  return writeText;
 }
 
 async function openMenu() {
@@ -93,21 +102,13 @@ describe("FileTreeContextMenu", () => {
   });
 
   it("shows file-specific items for files and directory items for directories", async () => {
-    const { unmount } = render(
-      <FileTreeContextMenu nodeRef={{ current: fileNode() }} rootPath={ROOT}>
-        <div data-testid="tree-area">tree</div>
-      </FileTreeContextMenu>
-    );
+    const { unmount } = renderMenu(fileNode());
     await openMenu();
     expect(screen.getByText(tKey("filetree.openInEditor"))).toBeInTheDocument();
     expect(screen.queryByText(tKey("filetree.newFile"))).not.toBeInTheDocument();
     unmount();
 
-    render(
-      <FileTreeContextMenu nodeRef={{ current: dirNode() }} rootPath={ROOT}>
-        <div data-testid="tree-area">tree</div>
-      </FileTreeContextMenu>
-    );
+    renderMenu(dirNode());
     await openMenu();
     expect(screen.getByText(tKey("filetree.newFile"))).toBeInTheDocument();
     expect(screen.getByText(tKey("filetree.newFolder"))).toBeInTheDocument();
@@ -122,20 +123,14 @@ describe("FileTreeContextMenu", () => {
     expect(onOpenTerminal).toHaveBeenCalledWith(`${ROOT}\\src`);
   });
 
-  it("opens the terminal in the parent directory for file nodes", async () => {
-    // onOpenTerminal 菜单项仅对目录显示，但 handleOpenTerminal 对文件取父目录 —
-    // 通过目录菜单验证路径推导已覆盖；这里验证文件节点不显示该项
+  it("hides open-in-terminal for file nodes even when the callback exists", async () => {
     renderMenu(fileNode(), vi.fn());
     await openMenu();
     expect(screen.queryByText(tKey("filetree.openInTerminal"))).not.toBeInTheDocument();
   });
 
   it("copies the absolute path to the clipboard", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
+    const writeText = mockClipboard();
     renderMenu(fileNode());
     await openMenu();
     fireEvent.click(screen.getByText(tKey("filetree.copyAbsolutePath")));
@@ -144,11 +139,7 @@ describe("FileTreeContextMenu", () => {
   });
 
   it("copies the relative path with normalized separators", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
+    const writeText = mockClipboard();
     renderMenu(fileNode());
     await openMenu();
     fireEvent.click(screen.getByText(tKey("filetree.copyRelativePath")));

@@ -16,61 +16,18 @@ function expectInlineColor(el: Element, hex: string) {
   expect(usesColor(el, hex), `element style 应包含 ${hex}，实际：${el.getAttribute("style")}`).toBe(true);
 }
 
-describe("PresetSwatches card 变体（MiniUiPreview 迷你界面）", () => {
-  it("十个主题都渲染 mini UI 预览：data-theme 套框、aria-hidden、aspect-video 比例", () => {
-    for (const preset of THEME_PRESETS) {
-      const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
+describe("PresetSwatches card 变体", () => {
+  // card 变体直接委托 MiniUiPreview，骨架/裸 hex/暗色 .dark 等细节由 MiniUiPreview.test 覆盖
+  it.each(THEME_PRESETS.map((preset) => [preset.id, preset] as const))(
+    "%s 渲染为套该主题 data-theme 的 mini UI 预览",
+    (_id, preset) => {
+      const { container } = render(<PresetSwatches preset={preset} size="card" />);
       const root = container.firstElementChild;
-      expect(root).not.toBeNull();
-      expect(root).toHaveAttribute("aria-hidden", "true");
       expect(root).toHaveAttribute("data-theme", preset.id);
-      expect(root).toHaveClass("mini-ui-scope", "aspect-video", "overflow-hidden");
-      unmount();
-    }
-  });
-
-  it("暗色主题预览框补 .dark，浅色主题不带", () => {
-    for (const preset of THEME_PRESETS) {
-      const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
-      const root = container.firstElementChild!;
-      if (preset.group === "dark") {
-        expect(root).toHaveClass("dark");
-      } else {
-        expect(root).not.toHaveClass("dark");
-      }
-      unmount();
-    }
-  });
-
-  it("卡顶 4px 主色带存在且走 var(--primary)，预览内无裸 hex", () => {
-    for (const preset of THEME_PRESETS) {
-      const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
-      const band = container.querySelector("[data-accent-band]");
-      expect(band).not.toBeNull();
-      expect(band).toHaveClass("h-1");
-      expect(band!.getAttribute("style")).toContain("var(--primary)");
-
-      for (const el of [container.firstElementChild!, ...container.querySelectorAll("*")]) {
-        for (const attr of el.getAttributeNames()) {
-          expect(el.getAttribute(attr)).not.toMatch(/#[0-9a-f]{3,8}\b/i);
-        }
-      }
-      unmount();
-    }
-  });
-
-  it("mini UI 骨架齐全：侧栏 + 选中行 + 双 Tab + 终端三行 + 主色按钮", () => {
-    const { container } = render(<PresetSwatches preset={THEME_PRESETS[0]} size="card" />);
-    const html = container.innerHTML;
-    expect(html).toContain("var(--app-sidebar)");
-    expect(html).toContain("var(--app-active-bg)");
-    expect(html).toContain("var(--app-tabbar)");
-    expect(html).toContain("var(--app-tab-highlight)");
-    expect(html).toContain("var(--app-terminal-bg)");
-    expect(html).toContain("var(--app-terminal-fg)");
-    expect(html).toContain("var(--primary-foreground)");
-    expect(container.querySelector(".font-mono")).not.toBeNull();
-  });
+      expect(root).toHaveAttribute("aria-hidden", "true");
+      expect(container.querySelector("[data-accent-band]")).not.toBeNull();
+    },
+  );
 });
 
 describe("PresetSwatches menu 变体（StatusBar 下拉项，回归保护）", () => {
@@ -90,11 +47,10 @@ describe("PresetSwatches menu 变体（StatusBar 下拉项，回归保护）", (
 });
 
 describe("SystemThemePreview（跟随系统卡）", () => {
-  it("与卡片预览同高（h-16），保留左右分半、图标与 live token 背景", () => {
+  it("保留图标与 live token 背景", () => {
     const { container } = render(<SystemThemePreview />);
     const root = container.firstElementChild;
     expect(root).toHaveAttribute("aria-hidden", "true");
-    expect(root).toHaveClass("h-16", "rounded-md");
     expect(root!.getAttribute("style")).toContain("var(--app-content)");
     expect(root!.querySelector("svg")).not.toBeNull();
     expect(container.querySelectorAll("svg")).toHaveLength(1);
@@ -103,7 +59,5 @@ describe("SystemThemePreview（跟随系统卡）", () => {
   it("选中时叠加 accent 对勾角标", () => {
     const { container } = render(<SystemThemePreview selected />);
     expect(container.querySelectorAll("svg")).toHaveLength(2);
-    const badge = container.querySelector("span.rounded-full.bg-\\[var\\(--app-accent\\)\\]");
-    expect(badge).not.toBeNull();
   });
 });

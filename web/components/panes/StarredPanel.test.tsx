@@ -49,6 +49,16 @@ function makeLayout(id: string, name: string, rootPane: Panel, kind: LayoutEntry
   };
 }
 
+/** 只保留一个普通布局，其唯一窗格持有给定 tab */
+function setSingleLayout(tab: Tab) {
+  const rootPane = makePanel(tab);
+  usePanesStore.setState({
+    rootPane,
+    layouts: [makeLayout("layout-1", "布局 1", rootPane)],
+    currentLayoutId: "layout-1",
+  });
+}
+
 describe("StarredPanel", () => {
   beforeEach(() => {
     const rootPane = makePanel(makeTerminalTab({ starred: true }));
@@ -89,18 +99,13 @@ describe("StarredPanel", () => {
   });
 
   it("shows a placeholder instead of a mirror when the session has not started", () => {
-    const rootPane = makePanel(
+    setSingleLayout(
       makeTerminalTab({
         starred: true,
         sessionId: null,
         terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: null },
       }),
     );
-    usePanesStore.setState({
-      rootPane,
-      layouts: [makeLayout("layout-1", "布局 1", rootPane)],
-      currentLayoutId: "layout-1",
-    });
 
     render(<StarredPanel />);
 
@@ -121,12 +126,7 @@ describe("StarredPanel", () => {
     const { rerender } = render(<StarredPanel />);
     expect(screen.getByTestId("mirror-terminal")).toBeInTheDocument();
 
-    const rootPane = makePanel(makeTerminalTab({ starred: false }));
-    usePanesStore.setState({
-      rootPane,
-      layouts: [makeLayout("layout-1", "布局 1", rootPane)],
-      currentLayoutId: "layout-1",
-    });
+    setSingleLayout(makeTerminalTab({ starred: false }));
     rerender(<StarredPanel />);
 
     expect(screen.queryByTestId("mirror-terminal")).not.toBeInTheDocument();

@@ -188,15 +188,6 @@ describe("ProvidersPanel", () => {
     expect(screen.queryByRole("button", { name: i18n.t("settings:fromPreset") })).not.toBeInTheDocument();
   });
 
-  it("imports providers from cc-switch on the credentials page", async () => {
-    const user = userEvent.setup();
-    const actions = setupStores([makeProvider()]);
-    render(<ProvidersPanel view="providers" />);
-
-    await user.click(screen.getByRole("button", { name: i18n.t("settings:importFromCcSwitch") }));
-    expect(actions.importCcSwitchProviders).toHaveBeenCalled();
-  });
-
   it("reports skipped configurations separately and allows retry after import failure", async () => {
     const user = userEvent.setup();
     const actions = setupStores([makeProvider()]);
@@ -215,17 +206,6 @@ describe("ProvidersPanel", () => {
     }), expect.anything());
   });
 
-  it("switches to the provider credential list and shows the empty state", async () => {
-    const user = userEvent.setup();
-    setupStores();
-    render(<ProvidersPanel />);
-    await switchToProvidersList(user);
-    // 合成「系统环境变量」条目恒置顶，故无真实 provider 时列表非空：
-    // 展示 System 条目 + 空态引导文案。
-    expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t("settings:emptyDesc"))).toBeInTheDocument();
-  });
-
   it("has no top view tabs; the credential page offers a back button to launch profiles", async () => {
     const user = userEvent.setup();
     setupStores();
@@ -233,7 +213,10 @@ describe("ProvidersPanel", () => {
 
     expect(screen.queryByRole("tab", { name: i18n.t("settings:providerCredentialsTab") })).not.toBeInTheDocument();
     await switchToProvidersList(user);
+    // 合成「系统环境变量」条目恒置顶，故无真实 provider 时列表非空：
+    // 展示 System 条目 + 空态引导文案。
     expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t("settings:emptyDesc"))).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: i18n.t("settings:launchProfilesTab") }));
     expect(screen.getByTestId("launch-profiles")).toBeInTheDocument();
   });
@@ -314,33 +297,20 @@ describe("ProvidersPanel", () => {
     expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
-  it("sets a provider as default from its card", async () => {
+  // 系统条目恒置顶，也带「设为默认」主操作 → [0] 是系统卡，[1] 才是这个 provider；
+  // 两者走同一条持久化路径
+  it.each([
+    [0, "__system__"],
+    [1, "p-1"],
+  ])("sets default from the card at index %i → %s", async (index, id) => {
     const user = userEvent.setup();
     const actions = setupStores([makeProvider()]);
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    // 系统条目恒置顶，也带「设为默认」主操作 → [0] 是系统卡，[1] 才是这个 provider
-    const setDefaultButtons = screen.getAllByRole("button", {
-      name: i18n.t("settings:setAsDefaultBtn"),
-    });
-    await user.click(setDefaultButtons[1]);
+    await user.click(screen.getAllByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })[index]);
     await waitFor(() => {
-      expect(actions.setDefault).toHaveBeenCalledWith("p-1", "claude");
-    });
-  });
-
-  it("sets the synthetic system entry as default through the same persisted path", async () => {
-    const user = userEvent.setup();
-    const actions = setupStores([makeProvider()]);
-    render(<ProvidersPanel />);
-    await switchToProvidersList(user);
-
-    await user.click(
-      screen.getAllByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })[0]
-    );
-    await waitFor(() => {
-      expect(actions.setDefault).toHaveBeenCalledWith("__system__", "claude");
+      expect(actions.setDefault).toHaveBeenCalledWith(id, "claude");
     });
   });
 

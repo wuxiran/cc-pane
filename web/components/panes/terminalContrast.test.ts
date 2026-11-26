@@ -18,21 +18,16 @@ describe("MINIMUM_TERMINAL_CONTRAST_RATIO", () => {
 });
 
 describe("parseHexColor", () => {
-  it("解析 6 位与 3 位十六进制", () => {
-    expect(parseHexColor("#ffffff")).toEqual([255, 255, 255]);
-    expect(parseHexColor("#000000")).toEqual([0, 0, 0]);
-    expect(parseHexColor("#fff")).toEqual([255, 255, 255]);
-    expect(parseHexColor("#17191E")).toEqual([0x17, 0x19, 0x1e]);
-  });
-
-  it("容忍首尾空白", () => {
-    expect(parseHexColor("  #0a84ff  ")).toEqual([0x0a, 0x84, 0xff]);
-  });
-
-  it("对 rgba()/关键字等不可解析格式返回 null", () => {
-    expect(parseHexColor("rgba(23, 25, 30, 0.3)")).toBeNull();
-    expect(parseHexColor("transparent")).toBeNull();
-    expect(parseHexColor("")).toBeNull();
+  it.each<[string, [number, number, number] | null]>([
+    ["#000000", [0, 0, 0]],
+    ["#fff", [255, 255, 255]],
+    ["#17191E", [0x17, 0x19, 0x1e]],
+    ["  #0a84ff  ", [0x0a, 0x84, 0xff]],
+    ["rgba(23, 25, 30, 0.3)", null],
+    ["transparent", null],
+    ["", null],
+  ])("parseHexColor(%j) -> %j", (input, expected) => {
+    expect(parseHexColor(input)).toEqual(expected);
   });
 });
 
@@ -106,16 +101,11 @@ describe("auditTerminalPaletteContrast", () => {
     expect(needsAdjustment.some((entry) => entry.color === "brightBlack")).toBe(true);
   });
 
-  it("阈值可参数化：抬高阈值会把更多颜色判为需调整", () => {
-    const atFloor = auditTerminalPaletteContrast(LIGHT_TERMINAL_THEME, 4.5);
-    const atHigh = auditTerminalPaletteContrast(LIGHT_TERMINAL_THEME, 7);
-    const count = (entries: typeof atFloor) => entries.filter((e) => e.needsAdjustment).length;
-    expect(count(atHigh)).toBeGreaterThan(count(atFloor));
-  });
-
-  it("阈值为 0 时不标记任何颜色（证明 needsAdjustment 严格跟随阈值）", () => {
-    const entries = auditTerminalPaletteContrast(LIGHT_TERMINAL_THEME, 0);
-    expect(entries.every((entry) => !entry.needsAdjustment)).toBe(true);
+  it("阈值可参数化：needsAdjustment 严格跟随阈值", () => {
+    const count = (threshold: number) =>
+      auditTerminalPaletteContrast(LIGHT_TERMINAL_THEME, threshold).filter((e) => e.needsAdjustment).length;
+    expect(count(7)).toBeGreaterThan(count(4.5));
+    expect(count(0)).toBe(0);
   });
 
   it("背景为 rgba（壁纸透明度生效）时返回空数组而非误判", () => {

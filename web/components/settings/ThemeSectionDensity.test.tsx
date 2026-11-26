@@ -33,8 +33,7 @@ describe("ThemeSection 界面密度", () => {
     render(<ThemeSection view="shape" value={baseValue} onChange={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "界面密度" })).toBeInTheDocument();
-    const group = screen.getByRole("radiogroup", { name: "界面密度" });
-    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "界面密度" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /舒适 Comfortable/ })).toBeChecked();
     expect(screen.getByRole("radio", { name: /紧凑 Compact/ })).not.toBeChecked();
   });
@@ -46,8 +45,9 @@ describe("ThemeSection 界面密度", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
-  it("选择紧凑档立即生效并持久化", () => {
-    render(<ThemeSection view="shape" value={baseValue} onChange={vi.fn()} />);
+  it("选择紧凑档立即生效并持久化，且不触碰配色与形态草稿", () => {
+    const onChange = vi.fn();
+    render(<ThemeSection view="shape" value={baseValue} onChange={onChange} />);
 
     fireEvent.click(screen.getByRole("radio", { name: /紧凑 Compact/ }));
 
@@ -55,14 +55,6 @@ describe("ThemeSection 界面密度", () => {
     expect(document.documentElement.dataset.density).toBe("compact");
     expect(localStorage.getItem(UI_DENSITY_STORAGE_KEY)).toBe("compact");
     expect(screen.getByRole("radio", { name: /紧凑 Compact/ })).toBeChecked();
-  });
-
-  it("密度切换不触碰配色与形态草稿", () => {
-    const onChange = vi.fn();
-    render(<ThemeSection view="shape" value={baseValue} onChange={onChange} />);
-
-    fireEvent.click(screen.getByRole("radio", { name: /紧凑 Compact/ }));
-
     // 密度走 useDensityStore 自持久化通道，不进主题草稿（onChange 不应被触发）
     expect(onChange).not.toHaveBeenCalled();
     expect(useThemeStore.getState().themeId).toBe("deep-ink");

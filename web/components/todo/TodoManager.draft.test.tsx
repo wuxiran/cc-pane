@@ -104,7 +104,7 @@ describe("Todo draft ownership during live refreshes", () => {
     expect(descriptionInput()).toHaveValue("Unsaved description");
     fireEvent.click(saveButton());
     await waitFor(() => expect(service.update).toHaveBeenCalledWith("A", expect.objectContaining({
-      title: "Unsaved title", description: "Unsaved description", priority: "high", status: "in_progress",
+      title: "Unsaved title", description: "Unsaved description", priority: "high", status: "in_progress", tags: [],
     })));
   });
 

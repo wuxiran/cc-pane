@@ -22,16 +22,11 @@ function TestRadioGroup(props: {
 }
 
 describe("RadioGroup", () => {
-  it("renders a radiogroup with radio items", () => {
-    render(<TestRadioGroup />);
-
-    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
-  });
-
   it("checks the default value via aria-checked", () => {
     render(<TestRadioGroup defaultValue="pro" />);
 
+    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
     expect(screen.getByRole("radio", { name: "Pro" })).toHaveAttribute(
       "aria-checked",
       "true",

@@ -47,25 +47,31 @@ function configureStore(overrides: Record<string, unknown> = {}) {
   } as unknown as Parameters<typeof useOrchestratorStore.setState>[0]);
 }
 
+function renderView() {
+  return render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+}
+
 describe("OrchestratorView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configureStore();
   });
 
-  it("loads bindings on mount", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+  it("loads bindings on mount and reloads when the refresh button is clicked", () => {
+    renderView();
     expect(loadBindings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Refresh|刷新/i }));
+    expect(loadBindings).toHaveBeenCalledTimes(2);
   });
 
   it("renders the empty state when no bindings and not loading", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
     expect(screen.getByText(/No tasks yet|暂无/i)).toBeVisible();
   });
 
   it("does not render the empty state while loading", () => {
     configureStore({ bindings: [], loading: true });
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
     expect(screen.queryByText(/No tasks yet|暂无/i)).not.toBeInTheDocument();
   });
 
@@ -74,7 +80,7 @@ describe("OrchestratorView", () => {
       bindings: [makeBinding({ id: "a", title: "Alpha" }), makeBinding({ id: "b", title: "Beta" })],
       viewType: "list",
     });
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
 
     expect(screen.getByText("Alpha")).toBeVisible();
     expect(screen.getByText("Beta")).toBeVisible();
@@ -83,36 +89,30 @@ describe("OrchestratorView", () => {
 
   it("renders the tree component in tree view", () => {
     configureStore({ bindings: [makeBinding({ id: "a", title: "Alpha" })], viewType: "tree" });
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
 
     expect(screen.getByText("task-tree-stub")).toBeVisible();
     expect(screen.queryByTestId("card")).not.toBeInTheDocument();
   });
 
   it("switches the filter tab when a tab is clicked", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
     fireEvent.click(screen.getByText(/Running|运行/i));
     expect(setFilterTab).toHaveBeenCalledWith("running");
   });
 
   it("switches the view type when the tree button is clicked", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
     fireEvent.click(screen.getByRole("button", { name: /^tree$/i }));
     expect(setViewType).toHaveBeenCalledWith("tree");
   });
 
-  it("reloads bindings when the refresh button is clicked", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
-    // one call on mount, one on click
-    fireEvent.click(screen.getByRole("button", { name: /Refresh|刷新/i }));
-    expect(loadBindings).toHaveBeenCalledTimes(2);
-  });
-
   it("renders the filter bar without a dispatch composer", () => {
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
+    renderView();
     expect(screen.getByText("filter-bar-stub")).toBeVisible();
     expect(screen.queryByPlaceholderText(/Enter task|输入任务/i)).not.toBeInTheDocument();
   });
+
   it("offers pagination and persistent retry without removing existing sidebar tasks", () => {
     const more = vi.fn(); const retry = vi.fn();
     configureStore({ bindings: [makeBinding({ title: "Retained task" })], hasMore: true, loadMoreBindings: more, retryBindings: retry });
@@ -122,5 +122,4 @@ describe("OrchestratorView", () => {
     expect(screen.getByText("Retained task")).toBeVisible(); expect(screen.getByRole("alert")).toHaveTextContent("任务列表加载失败");
     fireEvent.click(screen.getByRole("button", { name: "重试" })); expect(retry).toHaveBeenCalledOnce();
   });
-
 });

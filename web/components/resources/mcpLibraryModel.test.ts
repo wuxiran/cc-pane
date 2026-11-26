@@ -45,17 +45,13 @@ describe("filterMcpLibraryEntries", () => {
 describe("mcpChipState 层配置与后端过滤规则一致", () => {
   const layer = { kind: "layer", name: "x" } as const;
 
-  it("默认模式下除非列入禁用，否则开启，且不受共享开关影响", () => {
-    expect(mcpChipState(policy({ includeSharedMcp: false }), layer)).toEqual({ on: true, blocked: null });
-    expect(mcpChipState(policy({ disabledServerIds: ["x"] }), layer)).toEqual({ on: false, blocked: null });
-  });
-
-  it("自定义模式下只有明确选中才开启", () => {
-    expect(mcpChipState(policy({ mode: "custom" }), layer)).toEqual({ on: false, blocked: null });
-    expect(mcpChipState(policy({ mode: "custom", enabledServerIds: ["x"] }), layer)).toEqual({ on: true, blocked: null });
-  });
-
-  it("MCP 关闭时不可切换", () => {
-    expect(mcpChipState(policy({ mode: "disabled" }), layer)).toEqual({ on: false, blocked: "mcpDisabled" });
+  it.each<[string, Partial<LaunchProfile["mcpPolicy"]>, ReturnType<typeof mcpChipState>]>([
+    ["默认模式不受共享开关影响", { includeSharedMcp: false }, { on: true, blocked: null }],
+    ["默认模式列入禁用则关闭", { disabledServerIds: ["x"] }, { on: false, blocked: null }],
+    ["自定义模式未选中则关闭", { mode: "custom" }, { on: false, blocked: null }],
+    ["自定义模式明确选中才开启", { mode: "custom", enabledServerIds: ["x"] }, { on: true, blocked: null }],
+    ["MCP 关闭时不可切换", { mode: "disabled" }, { on: false, blocked: "mcpDisabled" }],
+  ])("%s", (_label, patch, expected) => {
+    expect(mcpChipState(policy(patch), layer)).toEqual(expected);
   });
 });

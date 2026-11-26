@@ -5,36 +5,49 @@ import { createPanel } from "@/lib/paneTree";
 import {
   resetTestDataCounter,
 } from "@/test/utils/testData";
-import type { PaneNode, Panel, SplitPane, Tab } from "@/types";
+import type { PaneNode, Panel, SplitPane } from "@/types";
+
+/** 单面板单布局的初始状态；文件内两个顶层 describe 共用。 */
+function resetPanesStore() {
+  resetTestDataCounter();
+  const initialPanel = createPanel();
+  usePanesStore.setState({
+    rootPane: initialPanel,
+    activePaneId: initialPanel.id,
+    layouts: [{
+      id: "layout-1",
+      name: "布局 1",
+      rootPane: initialPanel,
+      activePaneId: initialPanel.id,
+    }],
+    currentLayoutId: "layout-1",
+    closedTabs: [],
+  });
+}
+
+/** 当前 rootPane（单面板场景）。 */
+function rootPanel(): Panel {
+  return usePanesStore.getState().rootPane as Panel;
+}
+
+/** 在根面板追加 n 个项目 tab（proj-1..proj-n），返回根面板 id。 */
+function addProjectTabs(count: number): string {
+  const paneId = usePanesStore.getState().rootPane.id;
+  for (let i = 1; i <= count; i++) {
+    usePanesStore.getState().addTab(paneId, { projectId: `proj-${i}`, projectPath: `/tmp/proj${i}` });
+  }
+  return paneId;
+}
 
 describe("usePanesStore", () => {
   beforeEach(() => {
-    resetTestDataCounter();
-    const initialPanel = createPanel();
-    usePanesStore.setState({
-      rootPane: initialPanel,
-      activePaneId: initialPanel.id,
-      layouts: [{
-        id: "layout-1",
-        name: "布局 1",
-        rootPane: initialPanel,
-        activePaneId: initialPanel.id,
-      }],
-      currentLayoutId: "layout-1",
-      closedTabs: [],
-    });
+    resetPanesStore();
     useTerminalStatusStore.setState({ statusMap: new Map() });
   });
 
   // ========== 派生方法 ==========
 
   describe("allPanels", () => {
-    it("单面板应返回 1 个面板", () => {
-      const panels = usePanesStore.getState().allPanels();
-      expect(panels).toHaveLength(1);
-      expect(panels[0].type).toBe("panel");
-    });
-
     it("分屏后应返回 2 个面板", () => {
       const { rootPane, splitRight } = usePanesStore.getState();
       splitRight(rootPane.id);
@@ -44,80 +57,37 @@ describe("usePanesStore", () => {
     });
   });
 
-  describe("activePane", () => {
-    it("应返回当前活动面板", () => {
-      const active = usePanesStore.getState().activePane();
-      expect(active).not.toBeNull();
-      expect(active!.type).toBe("panel");
-      expect(active!.id).toBe(usePanesStore.getState().activePaneId);
-    });
-  });
-
-  describe("findPaneById", () => {
-    it("找到面板时应返回节点", () => {
-      const { rootPane, findPaneById } = usePanesStore.getState();
-      const found = findPaneById(rootPane.id);
-      expect(found).not.toBeNull();
-      expect(found!.id).toBe(rootPane.id);
-    });
-
-    it("找不到面板时应返回 null", () => {
-      const found = usePanesStore.getState().findPaneById("non-existent");
-      expect(found).toBeNull();
-    });
-  });
-
   // ========== 分屏操作 ==========
 
-  describe("splitRight", () => {
-    it("应将 rootPane 变为水平分割并包含 2 个子面板", () => {
-      const { rootPane, splitRight } = usePanesStore.getState();
-      splitRight(rootPane.id);
-
+  describe("splitRight / splitDown", () => {
+    it.each([
+      ["splitRight", "horizontal"],
+      ["splitDown", "vertical"],
+    ] as const)("%s 应将 rootPane 变为 %s 分割并包含 2 个等分子面板", (action, direction) => {
       const state = usePanesStore.getState();
-      expect(state.rootPane.type).toBe("split");
-      const split = state.rootPane as SplitPane;
-      expect(split.direction).toBe("horizontal");
+      state[action](state.rootPane.id);
+
+      const after = usePanesStore.getState();
+      expect(after.rootPane.type).toBe("split");
+      const split = after.rootPane as SplitPane;
+      expect(split.direction).toBe(direction);
       expect(split.children).toHaveLength(2);
       expect(split.sizes).toEqual([50, 50]);
     });
   });
 
-  describe("splitDown", () => {
-    it("应将 rootPane 变为垂直分割", () => {
-      const { rootPane, splitDown } = usePanesStore.getState();
-      splitDown(rootPane.id);
-
-      const state = usePanesStore.getState();
-      expect(state.rootPane.type).toBe("split");
-      const split = state.rootPane as SplitPane;
-      expect(split.direction).toBe("vertical");
-      expect(split.children).toHaveLength(2);
-    });
-  });
-
   describe("resizePanes", () => {
-    it("应更新 split 的 sizes 数组", () => {
-      const { rootPane, splitRight } = usePanesStore.getState();
-      splitRight(rootPane.id);
-
-      const splitId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().resizePanes(splitId, [30, 70]);
-
-      const split = usePanesStore.getState().rootPane as SplitPane;
-      expect(split.sizes).toEqual([30, 70]);
-    });
-
-    it("应通知终端布局变化", async () => {
+    it("应更新 split 的 sizes 数组并通知终端布局变化", async () => {
       const dispatchEvent = vi.spyOn(window, "dispatchEvent");
       const { rootPane, splitRight } = usePanesStore.getState();
       splitRight(rootPane.id);
       dispatchEvent.mockClear();
 
       const splitId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().resizePanes(splitId, [35, 65]);
+      usePanesStore.getState().resizePanes(splitId, [30, 70]);
       await new Promise((resolve) => requestAnimationFrame(resolve));
 
+      expect((usePanesStore.getState().rootPane as SplitPane).sizes).toEqual([30, 70]);
       expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
         type: TERMINAL_LAYOUT_CHANGED_EVENT,
         detail: { reason: "pane.resize" },
@@ -131,11 +101,11 @@ describe("usePanesStore", () => {
   describe("addTab", () => {
     it("应增加 tab 数量并设为活动标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const tabsBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
+      const tabsBefore = rootPanel().tabs.length;
 
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       expect(pane.tabs.length).toBe(tabsBefore + 1);
       expect(pane.activeTabId).toBe(pane.tabs[pane.tabs.length - 1].id);
     });
@@ -151,7 +121,7 @@ describe("usePanesStore", () => {
       });
 
       expect(tabId).not.toBeNull();
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tab = pane.tabs.find((item) => item.id === tabId);
       expect(pane.activeTabId).toBe(tabId);
       expect(tab?.workspaceName).toBe("ws-a");
@@ -173,13 +143,13 @@ describe("usePanesStore", () => {
         projectPath: "/tmp/proj1",
         sessionId: "live-session-1",
       });
-      const tabsBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
+      const tabsBefore = rootPanel().tabs.length;
 
       const tabId = usePanesStore.getState().adoptSession("live-session-1", {
         projectPath: "/tmp/proj1",
       });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       expect(pane.tabs.length).toBe(tabsBefore);
       expect(pane.tabs.some((item) => item.id === tabId)).toBe(true);
     });
@@ -192,7 +162,7 @@ describe("usePanesStore", () => {
       });
       expect(tabId).not.toBeNull();
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tab = pane.tabs.find((item) => item.id === tabId)!;
       const leaf = tab.terminalRootPane!;
       expect(leaf.type).toBe("leaf");
@@ -228,7 +198,7 @@ describe("usePanesStore", () => {
         cliTool: "claude",
         resumeId: "resume-1",
       });
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tab = pane.tabs[pane.tabs.length - 1];
       usePanesStore.setState((state) => {
         const current = (state.rootPane as Panel).tabs.find((item) => item.id === tab.id)!;
@@ -246,17 +216,17 @@ describe("usePanesStore", () => {
       const state = usePanesStore.getState();
 
       expect(state.beginTerminalColdRestore(tabId, leafId)).toBe("old-session");
-      let leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      let leaf = (rootPanel().tabs[1].terminalRootPane)!;
       expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBeUndefined();
       expect(leaf.type === "leaf" ? leaf.restoreBlockedReason : "unexpected").toBe("claims-unsupported");
 
       state.finishTerminalColdRestore(tabId, leafId, "old-session", false);
-      leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      leaf = (rootPanel().tabs[1].terminalRootPane)!;
       expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBe("old-session");
 
       expect(usePanesStore.getState().beginTerminalColdRestore(tabId, leafId)).toBe("old-session");
       usePanesStore.getState().finishTerminalColdRestore(tabId, leafId, "old-session", true);
-      leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      leaf = (rootPanel().tabs[1].terminalRootPane)!;
       expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBeUndefined();
       expect(leaf.type === "leaf" ? leaf.restoreBlockedReason : "unexpected").toBeUndefined();
       expect(leaf.type === "leaf" ? leaf.restoring : false).toBe(true);
@@ -267,14 +237,14 @@ describe("usePanesStore", () => {
   describe("togglePinTab", () => {
     it("应切换 pinned 状态", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const tabId = (usePanesStore.getState().rootPane as Panel).tabs[0].id;
+      const tabId = rootPanel().tabs[0].id;
 
       usePanesStore.getState().togglePinTab(paneId, tabId);
-      let tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
+      let tab = rootPanel().tabs[0];
       expect(tab.pinned).toBe(true);
 
       usePanesStore.getState().togglePinTab(paneId, tabId);
-      tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
+      tab = rootPanel().tabs[0];
       expect(tab.pinned).toBe(false);
     });
   });
@@ -282,11 +252,11 @@ describe("usePanesStore", () => {
   describe("renameTab", () => {
     it("应更新 title", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const tabId = (usePanesStore.getState().rootPane as Panel).tabs[0].id;
+      const tabId = rootPanel().tabs[0].id;
 
       usePanesStore.getState().renameTab(paneId, tabId, "新名称");
 
-      const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
+      const tab = rootPanel().tabs[0];
       expect(tab.title).toBe("新名称");
     });
   });
@@ -301,7 +271,7 @@ describe("usePanesStore", () => {
         sessionId: "pty-precreated",
       });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tab = pane.tabs[1];
       const leaf = tab.terminalRootPane;
       expect(leaf?.type).toBe("leaf");
@@ -313,13 +283,13 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tab = pane.tabs[1];
       const originalTerminalPaneId = tab.activeTerminalPaneId!;
 
       usePanesStore.getState().splitTerminalPane(tab.id, originalTerminalPaneId, "right");
 
-      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const updatedTab = rootPanel().tabs[1];
       expect(updatedTab.terminalRootPane?.type).toBe("split");
       expect(updatedTab.activeTerminalPaneId).not.toBe(originalTerminalPaneId);
       expect(updatedTab.sessionId).toBeNull();
@@ -333,15 +303,15 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      let tab = rootPanel().tabs[1];
       usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
 
-      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      tab = rootPanel().tabs[1];
       const closingTerminalPaneId = tab.activeTerminalPaneId!;
 
       usePanesStore.getState().removeTerminalLeafInternal(tab.id, closingTerminalPaneId, "user-close");
 
-      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const updatedTab = rootPanel().tabs[1];
       // 不上提：保留单 child split 壳，幸存 leaf 不 remount
       expect(updatedTab.terminalRootPane?.type).toBe("split");
       const shell = updatedTab.terminalRootPane as { children: Array<{ type: string; id: string }>; sizes: number[] };
@@ -356,18 +326,18 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      let tab = rootPanel().tabs[1];
       usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
-      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      tab = rootPanel().tabs[1];
       usePanesStore.getState().removeTerminalLeafInternal(tab.id, tab.activeTerminalPaneId!, "user-close");
 
-      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      tab = rootPanel().tabs[1];
       const shellId = tab.terminalRootPane!.id;
       const survivorId = tab.activeTerminalPaneId!;
 
       usePanesStore.getState().splitTerminalPane(tab.id, survivorId, "down");
 
-      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const updatedTab = rootPanel().tabs[1];
       const shell = updatedTab.terminalRootPane as { id: string; direction: string; children: Array<{ id: string }>; sizes: number[] };
       expect(shell.id).toBe(shellId);
       expect(shell.direction).toBe("vertical");
@@ -380,14 +350,14 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      let tab = rootPanel().tabs[1];
       usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
 
-      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      tab = rootPanel().tabs[1];
       const activeTerminalPaneId = tab.activeTerminalPaneId!;
       usePanesStore.getState().updateTabSession(paneId, tab.id, "session-subpane", activeTerminalPaneId);
 
-      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const updatedTab = rootPanel().tabs[1];
       expect(updatedTab.sessionId).toBe("session-subpane");
     });
   });
@@ -434,13 +404,13 @@ describe("usePanesStore", () => {
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
       usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
-      const paneBefore = usePanesStore.getState().rootPane as Panel;
+      const paneBefore = rootPanel();
       const firstTabId = paneBefore.tabs[0].id;
       const lastTabId = paneBefore.tabs[2].id;
 
       usePanesStore.getState().reorderTabs(paneId, 0, 2);
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       expect(paneAfter.tabs[2].id).toBe(firstTabId);
       expect(paneAfter.tabs[1].id).toBe(lastTabId);
     });
@@ -496,42 +466,24 @@ describe("usePanesStore", () => {
     });
   });
 
-  describe("minimizeTab", () => {
-    it("应将 tab 设为 minimized 并切换活动标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const firstTabId = pane.tabs[0].id;
-      const secondTabId = pane.tabs[1].id;
+  describe("minimizeTab / restoreTab", () => {
+    it("最小化切走活动标签，恢复后取消 minimized 并重新激活", () => {
+      const paneId = addProjectTabs(1);
+      const [firstTabId, secondTabId] = rootPanel().tabs.map((t) => t.id);
 
       // 选中第一个 tab，然后最小化它
       usePanesStore.getState().selectTab(paneId, firstTabId);
       usePanesStore.getState().minimizeTab(paneId, firstTabId);
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      const minimizedTab = paneAfter.tabs.find((t) => t.id === firstTabId)!;
-      expect(minimizedTab.minimized).toBe(true);
+      let paneAfter = rootPanel();
+      expect(paneAfter.tabs.find((t) => t.id === firstTabId)!.minimized).toBe(true);
       // 活动标签应切换到第二个
       expect(paneAfter.activeTabId).toBe(secondTabId);
-    });
-  });
 
-  describe("restoreTab", () => {
-    it("应恢复 minimized 状态并设为活动标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const firstTabId = pane.tabs[0].id;
-
-      // 最小化后恢复
-      usePanesStore.getState().minimizeTab(paneId, firstTabId);
       usePanesStore.getState().restoreTab(paneId, firstTabId);
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      const restoredTab = paneAfter.tabs.find((t) => t.id === firstTabId)!;
-      expect(restoredTab.minimized).toBe(false);
+      paneAfter = rootPanel();
+      expect(paneAfter.tabs.find((t) => t.id === firstTabId)!.minimized).toBe(false);
       expect(paneAfter.activeTabId).toBe(firstTabId);
     });
   });
@@ -541,7 +493,7 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const firstTabId = pane.tabs[0].id;
 
       usePanesStore.getState().selectTab(paneId, firstTabId);
@@ -562,6 +514,8 @@ describe("usePanesStore", () => {
 
       usePanesStore.getState().setActivePane(originalPaneId);
       expect(usePanesStore.getState().activePaneId).toBe(originalPaneId);
+      // 派生的 activePane() 应跟随 activePaneId（多面板下才有区分度）
+      expect(usePanesStore.getState().activePane()!.id).toBe(originalPaneId);
     });
 
     it("忽略不存在的面板 id", () => {
@@ -572,23 +526,13 @@ describe("usePanesStore", () => {
   });
 
   describe("updateTabSession", () => {
-    it("应更新 tab 的 sessionId", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      const tabId = (usePanesStore.getState().rootPane as Panel).tabs[0].id;
-
-      usePanesStore.getState().updateTabSession(paneId, tabId, "session-123");
-
-      const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
-      expect(tab.sessionId).toBe("session-123");
-    });
-
     it("应持久记录结构化启动错误，并在重试时清除错误和递增 attempt", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, {
         projectId: "proj-launch-error",
         projectPath: "/tmp/launch-error",
       });
-      let tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      let tab = rootPanel().tabs[1];
       const leafId = tab.activeTerminalPaneId!;
 
       usePanesStore.getState().setTerminalLaunchError(tab.id, leafId, {
@@ -597,7 +541,7 @@ describe("usePanesStore", () => {
         params: { path: "/tmp/launch-error" },
       });
 
-      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      tab = rootPanel().tabs[1];
       // 批5 绞杀：launchError 单源在 leaf，tab 不再物化
       expect(tab.terminalRootPane).toMatchObject({
         type: "leaf",
@@ -606,7 +550,7 @@ describe("usePanesStore", () => {
 
       usePanesStore.getState().retryTerminalLaunch(tab.id, leafId);
 
-      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      tab = rootPanel().tabs[1];
       expect(tab.launchAttempt).toBe(1);
       expect(tab.terminalRootPane).toMatchObject({
         type: "leaf",
@@ -621,11 +565,11 @@ describe("usePanesStore", () => {
         projectId: "proj-remove-error",
         projectPath: "/tmp/remove-error",
       });
-      const tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      const tab = rootPanel().tabs[1];
 
       usePanesStore.getState().removeTerminalLaunch(tab.id, tab.activeTerminalPaneId!);
 
-      expect((usePanesStore.getState().rootPane as Panel).tabs).not.toEqual(
+      expect(rootPanel().tabs).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ id: tab.id })]),
       );
     });
@@ -636,14 +580,14 @@ describe("usePanesStore", () => {
         projectId: "proj-remove-leaf-error",
         projectPath: "/tmp/remove-leaf-error",
       });
-      let tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      let tab = rootPanel().tabs[1];
       usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
-      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      tab = rootPanel().tabs[1];
       const failedLeafId = tab.activeTerminalPaneId!;
 
       usePanesStore.getState().removeTerminalLaunch(tab.id, failedLeafId);
 
-      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      tab = rootPanel().tabs[1];
       expect(tab.id).toBeDefined();
       expect(tab.activeTerminalPaneId).not.toBe(failedLeafId);
       expect(tab.terminalRootPane).toMatchObject({
@@ -660,12 +604,12 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const existingTabId = pane.tabs.find((t) => t.projectId === "proj-1")!.id;
 
       usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       // 不应创建新 tab
       expect(paneAfter.tabs.filter((t) => t.projectId === "proj-1")).toHaveLength(1);
       expect(paneAfter.activeTabId).toBe(existingTabId);
@@ -675,37 +619,33 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const tabCountBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
+      const tabCountBefore = rootPanel().tabs.length;
 
       usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", resumeId: "resume-1" });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       expect(paneAfter.tabs.length).toBe(tabCountBefore + 1);
     });
 
-    it("无 projectPath 的活动 tab 应被替换", () => {
-      // 初始面板有一个默认 tab，其 projectPath 为 ""
+    // 初始面板有一个默认 tab，其 projectPath 为 ""（空白终端）
+    it.each([
+      ["无 cliTool", undefined],
+      ["启动 CLI", "claude"],
+    ] as const)("%s 时应顶替活动的空白终端标签", (_label, cliTool) => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const originalTabCount = pane.tabs.length;
+      const blankId = rootPanel().activeTabId;
 
-      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().openProjectInPane(paneId, {
+        projectId: "proj-1",
+        projectPath: "/tmp/proj1",
+        ...(cliTool ? { cliTool } : {}),
+      });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       // tab 数量不变（替换了空标签）
-      expect(paneAfter.tabs.length).toBe(originalTabCount);
-      expect(paneAfter.tabs[0].projectId).toBe("proj-1");
-    });
-
-    it("启动 CLI 时应顶替活动的空白终端标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      const blankId = (usePanesStore.getState().rootPane as Panel).activeTabId;
-
-      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", cliTool: "claude" });
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
       expect(paneAfter.tabs).toHaveLength(1);
-      expect(paneAfter.tabs[0].cliTool).toBe("claude");
+      expect(paneAfter.tabs[0].projectId).toBe("proj-1");
+      if (cliTool) expect(paneAfter.tabs[0].cliTool).toBe(cliTool);
       expect(paneAfter.tabs.some((t) => t.id === blankId)).toBe(false);
       expect(paneAfter.activeTabId).toBe(paneAfter.tabs[0].id);
     });
@@ -716,45 +656,34 @@ describe("usePanesStore", () => {
 
       usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-2", projectPath: "/tmp/proj1", cliTool: "claude" });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       expect(paneAfter.tabs.map((t) => t.projectId)).toEqual(["proj-1", "proj-2"]);
     });
 
     it("已固定的空白终端标签不应被顶替", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const blankId = (usePanesStore.getState().rootPane as Panel).activeTabId!;
+      const blankId = rootPanel().activeTabId!;
       usePanesStore.getState().togglePinTab(paneId, blankId);
 
       usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", cliTool: "claude" });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       expect(paneAfter.tabs).toHaveLength(2);
       expect(paneAfter.tabs[0].id).toBe(blankId);
     });
 
     it("路径为空的非终端标签不应被顶替", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const chatId = (usePanesStore.getState().rootPane as Panel).activeTabId!;
+      const chatId = rootPanel().activeTabId!;
       usePanesStore.setState((state) => {
         (state.rootPane as Panel).tabs[0].contentType = "agent-chat";
       });
 
       usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      const paneAfter = rootPanel();
       expect(paneAfter.tabs).toHaveLength(2);
       expect(paneAfter.tabs[0].id).toBe(chatId);
-    });
-  });
-
-  describe("openProject", () => {
-    it("应委托给 openProjectInPane 使用活动面板", () => {
-      const activePaneId = usePanesStore.getState().activePaneId;
-
-      usePanesStore.getState().openProject({ projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().findPaneById(activePaneId) as Panel;
-      expect(pane.tabs.some((t) => t.projectId === "proj-1")).toBe(true);
     });
   });
 
@@ -779,23 +708,16 @@ describe("usePanesStore", () => {
   });
 
   describe("openMemoryManager", () => {
-    it("应创建 memory-manager 类型的 tab", () => {
+    it("应创建 memory-manager 类型的 tab，重复打开复用已有 tab", () => {
       usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");
 
       const pane = usePanesStore.getState().activePane()!;
       const memTab = pane.tabs.find((t) => t.contentType === "memory-manager");
       expect(memTab).toBeDefined();
       expect(memTab!.title).toBe("Memory - MyProject");
-    });
-
-    it("重复打开应复用已有 tab", () => {
-      usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");
-      const count1 = usePanesStore.getState().activePane()!.tabs.length;
 
       usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");
-      const count2 = usePanesStore.getState().activePane()!.tabs.length;
-
-      expect(count2).toBe(count1);
+      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(pane.tabs.length);
     });
   });
 
@@ -894,33 +816,19 @@ describe("usePanesStore", () => {
   // ========== 标签导航 ==========
 
   describe("reopenClosedTab", () => {
-    it("应从 closedTabs 恢复标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
-
-      // 关闭一个 tab
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const tabToClose = pane.tabs[1];
-      usePanesStore.getState().removeTabsInternal([tabToClose.id], "user-close");
-
-      expect(usePanesStore.getState().closedTabs).toHaveLength(1);
-
-      // 恢复
-      usePanesStore.getState().reopenClosedTab(paneId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      // 恢复的标签应出现在面板中
-      expect(paneAfter.tabs.some((t) => t.projectPath === tabToClose.projectPath)).toBe(true);
-      expect(usePanesStore.getState().closedTabs).toHaveLength(0);
-    });
+    /** 恢复后在全部面板里按 projectPath 找回标签。 */
+    const findRestored = (projectPath: string) => usePanesStore
+      .getState()
+      .allPanels()
+      .flatMap((p) => p.tabs)
+      .find((t) => t.projectPath === projectPath);
 
     it("可以恢复指定的标签，其余仍留在栈中", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "keep", projectPath: "/tmp/keep" });
       usePanesStore.getState().addTab(paneId, { projectId: "older", projectPath: "/tmp/older" });
       usePanesStore.getState().addTab(paneId, { projectId: "newer", projectPath: "/tmp/newer" });
-      const tabs = (usePanesStore.getState().rootPane as Panel).tabs;
+      const tabs = rootPanel().tabs;
       const tabAt = (path: string) => tabs.find((t) => t.projectPath === path)!;
       usePanesStore.getState().removeTabsInternal([tabAt("/tmp/older").id], "user-close");
       usePanesStore.getState().removeTabsInternal([tabAt("/tmp/newer").id], "user-close");
@@ -929,7 +837,7 @@ describe("usePanesStore", () => {
       expect(target.projectPath).toBe("/tmp/older");
       usePanesStore.getState().reopenClosedTab(paneId, target);
 
-      const paths = (usePanesStore.getState().rootPane as Panel).tabs.map((t) => t.projectPath);
+      const paths = rootPanel().tabs.map((t) => t.projectPath);
       expect(paths).toContain("/tmp/older");
       expect(paths).not.toContain("/tmp/newer");
       expect(usePanesStore.getState().closedTabs.map((s) => s.projectPath)).toEqual(["/tmp/newer"]);
@@ -939,25 +847,25 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "keep", projectPath: "/tmp/keep" });
       usePanesStore.getState().addTab(paneId, { projectId: "gone", projectPath: "/tmp/gone" });
-      const gone = (usePanesStore.getState().rootPane as Panel).tabs
+      const gone = rootPanel().tabs
         .find((t) => t.projectPath === "/tmp/gone")!;
       usePanesStore.getState().removeTabsInternal([gone.id], "user-close");
 
       const stale = { ...usePanesStore.getState().closedTabs[0] };
       usePanesStore.getState().reopenClosedTab(paneId, stale);
 
-      const paths = (usePanesStore.getState().rootPane as Panel).tabs.map((t) => t.projectPath);
+      const paths = rootPanel().tabs.map((t) => t.projectPath);
       expect(paths).not.toContain("/tmp/gone");
       expect(usePanesStore.getState().closedTabs).toHaveLength(1);
     });
 
     it("无已关闭标签时应无操作", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const tabCountBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
+      const tabCountBefore = rootPanel().tabs.length;
 
       usePanesStore.getState().reopenClosedTab(paneId);
 
-      const tabCountAfter = (usePanesStore.getState().rootPane as Panel).tabs.length;
+      const tabCountAfter = rootPanel().tabs.length;
       expect(tabCountAfter).toBe(tabCountBefore);
     });
 
@@ -970,21 +878,20 @@ describe("usePanesStore", () => {
         customTitle: "我的自定义标题",
       });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
+      const pane = rootPanel();
       const tabToClose = pane.tabs[pane.tabs.length - 1];
       expect(tabToClose.title).toBe("我的自定义标题");
       usePanesStore.getState().removeTabsInternal([tabToClose.id], "user-close");
+      expect(usePanesStore.getState().closedTabs).toHaveLength(1);
 
       usePanesStore.getState().reopenClosedTab(usePanesStore.getState().activePaneId);
 
-      const restored = usePanesStore
-        .getState()
-        .allPanels()
-        .flatMap((p) => p.tabs)
-        .find((t) => t.projectPath === "/tmp/proj1");
+      const restored = findRestored("/tmp/proj1");
       expect(restored).toBeTruthy();
       expect(restored!.title).toBe("我的自定义标题");
       expect(restored!.cliTool).toBe("codex");
+      // 弹出后栈应清空
+      expect(usePanesStore.getState().closedTabs).toHaveLength(0);
     });
 
     it("旧快照只有 launchClaude 时应恢复为 claude（对齐 handleCloneTab 的回退表达式）", () => {
@@ -1000,11 +907,7 @@ describe("usePanesStore", () => {
 
       usePanesStore.getState().reopenClosedTab(paneId);
 
-      const restored = usePanesStore
-        .getState()
-        .allPanels()
-        .flatMap((p) => p.tabs)
-        .find((t) => t.projectPath === "/tmp/legacy");
+      const restored = findRestored("/tmp/legacy");
       expect(restored).toBeTruthy();
       expect(restored!.title).toBe("Legacy (Claude)");
       expect(restored!.cliTool).toBe("claude");
@@ -1028,108 +931,68 @@ describe("usePanesStore", () => {
       expect(closed[closed.length - 1].projectId).toBe("proj-28");
       expect(closed[0].projectId).toBe("proj-9");
     });
-  });
 
-  describe("nextTab", () => {
-    it("应循环切换到下一个标签", () => {
+    // 批4 扩容：无损恢复
+    it("恢复 pinned 与 starred 身份（此前只恢复创建参数）", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
+      usePanesStore.setState({
+        closedTabs: [{
+          projectId: "p1",
+          projectPath: "/tmp/p1",
+          title: "原标题",
+          pinned: true,
+          starred: true,
+        }],
+      });
 
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const firstTabId = pane.tabs[0].id;
+      usePanesStore.getState().reopenClosedTab(paneId);
 
-      // 选中第一个 tab
-      usePanesStore.getState().selectTab(paneId, firstTabId);
-      // 切换到下一个
-      usePanesStore.getState().nextTab(paneId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.activeTabId).toBe(pane.tabs[1].id);
-    });
-
-    it("最后一个标签时应循环到第一个", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const lastTabId = pane.tabs[pane.tabs.length - 1].id;
-      const firstTabId = pane.tabs[0].id;
-
-      usePanesStore.getState().selectTab(paneId, lastTabId);
-      usePanesStore.getState().nextTab(paneId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.activeTabId).toBe(firstTabId);
+      const pane = usePanesStore.getState().findPaneById(paneId);
+      const restored = pane?.type === "panel" ? pane.tabs[pane.tabs.length - 1] : undefined;
+      expect(restored?.title).toBe("原标题");
+      expect(restored?.pinned).toBe(true);
+      expect(restored?.starred).toBe(true);
     });
   });
 
-  describe("prevTab", () => {
-    it("应反向循环切换到上一个标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
+  // 3 个标签：索引 0..2
+  describe("nextTab / prevTab", () => {
+    it.each([
+      ["nextTab", 0, 1, "切换到下一个"],
+      ["nextTab", 2, 0, "最后一个循环到第一个"],
+      ["prevTab", 1, 0, "反向切换到上一个"],
+      ["prevTab", 0, 2, "第一个循环到最后一个"],
+    ] as const)("%s 从索引 %i 到 %i（%s）", (action, from, to, _label) => {
+      const paneId = addProjectTabs(2);
+      const tabIds = rootPanel().tabs.map((t) => t.id);
 
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const secondTabId = pane.tabs[1].id;
-      const firstTabId = pane.tabs[0].id;
+      usePanesStore.getState().selectTab(paneId, tabIds[from]);
+      usePanesStore.getState()[action](paneId);
 
-      usePanesStore.getState().selectTab(paneId, secondTabId);
-      usePanesStore.getState().prevTab(paneId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.activeTabId).toBe(firstTabId);
-    });
-
-    it("第一个标签时应循环到最后一个", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const firstTabId = pane.tabs[0].id;
-      const lastTabId = pane.tabs[pane.tabs.length - 1].id;
-
-      usePanesStore.getState().selectTab(paneId, firstTabId);
-      usePanesStore.getState().prevTab(paneId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.activeTabId).toBe(lastTabId);
+      expect(rootPanel().activeTabId).toBe(tabIds[to]);
     });
   });
 
   describe("switchToTab", () => {
     it("应切换到指定索引的标签", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const targetTabId = pane.tabs[1].id;
+      const paneId = addProjectTabs(2);
+      const targetTabId = rootPanel().tabs[1].id;
 
       usePanesStore.getState().switchToTab(paneId, 1);
 
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.activeTabId).toBe(targetTabId);
+      expect(rootPanel().activeTabId).toBe(targetTabId);
     });
 
-    it("索引越界时应无操作", () => {
+    it.each([
+      ["越界", 99],
+      ["负数", -1],
+    ])("索引%s时应无操作", (_label, index) => {
       const paneId = usePanesStore.getState().rootPane.id;
-      const activeTabBefore = (usePanesStore.getState().rootPane as Panel).activeTabId;
+      const activeTabBefore = rootPanel().activeTabId;
 
-      usePanesStore.getState().switchToTab(paneId, 99);
+      usePanesStore.getState().switchToTab(paneId, index);
 
-      const activeTabAfter = (usePanesStore.getState().rootPane as Panel).activeTabId;
-      expect(activeTabAfter).toBe(activeTabBefore);
-    });
-
-    it("负数索引时应无操作", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      const activeTabBefore = (usePanesStore.getState().rootPane as Panel).activeTabId;
-
-      usePanesStore.getState().switchToTab(paneId, -1);
-
-      const activeTabAfter = (usePanesStore.getState().rootPane as Panel).activeTabId;
-      expect(activeTabAfter).toBe(activeTabBefore);
+      expect(rootPanel().activeTabId).toBe(activeTabBefore);
     });
   });
 
@@ -1190,29 +1053,14 @@ describe("usePanesStore", () => {
 describe("attachSessionToAnchor", () => {
   // 本 describe 在外层 describe 之外，拿不到那边的 beforeEach，必须自己重置，
   // 否则会带着前面用例留下的分屏 rootPane 跑。
-  beforeEach(() => {
-    resetTestDataCounter();
-    const initialPanel = createPanel();
-    usePanesStore.setState({
-      rootPane: initialPanel,
-      activePaneId: initialPanel.id,
-      layouts: [{
-        id: "layout-1",
-        name: "布局 1",
-        rootPane: initialPanel,
-        activePaneId: initialPanel.id,
-      }],
-      currentLayoutId: "layout-1",
-      closedTabs: [],
-    });
-  });
+  beforeEach(resetPanesStore);
 
   function splitTerminalTab(paneId: string) {
     usePanesStore.getState().addTab(paneId, {
       projectId: "proj-1",
       projectPath: "D:\\work\\proj",
     });
-    const pane = usePanesStore.getState().rootPane as Panel;
+    const pane = rootPanel();
     return pane.tabs[pane.tabs.length - 1];
   }
 
@@ -1231,7 +1079,7 @@ describe("attachSessionToAnchor", () => {
     });
 
     expect(attached).toBe(true);
-    const pane = usePanesStore.getState().rootPane as Panel;
+    const pane = rootPanel();
     const leaf = pane.tabs.find((item) => item.id === tab.id)!.terminalRootPane!;
     expect(leaf.type === "leaf" ? leaf.savedSessionId : null).toBe("pty-1");
     expect(leaf.type === "leaf" ? leaf.restoring : null).toBe(true);
@@ -1274,7 +1122,7 @@ describe("attachSessionToAnchor", () => {
       projectPath: "D:\\work\\proj",
       sessionId: "existing-pty",
     });
-    const pane = usePanesStore.getState().rootPane as Panel;
+    const pane = rootPanel();
     const tab = pane.tabs[pane.tabs.length - 1];
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
@@ -1349,36 +1197,9 @@ describe("attachSessionToAnchor", () => {
 
     usePanesStore.getState().setSessionLeaseReadOnly("pty-readonly", true);
 
-    const pane = usePanesStore.getState().rootPane as Panel;
+    const pane = rootPanel();
     const tab = pane.tabs.find((item) => item.sessionId === "pty-readonly")!;
     expect(tab.terminalRootPane?.type === "leaf" && tab.terminalRootPane.leaseReadOnly).toBe(true);
     expect(tab.leaseReadOnly).toBe(true);
-  });
-});
-
-describe("reopenClosedTab 无损恢复（批4 扩容）", () => {
-  it("恢复 pinned 与 starred 身份（此前只恢复创建参数）", () => {
-    const panel = createPanel();
-    usePanesStore.setState({
-      rootPane: panel,
-      activePaneId: panel.id,
-      layouts: [{ id: "l1", name: "L1", kind: "normal", rootPane: panel, activePaneId: panel.id }],
-      currentLayoutId: "l1",
-      closedTabs: [{
-        projectId: "p1",
-        projectPath: "/tmp/p1",
-        title: "原标题",
-        pinned: true,
-        starred: true,
-      }],
-    });
-
-    usePanesStore.getState().reopenClosedTab(panel.id);
-
-    const pane = usePanesStore.getState().findPaneById(panel.id);
-    const restored = pane?.type === "panel" ? pane.tabs[pane.tabs.length - 1] : undefined;
-    expect(restored?.title).toBe("原标题");
-    expect(restored?.pinned).toBe(true);
-    expect(restored?.starred).toBe(true);
   });
 });

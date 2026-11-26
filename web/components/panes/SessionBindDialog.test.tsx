@@ -49,6 +49,11 @@ function makeTab(overrides?: Partial<Tab>): Tab {
   } as Tab;
 }
 
+function renderDialog(tabOverrides?: Partial<Tab>, onOpenChange = vi.fn()) {
+  render(<SessionBindDialog tab={makeTab(tabOverrides)} open onOpenChange={onOpenChange} />);
+  return { onOpenChange };
+}
+
 const tRaw = i18n.t as (key: string, options?: Record<string, unknown>) => string;
 function tPanes(key: string, options?: Record<string, unknown>) {
   return tRaw(key, { ns: "panes", ...options });
@@ -76,21 +81,17 @@ describe("SessionBindDialog", () => {
   });
 
   it("lists claude sessions for the tab project when opened", async () => {
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={vi.fn()} />);
+    renderDialog();
 
     expect(await screen.findByText("fix the bug")).toBeInTheDocument();
     expect(listClaudeSessions).toHaveBeenCalledWith("/tmp/proj");
     expect(listCodexSessions).not.toHaveBeenCalled();
+    // 未绑定的 tab 不提供解绑
+    expect(screen.queryByRole("button", { name: tPanes("sessionBindUnbind") })).not.toBeInTheDocument();
   });
 
   it("prefers workspacePath over projectPath when loading candidates", async () => {
-    render(
-      <SessionBindDialog
-        tab={makeTab({ workspacePath: "/tmp/workspace" })}
-        open
-        onOpenChange={vi.fn()}
-      />
-    );
+    renderDialog({ workspacePath: "/tmp/workspace" });
 
     await waitFor(() => expect(listClaudeSessions).toHaveBeenCalledWith("/tmp/workspace"));
   });
@@ -100,13 +101,7 @@ describe("SessionBindDialog", () => {
       { id: VALID_UUID, description: "codex run", modified_at: 1_700_000_000 },
     ] as never);
 
-    render(
-      <SessionBindDialog
-        tab={makeTab({ cliTool: "codex", wsl: { distro: "Ubuntu" } as Tab["wsl"] })}
-        open
-        onOpenChange={vi.fn()}
-      />
-    );
+    renderDialog({ cliTool: "codex", wsl: { distro: "Ubuntu" } as Tab["wsl"] });
 
     expect(await screen.findByText("codex run")).toBeInTheDocument();
     expect(listCodexSessions).toHaveBeenCalledWith("/tmp/proj", "wsl", "Ubuntu");
@@ -116,7 +111,7 @@ describe("SessionBindDialog", () => {
   it("shows the load error when listing sessions fails", async () => {
     listClaudeSessions.mockRejectedValue(new Error("scan failed"));
 
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={vi.fn()} />);
+    renderDialog();
 
     expect(await screen.findByText(/scan failed/)).toBeInTheDocument();
   });
@@ -124,7 +119,7 @@ describe("SessionBindDialog", () => {
   it("shows the empty hint when there are no candidates", async () => {
     listClaudeSessions.mockResolvedValue([] as never);
 
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={vi.fn()} />);
+    renderDialog();
 
     expect(await screen.findByText(tPanes("sessionBindEmpty"))).toBeInTheDocument();
   });
@@ -135,7 +130,7 @@ describe("SessionBindDialog", () => {
     const setTabResumeBinding = vi.fn();
     usePanesStore.setState({ setTabResumeBinding });
 
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={onOpenChange} />);
+    renderDialog(undefined, onOpenChange);
 
     await user.click(await screen.findByText("fix the bug"));
 
@@ -150,7 +145,7 @@ describe("SessionBindDialog", () => {
     const user = userEvent.setup();
     usePanesStore.setState({ setTabResumeBinding: vi.fn() });
 
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={vi.fn()} />);
+    renderDialog();
     await user.click(await screen.findByText("fix the bug"));
 
     await waitFor(() => expect(touchBySessionId).toHaveBeenCalled());
@@ -162,7 +157,7 @@ describe("SessionBindDialog", () => {
     const setTabResumeBinding = vi.fn();
     usePanesStore.setState({ setTabResumeBinding });
 
-    render(<SessionBindDialog tab={makeTab()} open onOpenChange={vi.fn()} />);
+    renderDialog();
 
     const bindButton = screen.getByRole("button", { name: tPanes("sessionBindAction") });
     expect(bindButton).toBeDisabled();
@@ -185,13 +180,7 @@ describe("SessionBindDialog", () => {
     const setTabResumeBinding = vi.fn();
     usePanesStore.setState({ setTabResumeBinding });
 
-    render(
-      <SessionBindDialog
-        tab={makeTab({ resumeId: VALID_UUID, resumeIdSource: "manual" })}
-        open
-        onOpenChange={onOpenChange}
-      />
-    );
+    renderDialog({ resumeId: VALID_UUID, resumeIdSource: "manual" }, onOpenChange);
 
     await user.click(screen.getByRole("button", { name: tPanes("sessionBindUnbind") }));
 
@@ -200,13 +189,7 @@ describe("SessionBindDialog", () => {
   });
 
   it("marks the already-bound candidate in the list", async () => {
-    render(
-      <SessionBindDialog
-        tab={makeTab({ resumeId: VALID_UUID })}
-        open
-        onOpenChange={vi.fn()}
-      />
-    );
+    renderDialog({ resumeId: VALID_UUID });
 
     expect(
       await screen.findByText(new RegExp(tPanes("sessionBindBoundMark")))

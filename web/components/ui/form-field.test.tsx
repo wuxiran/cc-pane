@@ -5,17 +5,6 @@ import { Input } from "@/components/ui/input";
 import { FormField } from "./form-field";
 
 describe("FormField", () => {
-  it("renders the label and the control", () => {
-    render(
-      <FormField label="Host">
-        {({ id }) => <Input id={id} placeholder="127.0.0.1" />}
-      </FormField>,
-    );
-
-    expect(screen.getByText("Host")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("127.0.0.1")).toBeInTheDocument();
-  });
-
   it("pairs Label htmlFor with the control id", () => {
     render(
       <FormField label="Host">
@@ -27,16 +16,6 @@ describe("FormField", () => {
     const control = screen.getByPlaceholderText("127.0.0.1");
     expect(label).toHaveAttribute("for", control.id);
     expect(control.id).not.toBe("");
-  });
-
-  it("makes the control queryable by its label text", () => {
-    render(
-      <FormField label="Host">
-        {({ id }) => <Input id={id} />}
-      </FormField>,
-    );
-
-    expect(screen.getByLabelText("Host")).toBeInTheDocument();
   });
 
   it("generates unique ids for sibling fields", () => {

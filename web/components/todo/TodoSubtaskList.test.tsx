@@ -89,6 +89,7 @@ describe("TodoSubtaskList", () => {
     const input = screen.getByPlaceholderText("添加子任务 (按回车保存)...");
 
     fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByRole("button")).toBeDisabled();
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onAdd).not.toHaveBeenCalled();

@@ -2,6 +2,7 @@ import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LocalHistoryPanel from "./LocalHistoryPanel";
 import {
@@ -104,6 +105,13 @@ function setup(overrides: Record<string, unknown> = {}) {
   });
 }
 
+/** filePath 模式（单文件历史）渲染 */
+function renderFilePanel(props: Partial<ComponentProps<typeof LocalHistoryPanel>> = {}) {
+  return render(
+    <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} {...props} />,
+  );
+}
+
 describe("LocalHistoryPanel", () => {
   beforeEach(() => {
     resetTauriInvoke();
@@ -111,14 +119,7 @@ describe("LocalHistoryPanel", () => {
 
   it("open 为 false 时不渲染对话框", () => {
     setup();
-    render(
-      <LocalHistoryPanel
-        open={false}
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel({ open: false });
     expect(
       screen.queryByText(/文件历史|File History/i),
     ).not.toBeInTheDocument();
@@ -126,14 +127,7 @@ describe("LocalHistoryPanel", () => {
 
   it("filePath 模式下加载版本列表并展示工具栏与空预览占位", async () => {
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     // 工具栏按钮
     expect(
@@ -160,14 +154,7 @@ describe("LocalHistoryPanel", () => {
 
   it("版本列表为空时展示无历史提示", async () => {
     setup({ list_file_versions: [] });
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
     expect(
       await screen.findByText(/暂无历史版本|No history/i),
     ).toBeInTheDocument();
@@ -176,14 +163,7 @@ describe("LocalHistoryPanel", () => {
   it("选中较新版本时与前一版本比较，调用 get_versions_diff 并渲染 diff 统计", async () => {
     const user = userEvent.setup();
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     await user.click(await screen.findByText("刚刚"));
 
@@ -204,14 +184,7 @@ describe("LocalHistoryPanel", () => {
   it("选中最早版本时回退为与当前磁盘文件比较（get_version_diff）", async () => {
     const user = userEvent.setup();
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     await user.click(await screen.findByText("10 分钟前"));
 
@@ -228,14 +201,7 @@ describe("LocalHistoryPanel", () => {
   it("完整内容模式下选中版本会加载并展示版本内容", async () => {
     const user = userEvent.setup();
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     await user.click(
       await screen.findByRole("button", { name: /完整内容|Full Content/i }),
@@ -257,15 +223,7 @@ describe("LocalHistoryPanel", () => {
     const onRestored = vi.fn();
     const onOpenChange = vi.fn();
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={onOpenChange}
-        projectPath={PROJECT}
-        filePath={FILE}
-        onRestored={onRestored}
-      />,
-    );
+    renderFilePanel({ onOpenChange, onRestored });
 
     await user.click(await screen.findByText("刚刚"));
     await user.click(
@@ -288,14 +246,7 @@ describe("LocalHistoryPanel", () => {
   it("右键版本可打开添加标签对话框并提交标签（put_label）", async () => {
     const user = userEvent.setup();
     setup();
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     fireEvent.contextMenu(await screen.findByText("刚刚"));
 
@@ -326,14 +277,7 @@ describe("LocalHistoryPanel", () => {
       isDeleted: true,
     };
     setup({ list_deleted_files: [deleted] });
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     await user.click(
       await screen.findByRole("button", { name: /已删除|Deleted/i }),
@@ -348,14 +292,7 @@ describe("LocalHistoryPanel", () => {
   it("切换到项目恢复视图且无标签时展示空快照提示", async () => {
     const user = userEvent.setup();
     setup({ list_labels: [] });
-    render(
-      <LocalHistoryPanel
-        open
-        onOpenChange={vi.fn()}
-        projectPath={PROJECT}
-        filePath={FILE}
-      />,
-    );
+    renderFilePanel();
 
     await user.click(
       await screen.findByRole("button", { name: /项目恢复|Project Restore/i }),
@@ -499,24 +436,24 @@ describe("LocalHistoryPanel", () => {
       return nameCell.closest('[role="button"]') as HTMLElement;
     }
 
-    it("最近更改行可聚焦并带 focus-visible 焦点环", async () => {
+    it("最近更改行可聚焦", async () => {
       const row = await renderAndGetRow();
 
       expect(row).not.toBeNull();
       expect(row).toHaveAttribute("tabindex", "0");
-      expect(row.className).toContain("focus-visible:outline-none");
-      expect(row.className).toContain("focus-visible:ring-2");
-      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
       row.focus();
       expect(row).toHaveFocus();
     });
 
-    it("Enter 打开该文件的版本视图", async () => {
+    it.each([
+      ["Enter", "Enter"],
+      ["Space", " "],
+    ])("%s 打开该文件的版本视图", async (_label, key) => {
       const row = await renderAndGetRow();
 
       row.focus();
-      fireEvent.keyDown(row, { key: "Enter" });
+      fireEvent.keyDown(row, { key });
 
       expect(
         await screen.findByRole("button", { name: /差异|Diff/i }),
@@ -525,17 +462,6 @@ describe("LocalHistoryPanel", () => {
         projectPath: PROJECT,
         filePath: "src/keyboard.ts",
       });
-    });
-
-    it("Space 打开该文件的版本视图", async () => {
-      const row = await renderAndGetRow();
-
-      row.focus();
-      fireEvent.keyDown(row, { key: " " });
-
-      expect(
-        await screen.findByRole("button", { name: /差异|Diff/i }),
-      ).toBeInTheDocument();
     });
   });
 });

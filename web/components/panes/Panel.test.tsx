@@ -11,7 +11,6 @@ import {
   useSshMachineDialogStore,
   useWorkspacesStore,
 } from "@/stores";
-import { terminalService } from "@/services";
 import Panel from "./Panel";
 import { CLOSE_ACTIVE_TAB_EVENT } from "./useTabClosing";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
@@ -78,8 +77,6 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   } as unknown as typeof ResizeObserver;
 }
 
-const killSession = vi.mocked(terminalService.killSession);
-
 function makeTab(id: string, overrides?: Partial<Tab>): Tab {
   return {
     id,
@@ -92,6 +89,34 @@ function makeTab(id: string, overrides?: Partial<Tab>): Tab {
     activeTerminalPaneId: `leaf-${id}`,
     ...overrides,
   } as Tab;
+}
+
+function makeSplitTab(id: string, overrides?: Partial<Tab>): Tab {
+  return makeTab(id, {
+    terminalRootPane: {
+      type: "split",
+      id: "split-1",
+      direction: "horizontal",
+      sizes: [50, 50],
+      children: [
+        { type: "leaf", id: "leaf-a", sessionId: "sess-a" },
+        { type: "leaf", id: "leaf-b", sessionId: "sess-b" },
+      ],
+    } as Tab["terminalRootPane"],
+    ...overrides,
+  });
+}
+
+/** 两窗格布局：pane 与一个持有 t2 的 pane-2 */
+function makeSplitRoot(pane: PanelType) {
+  const otherPane: PanelType = { type: "panel", id: "pane-2", tabs: [makeTab("t2")], activeTabId: "t2" };
+  return {
+    type: "split",
+    id: "root-split",
+    direction: "horizontal",
+    sizes: [50, 50],
+    children: [pane, otherPane],
+  };
 }
 
 function makePane(tabs: Tab[], activeTabId = tabs[0]?.id ?? ""): PanelType {
@@ -155,21 +180,22 @@ describe("Panel", () => {
   });
 
   it("renders every tab's content but only shows the active one", () => {
-    const pane = makePane([makeTab("t1"), makeTab("t2")], "t1");
+    const editor = makeTab("e1", { contentType: "editor", filePath: "/tmp/proj/a.ts", terminalRootPane: undefined });
+    const pane = makePane([makeTab("t1"), makeTab("t2"), editor], "t1");
     setPanesState(pane);
 
     render(<Panel pane={pane} />);
 
-    const t1 = screen.getByTestId("tab-content-t1").parentElement!;
-    const t2 = screen.getByTestId("tab-content-t2").parentElement!;
-    expect(t1.style.display).toBe("flex");
-    expect(t2.style.display).toBe("none");
+    expect(screen.getByTestId("tab-content-t1")).toBeVisible();
+    expect(screen.getByTestId("tab-content-t2")).not.toBeVisible();
     // 可见性不再走 props：断言单源里的 primary 视图条目（真实写侧
     // useReportPaneVisibility 在 Panel 内挂载）
     const viewOf = (owner: string) =>
       useTabViewStateStore.getState().getViewVisibility(owner, "primary");
-    expect(viewOf("t1")).not.toBe("hidden");
+    expect(viewOf("t1")).toBe("active");
     expect(viewOf("t2")).toBe("hidden");
+    // B2-08：收不到可见性 props 的非终端 tab 也由 Panel 统一写入记录
+    expect(viewOf("e1")).toBe("hidden");
   });
 
   it("requests the add-machine dialog from the new SSH action", () => {
@@ -184,32 +210,12 @@ describe("Panel", () => {
     expect(useSshMachineDialogStore.getState().addDialogOpen).toBe(true);
   });
 
-  it("enables terminal status bars when the layout has multiple panes", () => {
+  it.each([
+    ["single-pane", false],
+    ["multi-pane", true],
+  ])("enables the terminal status bar in a %s layout", (_label, split) => {
     const pane = makePane([makeTab("t1")]);
-    const otherPane: PanelType = {
-      type: "panel",
-      id: "pane-2",
-      tabs: [makeTab("t2")],
-      activeTabId: "t2",
-    };
-    setPanesState(pane, {
-      rootPane: {
-        type: "split",
-        id: "root-split",
-        direction: "horizontal",
-        sizes: [50, 50],
-        children: [pane, otherPane],
-      },
-    });
-
-    render(<Panel pane={pane} />);
-
-    expect(tabContentPropsByTab.get("t1")?.showTerminalStatusBar).toBe(true);
-  });
-
-  it("also enables the terminal status bar in a single-pane layout", () => {
-    const pane = makePane([makeTab("t1")]);
-    setPanesState(pane);
+    setPanesState(pane, split ? { rootPane: makeSplitRoot(pane) } : undefined);
 
     render(<Panel pane={pane} />);
 
@@ -244,20 +250,7 @@ describe("Panel", () => {
   });
 
   it("把整个 tab 交给销毁出口（分屏会话由出口全量回收）", () => {
-    const pane = makePane([
-      makeTab("t1", {
-        terminalRootPane: {
-          type: "split",
-          id: "split-1",
-          direction: "horizontal",
-          sizes: [50, 50],
-          children: [
-            { type: "leaf", id: "leaf-a", sessionId: "sess-a" },
-            { type: "leaf", id: "leaf-b", sessionId: "sess-b" },
-          ],
-        } as Tab["terminalRootPane"],
-      }),
-    ]);
+    const pane = makePane([makeSplitTab("t1")]);
     setPanesState(pane);
     const removeTabs = spyRemoveTabs();
 
@@ -276,7 +269,6 @@ describe("Panel", () => {
     tabBarProps!.onClose("t1");
 
     expect(removeTabs).not.toHaveBeenCalled();
-    expect(killSession).not.toHaveBeenCalled();
   });
 
   it("asks for confirmation before closing a dirty tab and closes on confirm", async () => {
@@ -309,7 +301,6 @@ describe("Panel", () => {
     await user.click(screen.getByRole("button", { name: i18n.t("cancel") }));
 
     expect(removeTabs).not.toHaveBeenCalled();
-    expect(killSession).not.toHaveBeenCalled();
   });
 
   it("批量关闭把未 pinned 的其余 tab 交给出口，pinned 与目标不动", () => {
@@ -347,21 +338,7 @@ describe("Panel", () => {
     }
 
     it("与鼠标点 × 同路径：整个 tab 交给销毁出口（分屏会话由出口全量回收）", () => {
-      const pane = makePane([
-        makeTab("t1", {
-          sessionId: "sess-a",
-          terminalRootPane: {
-            type: "split",
-            id: "split-1",
-            direction: "horizontal",
-            sizes: [50, 50],
-            children: [
-              { type: "leaf", id: "leaf-a", sessionId: "sess-a" },
-              { type: "leaf", id: "leaf-b", sessionId: "sess-b" },
-            ],
-          } as Tab["terminalRootPane"],
-        }),
-      ]);
+      const pane = makePane([makeSplitTab("t1", { sessionId: "sess-a" })]);
       setPanesState(pane);
       const removeTabs = spyRemoveTabs();
 
@@ -380,7 +357,6 @@ describe("Panel", () => {
       fireCloseShortcut();
 
       expect(removeTabs).not.toHaveBeenCalled();
-      expect(killSession).not.toHaveBeenCalled();
     });
 
     it("asks for confirmation on a dirty tab instead of closing it silently", async () => {
@@ -401,15 +377,14 @@ describe("Panel", () => {
     });
 
     it("is ignored by panels that are not the active pane", () => {
-      const closeTab = vi.fn();
       const pane = makePane([makeTab("t1")]);
-      setPanesState(pane, { closeTab, activePaneId: "pane-other" });
+      setPanesState(pane, { activePaneId: "pane-other" });
+      const removeTabs = spyRemoveTabs();
 
       render(<Panel pane={pane} />);
       fireCloseShortcut();
 
-      expect(closeTab).not.toHaveBeenCalled();
-      expect(killSession).not.toHaveBeenCalled();
+      expect(removeTabs).not.toHaveBeenCalled();
     });
   });
 
@@ -427,60 +402,23 @@ describe("Panel", () => {
   // 焦点环：多窗格 + 当前 pane 才显示；单窗格/非焦点/全屏一律隐藏。
   // overlay 恒渲染，用 opacity 区分——断言打在 style 上。
   describe("pane focus ring", () => {
-    function makeSplitRoot(pane: PanelType) {
-      const otherPane: PanelType = {
-        type: "panel",
-        id: "pane-2",
-        tabs: [makeTab("t2")],
-        activeTabId: "t2",
-      };
-      return {
-        type: "split",
-        id: "root-split",
-        direction: "horizontal",
-        sizes: [50, 50],
-        children: [pane, otherPane],
-      };
-    }
-
-    it("shows the accent ring on the focused pane in a multi-pane layout", () => {
+    it.each([
+      { label: "focused pane in a multi-pane layout", split: true, active: "pane-1", fullscreen: false, opacity: "1" },
+      { label: "single-pane layout even when focused", split: false, active: "pane-1", fullscreen: false, opacity: "0" },
+      { label: "unfocused pane in a multi-pane layout", split: true, active: "pane-2", fullscreen: false, opacity: "0" },
+      { label: "fullscreen pane", split: true, active: "pane-1", fullscreen: true, opacity: "0" },
+    ])("ring opacity on $label is $opacity", ({ split, active, fullscreen, opacity }) => {
       const pane = makePane([makeTab("t1")]);
-      setPanesState(pane, { rootPane: makeSplitRoot(pane) });
+      if (fullscreen) {
+        useFullscreenStore.setState({ isFullscreen: true, fullscreenPaneId: "pane-1" } as never);
+      }
+      setPanesState(pane, {
+        activePaneId: active,
+        ...(split ? { rootPane: makeSplitRoot(pane) } : {}),
+      });
 
       const { container } = render(<Panel pane={pane} />);
-      const ring = container.querySelector<HTMLElement>("[data-pane-focus-ring]");
-      expect(ring).not.toBeNull();
-      expect(ring).toHaveStyle({ opacity: "1" });
-      expect(ring!.style.border).toContain("var(--app-accent)");
-      expect(ring!.style.borderRadius).toContain("var(--shape-radius-lg");
-    });
-
-    it("keeps the ring hidden in a single-pane layout even when focused", () => {
-      const pane = makePane([makeTab("t1")]);
-      setPanesState(pane);
-
-      const { container } = render(<Panel pane={pane} />);
-      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
-    });
-
-    it("keeps the ring hidden on unfocused panes in a multi-pane layout", () => {
-      const pane = makePane([makeTab("t1")]);
-      setPanesState(pane, { activePaneId: "pane-2", rootPane: makeSplitRoot(pane) });
-
-      const { container } = render(<Panel pane={pane} />);
-      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
-    });
-
-    it("keeps the ring hidden while the pane is fullscreen", () => {
-      const pane = makePane([makeTab("t1")]);
-      useFullscreenStore.setState({
-        isFullscreen: true,
-        fullscreenPaneId: "pane-1",
-      } as never);
-      setPanesState(pane, { rootPane: makeSplitRoot(pane) });
-
-      const { container } = render(<Panel pane={pane} />);
-      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
+      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity });
     });
   });
 

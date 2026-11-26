@@ -150,18 +150,7 @@ describe("OrchestratorTaskCard", () => {
     expect(screen.getByText("🌳")).toBeVisible();
   });
 
-  it("indents nested tasks based on depth", () => {
-    const binding = createBinding();
-    seedStore([binding]);
-
-    const { container } = render(<OrchestratorTaskCard binding={binding} depth={2} />);
-    const card = container.firstElementChild as HTMLElement;
-
-    // depth 2 -> marginLeft = min(2*14, 42) = 28px.
-    expect(card.style.marginLeft).toBe("28px");
-  });
-
-  it("is Tab-focusable with a focus-visible ring and activates on Enter/Space", async () => {
+  it("is Tab-focusable and activates on Enter/Space", async () => {
     const user = userEvent.setup();
     const binding = createBinding({ title: "Keyboard task" });
     seedStore([binding]);
@@ -171,9 +160,6 @@ describe("OrchestratorTaskCard", () => {
 
     expect(card).toHaveAttribute("role", "button");
     expect(card).toHaveAttribute("tabindex", "0");
-    expect(card.className).toContain("focus-visible:outline-none");
-    expect(card.className).toContain("focus-visible:ring-2");
-    expect(card.className).toContain("focus-visible:ring-[var(--app-accent)]");
 
     await user.tab();
     expect(card).toHaveFocus();

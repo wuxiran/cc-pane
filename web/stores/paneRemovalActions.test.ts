@@ -1,6 +1,8 @@
-// B1-03 搬家等价性测试：六个关闭出口迁入 createPaneRemovalActions 后行为必须与
-// 迁移前逐字一致（原用例见 usePanesStore.test.ts 的 closeTab/closePane 组，保留继续跑），
-// 外加三个新出口骨架的契约——重点是 removeEmptyPane 的「非空即拒」硬守卫。
+// createPaneRemovalActions 的关闭出口测试（B1-03 起）：removeTabsInternal /
+// removeTerminalLeafInternal / removeEmptyPane 的树操作、closedTabs 撤销栈与回收
+// 管线（killSession 杀集）契约——重点是 removeEmptyPane 的「非空即拒」硬守卫。
+// usePanesStore.test.ts 原 closeTab/closePane 组已不存在，本文件即这些出口的主测试；
+// 终端子窗格关闭后的树形（单 child split 壳不上提）见 usePanesStore.test.ts 的 terminal subpanes 组。
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { usePanesStore } from "./usePanesStore";
 import { terminalService } from "@/services";
@@ -50,23 +52,40 @@ function makeSplit(id: string, children: PaneNode[]): SplitPane {
   };
 }
 
-function setPanesState(rootPane: PaneNode, activePaneId: string) {
+/** 带会话的单 leaf 终端标签；saved 写到 leaf.savedSessionId（恢复中）。 */
+function makeSessionTab(id: string, sessionId: string | null, saved?: string): Tab {
+  const tab = makeTerminalTab(id);
+  const leaf = tab.terminalRootPane as TerminalPaneLeaf;
+  leaf.sessionId = sessionId;
+  if (saved) leaf.savedSessionId = saved;
+  return tab;
+}
+
+/** 多布局初始状态：第一个布局为当前布局，其 rootPane 即工作副本。 */
+function setLayoutsState(layouts: Array<{ id: string; rootPane: PaneNode; activePaneId: string }>) {
+  const [current] = layouts;
   usePanesStore.setState({
-    rootPane,
-    activePaneId,
-    layouts: [
-      {
-        id: "layout-1",
-        name: "布局 1",
-        kind: "normal",
-        rootPane,
-        activePaneId,
-      },
-    ],
-    currentLayoutId: "layout-1",
+    rootPane: current.rootPane,
+    activePaneId: current.activePaneId,
+    layouts: layouts.map((l, i) => ({ ...l, name: `布局 ${i + 1}`, kind: "normal" as const })),
+    currentLayoutId: current.id,
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
   });
+}
+
+function setPanesState(rootPane: PaneNode, activePaneId: string) {
+  setLayoutsState([{ id: "layout-1", rootPane, activePaneId }]);
+}
+
+function collectTabIds(node: PaneNode): string[] {
+  if (node.type === "panel") return node.tabs.map((t) => t.id);
+  return node.children.flatMap(collectTabIds);
+}
+
+/** 让出一个宏任务：给「本不该发生」的异步 kill 一个发生的机会。 */
+function flushMacrotask() {
+  return new Promise((r) => setTimeout(r, 0));
 }
 
 function currentPanel(paneId: string): Panel {
@@ -165,19 +184,18 @@ describe("removeEmptyPane（纯树操作，零销毁语义）", () => {
     expect(state.rootPane.id).not.toBe("p-empty");
   });
 
-  it("不存在的 paneId 静默 no-op", () => {
-    const before = usePanesStore.getState().rootPane;
-    usePanesStore.getState().removeEmptyPane("nope");
-    expect(usePanesStore.getState().rootPane).toBe(before);
-  });
-
-  it("split 节点 id 不接受（只收 panel）", () => {
+  it.each([
+    ["不存在的 paneId", "nope"],
+    ["split 节点 id（只收 panel）", "s1"],
+  ])("%s 静默 no-op", (_label, paneId) => {
     const p1 = makePanel("p1", [makeTerminalTab("t1")]);
     const p2 = makePanel("p2", []);
     setPanesState(makeSplit("s1", [p1, p2]), "p1");
+    const before = usePanesStore.getState().rootPane;
 
-    usePanesStore.getState().removeEmptyPane("s1");
+    usePanesStore.getState().removeEmptyPane(paneId);
 
+    expect(usePanesStore.getState().rootPane).toBe(before);
     expect((usePanesStore.getState().rootPane as SplitPane).children).toHaveLength(2);
   });
 });
@@ -204,41 +222,6 @@ describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理�
     });
   });
 
-  it("editor 标签也进 closedTabs（可撤销，记 filePath 不记 launch 身份）", () => {
-    const editorTab: Tab = {
-      id: "e1",
-      title: "file.ts",
-      contentType: "editor",
-      projectId: "",
-      projectPath: "/tmp/proj",
-      sessionId: null,
-      filePath: "/tmp/proj/file.ts",
-    };
-    setPanesState(makePanel("p1", [editorTab, makeTerminalTab("t2")]), "p1");
-
-    usePanesStore.getState().removeTabsInternal(["e1"], "user-close");
-
-    const snaps = usePanesStore.getState().closedTabs;
-    expect(snaps).toHaveLength(1);
-    expect(snaps[0]).toMatchObject({ contentType: "editor", filePath: "/tmp/proj/file.ts" });
-    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2"]);
-  });
-
-  it("user-close：移除 tab、记 closedTabs、尊重 pinned", () => {
-    const tabs = [
-      makeTerminalTab("t1"),
-      makeTerminalTab("t2", { pinned: true }),
-      makeTerminalTab("t3"),
-    ];
-    setPanesState(makePanel("p1", tabs), "p1");
-
-    usePanesStore.getState().removeTabsInternal(["t1", "t2"], "user-close");
-
-    const after = currentPanel("p1");
-    expect(after.tabs.map((t) => t.id)).toEqual(["t2", "t3"]);
-    expect(usePanesStore.getState().closedTabs.map((t) => t.projectId)).toEqual(["proj-t1"]);
-  });
-
   it("delete-layout：不记 closedTabs、pinned 也移除", () => {
     const tabs = [makeTerminalTab("t1", { pinned: true }), makeTerminalTab("t2")];
     setPanesState(makePanel("p1", tabs), "p1");
@@ -247,17 +230,6 @@ describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理�
 
     expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2"]);
     expect(usePanesStore.getState().closedTabs).toHaveLength(0);
-  });
-
-  it("最后一个 tab 移除后 pane 收壳（与 closeTabInTree 同语义）", () => {
-    const p1 = makePanel("p1", [makeTerminalTab("t1")]);
-    const p2 = makePanel("p2", [makeTerminalTab("t2")]);
-    setPanesState(makeSplit("s1", [p1, p2]), "p2");
-
-    usePanesStore.getState().removeTabsInternal(["t2"], "user-close");
-
-    const shell = usePanesStore.getState().rootPane as SplitPane;
-    expect(shell.children.map((c) => c.id)).toEqual(["p1"]);
   });
 
   it("closedTabs 裁到上限（trimClosedTabs）", () => {
@@ -277,17 +249,6 @@ describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理�
     expect(closed[closed.length - 1].projectId).toBe("proj-t1");
   });
 
-  it("找不到的 tabId 静默跳过（幂等：二次调用零副作用）", () => {
-    setPanesState(makePanel("p1", [makeTerminalTab("t1"), makeTerminalTab("t2")]), "p1");
-
-    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
-    const snapshotAfterFirst = usePanesStore.getState().rootPane;
-    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
-
-    expect(usePanesStore.getState().rootPane).toBe(snapshotAfterFirst);
-    expect(usePanesStore.getState().closedTabs).toHaveLength(1);
-  });
-
   it("清理 poppedOutTabs 里被移除 tab 的条目", () => {
     setPanesState(makePanel("p1", [makeTerminalTab("t1"), makeTerminalTab("t2")]), "p1");
     usePanesStore.setState({ poppedOutTabs: new Set(["t1", "t2"]) });
@@ -300,17 +261,10 @@ describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理�
   it("非当前布局里的 tab 也能移除", () => {
     const current = makePanel("p1", [makeTerminalTab("t1")]);
     const otherPanel = makePanel("p2", [makeTerminalTab("t2"), makeTerminalTab("t3")]);
-    usePanesStore.setState({
-      rootPane: current,
-      activePaneId: "p1",
-      layouts: [
-        { id: "layout-1", name: "布局 1", kind: "normal", rootPane: current, activePaneId: "p1" },
-        { id: "layout-2", name: "布局 2", kind: "normal", rootPane: otherPanel, activePaneId: "p2" },
-      ],
-      currentLayoutId: "layout-1",
-      closedTabs: [],
-      poppedOutTabs: new Set<string>(),
-    });
+    setLayoutsState([
+      { id: "layout-1", rootPane: current, activePaneId: "p1" },
+      { id: "layout-2", rootPane: otherPanel, activePaneId: "p2" },
+    ]);
 
     usePanesStore.getState().removeTabsInternal(["t2"], "delete-layout");
 
@@ -318,43 +272,6 @@ describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理�
     expect(collectTabIds(other.rootPane)).toEqual(["t3"]);
   });
 });
-
-describe("removeTerminalLeafInternal（骨架：关一格）", () => {
-  it("多 leaf 时移除指定 leaf（与 closeTerminalLeafInTab 同语义）", () => {
-    const leafA: TerminalPaneLeaf = { type: "leaf", id: "leaf-a", sessionId: "sess-a" };
-    const leafB: TerminalPaneLeaf = { type: "leaf", id: "leaf-b", sessionId: "sess-b" };
-    const tab = makeTerminalTab("t1");
-    tab.terminalRootPane = {
-      type: "split",
-      id: "tsplit",
-      direction: "horizontal",
-      children: [leafA, leafB],
-      sizes: [50, 50],
-    };
-    tab.activeTerminalPaneId = "leaf-b";
-    setPanesState(makePanel("p1", [tab]), "p1");
-
-    usePanesStore.getState().removeTerminalLeafInternal("t1", "leaf-b", "user-close");
-
-    const after = currentPanel("p1").tabs[0];
-    const shell = after.terminalRootPane as { children: Array<{ id: string }> };
-    expect(shell.children.map((c) => c.id)).toEqual(["leaf-a"]);
-  });
-
-  it("最后一个 leaf 不关（no-op，调用方应改走 removeTabsInternal）", () => {
-    const tab = makeTerminalTab("t1");
-    setPanesState(makePanel("p1", [tab]), "p1");
-
-    usePanesStore.getState().removeTerminalLeafInternal("t1", "t1-leaf", "user-close");
-
-    expect(currentPanel("p1").tabs[0].terminalRootPane?.type).toBe("leaf");
-  });
-});
-
-function collectTabIds(node: PaneNode): string[] {
-  if (node.type === "panel") return node.tabs.map((t) => t.id);
-  return node.children.flatMap(collectTabIds);
-}
 
 // ============================================================================
 // B1-04 改道后的回收断言。
@@ -410,7 +327,7 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
     setPanesState(makePanel("p1", [tab]), "p1");
 
     usePanesStore.getState().removeTabsInternal(["t1"], "backend-close");
-    await new Promise((r) => setTimeout(r, 0));
+    await flushMacrotask();
 
     expect(killSpy).not.toHaveBeenCalled();
     // 树操作照常发生：backend-close 不杀，但标签必须收掉（PTY 已经没了）
@@ -428,6 +345,8 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
 
     expect(killedIds()).toEqual(["sess-normal"]);
     expect(collectTabIds(usePanesStore.getState().rootPane)).toEqual(["t1"]);
+    // 撤销栈也只记被关掉的那个
+    expect(usePanesStore.getState().closedTabs.map((t) => t.projectId)).toEqual(["proj-t2"]);
   });
 
   it("幂等：同一 tabId 连调两次，第二次零 kill 零树变化（React19 dev 双挂载）", async () => {
@@ -437,13 +356,16 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
     usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
     await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
     const afterFirst = killedIds();
+    const rootAfterFirst = usePanesStore.getState().rootPane;
 
     killSpy.mockClear();
     usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
-    await new Promise((r) => setTimeout(r, 0));
+    await flushMacrotask();
 
     expect(afterFirst).toEqual(["sess-a"]);
     expect(killSpy).not.toHaveBeenCalled();
+    expect(usePanesStore.getState().rootPane).toBe(rootAfterFirst);
+    expect(usePanesStore.getState().closedTabs).toHaveLength(1);
   });
 
   it("protectSessionIds 名单内的会话不杀（snapshot-apply 差集保护）", async () => {
@@ -469,20 +391,14 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
 // 这组断言把「搬走 ≠ 销毁」永久钉死。
 // ============================================================================
 describe("moveTab 搬走不杀 / 统一出口销毁语义", () => {
-  function tabWithSession(id: string, sessionId: string): Tab {
-    const tab = makeTerminalTab(id);
-    (tab.terminalRootPane as TerminalPaneLeaf).sessionId = sessionId;
-    return tab;
-  }
-
   it("moveTab 搬空源 pane：收树但零 kill", async () => {
-    const tab = tabWithSession("t1", "sess-moving");
+    const tab = makeSessionTab("t1", "sess-moving");
     const src = makePanel("p1", [tab]);
     const dst = makePanel("p2", [makeTerminalTab("t2")]);
     setPanesState(makeSplit("root", [src, dst]), "p1");
 
     usePanesStore.getState().moveTab("p1", "p2", "t1");
-    await new Promise((r) => setTimeout(r, 0));
+    await flushMacrotask();
 
     expect(killSpy).not.toHaveBeenCalled();
     // tab 活着，只是换了 pane
@@ -490,7 +406,7 @@ describe("moveTab 搬走不杀 / 统一出口销毁语义", () => {
   });
 
   it("关最后一个 tab：杀会话且撤销栈只记一条", async () => {
-    const tab = tabWithSession("t1", "sess-last");
+    const tab = makeSessionTab("t1", "sess-last");
     const src = makePanel("p1", [tab]);
     const dst = makePanel("p2", [makeTerminalTab("t2")]);
     setPanesState(makeSplit("root", [src, dst]), "p1");
@@ -501,11 +417,14 @@ describe("moveTab 搬走不杀 / 统一出口销毁语义", () => {
     expect(killedIds()).toEqual(["sess-last"]);
     expect(usePanesStore.getState().closedTabs.filter((s) => s.projectId === "proj-t1"))
       .toHaveLength(1);
+    // 空 pane 收壳（与 closeTabInTree 同语义）
+    const shell = usePanesStore.getState().rootPane as SplitPane;
+    expect(shell.children.map((c) => c.id)).toEqual(["p2"]);
   });
 
   it("close-pane 矩阵销毁 pane 全部内容（不豁免 pinned）", async () => {
-    const normal = tabWithSession("t1", "sess-a");
-    const pinned = tabWithSession("t2", "sess-b");
+    const normal = makeSessionTab("t1", "sess-a");
+    const pinned = makeSessionTab("t2", "sess-b");
     pinned.pinned = true;
     const src = makePanel("p1", [normal, pinned]);
     const dst = makePanel("p2", [makeTerminalTab("t3")]);
@@ -570,14 +489,6 @@ describe("removeTerminalLeafInternal（改道后：只杀这一格）", () => {
 // 常常马上被 reconcile 收养回来。差集算错 = 开闸后杀光用户所有活会话。
 // ============================================================================
 describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () => {
-  function leafTab(id: string, sessionId: string | null, saved?: string): Tab {
-    const tab = makeTerminalTab(id);
-    const leaf = tab.terminalRootPane as TerminalPaneLeaf;
-    leaf.sessionId = sessionId;
-    if (saved) leaf.savedSessionId = saved;
-    return tab;
-  }
-
   function payloadWith(tabs: Tab[]) {
     const panel = makePanel("p-new", tabs);
     return {
@@ -596,26 +507,12 @@ describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () =>
   }
 
   it("快照期间绝不 kill——真杀要等批2 后开闸并复核活会话", async () => {
-    setPanesState(makePanel("p1", [leafTab("t1", "sess-old")]), "p1");
+    setPanesState(makePanel("p1", [makeSessionTab("t1", "sess-old")]), "p1");
 
-    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([leafTab("t2", "sess-new")]));
-    await new Promise((r) => setTimeout(r, 0));
+    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([makeSessionTab("t2", "sess-new")]));
+    await flushMacrotask();
 
     expect(killSpy).not.toHaveBeenCalled();
-  });
-
-  it("新树仍引用的会话不进候选（apply 阶段差集就排除）", async () => {
-    const { finalizeSnapshotWouldKill, resetSnapshotKillState } =
-      await import("./snapshotSessionDiff");
-    resetSnapshotKillState();
-    setPanesState(makePanel("p1", [leafTab("t1", "sess-keep")]), "p1");
-
-    // 新树用 savedSessionId 引用同一个会话——差集里不该有它
-    usePanesStore.getState().applyLayoutSnapshotPayload(
-      payloadWith([leafTab("t2", null, "sess-keep")]),
-    );
-
-    expect(finalizeSnapshotWouldKill(new Set(), new Set())).not.toContain("sess-keep");
   });
 
   it("补账2：apply 只登记候选，settle 复核后才出最终 would-kill（含收养扣除）", async () => {
@@ -623,9 +520,35 @@ describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () =>
       await import("./snapshotSessionDiff");
     resetSnapshotKillState();
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    setPanesState(makePanel("p1", [leafTab("t1", "sess-gone")]), "p1");
+    setPanesState(
+      makePanel("p1", [makeSessionTab("t1", "sess-keep"), makeSessionTab("t3", "sess-gone")]),
+      "p1",
+    );
 
-    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([leafTab("t2", "sess-new")]));
+    // 新树用 savedSessionId 引用 sess-keep——apply 阶段差集就该排除它
+    usePanesStore.getState().applyLayoutSnapshotPayload(
+      payloadWith([makeSessionTab("t2", null, "sess-keep"), makeSessionTab("t4", "sess-new")]),
+    );
+
+    // apply 阶段不出 would-kill 日志（口径已后置）
+    expect(
+      info.mock.calls.some((c) => String(c[0]).includes("would-kill")),
+    ).toBe(false);
+
+    // settle：后端说 sess-gone 其实还活着（被收养）→ 扣除；此处模拟没活 → 进最终集
+    const final = finalizeSnapshotWouldKill(new Set(), new Set());
+    expect(final).toContain("sess-gone");
+    expect(final).not.toContain("sess-keep");
+  });
+
+  it("补账2：apply 只登记候选，settle 复核后才出最终 would-kill（含收养扣除）", async () => {
+    const { finalizeSnapshotWouldKill, resetSnapshotKillState } =
+      await import("./snapshotSessionDiff");
+    resetSnapshotKillState();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    setPanesState(makePanel("p1", [makeSessionTab("t1", "sess-gone")]), "p1");
+
+    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([makeSessionTab("t2", "sess-new")]));
 
     // apply 阶段不出 would-kill 日志（口径已后置）
     expect(
@@ -665,26 +588,16 @@ describe("Codex 审查 P0 回归", () => {
     // 历史快照互覆盖会产生跨布局同 id 的副本（closeTabBySessionId 的注释
     // 即为此扫完全部布局）。pinned 副本留在树上，它显示的会话绝不能被
     // 另一个未 pinned 副本的销毁连坐——否则 pinned 标签里是个死终端。
-    const shared = makeTerminalTab("t1");
-    (shared.terminalRootPane as TerminalPaneLeaf).sessionId = "sess-shared";
+    const shared = makeSessionTab("t1", "sess-shared");
     const pinnedCopy = { ...shared, pinned: true };
 
-    const p1 = makePanel("p1", [shared]);
-    const p2 = makePanel("p2", [pinnedCopy]);
-    usePanesStore.setState({
-      rootPane: p1,
-      activePaneId: "p1",
-      layouts: [
-        { id: "l1", name: "L1", kind: "normal", rootPane: p1, activePaneId: "p1" },
-        { id: "l2", name: "L2", kind: "normal", rootPane: p2, activePaneId: "p2" },
-      ],
-      currentLayoutId: "l1",
-      closedTabs: [],
-      poppedOutTabs: new Set<string>(),
-    });
+    setLayoutsState([
+      { id: "l1", rootPane: makePanel("p1", [shared]), activePaneId: "p1" },
+      { id: "l2", rootPane: makePanel("p2", [pinnedCopy]), activePaneId: "p2" },
+    ]);
 
     usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
-    await new Promise((r) => setTimeout(r, 0));
+    await flushMacrotask();
 
     // pinned 副本的会话被保护——零 kill
     expect(killSpy).not.toHaveBeenCalledWith("sess-shared", expect.anything());
@@ -692,15 +605,15 @@ describe("Codex 审查 P0 回归", () => {
   });
 
   it("removeTerminalLeafInternal 最后一格：**零 kill 零树变化**（防「会话死了格子还在」）", async () => {
-    const tab = makeTerminalTab("t1");
-    (tab.terminalRootPane as TerminalPaneLeaf).sessionId = "sess-only";
-    setPanesState(makePanel("p1", [tab]), "p1");
+    setPanesState(makePanel("p1", [makeSessionTab("t1", "sess-only")]), "p1");
 
+    // 调用方应改走 removeTabsInternal
     usePanesStore.getState().removeTerminalLeafInternal("t1", "t1-leaf", "user-close");
-    await new Promise((r) => setTimeout(r, 0));
+    await flushMacrotask();
 
     expect(killSpy).not.toHaveBeenCalled();
     expect(currentPanel("p1").tabs).toHaveLength(1);
+    expect(currentPanel("p1").tabs[0].terminalRootPane?.type).toBe("leaf");
   });
 });
 
@@ -729,6 +642,7 @@ describe("非终端标签的撤销（persistForUndo）", () => {
       .toBe("https://example.com/docs");
     expect(snaps.find((s) => s.contentType === "editor")?.filePath)
       .toBe("/tmp/p/src/main.rs");
+    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t1"]);
   });
 
   it("memory-manager 等无 persistForUndo 的类型不进撤销栈", () => {

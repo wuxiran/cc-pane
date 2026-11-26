@@ -27,27 +27,21 @@ describe("NotificationSection", () => {
     expect(switches[3]).not.toBeChecked(); // onlyWhenUnfocused
   });
 
-  it("emits an immutable update when toggling a sub option", async () => {
+  it.each<[number, keyof NotificationSettings]>([
+    [0, "enabled"],
+    [1, "onExit"],
+  ])("emits an immutable update when toggling switch %i (%s)", async (index, key) => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const value = createValue();
+    const before = value[key];
     render(<NotificationSection value={value} onChange={onChange} />);
 
-    await user.click(screen.getAllByRole("switch")[1]);
+    await user.click(screen.getAllByRole("switch")[index]);
 
-    expect(onChange).toHaveBeenCalledWith({ ...value, onExit: true });
+    expect(onChange).toHaveBeenCalledWith({ ...value, [key]: !before });
     // 原对象不被修改
-    expect(value.onExit).toBe(false);
-  });
-
-  it("emits enabled=false when the master switch is unchecked", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<NotificationSection value={createValue()} onChange={onChange} />);
-
-    await user.click(screen.getAllByRole("switch")[0]);
-
-    expect(onChange).toHaveBeenCalledWith(createValue({ enabled: false }));
+    expect(value[key]).toBe(before);
   });
 
   it("disables sub options when notifications are disabled", () => {

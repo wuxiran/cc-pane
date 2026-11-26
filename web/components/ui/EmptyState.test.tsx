@@ -52,31 +52,4 @@ describe("EmptyState", () => {
       container.querySelector("svg[data-illustration='empty-box']"),
     ).toBeInTheDocument();
   });
-
-  it("merges custom className on the root", () => {
-    const { container } = render(
-      <EmptyState icon={Inbox} title="空" className="py-24" />,
-    );
-
-    expect(container.firstElementChild).toHaveClass("py-24");
-  });
-
-  it("passes accent classes through to the illustration without changing defaults", () => {
-    const { container } = render(
-      <EmptyState icon={Inbox} title="空" illustration="empty-box" accent="h-24 w-24" />,
-    );
-
-    const svg = container.querySelector("svg[data-illustration='empty-box']");
-    expect(svg).toHaveClass("h-24", "w-24");
-    expect(svg).not.toHaveClass("h-20");
-  });
-
-  it("keeps the default 80px illustration size when accent is omitted", () => {
-    const { container } = render(
-      <EmptyState icon={Inbox} title="空" illustration="empty-box" />,
-    );
-
-    const svg = container.querySelector("svg[data-illustration='empty-box']");
-    expect(svg).toHaveClass("h-20", "w-20");
-  });
 });

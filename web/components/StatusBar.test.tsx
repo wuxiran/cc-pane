@@ -2,7 +2,7 @@ import "@/i18n";
 import i18n from "@/i18n";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StatusBar from "./StatusBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -53,25 +53,29 @@ function makeStatus(status: TerminalStatusInfo["status"]): TerminalStatusInfo {
   };
 }
 
-describe("StatusBar", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockTauriInvoke({
-      get_ccchan_settings: null,
-      get_ccchan_pets: null,
-      update_settings: null,
-      show_ccchan: null,
-      hide_ccchan: null,
-      toggle_always_on_top: true,
-    });
-    i18n.changeLanguage("zh-CN");
-    useThemeStore.setState({ isDark: false });
-    useWorkspacesStore.setState({ workspaces: [], expandedWorkspaceId: null });
-    useTerminalStatusStore.setState({ statusMap: new Map() });
-    useUpdateStore.setState({ available: false, version: null, body: null });
-    useCCChanStore.setState({ settings: { ...DEFAULT_CCCHAN_SETTINGS, windowVisible: false } });
-    useSettingsStore.setState({ settings: createTestSettings({ general: { ...createTestSettings().general, language: "zh-CN" } }) });
+function resetStores() {
+  vi.clearAllMocks();
+  mockTauriInvoke({
+    get_ccchan_settings: null,
+    get_ccchan_pets: null,
+    update_settings: null,
+    show_ccchan: null,
+    hide_ccchan: null,
+    toggle_always_on_top: true,
   });
+  i18n.changeLanguage("zh-CN");
+  useThemeStore.setState({ isDark: false });
+  useWorkspacesStore.setState({ workspaces: [], expandedWorkspaceId: null });
+  useTerminalStatusStore.setState({ statusMap: new Map() });
+  useUpdateStore.setState({ available: false, version: null, body: null });
+  useCCChanStore.setState({ settings: { ...DEFAULT_CCCHAN_SETTINGS, windowVisible: false } });
+  useSettingsStore.setState({ settings: createTestSettings({ general: { ...createTestSettings().general, language: "zh-CN" } }) });
+}
+
+const t = i18n.t as (key: string, options?: Record<string, unknown>) => string;
+
+describe("StatusBar", () => {
+  beforeEach(resetStores);
 
   it("显示当前工作空间别名", () => {
     const ws = createTestWorkspace({ name: "my-ws", alias: "别名工作区" });
@@ -142,17 +146,15 @@ describe("StatusBar", () => {
   it("切换 cc酱 浮窗调用 IPC 并更新可见状态", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const user = userEvent.setup();
-    const { container } = renderSB();
+    renderSB();
 
-    // 初始隐藏 -> 图标为 EyeOff
-    const eyeOff = container.querySelector("svg.lucide-eye-off");
-    expect(eyeOff).not.toBeNull();
-    await user.click(eyeOff!.closest("button")!);
+    await user.click(screen.getByRole("button", { name: t("statusbar.ccchanShow") }));
 
     await waitFor(() =>
       expect(useCCChanStore.getState().settings.windowVisible).toBe(true),
     );
     expect(invoke).toHaveBeenCalledWith("show_ccchan");
+    expect(screen.getByRole("button", { name: t("statusbar.ccchanHide") })).toBeInTheDocument();
   });
 
   it("有可用更新时显示版本按钮并触发更新", async () => {
@@ -164,5 +166,50 @@ describe("StatusBar", () => {
     await user.click(updateBtn);
 
     expect(triggerUpdateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("StatusBar 窄档溢出", () => {
+  const MORE_LABEL = "更多工具";
+  const LANG_LABEL = "切换语言";
+  const bell = () => screen.queryByRole("button", { name: t("center.bellTooltip", { ns: "notifications" }) });
+  const setWidth = (width: number) => {
+    act(() => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event("resize"));
+    });
+  };
+
+  beforeEach(resetStores);
+  afterEach(() => setWidth(1024));
+
+  it("宽档（>=1024）：无更多菜单，语言按钮行内可见", () => {
+    setWidth(1280);
+    renderSB();
+    expect(screen.queryByRole("button", { name: MORE_LABEL })).toBeNull();
+    expect(screen.getByRole("button", { name: LANG_LABEL })).toBeInTheDocument();
+  });
+
+  it("窄档（<1024）：低优先级项收进更多菜单，铃铛仍行内", async () => {
+    const user = userEvent.setup();
+    setWidth(800);
+    renderSB();
+
+    // 行内保留：命令面板、通知铃铛、主题菜单；语言等收进菜单（未打开时不挂载）
+    expect(screen.queryByRole("button", { name: LANG_LABEL })).toBeNull();
+    expect(bell()).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: MORE_LABEL }));
+    expect(screen.getByRole("button", { name: LANG_LABEL })).toBeInTheDocument();
+  });
+
+  it("xs（<640）：通知铃铛也收进更多菜单", async () => {
+    const user = userEvent.setup();
+    setWidth(500);
+    renderSB();
+    expect(bell()).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: MORE_LABEL }));
+    expect(bell()).not.toBeNull();
   });
 });

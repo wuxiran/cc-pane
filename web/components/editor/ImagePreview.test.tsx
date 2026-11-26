@@ -48,12 +48,6 @@ describe("ImagePreview", () => {
     getEntryInfo.mockResolvedValue({ size: 2048, modified: null });
   });
 
-  it("uses the web raw-file endpoint outside Tauri", () => {
-    render(<ImagePreview filePath={FILE} projectPath="/proj" />);
-    const img = screen.getByRole("img") as HTMLImageElement;
-    expect(img.src).toContain(`/api/fs/raw?path=${encodeURIComponent(FILE)}`);
-  });
-
   it("shows format badge, natural size and formatted file size", async () => {
     render(<ImagePreview filePath={FILE} projectPath="/proj" />);
     expect(screen.getByText("PNG")).toBeInTheDocument();
@@ -65,15 +59,13 @@ describe("ImagePreview", () => {
     });
   });
 
-  it("formats byte and megabyte file sizes", async () => {
-    getEntryInfo.mockResolvedValue({ size: 512 });
-    const { unmount } = render(<ImagePreview filePath={FILE} projectPath="/proj" />);
-    await waitFor(() => expect(screen.getByText("512 B")).toBeInTheDocument());
-    unmount();
-
-    getEntryInfo.mockResolvedValue({ size: 3 * 1024 * 1024 });
+  it.each([
+    [512, "512 B"],
+    [3 * 1024 * 1024, "3.0 MB"],
+  ])("formats a %i byte file size as %s", async (size, label) => {
+    getEntryInfo.mockResolvedValue({ size });
     render(<ImagePreview filePath={FILE} projectPath="/proj" />);
-    await waitFor(() => expect(screen.getByText("3.0 MB")).toBeInTheDocument());
+    expect(await screen.findByText(label)).toBeInTheDocument();
   });
 
   it("starts in fit mode and zooms in/out in custom steps", async () => {
@@ -151,6 +143,7 @@ describe("ImagePreview", () => {
     expect(screen.getByRole("button", { name: "Copy path" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // 非 Tauri 运行时走 web raw-file 端点
     expect(screen.getByRole("img")).toHaveAttribute("src", `/api/fs/raw?path=${encodeURIComponent(FILE)}`);
   });
 

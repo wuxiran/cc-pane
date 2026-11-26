@@ -35,6 +35,14 @@ function setBindings(bindings: TaskBinding[]): void {
   useOrchestratorStore.setState({ bindings });
 }
 
+function renderLeaderWithWorker(): void {
+  setBindings([
+    makeBinding({ id: "leader", title: "Leader", role: "leader" }),
+    makeBinding({ id: "worker", title: "Worker", role: "worker", parentId: "leader" }),
+  ]);
+  render(<OrchestratorTaskTree />);
+}
+
 describe("OrchestratorTaskTree", () => {
   beforeEach(() => {
     setBindings([]);
@@ -46,11 +54,7 @@ describe("OrchestratorTaskTree", () => {
   });
 
   it("renders parent and child cards with increasing depth by default", () => {
-    setBindings([
-      makeBinding({ id: "leader", title: "Leader", role: "leader" }),
-      makeBinding({ id: "worker", title: "Worker", role: "worker", parentId: "leader" }),
-    ]);
-    render(<OrchestratorTaskTree />);
+    renderLeaderWithWorker();
 
     const cards = screen.getAllByTestId("card");
     expect(cards.map((c) => c.textContent)).toEqual(["Leader", "Worker"]);
@@ -59,20 +63,12 @@ describe("OrchestratorTaskTree", () => {
   });
 
   it("shows a worker badge for worker-role nodes", () => {
-    setBindings([
-      makeBinding({ id: "leader", title: "Leader", role: "leader" }),
-      makeBinding({ id: "worker", title: "Worker", role: "worker", parentId: "leader" }),
-    ]);
-    render(<OrchestratorTaskTree />);
+    renderLeaderWithWorker();
     expect(screen.getByText("↪ worker")).toBeVisible();
   });
 
-  it("collapses children when clicking the parent's collapse toggle", () => {
-    setBindings([
-      makeBinding({ id: "leader", title: "Leader", role: "leader" }),
-      makeBinding({ id: "worker", title: "Worker", role: "worker", parentId: "leader" }),
-    ]);
-    render(<OrchestratorTaskTree />);
+  it("collapses and re-expands children via the parent's toggle", () => {
+    renderLeaderWithWorker();
 
     expect(screen.getByText("Worker")).toBeInTheDocument();
     // parent has children → its toggle title is "折叠" while expanded
@@ -81,18 +77,7 @@ describe("OrchestratorTaskTree", () => {
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.getByText("Leader")).toBeInTheDocument();
     // toggle now offers "展开"
-    expect(screen.getByRole("button", { name: "展开" })).toBeVisible();
-  });
-
-  it("re-expands children when clicking the toggle again", () => {
-    setBindings([
-      makeBinding({ id: "leader", title: "Leader", role: "leader" }),
-      makeBinding({ id: "worker", title: "Worker", role: "worker", parentId: "leader" }),
-    ]);
-    render(<OrchestratorTaskTree />);
-
-    fireEvent.click(screen.getByRole("button", { name: "折叠" }));
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    // toggle again re-expands
     fireEvent.click(screen.getByRole("button", { name: "展开" }));
     expect(screen.getByText("Worker")).toBeInTheDocument();
   });

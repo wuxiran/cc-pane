@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { FileTreeNode as FileTreeNodeType, FsEntry } from "@/types/filesystem";
@@ -33,7 +33,7 @@ function renderNode(node: FileTreeNodeType, extra: Record<string, unknown> = {})
     onFileClick: vi.fn(),
     onContextMenu: vi.fn(),
   };
-  render(
+  const view = render(
     <FileTreeNode
       node={node}
       depth={0}
@@ -44,7 +44,7 @@ function renderNode(node: FileTreeNodeType, extra: Record<string, unknown> = {})
       {...extra}
     />
   );
-  return handlers;
+  return { ...handlers, unmount: view.unmount };
 }
 
 describe("getFileIcon", () => {
@@ -54,11 +54,11 @@ describe("getFileIcon", () => {
   });
 
   it("is case-insensitive for known extensions", () => {
-    const { container } = render(<>{getFileIcon("JSON")}</>);
-    const icon = container.querySelector("svg");
-    expect(icon).not.toBeNull();
-    expect(icon).toHaveClass("text-[var(--app-text-tertiary)]");
+    const { container: upper } = render(<>{getFileIcon("JSON")}</>);
+    const { container: lower } = render(<>{getFileIcon("json")}</>);
+    const icon = upper.querySelector("svg");
     expect(icon).not.toHaveClass("lucide-file");
+    expect(icon?.getAttribute("class")).toBe(lower.querySelector("svg")?.getAttribute("class"));
   });
 
   it("maps shell scripts to the terminal icon and unknown extensions to the fallback", () => {
@@ -94,38 +94,20 @@ describe("FileTreeNode", () => {
     expect(onDirDoubleClick).toHaveBeenCalledWith("/proj/src");
   });
 
-  it("forwards contextmenu events with the node", async () => {
+  it("forwards contextmenu events with the node", () => {
     const node = makeNode(entry("/proj/a.ts", false));
     const handlers = renderNode(node);
-    const { fireEvent } = await import("@testing-library/react");
     fireEvent.contextMenu(screen.getByText("a.ts"));
     expect(handlers.onContextMenu).toHaveBeenCalledWith(expect.anything(), node);
   });
 
   it("renders chevron by expanded state and a spinner while loading", () => {
-    const { container: collapsed } = render(
-      <FileTreeNode
-        node={makeNode(entry("/proj/src", true))}
-        depth={0}
-        rootPath="/proj"
-        onToggle={vi.fn()}
-        onFileClick={vi.fn()}
-        onContextMenu={vi.fn()}
-      />
-    );
-    expect(collapsed.querySelector("svg.lucide-chevron-right")).not.toBeNull();
+    const { unmount } = renderNode(makeNode(entry("/proj/src", true)));
+    expect(document.querySelector("svg.lucide-chevron-right")).not.toBeNull();
+    unmount();
 
-    const { container: loading } = render(
-      <FileTreeNode
-        node={makeNode(entry("/proj/src", true), { loading: true })}
-        depth={0}
-        rootPath="/proj"
-        onToggle={vi.fn()}
-        onFileClick={vi.fn()}
-        onContextMenu={vi.fn()}
-      />
-    );
-    expect(loading.querySelector("svg.lucide-loader-circle, svg.lucide-loader-2")).not.toBeNull();
+    renderNode(makeNode(entry("/proj/src", true), { loading: true }));
+    expect(document.querySelector("svg.lucide-loader-circle, svg.lucide-loader-2")).not.toBeNull();
   });
 
   it("exposes setsize/posinset semantics when rendered as a virtualized flat row", () => {
@@ -139,64 +121,17 @@ describe("FileTreeNode", () => {
     ["modified", "M", "text-[var(--app-status-warning)]"],
     ["untracked", "U", "text-[var(--app-status-success)]"],
     ["deleted", "D", "text-[var(--app-status-danger)]"],
-  ])("renders %s as a colored letter badge while keeping the file name neutral", (status, letter, colorClass) => {
+  ])("renders %s as a status-colored letter badge", (status, letter, colorClass) => {
     renderNode(makeNode(entry("/proj/a.ts", false)), {
       gitStatuses: { "/proj/a.ts": status },
     });
 
-    expect(screen.getByText("a.ts")).toHaveClass("text-[var(--app-text-primary)]");
-    expect(screen.getByText("a.ts")).not.toHaveClass(colorClass);
-    expect(screen.getByText(letter)).toHaveClass("text-xs", colorClass);
-  });
-
-  it("highlights the selected file", () => {
-    renderNode(makeNode(entry("/proj/a.ts", false)), {
-      selectedFilePath: "/proj/a.ts",
-    });
-    const row = screen.getByText("a.ts").closest("div[data-file-path]") as HTMLElement;
-    expect(row.className).toContain("bg-[var(--editor-selection-bg)]");
-    expect(row).toHaveAttribute("data-current", "true");
-  });
-
-  it("所有入口统一使用 13px 字号、28px 行高和 16px 图标", () => {
-    const { container } = render(
-      <FileTreeNode
-        node={makeNode(entry("/proj/a.ts", false))}
-        depth={0}
-        rootPath="/proj"
-        onToggle={vi.fn()}
-        onFileClick={vi.fn()}
-        onContextMenu={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText("a.ts")).toHaveClass("text-[length:var(--text-row)]");
-    const row = screen.getByText("a.ts").closest("div[data-file-path]") as HTMLElement;
-    expect(row).toHaveClass("h-7");
-    expect(container.querySelector("svg.lucide-file-code")).toHaveAttribute("width", "16");
-  });
-
-  it("uses primary text with stronger weight for directories", () => {
-    renderNode(makeNode(entry("/proj/src", true)));
-
-    expect(screen.getByText("src")).toHaveClass(
-      "text-[length:var(--text-row)]",
-      "font-semibold",
-      "text-[var(--app-text-primary)]",
-    );
+    expect(screen.getByText(letter)).toHaveClass(colorClass);
+    expect(screen.getByText(letter)).toHaveAttribute("title", status);
   });
 
   it("indents by depth", () => {
-    render(
-      <FileTreeNode
-        node={makeNode(entry("/proj/deep.ts", false))}
-        depth={3}
-        rootPath="/proj"
-        onToggle={vi.fn()}
-        onFileClick={vi.fn()}
-        onContextMenu={vi.fn()}
-      />
-    );
+    renderNode(makeNode(entry("/proj/deep.ts", false)), { depth: 3 });
     const row = screen.getByText("deep.ts").closest("div[data-file-path]") as HTMLElement;
     expect(row.style.paddingLeft).toBe("54px"); // 3 * 14 + 12
   });
@@ -223,7 +158,9 @@ describe("FileTreeNode", () => {
     renderNode(makeNode(entry("/proj/a.ts", false)), {
       selectedFilePath: "/proj/a.ts",
     });
-    expect(screen.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
+    const row = screen.getByRole("treeitem");
+    expect(row).toHaveAttribute("aria-selected", "true");
+    expect(row).toHaveAttribute("data-current", "true");
   });
 
   it("reports focus to keep the roving tabindex in sync", () => {

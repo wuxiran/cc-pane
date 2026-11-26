@@ -106,16 +106,14 @@ describe("planBulkUpdate", () => {
 
 describe("autoCheckDue", () => {
   const now = 1_800_000_000_000;
-  it("is due when never checked or the record is broken", () => {
-    expect(autoCheckDue(null, now)).toBe(true);
-    expect(autoCheckDue(Number.NaN, now)).toBe(true);
-  });
-  it("waits 12 hours between automatic checks", () => {
-    expect(autoCheckDue(now - AUTO_CHECK_INTERVAL_MS + 1000, now)).toBe(false);
-    expect(autoCheckDue(now - AUTO_CHECK_INTERVAL_MS, now)).toBe(true);
-  });
-  it("is due when the clock went backwards", () => {
-    expect(autoCheckDue(now + 60_000, now)).toBe(true);
+  it.each<[string, number | null, boolean]>([
+    ["never checked", null, true],
+    ["a broken record", Number.NaN, true],
+    ["just under 12 hours ago", now - AUTO_CHECK_INTERVAL_MS + 1000, false],
+    ["exactly 12 hours ago", now - AUTO_CHECK_INTERVAL_MS, true],
+    ["a clock that went backwards", now + 60_000, true],
+  ])("%s → due=%s", (_label, last, expected) => {
+    expect(autoCheckDue(last, now)).toBe(expected);
   });
 });
 

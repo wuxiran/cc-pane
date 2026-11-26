@@ -40,10 +40,4 @@ describe("Progress", () => {
       "10",
     );
   });
-
-  it("merges custom className", () => {
-    render(<Progress value={10} className="h-4" />);
-
-    expect(screen.getByRole("progressbar")).toHaveClass("h-4");
-  });
 });

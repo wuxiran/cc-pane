@@ -64,13 +64,12 @@ describe("ImInboundFields", () => {
     expect(onChange).toHaveBeenCalledWith({ inboundAllowedUserIds: ["11", "22"] });
   });
 
-  it("warns that @username chat ids cannot receive messages", () => {
-    render(<ImInboundFields channel={{ ...channel, chatId: "@me", inboundEnabled: true }} onChange={vi.fn()} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("imInboundNeedsNumericChatId");
-  });
-
-  it("shows no warning for numeric chat ids", () => {
-    render(<ImInboundFields channel={{ ...channel, inboundEnabled: true }} onChange={vi.fn()} />);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  it.each<[string, boolean]>([
+    ["@me", true],
+    ["1", false],
+  ])("warns about non-numeric chat id %s: %s", (chatId, warns) => {
+    render(<ImInboundFields channel={{ ...channel, chatId, inboundEnabled: true }} onChange={vi.fn()} />);
+    if (warns) expect(screen.getByRole("alert")).toHaveTextContent("imInboundNeedsNumericChatId");
+    else expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

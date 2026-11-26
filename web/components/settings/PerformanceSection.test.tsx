@@ -102,16 +102,11 @@ describe("PerformanceSection", () => {
     vi.clearAllMocks();
   });
 
-  it("renders every control once", () => {
+  // 各控件的存在性由下方逐 id 的 emit 用例覆盖；这里只断言它们覆盖不到的初始状态
+  it("bounds the cpu weight slider to 1-9 and ships the heavy gate off by default", () => {
     const { container } = renderSection();
-    for (const [id] of [...SWITCH_IDS, ...NUMBER_IDS]) {
-      expect(container.querySelector(`#${id}`), id).not.toBeNull();
-    }
-    expect(screen.getByRole("switch", { name: /降低会话进程优先级|Lower session process priority/i })).toBeInTheDocument();
     expect(cpuWeightThumb(container)).toHaveAttribute("aria-valuemin", "1");
     expect(cpuWeightThumb(container)).toHaveAttribute("aria-valuemax", "9");
-    expect(screen.getByRole("button", { name: /清空台账|Clear ledger/i })).toBeInTheDocument();
-    // 重负载门禁默认关闭
     expect(container.querySelector("#performance-heavy-gate-enabled")).toHaveAttribute("aria-checked", "false");
   });
 

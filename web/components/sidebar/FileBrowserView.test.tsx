@@ -95,7 +95,6 @@ describe("FileBrowserView", () => {
   it("initializes the path from the app cwd on mount", async () => {
     renderView();
 
-    await waitFor(() => expect(getAppCwd).toHaveBeenCalled());
     expect(await screen.findByTestId("file-tree")).toHaveTextContent("D:/app/cwd");
   });
 
@@ -148,38 +147,20 @@ describe("FileBrowserView", () => {
     expect(collapseAll).toHaveBeenCalledWith("D:/projects/app");
   });
 
-  it("opens the New File dialog and creates a file", async () => {
+  it.each([
+    ["New File", 4, "sidebar:filetree.dialogNewFile", "filename.ext", "index.ts", createFile],
+    ["New Folder", 5, "sidebar:filetree.dialogNewFolder", "folder-name", "components", createDirectory],
+  ])("opens the %s dialog and creates the entry in the current path", async (_name, buttonIndex, title, placeholder, entryName, action) => {
     resetFileBrowser("D:/projects/app");
     renderView();
 
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[4]); // New File
+    fireEvent.click(screen.getAllByRole("button")[buttonIndex]);
 
-    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFile"))).toBeVisible();
-    const input = screen.getByPlaceholderText("filename.ext");
-    fireEvent.change(input, { target: { value: "index.ts" } });
+    expect(await screen.findByText(tt(title))).toBeVisible();
+    fireEvent.change(screen.getByPlaceholderText(placeholder), { target: { value: entryName } });
     fireEvent.click(screen.getByRole("button", { name: tt("common:create") }));
 
-    await waitFor(() =>
-      expect(createFile).toHaveBeenCalledWith("D:/projects/app", "index.ts", "D:/projects/app"),
-    );
-  });
-
-  it("opens the New Folder dialog and creates a directory", async () => {
-    resetFileBrowser("D:/projects/app");
-    renderView();
-
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[5]); // New Folder
-
-    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFolder"))).toBeVisible();
-    const input = screen.getByPlaceholderText("folder-name");
-    fireEvent.change(input, { target: { value: "components" } });
-    fireEvent.click(screen.getByRole("button", { name: tt("common:create") }));
-
-    await waitFor(() =>
-      expect(createDirectory).toHaveBeenCalledWith("D:/projects/app", "components", "D:/projects/app"),
-    );
+    await waitFor(() => expect(action).toHaveBeenCalledWith("D:/projects/app", entryName, "D:/projects/app"));
   });
 
   it("disables the back button when there is no back history", () => {

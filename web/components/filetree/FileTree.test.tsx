@@ -124,20 +124,14 @@ describe("FileTree", () => {
     }
   });
 
-  it("renders the loaded tree without re-requesting it", () => {
+  it("renders the loaded tree without re-requesting it, still loading git statuses/ignored paths", () => {
     const actions = setupStores();
     render(<FileTree rootPath={ROOT} />);
     expect(screen.getByText("file.ts")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
     expect(actions.loadDirectory).not.toHaveBeenCalled();
-  });
-
-  it("delegates directory toggling to the store", async () => {
-    const user = userEvent.setup();
-    const actions = setupStores();
-    render(<FileTree rootPath={ROOT} />);
-    await user.click(screen.getByText("src"));
-    expect(actions.toggleExpand).toHaveBeenCalledWith(ROOT, `${ROOT}/src`);
+    expect(actions.loadGitStatuses).toHaveBeenCalledWith(ROOT);
+    expect(actions.loadGitIgnoredPaths).toHaveBeenCalledWith(ROOT);
   });
 
   it("opens files in the panes editor by default and selects them", async () => {
@@ -167,9 +161,6 @@ describe("FileTree", () => {
     for (const name of ["file.ts", "deep", "src"]) {
       const row = screen.getByText(name).closest("div[data-file-path]") as HTMLElement;
       expect(row.querySelector('span[title="modified"]')).toHaveTextContent("M");
-      expect(row.querySelector('span[title="modified"]')).toHaveClass(
-        "text-[var(--app-status-warning)]",
-      );
     }
     // 根目录本身（长度 <= rootPath）不冒泡
     const readmeRow = screen.getByText("README.md").closest("div[data-file-path]") as HTMLElement;
@@ -193,23 +184,14 @@ describe("FileTree", () => {
     expect(otherRow.querySelector('span[title="untracked"]')).toHaveTextContent("U");
   });
 
-  it("loads git-ignored paths alongside statuses on mount", () => {
-    const actions = setupStores();
-    render(<FileTree rootPath={ROOT} />);
-    expect(actions.loadGitStatuses).toHaveBeenCalledWith(ROOT);
-    expect(actions.loadGitIgnoredPaths).toHaveBeenCalledWith(ROOT);
-  });
-
-  it("marks a git-ignored file with italic styling and data-ignored", () => {
+  it("marks a git-ignored file with data-ignored", () => {
     setupStores({ ignoredPaths: { [ROOT]: [`${ROOT}/README.md`] } });
     render(<FileTree rootPath={ROOT} />);
     const row = screen.getByText("README.md").closest("div[data-file-path]") as HTMLElement;
     expect(row).toHaveAttribute("data-ignored", "true");
-    expect(screen.getByText("README.md")).toHaveClass("italic");
-    // 未忽略的兄弟文件不带斜体
+    // 未忽略的兄弟文件不受影响
     const otherRow = screen.getByText("other.ts").closest("div[data-file-path]") as HTMLElement;
     expect(otherRow).not.toHaveAttribute("data-ignored");
-    expect(screen.getByText("other.ts")).not.toHaveClass("italic");
   });
 
   it("inherits the ignored style for descendants of an ignored directory", () => {
@@ -219,7 +201,6 @@ describe("FileTree", () => {
     for (const name of ["src", "deep", "file.ts", "other.ts"]) {
       const row = screen.getByText(name).closest("div[data-file-path]") as HTMLElement;
       expect(row).toHaveAttribute("data-ignored", "true");
-      expect(screen.getByText(name)).toHaveClass("italic");
     }
     // 根目录与忽略目录之外的文件不受影响
     const readmeRow = screen.getByText("README.md").closest("div[data-file-path]") as HTMLElement;

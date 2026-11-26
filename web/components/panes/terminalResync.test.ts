@@ -31,23 +31,44 @@ beforeEach(() => {
   _resetSeqTrackersForTest();
 });
 
+type ResyncOptions = Parameters<typeof resyncFromReplaySnapshot>[0];
+
+/**
+ * 默认：快照缺失（null）、各写入管道记录到数组、debugLog 记录事件名。
+ * 任意选项可覆盖；返回值附带 term 与各记录数组便于断言。
+ */
+async function runResync(
+  overrides: Partial<Omit<ResyncOptions, "term">> & { term?: ReturnType<typeof createTerm> } = {},
+) {
+  const { term = createTerm(), ...options } = overrides;
+  const writes: string[] = [];
+  const checkpointWrites: string[] = [];
+  const events: string[] = [];
+  const syncTrackedBufferType = vi.fn();
+  const resynced = await resyncFromReplaySnapshot({
+    term,
+    sessionId: "s-1",
+    reason: "daemon-desync",
+    getRecoverySnapshot: async () => null,
+    writeData: async (data) => {
+      writes.push(data);
+    },
+    writeCheckpointData: async (data) => {
+      checkpointWrites.push(data);
+    },
+    syncTrackedBufferType,
+    debugLog: (event) => {
+      events.push(event);
+    },
+    ...options,
+  });
+  return { resynced, term, writes, checkpointWrites, events, syncTrackedBufferType };
+}
+
 describe("resyncFromReplaySnapshot", () => {
   it("reset 后全量写入快照并同步 buffer 追踪", async () => {
-    const term = createTerm();
-    const writes: string[] = [];
-    const syncTrackedBufferType = vi.fn();
-
-    const resynced = await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-1",
-      reason: "daemon-desync",
+    const { resynced, term, writes, syncTrackedBufferType } = await runResync({
       getRecoverySnapshot: async () => recoverySnapshot({ delta: "SNAPSHOT" }),
-      writeData: async (data) => {
-        writes.push(data);
-      },
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType,
-      debugLog: () => {},
     });
 
     expect(resynced).toBe(true);
@@ -58,125 +79,34 @@ describe("resyncFromReplaySnapshot", () => {
     );
   });
 
-  it("快照缺失时不 reset（残缺画面优于空画面）", async () => {
-    const term = createTerm();
-
-    const resynced = await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-1",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () => null,
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
+  it("快照缺失时不 reset（残缺画面优于空画面），并接地：CAN 丢弃被截断的控制串 + 清 pen", async () => {
+    const { resynced, term, checkpointWrites } = await runResync();
 
     expect(resynced).toBe(false);
     expect(term.reset).not.toHaveBeenCalled();
-  });
-
-  it("快照请求抛错时不 reset、返回 false", async () => {
-    const term = createTerm();
-
-    const resynced = await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-1",
-      reason: "hibernation-overflow",
-      getRecoverySnapshot: async () => {
-        throw new Error("network down");
-      },
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
-
-    expect(resynced).toBe(false);
-    expect(term.reset).not.toHaveBeenCalled();
-  });
-
-  it("快照缺失时接地：CAN 丢弃被截断的控制串 + 清 pen", async () => {
-    const term = createTerm();
-    const checkpointWrites: string[] = [];
-
-    const resynced = await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-1",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () => null,
-      writeData: async () => {},
-      writeCheckpointData: async (data) => {
-        checkpointWrites.push(data);
-      },
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
-
-    expect(resynced).toBe(false);
-    expect(term.reset).not.toHaveBeenCalled();
+    // 接地必须用 CAN 而非 ESC——ESC 会提交被 gap 截断的 OSC（改窗口标题 / 写剪贴板）。
+    // xterm 派发 OSC/DCS/APC 的判据是 success = code !== 0x18 && code !== 0x1a，
+    // 用 ESC 接地只让解析器归位、却把 gap 截断的那半段**提交**出去。
     expect(checkpointWrites).toEqual(["\x18\x1b[0m"]);
   });
 
-  it("接地必须用 CAN 而非 ESC——ESC 会提交被 gap 截断的 OSC（改窗口标题 / 写剪贴板）", async () => {
-    const checkpointWrites: string[] = [];
-
-    await resyncFromReplaySnapshot({
-      term: createTerm(),
-      sessionId: "s-1",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () => null,
-      writeData: async () => {},
-      writeCheckpointData: async (data) => {
-        checkpointWrites.push(data);
-      },
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
-
-    // xterm 派发 OSC/DCS/APC 的判据是 success = code !== 0x18 && code !== 0x1a，
-    // 用 ESC 接地只让解析器归位、却把 gap 截断的那半段**提交**出去。
-    expect(checkpointWrites[0]?.startsWith("\x18")).toBe(true);
-    expect(checkpointWrites[0]?.startsWith("\x1b")).toBe(false);
-  });
-
-  it("快照请求抛错时同样接地（gap 已经发生，与拿不到快照的原因无关）", async () => {
-    const checkpointWrites: string[] = [];
-
-    const resynced = await resyncFromReplaySnapshot({
-      term: createTerm(),
-      sessionId: "s-1",
+  it("快照请求抛错时不 reset、返回 false，且同样接地（gap 已经发生，与拿不到快照的原因无关）", async () => {
+    const { resynced, term, checkpointWrites } = await runResync({
       reason: "hibernation-overflow",
       getRecoverySnapshot: async () => {
         throw new Error("network down");
       },
-      writeData: async () => {},
-      writeCheckpointData: async (data) => {
-        checkpointWrites.push(data);
-      },
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
     });
 
     expect(resynced).toBe(false);
+    expect(term.reset).not.toHaveBeenCalled();
     expect(checkpointWrites).toEqual(["\x18\x1b[0m"]);
   });
 
   it("成功路径不接地（reset + 快照重画已经把状态全部重建）", async () => {
-    const checkpointWrites: string[] = [];
-
-    const resynced = await resyncFromReplaySnapshot({
-      term: createTerm(),
-      sessionId: "s-1",
-      reason: "daemon-desync",
+    const { resynced, checkpointWrites } = await runResync({
       // checkpoint 为 null，所以 checkpoint 管道只可能被接地写入触碰
       getRecoverySnapshot: async () => recoverySnapshot({ delta: "SNAPSHOT" }),
-      writeData: async () => {},
-      writeCheckpointData: async (data) => {
-        checkpointWrites.push(data);
-      },
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
     });
 
     expect(resynced).toBe(true);
@@ -184,20 +114,9 @@ describe("resyncFromReplaySnapshot", () => {
   });
 
   it("接地写入失败不改变返回值，也不把原本的失败原因盖掉", async () => {
-    const events: string[] = [];
-
-    const resynced = await resyncFromReplaySnapshot({
-      term: createTerm(),
-      sessionId: "s-1",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () => null,
-      writeData: async () => {},
+    const { resynced, events } = await runResync({
       writeCheckpointData: async () => {
         throw new Error("xterm disposed");
-      },
-      syncTrackedBufferType: () => {},
-      debugLog: (event) => {
-        events.push(event);
       },
     });
 
@@ -207,20 +126,8 @@ describe("resyncFromReplaySnapshot", () => {
   });
 
   it("空数据快照仍 reset（会话确实没有历史）", async () => {
-    const term = createTerm();
-    const writes: string[] = [];
-
-    const resynced = await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-1",
-      reason: "daemon-desync",
+    const { resynced, term, writes } = await runResync({
       getRecoverySnapshot: async () => recoverySnapshot(),
-      writeData: async (data) => {
-        writes.push(data);
-      },
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
     });
 
     expect(resynced).toBe(true);
@@ -229,17 +136,13 @@ describe("resyncFromReplaySnapshot", () => {
   });
 
   it("双管道序（裁决 B）：reset → photo 直写 → delta 渲染写 → sync", async () => {
-    const term = {
-      reset: vi.fn(() => order.push("reset")),
-      buffer: { active: { type: "normal" as const } },
-    };
     const order: string[] = [];
-    const syncTrackedBufferType = vi.fn(() => order.push("sync"));
+    const term = createTerm();
+    term.reset.mockImplementation(() => order.push("reset"));
 
-    const resynced = await resyncFromReplaySnapshot({
+    const { resynced } = await runResync({
       term,
       sessionId: "s-2",
-      reason: "daemon-desync",
       getRecoverySnapshot: async () =>
         recoverySnapshot({
           checkpoint: {
@@ -261,8 +164,9 @@ describe("resyncFromReplaySnapshot", () => {
       writeCheckpointData: async (data) => {
         order.push(`photo:${data}`);
       },
-      syncTrackedBufferType,
-      debugLog: () => {},
+      syncTrackedBufferType: () => {
+        order.push("sync");
+      },
     });
 
     expect(resynced).toBe(true);
@@ -270,40 +174,17 @@ describe("resyncFromReplaySnapshot", () => {
     expect(order).toEqual(["reset", "photo:PHOTO-VT", "delta:DELTA-RAW", "sync"]);
   });
 
-  it("epoch≠0 时 resync 后 reanchor（恢复可拍）", async () => {
-    const term = createTerm();
-    expect(anchorCandidate("s-3")).toBeNull();
+  it.each([
+    ["epoch≠0 时 resync 后 reanchor（恢复可拍）", "s-3",
+      recoverySnapshot({ delta: "D", endSeq: 33, checkpointEpoch: "6" }),
+      { anchorSeq: 33, checkpointEpoch: "6" }],
+    ["epoch=0（旧 daemon 回落）不 reanchor", "s-4", recoverySnapshot({ delta: "D" }), null],
+  ] as const)("%s", async (_label, sessionId, snapshot, expectedAnchor) => {
+    expect(anchorCandidate(sessionId)).toBeNull();
 
-    await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-3",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () =>
-        recoverySnapshot({ delta: "D", endSeq: 33, checkpointEpoch: "6" }),
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
+    await runResync({ sessionId, getRecoverySnapshot: async () => snapshot });
 
-    expect(anchorCandidate("s-3")).toEqual({ anchorSeq: 33, checkpointEpoch: "6" });
-  });
-
-  it("epoch=0（旧 daemon 回落）不 reanchor", async () => {
-    const term = createTerm();
-
-    await resyncFromReplaySnapshot({
-      term,
-      sessionId: "s-4",
-      reason: "daemon-desync",
-      getRecoverySnapshot: async () => recoverySnapshot({ delta: "D" }),
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      debugLog: () => {},
-    });
-
-    expect(anchorCandidate("s-4")).toBeNull();
+    expect(anchorCandidate(sessionId)).toEqual(expectedAnchor);
   });
 });
 
@@ -346,6 +227,11 @@ describe("createTerminalDesyncHandler", () => {
     overrides: {
       getRecoverySnapshot?: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
       term?: ReturnType<typeof createTerm> | null;
+      writeData?: (data: string) => Promise<void>;
+      /** 传 null 模拟 hiddenWriteBufferRef.current 为空。 */
+      hiddenWriteBuffer?: null;
+      /** 在记录 order 之后调用，可返回 promise 模拟异步收尾。 */
+      onResyncSettled?: (resynced: boolean) => unknown;
     } = {},
   ) {
     const order: string[] = [];
@@ -354,7 +240,10 @@ describe("createTerminalDesyncHandler", () => {
     if (term) term.reset.mockImplementation(() => order.push("term.reset"));
     const hiddenWriteBuffer = { reset: vi.fn(() => order.push("buffer.reset")) };
     const setResyncActive = vi.fn((active: boolean) => order.push(`gate:${active}`));
-    const onResyncSettled = vi.fn((resynced: boolean) => order.push(`settled:${resynced}`));
+    const onResyncSettled = vi.fn((resynced: boolean) => {
+      order.push(`settled:${resynced}`);
+      return overrides.onResyncSettled?.(resynced);
+    });
     const getRecoverySnapshot = vi.fn(
       overrides.getRecoverySnapshot
         ?? (async () => {
@@ -366,9 +255,11 @@ describe("createTerminalDesyncHandler", () => {
     const handler = createTerminalDesyncHandler({
       sessionId: "s-desync",
       terminalRef: { current: term },
-      hiddenWriteBufferRef: { current: hiddenWriteBuffer },
+      hiddenWriteBufferRef: {
+        current: overrides.hiddenWriteBuffer === null ? null : hiddenWriteBuffer,
+      },
       getRecoverySnapshot,
-      writeData: async () => {},
+      writeData: overrides.writeData ?? (async () => {}),
       writeCheckpointData: async (data) => {
         checkpointWrites.push(data);
         order.push("checkpoint.write");
@@ -515,21 +406,10 @@ describe("createTerminalDesyncHandler", () => {
 
   it("returns one shared promise that includes asynchronous settled cleanup", async () => {
     let finishSettled!: () => void;
-    const onResyncSettled = vi.fn(() => new Promise<void>((resolve) => {
-      finishSettled = resolve;
-    }));
-    const getRecoverySnapshot = vi.fn(async () => recoverySnapshot({ delta: "D" }));
-    const handler = createTerminalDesyncHandler({
-      sessionId: "s-shared-resync",
-      terminalRef: { current: createTerm() },
-      hiddenWriteBufferRef: { current: { reset: vi.fn() } },
-      getRecoverySnapshot,
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      setResyncActive: vi.fn(),
-      onResyncSettled,
-      debugLog: vi.fn(),
+    const { handler, getRecoverySnapshot, onResyncSettled } = harness({
+      onResyncSettled: () => new Promise<void>((resolve) => {
+        finishSettled = resolve;
+      }),
     });
 
     const first = handler();
@@ -551,10 +431,14 @@ describe("createTerminalDesyncHandler", () => {
     expect(settled).toBe(true);
   });
 
-  it("快照返回 null 也放闸 + onResyncSettled(false)（否则闸门永不打开 = 终端永久静默）", async () => {
-    const { handler, setResyncActive, onResyncSettled } = harness({
-      getRecoverySnapshot: async () => null,
-    });
+  type SnapshotFetch = () => Promise<TerminalRecoverySnapshot | null>;
+  it.each<[string, SnapshotFetch]>([
+    ["快照返回 null 也放闸 + onResyncSettled(false)（否则闸门永不打开 = 终端永久静默）", async () => null],
+    ["快照请求抛错也放闸 + onResyncSettled(false)", async () => {
+      throw new Error("daemon unreachable");
+    }],
+  ])("%s", async (_label, getRecoverySnapshot) => {
+    const { handler, setResyncActive, onResyncSettled } = harness({ getRecoverySnapshot });
     const completion = handler();
     await flush();
 
@@ -577,35 +461,11 @@ describe("createTerminalDesyncHandler", () => {
     expect(order.indexOf("checkpoint.write")).toBeLessThan(order.indexOf("settled:false"));
   });
 
-  it("快照请求抛错也放闸 + onResyncSettled(false)", async () => {
-    const { handler, setResyncActive, onResyncSettled } = harness({
-      getRecoverySnapshot: async () => {
-        throw new Error("daemon unreachable");
-      },
-    });
-    handler();
-    await flush();
-
-    expect(setResyncActive).toHaveBeenLastCalledWith(false);
-    expect(onResyncSettled).toHaveBeenCalledWith(false);
-  });
-
   it("写入阶段抛错（reject 不被 resync 内部吞）同样放闸", async () => {
-    const setResyncActive = vi.fn();
-    const onResyncSettled = vi.fn();
-    const handler = createTerminalDesyncHandler({
-      sessionId: "s-write-fail",
-      terminalRef: { current: createTerm() },
-      hiddenWriteBufferRef: { current: { reset: vi.fn() } },
-      getRecoverySnapshot: async () => recoverySnapshot({ delta: "D" }),
+    const { handler, setResyncActive, onResyncSettled } = harness({
       writeData: async () => {
         throw new Error("write failed");
       },
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      setResyncActive,
-      onResyncSettled,
-      debugLog: () => {},
     });
 
     handler();
@@ -628,20 +488,7 @@ describe("createTerminalDesyncHandler", () => {
   });
 
   it("hiddenWriteBufferRef 为 null 时不抛（可选链），流程照常走完", async () => {
-    const setResyncActive = vi.fn();
-    const onResyncSettled = vi.fn();
-    const handler = createTerminalDesyncHandler({
-      sessionId: "s-no-buffer",
-      terminalRef: { current: createTerm() },
-      hiddenWriteBufferRef: { current: null },
-      getRecoverySnapshot: async () => recoverySnapshot({ delta: "D" }),
-      writeData: async () => {},
-      writeCheckpointData: async () => {},
-      syncTrackedBufferType: () => {},
-      setResyncActive,
-      onResyncSettled,
-      debugLog: () => {},
-    });
+    const { handler, onResyncSettled } = harness({ hiddenWriteBuffer: null });
 
     expect(() => handler()).not.toThrow();
     await flush();

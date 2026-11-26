@@ -24,20 +24,17 @@ function renderToolbar(showHidden = false) {
     onNewFolder: vi.fn(),
     onToggleHidden: vi.fn(),
   };
-  render(<FileExplorerToolbar showHidden={showHidden} {...handlers} />);
-  return handlers;
+  const view = render(<FileExplorerToolbar showHidden={showHidden} {...handlers} />);
+  return { ...handlers, unmount: view.unmount };
 }
 
 describe("FileExplorerToolbar", () => {
-  it("renders four action buttons", () => {
-    renderToolbar();
-    expect(screen.getAllByRole("button")).toHaveLength(4);
-  });
-
   it("wires refresh / new file / new folder / toggle hidden callbacks in order", async () => {
     const user = userEvent.setup();
     const handlers = renderToolbar();
-    const [refresh, newFile, newFolder, toggleHidden] = screen.getAllByRole("button");
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(4);
+    const [refresh, newFile, newFolder, toggleHidden] = buttons;
 
     await user.click(refresh);
     expect(handlers.onRefresh).toHaveBeenCalledTimes(1);
@@ -53,28 +50,12 @@ describe("FileExplorerToolbar", () => {
   });
 
   it("switches the hidden-files icon by showHidden state", () => {
-    const { unmount } = render(
-      <FileExplorerToolbar
-        showHidden={false}
-        onRefresh={vi.fn()}
-        onNewFile={vi.fn()}
-        onNewFolder={vi.fn()}
-        onToggleHidden={vi.fn()}
-      />
-    );
+    const { unmount } = renderToolbar(false);
     let toggle = screen.getAllByRole("button")[3];
     expect(toggle.querySelector("svg.lucide-eye-off")).not.toBeNull();
     unmount();
 
-    render(
-      <FileExplorerToolbar
-        showHidden
-        onRefresh={vi.fn()}
-        onNewFile={vi.fn()}
-        onNewFolder={vi.fn()}
-        onToggleHidden={vi.fn()}
-      />
-    );
+    renderToolbar(true);
     toggle = screen.getAllByRole("button")[3];
     expect(toggle.querySelector("svg.lucide-eye")).not.toBeNull();
   });

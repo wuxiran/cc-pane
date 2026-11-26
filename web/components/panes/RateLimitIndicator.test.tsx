@@ -80,18 +80,16 @@ describe("RateLimitIndicator", () => {
     expect(screen.getByText("81% used")).toBeTruthy();
   });
 
-  it("renders nothing without data, so engines without a source show no fake number", () => {
-    seed(null);
-    const { container } = render(<RateLimitIndicator terminalContext={context} />);
-    expect(container.textContent).toBe("");
-  });
-
-  it("hides windows that already reset", () => {
-    seed({
-      ...codex,
-      windows: [{ ...codex.windows[0], resetsAt: NOW - 1 }],
-    });
-    const { container } = render(<RateLimitIndicator terminalContext={context} />);
+  it.each<[string, RateLimitSnapshot | null, Partial<ActiveTerminalContext>]>([
+    // engines without a source must show no fake number
+    ["there is no rate-limit data", null, {}],
+    ["every window already reset", { ...codex, windows: [{ ...codex.windows[0], resetsAt: NOW - 1 }] }, {}],
+    ["the session is SSH", codex, { ssh: true }],
+  ])("renders nothing when %s", (_label, rateLimits, contextOverrides) => {
+    seed(rateLimits);
+    const { container } = render(
+      <RateLimitIndicator terminalContext={{ ...context, ...contextOverrides } as ActiveTerminalContext} />,
+    );
     expect(container.textContent).toBe("");
   });
 
@@ -100,13 +98,5 @@ describe("RateLimitIndicator", () => {
     render(<RateLimitIndicator terminalContext={context} />);
     expect(screen.getByTestId("rate-limit-indicator").style.color).toBe("var(--app-status-danger)");
     expect(screen.getByText(/Limit reached/)).toBeTruthy();
-  });
-
-  it("ignores SSH sessions", () => {
-    seed(codex);
-    const { container } = render(
-      <RateLimitIndicator terminalContext={{ ...context, ssh: true } as ActiveTerminalContext} />,
-    );
-    expect(container.textContent).toBe("");
   });
 });

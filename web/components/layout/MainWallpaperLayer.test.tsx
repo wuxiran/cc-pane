@@ -119,10 +119,22 @@ describe("MainWallpaperLayer 视频壁纸有效可见性（遮挡/不可见即�
     pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   });
 
-  it("可见且无遮挡：起播（play 被调）", () => {
+  it.each([
+    ["可见且无遮挡", () => {}],
+    ["canvas 模式不垫：节点间透壁纸是该视图设计，亮色+终端也继续播", () => {
+      themeState.isDark = false;
+      useTerminalLayout();
+      canvasDisplayState.mode = "canvas";
+    }],
+    ["orchestration 是 panes 兼容态：壁纸仍可见，不暂停", () => {
+      activityBarState.appViewMode = "orchestration";
+    }],
+  ] as const)("%s：渲染 video 并起播", (_label, arrange) => {
+    arrange();
     const { container } = render(<MainWallpaperLayer />);
     expect(container.querySelector("video")).not.toBeNull();
     expect(playSpy).toHaveBeenCalled();
+    expect(pauseSpy).not.toHaveBeenCalled();
   });
 
   it("亮色 + 终端主导 + panel 模式：垫层完全遮挡 → pause，不起播", () => {
@@ -154,14 +166,6 @@ describe("MainWallpaperLayer 视频壁纸有效可见性（遮挡/不可见即�
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("canvas 模式不垫：节点间透壁纸是该视图设计，视频继续播", () => {
-    themeState.isDark = false;
-    useTerminalLayout();
-    canvasDisplayState.mode = "canvas";
-    render(<MainWallpaperLayer />);
-    expect(playSpy).toHaveBeenCalled();
-  });
-
   it("切到非 panes 全屏视图 → pause；切回 panes → play", () => {
     const { rerender } = render(<MainWallpaperLayer />);
     expect(playSpy).toHaveBeenCalledTimes(1);
@@ -174,12 +178,6 @@ describe("MainWallpaperLayer 视频壁纸有效可见性（遮挡/不可见即�
     activityBarState.appViewMode = "panes";
     rerender(<MainWallpaperLayer />);
     expect(playSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("orchestration 是 panes 兼容态：壁纸仍可见，不暂停", () => {
-    activityBarState.appViewMode = "orchestration";
-    render(<MainWallpaperLayer />);
-    expect(playSpy).toHaveBeenCalled();
   });
 
   it("play() 被 AbortError 拒绝时静默吞掉，不向调用方抛", () => {

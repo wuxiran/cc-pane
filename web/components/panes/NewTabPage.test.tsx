@@ -19,6 +19,10 @@ vi.mock("@/services/filesystemService", () => ({ filesystemService: { createFile
 vi.mock("@/services/cliToolService", () => ({ listCliTools: vi.fn() }));
 const tab: Tab = { id: "new-page", title: "New tab", contentType: "browser", browserUrl: "about:blank", projectId: "", projectPath: "", sessionId: null };
 
+const renderPage = (pageTab: Tab = tab) => render(<NewTabPage tab={pageTab} paneId="source" />);
+const findEditor = (path: string) => findEditorTabByPathAcrossLayouts(usePanesStore.getState(), path);
+const allTabs = () => usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs);
+
 beforeEach(async () => {
   await i18n.changeLanguage("en");
   vi.clearAllMocks();
@@ -36,7 +40,7 @@ beforeEach(async () => {
 
 describe("NewTabPage", () => {
   it("navigates the existing tab and rejects non-web schemes", () => {
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     const address = screen.getByRole("textbox", { name: "Enter a website address" });
     fireEvent.change(address, { target: { value: "javascript:alert(1)" } });
     fireEvent.click(screen.getByRole("button", { name: "Open website" }));
@@ -49,10 +53,10 @@ describe("NewTabPage", () => {
 
   it("opens a selected file in its source pane and derives a project for a projectless page", async () => {
     vi.mocked(open).mockResolvedValue("/tmp/project/notes.md");
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "File" }));
-    await waitFor(() => expect(findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/project/notes.md")).toBeTruthy());
-    const found = findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/project/notes.md")!;
+    await waitFor(() => expect(findEditor("/tmp/project/notes.md")).toBeTruthy());
+    const found = findEditor("/tmp/project/notes.md")!;
     expect(found.panel.id).toBe("source");
     expect(found.tab.projectPath).toBe("/tmp/project");
     expect(usePanesStore.getState().activePaneId).toBe("source");
@@ -60,9 +64,9 @@ describe("NewTabPage", () => {
 
   it("asks for a folder when opening a projectless review and keeps it in the source pane", async () => {
     vi.mocked(open).mockResolvedValue("/tmp/repo");
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Changes" }));
-    await waitFor(() => expect(usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs).some((item) => item.contentType === "review")).toBe(true));
+    await waitFor(() => expect(allTabs().some((item) => item.contentType === "review")).toBe(true));
     expect(open).toHaveBeenCalledWith({ multiple: false, directory: true });
     expect(usePanesStore.getState().activePaneId).toBe("source");
   });
@@ -70,14 +74,14 @@ describe("NewTabPage", () => {
   it("keeps the original layout when the user switches while the file picker is open", async () => {
     let choose!: (path: string) => void;
     vi.mocked(open).mockImplementationOnce(() => new Promise<string>((resolve) => { choose = resolve; }));
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "File" }));
     await waitFor(() => expect(open).toHaveBeenCalledOnce());
     let otherLayout = "";
     act(() => { otherLayout = usePanesStore.getState().createLayout("Other"); });
     act(() => { choose("/tmp/project/later.md"); });
-    await waitFor(() => expect(findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/project/later.md")).toBeTruthy());
-    const found = findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/project/later.md")!;
+    await waitFor(() => expect(findEditor("/tmp/project/later.md")).toBeTruthy());
+    const found = findEditor("/tmp/project/later.md")!;
     expect(found.layoutId).toBe("layout");
     expect(found.panel.id).toBe("source");
     expect(usePanesStore.getState().currentLayoutId).toBe(otherLayout);
@@ -85,19 +89,19 @@ describe("NewTabPage", () => {
 
   it("creates only an empty Markdown file and opens it in the source pane", async () => {
     vi.mocked(save).mockResolvedValue("/tmp/pages/Notes");
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "New page" }));
-    await waitFor(() => expect(findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/pages/Notes.md")).toBeTruthy());
+    await waitFor(() => expect(findEditor("/tmp/pages/Notes.md")).toBeTruthy());
     expect(save).toHaveBeenCalledWith({ defaultPath: "Untitled.md", filters: [{ name: "Markdown", extensions: ["md"] }] });
     expect(filesystemService.createFile).toHaveBeenCalledExactlyOnceWith("/tmp/pages/Notes.md");
-    const found = findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/pages/Notes.md")!;
+    const found = findEditor("/tmp/pages/Notes.md")!;
     expect(found.panel.id).toBe("source");
     expect(found.tab.projectPath).toBe("/tmp/pages");
   });
 
   it("does nothing when creating a page is cancelled", async () => {
     vi.mocked(save).mockResolvedValue(null);
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New page" })); });
     expect(filesystemService.createFile).not.toHaveBeenCalled();
     expect(usePanesStore.getState().listEditorTabsAcrossLayouts()).toEqual([]);
@@ -107,7 +111,7 @@ describe("NewTabPage", () => {
     vi.mocked(save).mockResolvedValue("/tmp/existing.md");
     vi.mocked(filesystemService.createFile).mockRejectedValue(new Error("already exists"));
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New page" })); });
     expect(filesystemService.createFile).toHaveBeenCalledExactlyOnceWith("/tmp/existing.md");
     expect(usePanesStore.getState().listEditorTabsAcrossLayouts()).toEqual([]);
@@ -117,15 +121,15 @@ describe("NewTabPage", () => {
   it("keeps one save dialog and the original layout while page creation is pending", async () => {
     let choose!: (path: string) => void;
     vi.mocked(save).mockImplementationOnce(() => new Promise<string>((resolve) => { choose = resolve; }));
-    render(<NewTabPage tab={tab} paneId="source" />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "New page" }));
     fireEvent.click(screen.getByRole("button", { name: "New page" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     let otherLayout = "";
     act(() => { otherLayout = usePanesStore.getState().createLayout("Other"); });
     act(() => { choose("/tmp/pages/later.md"); });
-    await waitFor(() => expect(findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/pages/later.md")).toBeTruthy());
-    const found = findEditorTabByPathAcrossLayouts(usePanesStore.getState(), "/tmp/pages/later.md")!;
+    await waitFor(() => expect(findEditor("/tmp/pages/later.md")).toBeTruthy());
+    const found = findEditor("/tmp/pages/later.md")!;
     expect(found.layoutId).toBe("layout");
     expect(found.panel.id).toBe("source");
     expect(usePanesStore.getState().currentLayoutId).toBe(otherLayout);
@@ -142,12 +146,12 @@ describe("NewTabPage", () => {
         pane.tabs = [left, projectTab, right];
         pane.activeTabId = projectTab.id;
       });
-      return render(<NewTabPage tab={projectTab} paneId="source" />);
+      return renderPage(projectTab);
     };
     const sourceTabs = () => usePanesStore.getState().allPanels().find((pane) => pane.id === "source")!.tabs;
 
     it("lists only installed CLIs, in launch-menu order", async () => {
-      render(<NewTabPage tab={projectTab} paneId="source" />);
+      renderPage(projectTab);
       expect(await screen.findByRole("button", { name: "Claude Code" })).toBeVisible();
       expect(screen.getByRole("button", { name: /Gemini/ })).toBeVisible();
       expect(screen.queryByRole("button", { name: /Codex/ })).toBeNull();
@@ -176,7 +180,7 @@ describe("NewTabPage", () => {
 
     it("opens the global launcher with the project path from More", () => {
       const openLauncher = vi.spyOn(useDialogStore.getState(), "openLauncher");
-      render(<NewTabPage tab={projectTab} paneId="source" />);
+      renderPage(projectTab);
       fireEvent.click(screen.getByRole("button", { name: "More launch options" }));
       expect(openLauncher).toHaveBeenCalledWith({ projectPath: "/tmp/proj", targetLayoutId: "layout" });
       expect(useDialogStore.getState().launcherOpen).toBe(true);
@@ -185,11 +189,11 @@ describe("NewTabPage", () => {
     });
 
     it("keeps Agent Chat and Project files actions", async () => {
-      render(<NewTabPage tab={projectTab} paneId="source" />);
+      renderPage(projectTab);
       fireEvent.click(screen.getByRole("button", { name: "Agent Chat" }));
-      expect(usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs).some((item) => item.contentType === "agent-chat")).toBe(true);
+      expect(allTabs().some((item) => item.contentType === "agent-chat")).toBe(true);
       fireEvent.click(screen.getByRole("button", { name: "Project files" }));
-      await waitFor(() => expect(usePanesStore.getState().allPanels().flatMap((pane) => pane.tabs).some((item) => item.contentType === "file-explorer")).toBe(true));
+      await waitFor(() => expect(allTabs().some((item) => item.contentType === "file-explorer")).toBe(true));
     });
   });
 });

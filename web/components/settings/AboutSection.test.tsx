@@ -61,7 +61,6 @@ describe("AboutSection", () => {
     await act(async () => {});
 
     expect(await screen.findByText("v9.9.9")).toBeInTheDocument();
-    expect(getVersion).toHaveBeenCalled();
   });
 
   it("falls back to the package.json version outside Tauri and hides desktop buttons", async () => {
@@ -104,16 +103,6 @@ describe("AboutSection", () => {
     expect(screen.getByText(/2\.0\.0/)).toBeInTheDocument();
   });
 
-  it("uses a destructive confirmation button for cleanup", async () => {
-    const user = userEvent.setup();
-    await i18n.changeLanguage("en");
-    render(<AboutSection />);
-    await act(async () => {});
-
-    await user.click(screen.getByRole("button", { name: "Cleanup before uninstall" }));
-    expect(screen.getByRole("button", { name: "Clean up now" })).toHaveAttribute("data-variant", "destructive");
-  });
-
   it("confirms cleanup and renders the cleanup report", async () => {
     const user = userEvent.setup();
     render(<AboutSection />);
@@ -121,7 +110,10 @@ describe("AboutSection", () => {
 
     await user.click(screen.getByRole("button", { name: /卸载前清理|Cleanup before uninstall/i }));
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /确认清理|Clean up now/i }));
+    const confirmButton = screen.getByRole("button", { name: /确认清理|Clean up now/i });
+    // 不可逆操作必须用 destructive 按钮
+    expect(confirmButton).toHaveAttribute("data-variant", "destructive");
+    await user.click(confirmButton);
 
     await waitFor(() => expect(settingsService.cleanupBeforeUninstall).toHaveBeenCalledTimes(1));
     expect(screen.getByText("~/.claude/commands/ccpanes")).toBeInTheDocument();

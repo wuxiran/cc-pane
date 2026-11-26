@@ -28,23 +28,15 @@ function renderBar(session: SelfChatSession, handlers?: { onRestart?: () => void
 }
 
 describe("SelfChatContextBar", () => {
-  it("shows the injected badge once a system prompt exists, regardless of status", () => {
-    renderBar(makeSession({ systemPrompt: "prompt", status: "initializing" }));
+  it.each([
+    ["injected once a system prompt exists, regardless of status", { systemPrompt: "prompt", status: "initializing" }, "selfChat.contextInjected", "selfChat.injecting"],
+    ["injecting while initializing without a system prompt", { status: "initializing" }, "selfChat.injecting", "selfChat.notInjected"],
+    ["not-injected for a running session without a system prompt", {}, "selfChat.notInjected", "selfChat.contextInjected"],
+  ] as const)("badge: %s", (_label, overrides, shownKey, hiddenKey) => {
+    renderBar(makeSession(overrides as Partial<SelfChatSession>));
 
-    expect(screen.getByText(i18n.t("selfChat.contextInjected"))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t("selfChat.injecting"))).not.toBeInTheDocument();
-  });
-
-  it("shows the injecting badge while initializing without a system prompt", () => {
-    renderBar(makeSession({ status: "initializing" }));
-
-    expect(screen.getByText(i18n.t("selfChat.injecting"))).toBeInTheDocument();
-  });
-
-  it("shows the not-injected badge for a running session without a system prompt", () => {
-    renderBar(makeSession());
-
-    expect(screen.getByText(i18n.t("selfChat.notInjected"))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t(shownKey))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t(hiddenKey))).not.toBeInTheDocument();
   });
 
   it("invokes restart and end-session callbacks from the action buttons", async () => {
