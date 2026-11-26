@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SshConnectivityResult } from "@/types";
 import {
   detectedCcPanes,
+  isLocalNetworkDenied,
   osLabelKey,
   resolveMachineCcPanesAction,
   runWithConcurrency,
@@ -78,5 +79,16 @@ describe("runWithConcurrency", () => {
       stop = true;
     }, () => stop);
     expect(seen).toEqual(["a"]);
+  });
+});
+
+describe("isLocalNetworkDenied", () => {
+  it("recognises the macOS Local Network privacy failure only on failed probes", () => {
+    const denied = "Failed to connect to 192.168.2.9:22 (on macOS, allow CC-Panes under System Settings > Privacy & Security > Local Network): No route to host (os error 65)";
+    expect(isLocalNetworkDenied(probe({ reachable: false, message: denied }))).toBe(true);
+    expect(isLocalNetworkDenied(probe({ reachable: false, message: "Authentication failed" }))).toBe(false);
+    expect(isLocalNetworkDenied(probe({ message: denied }))).toBe(false);
+    expect(isLocalNetworkDenied("checking")).toBe(false);
+    expect(isLocalNetworkDenied(null)).toBe(false);
   });
 });

@@ -28,6 +28,16 @@ export function osLabelKey(state: ConnectivityState): OsLabelKey | null {
   return OS_LABEL_KEYS[os as keyof typeof OS_LABEL_KEYS];
 }
 
+/**
+ * 探测失败是否是 macOS「本地网络」隐私权限拦截：应用连局域网地址报 EHOSTUNREACH（os error 65），
+ * 而系统自带的 ssh / nc 不受限——看着像「终端能连、应用连不上」。后端已在 message 里带上提示。
+ */
+export function isLocalNetworkDenied(state: ConnectivityState): boolean {
+  const result = settledResult(state);
+  if (!result || result.reachable) return false;
+  return /Local Network|os error 65\b/i.test(result.message ?? "");
+}
+
 /** 远端正在运行的 CC-Panes（仅在已有结果且连通时） */
 export function detectedCcPanes(state: ConnectivityState): SshCcPanesProbe | null {
   const result = settledResult(state);

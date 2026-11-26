@@ -42,7 +42,12 @@ import {
   sidebarEntityRowClass,
   sidebarEntityTitleClass,
 } from "./sidebarStyles";
-import { detectedCcPanes, osLabelKey, type ConnectivityState } from "./sshMachineProbe";
+import {
+  detectedCcPanes,
+  isLocalNetworkDenied,
+  osLabelKey,
+  type ConnectivityState,
+} from "./sshMachineProbe";
 
 export type { ConnectivityState } from "./sshMachineProbe";
 
@@ -233,9 +238,18 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
     : connectivity?.reachable
       ? { label: t("ssh.statusOnline", { defaultValue: "Online" }), icon: Wifi }
       : connectivity
-        ? { label: t("ssh.statusOffline", { defaultValue: "Unavailable" }), icon: WifiOff }
+        ? {
+            label: isLocalNetworkDenied(connectivity)
+              ? t("ssh.statusLocalNetworkDenied", { defaultValue: "Local Network access needed" })
+              : t("ssh.statusOffline", { defaultValue: "Unavailable" }),
+            icon: WifiOff,
+          }
         : { label: t("ssh.statusUnknown", { defaultValue: "Not checked" }), icon: Radio };
   const StatusIcon = status.icon;
+  // 失败原因原本只在状态点的 tooltip 里，悬停文字标签也能看到
+  const statusReason = connectivity && connectivity !== "checking" && !connectivity.reachable
+    ? connectivity.message || undefined
+    : undefined;
   const osKey = osLabelKey(connectivity);
   const ccPanes = detectedCcPanes(connectivity);
   const menuProps = {
@@ -379,7 +393,7 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
               <AuthIcon className="h-3 w-3" />
               {authLabel}
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1">
+            <span className="inline-flex shrink-0 items-center gap-1" title={statusReason}>
               <StatusIcon className="h-3 w-3" />
               {status.label}
             </span>

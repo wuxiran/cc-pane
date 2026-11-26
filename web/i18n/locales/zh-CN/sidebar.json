@@ -389,6 +389,7 @@
   "ssh.statusChecking": "检测中",
   "ssh.statusOnline": "在线",
   "ssh.statusOffline": "不可用",
+  "ssh.statusLocalNetworkDenied": "需开启本地网络权限",
   "ssh.statusUnknown": "未检测",
   "ssh.quickConnect": "快速连接",
   "ssh.quickConnectHint": "解析 user@host:port 自动填充下方字段",

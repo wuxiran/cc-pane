@@ -389,6 +389,7 @@
   "ssh.statusChecking": "Checking",
   "ssh.statusOnline": "Online",
   "ssh.statusOffline": "Unavailable",
+  "ssh.statusLocalNetworkDenied": "Local Network access needed",
   "ssh.statusUnknown": "Not checked",
   "ssh.quickConnect": "Quick Connect",
   "ssh.quickConnectHint": "Parse user@host:port to fill fields below",
