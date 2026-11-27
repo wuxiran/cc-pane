@@ -1,7 +1,7 @@
 import "@/i18n";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ActivityBar from "./ActivityBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
@@ -13,6 +13,7 @@ import { useDialogStore, useOrchestratorStore } from "@/stores";
 import type { ExperimentalSettings, TaskBinding } from "@/types";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
+import { useUpdateStore } from "@/stores/useUpdateStore";
 
 // jsdom 缺少 ResizeObserver，Radix Tooltip 依赖它（否则 hover 交互抛错中断 userEvent）
 class ResizeObserverStub {
@@ -26,6 +27,10 @@ globalThis.ResizeObserver = globalThis.ResizeObserver ?? (ResizeObserverStub as 
 vi.mock("@/components/LayoutBar", () => ({
   default: () => <div data-testid="layout-bar-stub" />,
 }));
+
+// 升级入口复用 updaterService.triggerUpdate（原生确认 + 下载安装 + 重启），测试里只断言调用与进行态
+const { triggerUpdateMock } = vi.hoisted(() => ({ triggerUpdateMock: vi.fn<() => Promise<void>>() }));
+vi.mock("@/services/updaterService", () => ({ triggerUpdate: triggerUpdateMock }));
 
 function binding(status: TaskBinding["status"]): TaskBinding {
   return { status } as unknown as TaskBinding;
@@ -62,6 +67,7 @@ function resetStores() {
   useOrchestratorStore.setState({ bindings: [] });
   useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
   useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
+  useUpdateStore.getState().clearUpdate();
   setExperimental({});
 }
 
@@ -238,5 +244,84 @@ describe("ActivityBar", () => {
     expect(indicator).not.toBeNull();
     expect(explorerBtn.className).not.toContain(" bg-[color-mix(");
     expect(explorerBtn.parentElement?.querySelector('span[aria-hidden]')).toBeNull();
+  });
+});
+
+describe("ActivityBar 升级入口", () => {
+  beforeEach(() => {
+    resetStores();
+    triggerUpdateMock.mockReset();
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("没有可用更新时不渲染", () => {
+    renderBar();
+    expect(screen.queryByTestId("activity-bar-update")).not.toBeInTheDocument();
+  });
+
+  it("非桌面运行时即使 store 有更新也不渲染（triggerUpdate 在 web 下是 no-op）", () => {
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    useUpdateStore.getState().setUpdate("9.9.9", null);
+    renderBar();
+    expect(screen.queryByTestId("activity-bar-update")).not.toBeInTheDocument();
+  });
+
+  it("有更新时出现在底部组最上方，标签带新版本号与强调圆点", () => {
+    useUpdateStore.getState().setUpdate("9.9.9", "changelog");
+    renderBar();
+    const button = screen.getByRole("button", { name: "发现新版本 v9.9.9，点击升级" });
+    expect(button).toHaveAttribute("data-testid", "activity-bar-update");
+    expect(screen.getByTestId("activity-bar-update-dot")).toBeInTheDocument();
+    // 底部组：升级按钮排在「添加模块」之前（layoutSwitcherMode 非 corner 时 LayoutBar 不在底部组）
+    const bottomGroup = button.closest("div.mt-auto") as HTMLElement;
+    const buttons = Array.from(bottomGroup.querySelectorAll("button"));
+    expect(buttons[0]).toBe(button);
+  });
+
+  it("点击触发 triggerUpdate，进行中禁用防重复点击，结束后恢复", async () => {
+    let resolveUpdate: () => void = () => {};
+    triggerUpdateMock.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveUpdate = resolve; }),
+    );
+    useUpdateStore.getState().setUpdate("9.9.9", null);
+    renderBar();
+    const button = screen.getByTestId("activity-bar-update");
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(triggerUpdateMock).toHaveBeenCalledTimes(1);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAccessibleName("正在升级到 v9.9.9…");
+    expect(screen.queryByTestId("activity-bar-update-dot")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(triggerUpdateMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveUpdate();
+    });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveAccessibleName("发现新版本 v9.9.9，点击升级");
+  });
+
+  it("triggerUpdate 抛错后同样解除进行态，可再次点击", async () => {
+    triggerUpdateMock.mockRejectedValueOnce(new Error("boom"));
+    useUpdateStore.getState().setUpdate("9.9.9", null);
+    renderBar();
+    const button = screen.getByTestId("activity-bar-update");
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    triggerUpdateMock.mockResolvedValueOnce();
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(triggerUpdateMock).toHaveBeenCalledTimes(2);
   });
 });
