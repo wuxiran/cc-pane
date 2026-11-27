@@ -404,3 +404,11 @@ export type {
   SkillImportResult, SkillInstallResult, SkillLibraryContent, SkillProbe, SkillProbeCandidate,
   SkillProvenance, SkillRemoveResult, SkillSourceKind, SkillUpdateResult,
 } from "./skillLibrary";
+export type {
+  Workflow,
+  WorkflowStage,
+  WorkflowStageStatus,
+  WorkflowStatus,
+  WorkflowTask,
+  WorkflowTaskStatus,
+} from "./workflow";

@@ -45,6 +45,7 @@ mod terminal;
 pub mod terminal_recovery_dto;
 pub mod todo;
 pub mod usage_stats;
+pub mod workflow;
 mod workspace;
 pub mod workspace_snapshot;
 pub mod wsl;

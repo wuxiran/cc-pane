@@ -35,6 +35,7 @@ struct Migration {
 /// V24 = Claude/Codex 本地会话索引与增量扫描状态
 /// V29 = launch_history 清理重复 launch id 并增加 project_id 唯一索引
 /// V45 = session_index.title（CLI 自带标题）+ session_learned_roots（hook 学到的转录根目录）
+/// V48 = workflows / workflow_stages / workflow_tasks（多阶段持久工作流，docs/114）
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1214,6 +1215,50 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE terminal_sessions ADD COLUMN provider_account_id TEXT;
         ",
     },
+    // V48：多阶段持久工作流（docs/114）。只存编排进度，子任务仍是普通 task_bindings。
+    // workflow_tasks 主键 (workflow_id, stage_index, task_key) 就是派发幂等键。
+    Migration {
+        version: 48,
+        description: "staged workflows: workflows + workflow_stages + workflow_tasks",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS workflows (
+                id TEXT PRIMARY KEY,
+                pools_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+            CREATE TABLE IF NOT EXISTS workflow_stages (
+                workflow_id TEXT NOT NULL,
+                stage_index INTEGER NOT NULL,
+                stage_key TEXT NOT NULL,
+                title TEXT,
+                requires_approval INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                approved_at TEXT,
+                approved_via TEXT,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (workflow_id, stage_index),
+                UNIQUE (workflow_id, stage_key)
+            );
+            CREATE TABLE IF NOT EXISTS workflow_tasks (
+                workflow_id TEXT NOT NULL,
+                stage_index INTEGER NOT NULL,
+                task_key TEXT NOT NULL,
+                spec_json TEXT NOT NULL,
+                pool TEXT NOT NULL,
+                status TEXT NOT NULL,
+                binding_id TEXT,
+                result_json TEXT,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (workflow_id, stage_index, task_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflow_tasks_binding ON workflow_tasks(binding_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -2011,7 +2056,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44, 45, 46]);
+        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 48]);
     }
 
     #[test]

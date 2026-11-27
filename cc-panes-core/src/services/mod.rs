@@ -45,6 +45,7 @@ pub mod heavy_job_gate;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
+pub mod json_schema_lite;
 mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
@@ -112,6 +113,8 @@ mod uninstall_cleanup_service;
 pub mod usage_stats_service;
 mod user_skill_service;
 mod wallpaper_service;
+pub mod workflow_engine;
+mod workflow_service;
 mod workspace_health;
 mod workspace_projects_manifest;
 mod workspace_service;
@@ -222,7 +225,7 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_probe::RemoteCcPanes;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::{ResourceTreeOptions, SystemStatsService};
-pub use task_binding_service::TaskBindingService;
+pub use task_binding_service::{TaskBindingService, TerminalObserver};
 pub use task_dispatch_service::{
     dispatch_permission_yolo_mode, resolve_dispatch_cwd, TaskDispatchService,
 };
@@ -255,6 +258,10 @@ pub use user_skill_service::{
     USER_SKILL_METADATA_FILE,
 };
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
+pub use workflow_service::{
+    claim_recovery, observe_binding, AdvanceOutcome, ClaimRecovery, DispatchJob, WorkflowService,
+    WORKFLOW_TASK_METADATA_KEY,
+};
 pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use workspace_skill_service::{

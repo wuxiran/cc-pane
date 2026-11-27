@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
-import { useOrchestratorStore } from "@/stores";
+import { useOrchestratorStore, useWorkflowStore } from "@/stores";
 import type { TaskBindingNode } from "@/types";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
+import WorkflowStageStrip from "./WorkflowStageStrip";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 
 function flattenVisible(
@@ -28,7 +29,12 @@ export default function OrchestratorTaskTree() {
   const { t } = useTranslation("orchestration");
   const bindings = useOrchestratorStore((s) => s.bindings);
   const getTaskTree = useOrchestratorStore((s) => s.getTaskTree);
+  const workflows = useWorkflowStore((s) => s.byId);
+  const loadWorkflows = useWorkflowStore((s) => s.load);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    void loadWorkflows();
+  }, [loadWorkflows]);
   const tree = useMemo(() => getTaskTree(), [bindings, getTaskTree]);
   const expanded = useMemo(() => {
     const set = new Set<string>();
@@ -84,6 +90,7 @@ export default function OrchestratorTaskTree() {
             </div>
             <div className="min-w-0 flex-1">
               <OrchestratorTaskCard binding={node} depth={depth} indent={false} />
+              {workflows[node.id] && <WorkflowStageStrip workflow={workflows[node.id]} />}
             </div>
           </div>
         );

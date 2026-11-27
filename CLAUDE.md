@@ -453,6 +453,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/90-worker-decomposition-model.md` | **派工模型方向文档**：契约冻结换扇形并行 / 宽深形状判别 / 简报摊销——§6 终局裁决「设计承重，乐观默认」（碰撞检测/claim 看板否决）；§7 skill 可执行拆分规则（形状三问→W/D 分支→硬阈值→派发三关→CLI 路由，批次A 落地文本） |
 | `docs/91-deepseek-harness-onboarding.md` | **DeepSeek Harness（dsh）接入**：它不是 CLI 而是 profile 启动器（TUI 他们做过、8-04 主动删了，含复活四条件）+ 全实测事实表 + `$DSH_HOME` 按工作空间隔离的硬约束 + 四项 `--patch` 注入 + 为何不嵌前端（`/api` trust fence）+ 插件生态入口与 `dsh.bundle.patch` 激活判据 |
 | `docs/92-canvas-mode-design.md` | **Canvas Mode 设计方案**：与 pane 布局并列的通信可视化布局（不是新终端类型、不替代编排页）——管道只反映真实 dispatch/message/report 事件，不从终端文本猜关系 |
+| `docs/114-staged-workflow.md` | **多阶段持久工作流 + 结构化结果**：父 TaskBinding 声明有序阶段（并行合流 / 审批点 / 工作流内并发池），`workflow_tasks` 主键即派发幂等键（CAS 认领 + 子 binding 回执），重启先恢复认领再派发；`resultSchema` 校验 worker 交回的 JSON，后续阶段 prompt 用 `{{prev}}` / `{{stages.<key>}}` 引用 |
 | `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
 | `docs/94-acp-agent-chat.md` | **ACP Agent Chat 设计**：为何重启 55-H3 判死的 chat（ACP 把协议/适配矩阵外部化）/ 架构与 id 语义 / 引擎注册表与 engines.json 逃生阀 / session-load 续接与降级可见 / 排障判据速查 |
 | `docs/95-automations.md` | **Automations 定时派工**（55-H1 最小版落地）：cron + 宽限 + 运行历史，派发目标是 ACP headless 会话（无需窗口在场）+ 无人值守 auto-approve——明确不做外部 cron 聚合与事件规则引擎 |

@@ -30,7 +30,7 @@ worker 可以交回经 schema 校验的 JSON 结果，后续阶段的 prompt 可
 
 ## 3. 数据模型
 
-迁移 **V48**（V47 已被 feat/github-tools 占用）。只新增三张表，不改 `task_bindings`：
+迁移 **V48**（V47 已被 feat/github-tools 占用）。只新增三张表，不改 `task_bindings`。全部 `CREATE ... IF NOT EXISTS`，与 V47 无依赖、顺序无关；注意本分支单独跑过的 dev 库版本号已到 48，合并后会跳过 V47，需要手动补跑或重建 dev 库：
 
 ```sql
 workflows(
@@ -148,6 +148,7 @@ pending ─(驱动器 CAS 认领)─▶ claimed ─(派发成功，回填 bindin
 - `update_task_binding` / `report_to_leader` 可选 `result`（JSON）。有 schema 时先校验，
   不通过直接返回错误、**什么都不写**（worker 可修正后重试）；通过后合并写入 `metadata.result`，再写状态——
   保证观察者看到 completed 时结果已在库里。`report_to_leader` 投递给 leader 的那一行附带紧凑 JSON（截断 500 字）。
+  `report_to_leader` 只存结果、发消息，**不改状态**（与现状一致）；工作流判定子任务完成看的是 binding 的 `status=completed`，所以派发说明里让 worker 用 `update_task_binding` 收尾。
 - 校验器是内置子集（`cc-panes-core/src/services/json_schema_lite.rs`）：`type`（含数组形式）、`properties`、
   `required`、`additionalProperties: false`、`items`、`enum`、`const`、`minLength/maxLength`、`minimum/maximum`、
   `minItems/maxItems`。不认识的关键字忽略（宽松），不拉 jsonschema 依赖树。
