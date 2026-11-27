@@ -139,7 +139,6 @@ export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
   dramaStudio: EXPERIMENTAL_DEFAULT_ON,
   skillMarket: EXPERIMENTAL_DEFAULT_ON,
   librarySpace: EXPERIMENTAL_DEFAULT_ON,
-  mcpHub: false,
 };
 
 export { DEFAULT_PRIVACY_SETTINGS };

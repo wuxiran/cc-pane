@@ -1,7 +1,7 @@
 //! 共享 MCP 聚合入口 `ccpanes-hub`（docs/113）。
 //!
 //! 对 agent 只暴露 `search_tools` / `call_tool` 两个工具，背后是所有已启用、正在运行的
-//! 共享 MCP 服务器。实验开关 `experimental.mcpHub`，默认关闭。
+//! 共享 MCP 服务器。启动档 `mcpPolicy.delivery = hub` 时注入给会话；资源库 Hub 卡片读 `status()`。
 //!
 //! - 工具清单按服务器缓存。缓存键带**指纹**（URL + 请求头 + 本地进程 PID）：服务器重启
 //!   PID 变、配置改了 URL 变，都会丢掉旧缓存和旧会话；另有 TTL 兜住「工具变了但没通知」。
@@ -79,6 +79,18 @@ pub struct HubSearchResult {
     pub tools: Vec<HubToolMatch>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<UnavailableServer>,
+}
+
+/// 资源库 Hub 卡片的一行：这台共享服务器在 hub 里的情况（只读缓存，不触发拉取）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HubServerStatus {
+    pub name: String,
+    pub running: bool,
+    /// hub 能否代转（`sse` 远程 MCP 不能，照旧直连）。
+    pub routable: bool,
+    /// 缓存里的工具数；还没被检索过（或服务器换过）时为 `None`。
+    pub tool_count: Option<usize>,
 }
 
 pub struct McpHubService {
@@ -172,6 +184,37 @@ impl McpHubService {
                 None => Err(error),
             },
         }
+    }
+
+    /// 已启用（shared）的共享服务器在 hub 里的情况，按名字排序。
+    pub async fn status(&self) -> Vec<HubServerStatus> {
+        let routable_now: HashMap<String, Target> = self
+            .targets(None)
+            .into_iter()
+            .map(|target| (target.name.clone(), target))
+            .collect();
+        let entries = self.entries.lock().await;
+        let mut rows = Vec::new();
+        for info in self.shared.get_all_status() {
+            if !info.config.shared {
+                continue;
+            }
+            let target = routable_now.get(&info.name);
+            let mut tool_count = None;
+            if let (Some(target), Some((fingerprint, entry))) = (target, entries.get(&info.name)) {
+                if *fingerprint == target.fingerprint {
+                    tool_count = entry.lock().await.tools.as_ref().map(Vec::len);
+                }
+            }
+            rows.push(HubServerStatus {
+                running: info.status == SharedMcpServerStatus::Running,
+                routable: hub_can_route(&info.config),
+                tool_count,
+                name: info.name,
+            });
+        }
+        rows.sort_by(|a, b| a.name.cmp(&b.name));
+        rows
     }
 
     /// `search_tools`。

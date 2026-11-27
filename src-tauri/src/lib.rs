@@ -230,6 +230,7 @@ use commands::{
     get_log_dir,
     get_login_account_command,
     get_login_account_status,
+    get_mcp_hub_status,
     get_mcp_market_icon,
     get_mcp_server,
     get_memory,
@@ -2034,6 +2035,9 @@ pub fn run() {
     ));
 
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
+    let mcp_hub_service = Arc::new(cc_panes_core::services::McpHubService::new(
+        shared_mcp_service.clone(),
+    ));
     let dsh_service = Arc::new(DshService::new(&app_paths));
 
     let session_restore_service =
@@ -2185,6 +2189,7 @@ pub fn run() {
         .manage(start_locks)
         .manage(web_access_lifecycle.clone())
         .manage(shared_mcp_service.clone())
+        .manage(mcp_hub_service)
         .manage(dsh_service.clone())
         .manage(session_restore_service)
         .manage(layout_snapshot_service)
@@ -3824,6 +3829,7 @@ pub fn run() {
             // 共享 MCP 命令
             get_shared_mcp_config,
             get_shared_mcp_status,
+            get_mcp_hub_status,
             upsert_shared_mcp_server,
             remove_shared_mcp_server,
             start_shared_mcp_server,

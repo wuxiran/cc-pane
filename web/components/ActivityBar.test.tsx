@@ -46,7 +46,7 @@ function setExperimental(flags: Partial<ExperimentalSettings>) {
   useSettingsStore.setState({
     settings: {
       ...defaults,
-      experimental: { dramaStudio: false, skillMarket: false, librarySpace: false, mcpHub: false, ...flags },
+      experimental: { dramaStudio: false, skillMarket: false, librarySpace: false, ...flags },
     },
   });
 }

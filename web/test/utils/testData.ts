@@ -260,7 +260,6 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       dramaStudio: false,
       skillMarket: false,
       librarySpace: false,
-      mcpHub: false,
     },
     performance: {
       buildParallelismEnabled: true,

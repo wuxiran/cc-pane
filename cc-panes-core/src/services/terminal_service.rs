@@ -3,10 +3,11 @@ use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, CreateSessionRequest, JobMemoryWarning, LaunchProfile, LaunchProfileMcpMode,
-    LaunchProfileSkillMode, LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus,
-    SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
-    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    LaunchProfileSkillMode, LaunchProviderSelection, McpDelivery, PolicyOutcome,
+    ResourcePolicyStatus, SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome,
+    TerminalBufferMode, TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry,
+    TerminalOutput, TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot,
+    WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -283,20 +284,18 @@ fn workspace_skill_session_prompt(
     Some(prompt)
 }
 
-/// 本次本地启动是否改为只注入 `ccpanes-hub`（docs/113）。实验开关关着时恒为 false，
-/// 启动档字段被忽略——这保证开关关闭时注入与旧版逐字一致。目前只接 Claude / Codex：
-/// 这两家的 adapter 会把用户全局配置里同名的那份去重，其余 CLI 去重未做，照旧逐个注入。
+/// 本次启动是否把共享 MCP 收成一条 `ccpanes-hub`（docs/113）。启动档选了 hub 投递、MCP 没全关，
+/// 且 CLI 描述声明能用 hub、运行时是本机（`InjectionProfile::hub_delivery_supported`）；
+/// 任一不满足就回退直连——与前端 `hubDeliverySupported` 同口径。
 fn launch_uses_mcp_hub(
-    experiment_on: bool,
     profile: Option<&LaunchProfile>,
-    cli_tool: CliTool,
+    injection_profile: &cc_cli_adapters::InjectionProfile,
+    runtime_kind: &str,
 ) -> bool {
-    experiment_on
-        && matches!(cli_tool, CliTool::Claude | CliTool::Codex)
-        && profile.is_some_and(|profile| {
-            profile.mcp_policy.use_mcp_hub
-                && profile.mcp_policy.mode != LaunchProfileMcpMode::Disabled
-        })
+    profile.is_some_and(|profile| {
+        profile.mcp_policy.delivery == McpDelivery::Hub
+            && profile.mcp_policy.mode != LaunchProfileMcpMode::Disabled
+    }) && injection_profile.hub_delivery_supported(runtime_kind)
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -3892,11 +3891,11 @@ impl TerminalService {
                     }
                 }
 
-                // docs/113：实验开关 + 启动档都选了「只注入 hub」时，把共享 MCP 收成一条 ccpanes-hub
+                // docs/113：启动档选了 hub 投递且这次组合支持时，把共享 MCP 收成一条 ccpanes-hub
                 let hub_injection = launch_uses_mcp_hub(
-                    self.settings_service.get_settings().experimental.mcp_hub,
                     resolved_profile.as_ref(),
-                    cli_tool,
+                    &injection_profile,
+                    runtime_kind,
                 )
                 .then(|| {
                     let info = orchestrator_info_for_launch.as_ref()?;
@@ -8685,13 +8684,12 @@ mod tests {
             .is_empty());
     }
 
-    /// docs/113：实验开关关着时启动档的 useMcpHub 被忽略；只对 Claude / Codex 生效；
-    /// MCP 全关的启动档不会因为勾了 hub 又冒出一条 hub。
+    /// docs/113：hub 投递只在启动档选了 hub、MCP 没全关、CLI 描述支持且运行时为本机时生效。
     #[test]
-    fn mcp_hub_applies_only_with_experiment_profile_and_supported_cli() {
+    fn mcp_hub_applies_only_for_hub_delivery_on_supported_combinations() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let profiles = LaunchProfileService::new(temp_dir.path().join("launch-profiles.json"));
-        let make = |name: &str, mode, use_hub| {
+        let make = |name: &str, mode, delivery| {
             profiles
                 .create_profile(crate::models::launch_profile::LaunchProfileDraft {
                     name: Some(name.to_string()),
@@ -8706,7 +8704,7 @@ mod tests {
                     yolo_mode: false,
                     mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
                         mode,
-                        use_mcp_hub: use_hub,
+                        delivery,
                         ..Default::default()
                     },
                     skill_policy: Default::default(),
@@ -8715,17 +8713,21 @@ mod tests {
                 })
                 .expect("create profile")
         };
-        let hub = make("hub", LaunchProfileMcpMode::Default, true);
-        let plain = make("plain", LaunchProfileMcpMode::Default, false);
-        let off = make("off", LaunchProfileMcpMode::Disabled, true);
+        let hub = make("hub", LaunchProfileMcpMode::Default, McpDelivery::Hub);
+        let direct = make("direct", LaunchProfileMcpMode::Default, McpDelivery::Direct);
+        let off = make("off", LaunchProfileMcpMode::Disabled, McpDelivery::Hub);
+        let registry = cc_cli_adapters::CliToolRegistry::with_builtin_adapters();
+        let claude = registry.injection_profile("claude");
+        let codex = registry.injection_profile("codex");
+        let gemini = registry.injection_profile("gemini");
 
-        assert!(launch_uses_mcp_hub(true, Some(&hub), CliTool::Claude));
-        assert!(launch_uses_mcp_hub(true, Some(&hub), CliTool::Codex));
-        assert!(!launch_uses_mcp_hub(false, Some(&hub), CliTool::Claude));
-        assert!(!launch_uses_mcp_hub(true, Some(&hub), CliTool::Gemini));
-        assert!(!launch_uses_mcp_hub(true, Some(&plain), CliTool::Claude));
-        assert!(!launch_uses_mcp_hub(true, Some(&off), CliTool::Claude));
-        assert!(!launch_uses_mcp_hub(true, None, CliTool::Claude));
+        assert!(launch_uses_mcp_hub(Some(&hub), &claude, "local"));
+        assert!(launch_uses_mcp_hub(Some(&hub), &codex, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &claude, "wsl"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &gemini, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&direct), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&off), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(None, &claude, "local"));
     }
 
     #[test]

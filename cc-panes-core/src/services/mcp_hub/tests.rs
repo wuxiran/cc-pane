@@ -264,3 +264,26 @@ fn hub_tools_json_is_two_short_tools() {
         tools_payload_bytes(&tools)
     );
 }
+
+#[tokio::test]
+async fn status_reports_cached_tool_counts_and_sse_as_not_routable() {
+    let (url, _) = spawn_mock(vec!["a", "b"]).await;
+    let mut sse = remote_server("https://example.com/sse", "1");
+    if let Some(remote) = sse.remote.as_mut() {
+        remote.transport = "sse".into();
+    }
+    let (_dir, _shared, hub) = hub_with(&[("srv", remote_server(&url, "1")), ("legacy", sse)]);
+
+    let before = hub.status().await;
+    assert_eq!(before.len(), 2);
+    assert!(before.iter().all(|row| row.tool_count.is_none()));
+
+    hub.search("", None, None).await;
+    let after = hub.status().await;
+    let srv = after.iter().find(|row| row.name == "srv").unwrap();
+    assert_eq!(srv.tool_count, Some(2));
+    assert!(srv.routable && srv.running);
+    let legacy = after.iter().find(|row| row.name == "legacy").unwrap();
+    assert!(!legacy.routable);
+    assert_eq!(legacy.tool_count, None);
+}

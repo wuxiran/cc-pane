@@ -132,6 +132,7 @@ impl CliToolAdapter for JcodeAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::DeclareOnly,
                 launch_identity: true,
+                hub: false,
             },
             skills: SkillsInjection {
                 mount: SkillMount::None,

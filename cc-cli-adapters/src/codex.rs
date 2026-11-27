@@ -1796,6 +1796,7 @@ impl CliToolAdapter for CodexAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::Full,
                 launch_identity: true,
+                hub: true,
             },
             skills: SkillsInjection {
                 mount: SkillMount::ProjectFile,

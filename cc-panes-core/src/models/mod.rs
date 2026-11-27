@@ -106,8 +106,8 @@ pub use history::{
 pub use launch_profile::{
     LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
     LaunchProfileMcpPolicy, LaunchProfilePreviewRequest, LaunchProfileResolution,
-    LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, ResolvedMcpServer,
-    ResolvedSkill, SharedMcpUrls, SkillCompatibility,
+    LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, McpDelivery,
+    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};

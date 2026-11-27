@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-// 对比「逐个注入共享 MCP」与「只注入 ccpanes-hub」时，agent 启动要装进上下文的工具定义大小（docs/113）。
+// 估算 agent 启动时共享 MCP 工具定义占多少上下文，三种口径并列（docs/113）：
+//   1. 全量注入：每个工具的 {name, description, inputSchema} 紧凑 JSON（Codex 等没有原生延迟加载的 CLI）。
+//   2. Claude 原生延迟加载（MCP tool search）：启动只看到工具名（`mcp__<server>__<tool>`），schema 用到才取。
+//      这里按「工具名列表」估下限；实际开不开、阈值多少取决于 Claude Code 版本与设置。
+//   3. 只注入 hub：hub_tools.json 两个工具 + handler 的 instructions（sse 服务器仍直连，按全量计入）。
 //
-// 只发 initialize + tools/list，不调用任何工具。估算口径：tools/list 里每个工具的
-// {name, description, inputSchema} 紧凑 JSON 字节数；token ≈ 字节 / 4（JSON + 英文为主时的常用近似，
-// 中文描述会偏低估）。hub 侧 = hub_tools.json 两个工具 + handler 的 instructions。
+// 只发 initialize + tools/list，不调用任何工具。token ≈ 字节 / 4（JSON + 英文为主时的常用近似，
+// 中文描述会偏低估）。hub 的代价在使用时：每次 search_tools 返回命中工具的完整 schema。
 //
 // 用法：
 //   node scripts/mcp-hub-token-compare.mjs                       # 读 ~/.cc-panes/shared-mcp.json 里已启用的服务器
@@ -128,6 +131,11 @@ function definitionBytes(tools) {
   return Buffer.byteLength(JSON.stringify(visible), "utf8");
 }
 
+/** Claude 延迟加载时启动可见的部分：按 `mcp__<server>__<tool>` 一行一个估算。 */
+function namesBytes(server, tools) {
+  return tools.reduce((sum, tool) => sum + Buffer.byteLength(`mcp__${server}__${tool.name}\n`, "utf8"), 0);
+}
+
 function hubBytes() {
   const tools = JSON.parse(readFileSync(HUB_TOOLS, "utf8"));
   const handler = readFileSync(HUB_HANDLER, "utf8");
@@ -149,7 +157,13 @@ async function main() {
   for (const target of targets) {
     try {
       const tools = await listTools(target);
-      rows.push({ server: target.name, sse: Boolean(target.sse), tools: tools.length, bytes: definitionBytes(tools) });
+      rows.push({
+        server: target.name,
+        sse: Boolean(target.sse),
+        tools: tools.length,
+        bytes: definitionBytes(tools),
+        namesBytes: namesBytes(target.name, tools),
+      });
     } catch (error) {
       rows.push({ server: target.name, sse: Boolean(target.sse), error: String(error.message ?? error) });
     }
@@ -158,11 +172,13 @@ async function main() {
   const viaHub = reachable.filter((row) => !row.sse);
   const stillDirect = reachable.filter((row) => row.sse);
   const fullBytes = reachable.reduce((sum, row) => sum + row.bytes, 0);
+  const deferredBytes = reachable.reduce((sum, row) => sum + row.namesBytes, 0);
   const hub = hubBytes();
   const hubSideBytes = hub.toolBytes + hub.instructionBytes + stillDirect.reduce((sum, row) => sum + row.bytes, 0);
   const summary = {
     servers: rows,
     full: { tools: reachable.reduce((sum, row) => sum + row.tools, 0), bytes: fullBytes, tokens: tokens(fullBytes) },
+    claudeDeferred: { bytes: deferredBytes, tokens: tokens(deferredBytes) },
     hubOnly: { tools: hub.tools + stillDirect.reduce((sum, row) => sum + row.tools, 0), bytes: hubSideBytes, tokens: tokens(hubSideBytes) },
     coveredByHub: viaHub.map((row) => row.server),
   };
@@ -187,7 +203,8 @@ async function main() {
   console.log(
     `只注入 hub：${summary.hubOnly.tools} 个工具，${summary.hubOnly.bytes} 字节（含 instructions ${hub.instructionBytes} 字节），约 ${summary.hubOnly.tokens} tokens`,
   );
-  console.log(`节省：${summary.savedBytes} 字节（${summary.savedPercent}%）`);
+  console.log(`Claude 原生延迟加载（只见工具名，估下限）：${deferredBytes} 字节，约 ${tokens(deferredBytes)} tokens`);
+  console.log(`相对全量注入节省：${summary.savedBytes} 字节（${summary.savedPercent}%）；相对 Claude 延迟加载：${deferredBytes - hubSideBytes} 字节`);
   if (rows.some((row) => row.error !== undefined)) {
     console.log("注：连不上的服务器不计入两侧。");
   }

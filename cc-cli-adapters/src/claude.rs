@@ -1022,6 +1022,7 @@ impl CliToolAdapter for ClaudeAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::Full,
                 launch_identity: true,
+                hub: true,
             },
             skills: SkillsInjection {
                 mount: SkillMount::PluginDir,

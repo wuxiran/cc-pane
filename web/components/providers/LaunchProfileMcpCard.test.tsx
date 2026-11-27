@@ -9,8 +9,6 @@ import { useSshMachinesStore } from "@/stores/useSshMachinesStore";
 import type { SharedMcpServerInfo } from "@/types/shared-mcp";
 import type { KnownCliTool } from "@/types/terminal";
 import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
-// 组件先于 settings store 导入：反过来会踩到 stores/index 的循环依赖
-import { useSettingsStore } from "@/stores/useSettingsStore";
 
 // 卡片挂载时会 load SSH 机器：测试里桩掉，避免真去 invoke
 beforeEach(() => {
@@ -144,35 +142,48 @@ describe("LaunchProfileMcpCard 新增", () => {
   });
 });
 
-describe("LaunchProfileMcpCard 只注入 hub（docs/113）", () => {
-  const hubLabel = () => String(i18n.t("providers:useMcpHub" as never));
+describe("LaunchProfileMcpCard 投递方式（docs/113）", () => {
+  const hubTab = () => screen.getByRole("tab", { name: String(i18n.t("providers:mcpDelivery.hub" as never)) });
 
-  function setMcpHubExperiment(on: boolean) {
-    const defaults = useSettingsStore.getState().getDefaults();
-    useSettingsStore.setState({
-      settings: { ...defaults, experimental: { ...defaults.experimental, mcpHub: on } },
-    });
-  }
-
+  beforeEach(() => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    useSharedMcpStore.setState({ servers: [] });
+  });
   afterEach(() => {
-    useSettingsStore.setState({ settings: null });
+    vi.restoreAllMocks();
   });
 
-  it("实验开关关着时不出现", () => {
-    setMcpHubExperiment(false);
+  it("Claude / Codex 可选 Hub，并说明 Claude 已原生按需加载", () => {
+    renderCard("codex", {});
+    expect(hubTab()).not.toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-note")).toHaveTextContent("Codex");
+    expect(screen.queryByTestId("mcp-delivery-fallback-cli")).not.toBeInTheDocument();
+  });
+
+  it("不支持的 CLI 置灰 Hub 并说明回退直连", () => {
+    renderCard("gemini", {});
+    expect(hubTab()).toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-fallback-cli")).toBeInTheDocument();
+  });
+
+  it("已选 Hub 的启动档在不支持的 CLI 下仍显示选中，并标明回退", () => {
+    renderCard("gemini", { delivery: "hub" });
+    expect(hubTab()).not.toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-fallback-cli")).toHaveTextContent(
+      String(i18n.t("providers:mcpDelivery.fallbackLine" as never, { reason: "" } as never)).trim(),
+    );
+  });
+
+  it("有 SSE 远程服务器时说明它不经 Hub", () => {
+    useSharedMcpStore.setState({
+      servers: [{ name: "legacy", config: { shared: true, remote: { url: "https://x/sse", transport: "sse", headers: {} } }, status: "running" } as unknown as SharedMcpServerInfo],
+    });
     renderCard("claude", {});
-    expect(screen.queryByText(hubLabel())).not.toBeInTheDocument();
+    expect(screen.getByTestId("mcp-delivery-fallback-sse")).toBeInTheDocument();
   });
 
-  it("实验开关打开且启用共享 MCP 时出现", () => {
-    setMcpHubExperiment(true);
-    renderCard("claude", {});
-    expect(screen.getByText(hubLabel())).toBeInTheDocument();
-  });
-
-  it("没勾共享 MCP 时不出现", () => {
-    setMcpHubExperiment(true);
-    renderCard("claude", { includeSharedMcp: false });
-    expect(screen.queryByText(hubLabel())).not.toBeInTheDocument();
+  it("MCP 全关时不显示投递方式", () => {
+    renderCard("claude", { mode: "disabled" });
+    expect(screen.queryByTestId("mcp-delivery-note")).not.toBeInTheDocument();
   });
 });

@@ -1306,7 +1306,7 @@ pub struct CliAdapterContext {
     pub shared_mcp_stdio: BTreeMap<String, serde_json::Value>,
     /// `shared_mcp_urls` 里哪些是远程 MCP，以及它们的传输方式和请求头
     pub shared_mcp_remote: BTreeMap<String, RemoteMcpSpec>,
-    /// 改由 `ccpanes-hub` 代理的共享服务器名（docs/113，实验开关）。非空时 adapter
+    /// 改由 `ccpanes-hub` 代理的共享服务器名（docs/113，启动档 Hub 投递）。非空时 adapter
     /// 不再加载用户全局配置里同名的那份，否则同一组工具会和 hub 并排出现两次。
     pub hub_covered_mcp_servers: Vec<String>,
     /// 运行配置允许保留的 MCP server id。

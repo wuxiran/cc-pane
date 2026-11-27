@@ -102,23 +102,66 @@ pub enum LaunchProfileMcpMode {
     Disabled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// 共享 MCP 以什么形态交给会话（docs/113）。与 [`LaunchProfileMcpMode`] 正交：
+/// mode 管「给哪些」，delivery 管「怎么给」。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+pub enum McpDelivery {
+    /// 每台共享服务器各一条条目（旧行为）。
+    #[default]
+    Direct,
+    /// 只给一条 `ccpanes-hub`，agent 经 `search_tools` / `call_tool` 按需使用。
+    /// 这个 CLI / 运行时 / 服务器不支持时自动回退为直连。
+    Hub,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", from = "LaunchProfileMcpPolicyWire")]
 pub struct LaunchProfileMcpPolicy {
-    #[serde(default)]
     pub mode: LaunchProfileMcpMode,
-    #[serde(default)]
     pub enabled_server_ids: Vec<String>,
-    #[serde(default)]
     pub disabled_server_ids: Vec<String>,
-    #[serde(default = "default_true")]
     pub include_ccpanes_mcp: bool,
-    #[serde(default = "default_true")]
     pub include_shared_mcp: bool,
-    /// 只注入 `ccpanes-hub`，不再逐个注入共享 MCP（docs/113）。仅在实验开关
-    /// `experimental.mcpHub` 打开时生效；关着时这个字段被忽略，行为与旧版一致。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub use_mcp_hub: bool,
+    pub delivery: McpDelivery,
+}
+
+/// 读取形态：在正式字段之外兼容 feat/mcp-hub 早期写下的 `useMcpHub: true`（→ `delivery: hub`）。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchProfileMcpPolicyWire {
+    #[serde(default)]
+    mode: LaunchProfileMcpMode,
+    #[serde(default)]
+    enabled_server_ids: Vec<String>,
+    #[serde(default)]
+    disabled_server_ids: Vec<String>,
+    #[serde(default = "default_true")]
+    include_ccpanes_mcp: bool,
+    #[serde(default = "default_true")]
+    include_shared_mcp: bool,
+    #[serde(default)]
+    delivery: Option<McpDelivery>,
+    #[serde(default)]
+    use_mcp_hub: bool,
+}
+
+impl From<LaunchProfileMcpPolicyWire> for LaunchProfileMcpPolicy {
+    fn from(wire: LaunchProfileMcpPolicyWire) -> Self {
+        let delivery = wire.delivery.unwrap_or(if wire.use_mcp_hub {
+            McpDelivery::Hub
+        } else {
+            McpDelivery::Direct
+        });
+        Self {
+            mode: wire.mode,
+            enabled_server_ids: wire.enabled_server_ids,
+            disabled_server_ids: wire.disabled_server_ids,
+            include_ccpanes_mcp: wire.include_ccpanes_mcp,
+            include_shared_mcp: wire.include_shared_mcp,
+            delivery,
+        }
+    }
 }
 
 impl Default for LaunchProfileMcpPolicy {
@@ -129,7 +172,7 @@ impl Default for LaunchProfileMcpPolicy {
             disabled_server_ids: Vec::new(),
             include_ccpanes_mcp: true,
             include_shared_mcp: true,
-            use_mcp_hub: false,
+            delivery: McpDelivery::Direct,
         }
     }
 }
@@ -330,4 +373,29 @@ fn default_skill_target() -> String {
 
 fn default_schema_version() -> u32 {
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_delivery_defaults_to_direct_and_reads_legacy_flag() {
+        let old: LaunchProfileMcpPolicy = serde_json::from_str(r#"{"mode":"default"}"#).unwrap();
+        assert_eq!(old.delivery, McpDelivery::Direct);
+        assert!(old.include_shared_mcp);
+
+        let legacy: LaunchProfileMcpPolicy = serde_json::from_str(r#"{"useMcpHub":true}"#).unwrap();
+        assert_eq!(legacy.delivery, McpDelivery::Hub);
+
+        // 显式 delivery 优先于旧字段
+        let both: LaunchProfileMcpPolicy =
+            serde_json::from_str(r#"{"useMcpHub":true,"delivery":"direct"}"#).unwrap();
+        assert_eq!(both.delivery, McpDelivery::Direct);
+
+        // 写回时只有 delivery，旧字段随之消失
+        let json = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(json["delivery"], "hub");
+        assert!(json.get("useMcpHub").is_none());
+    }
 }

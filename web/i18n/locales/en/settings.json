@@ -168,9 +168,7 @@
     "dramaStudio": "Drama studio",
     "dramaStudioDesc": "The Drama Studio activity-bar entry and the screenplay → storyboard → shots → footage pipeline, including batch restyle (uses the media studio's provider selection).",
     "librarySpace": "Library",
-    "librarySpaceDesc": "Activity bar “Library” entry: create an AI-maintained materials folder (default ~/CC-Panes-Library) and open a Claude Code assistant that collects, transcribes videos and organizes.",
-    "mcpHub": "Shared MCP hub (ccpanes-hub)",
-    "mcpHubDesc": "Launch profiles can inject a single ccpanes-hub instead of every shared MCP; agents use search_tools / call_tool on demand, saving startup context. Turn it on per profile in its MCP card. Local Claude Code / Codex only for now."
+    "librarySpaceDesc": "Activity bar “Library” entry: create an AI-maintained materials folder (default ~/CC-Panes-Library) and open a Claude Code assistant that collects, transcribes videos and organizes."
   },
   "modules": {
     "title": "Modules",
@@ -1418,6 +1416,21 @@
     "cancel": "Cancel",
     "failed": "Failed: {{error}}",
     "actionFailed": "Failed: {{error}}"
+  },
+  "mcpHubCard": {
+    "title": "MCP Hub",
+    "badge": "ccpanes-hub",
+    "intro": "One entry point: launch profiles set to Hub delivery give sessions a single ccpanes-hub entry, which reaches the servers below on demand via search_tools / call_tool.",
+    "endpoint": "Endpoint {{endpoint}}",
+    "endpointDown": "Orchestrator isn't running; Hub sessions fall back to direct for now.",
+    "servers": "{{count}} servers behind it",
+    "tools": "{{count}} tools cached",
+    "toolsPending": "tool lists load on first search",
+    "direct": "Bypass the hub (SSE): {{names}}",
+    "stopped": "Not running: {{names}}",
+    "profiles": "Profiles using Hub: {{names}}",
+    "noProfiles": "No launch profile uses Hub delivery yet (switch it in a profile's MCP card).",
+    "fallsBack": "{{name}} (falls back to direct for its CLI)"
   },
   "resourceLibrary": {
     "components": "Components",

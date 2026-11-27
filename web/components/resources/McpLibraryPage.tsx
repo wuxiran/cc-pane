@@ -25,6 +25,7 @@ import AgentMcpServersSection from "./AgentMcpServersSection";
 import LayerMcpEditorDialog, { type LayerEditorRequest } from "./LayerMcpEditorDialog";
 import { LibraryTitle, profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope, useScopeOptions } from "./libraryChrome";
 import McpDetailPanel from "./McpDetailPanel";
+import McpHubCard from "./McpHubCard";
 import { buildMcpLibraryEntries, entryDetail, filterMcpLibraryEntries, type McpLibraryEntry } from "./mcpLibraryModel";
 import PasteMcpDialog from "./PasteMcpDialog";
 import ProfileChips, { type ProfileChipItem } from "./ProfileChips";
@@ -224,6 +225,8 @@ export default function McpLibraryPage() {
 
         <div ref={scrollRef} onScroll={syncInMarket} className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
           <RemoteRuntimeNotice workspace={workspace} subject="mcp" className="mb-3" />
+          {/* 共享 MCP 的统一入口（docs/113）：没有共享服务器时隐藏 */}
+          <McpHubCard active={active} hasShared={sharedServers.length > 0} profiles={profiles} />
           {entries.length > SEARCH_THRESHOLD && (
             <div className="relative mb-2">
               <Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />

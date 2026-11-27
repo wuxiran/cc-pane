@@ -1,11 +1,10 @@
 //! `ccpanes-hub` 的 MCP 面（orchestrator 上的 `/mcp-hub`，docs/113）。
 //!
 //! 只暴露 `search_tools` / `call_tool`；检索、缓存、转发都在 core 的 `McpHubService`。
-//! 实验开关 `experimental.mcpHub` 关着时：不列工具、调用直接报错、不碰任何后端。
+//! 只有启动档选了 hub 投递的会话才会被注入这个端点；它本身常驻、无状态开关。
 //! 会话可见的服务器由注入 URL 上的 `servers=` 限定（与启动档的筛选结果一致）。
 
 use cc_panes_core::services::mcp_hub::{servers_from_query, McpHubService, HUB_TOOLS_JSON};
-use cc_panes_core::services::SettingsService;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, ErrorData, Extensions, ListToolsResult,
     PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
@@ -18,16 +17,11 @@ use std::sync::{Arc, OnceLock};
 #[derive(Clone)]
 pub struct McpHubHandler {
     hub: Arc<McpHubService>,
-    settings: Arc<SettingsService>,
 }
 
 impl McpHubHandler {
-    pub fn new(hub: Arc<McpHubService>, settings: Arc<SettingsService>) -> Self {
-        Self { hub, settings }
-    }
-
-    fn enabled(&self) -> bool {
-        self.settings.get_settings().experimental.mcp_hub
+    pub fn new(hub: Arc<McpHubService>) -> Self {
+        Self { hub }
     }
 }
 
@@ -114,12 +108,6 @@ impl ServerHandler for McpHubHandler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        if !self.enabled() {
-            return Ok(text_result(
-                "ccpanes-hub 未启用（设置 → 实验功能）".to_string(),
-                true,
-            ));
-        }
         let allowed = allowed_servers(&context.extensions);
         let args = request.arguments.unwrap_or_default();
         let result = match request.name.as_ref() {
@@ -140,13 +128,8 @@ impl ServerHandler for McpHubHandler {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let tools = if self.enabled() {
-            hub_tools().to_vec()
-        } else {
-            Vec::new()
-        };
         Ok(ListToolsResult {
-            tools,
+            tools: hub_tools().to_vec(),
             meta: None,
             next_cursor: None,
         })

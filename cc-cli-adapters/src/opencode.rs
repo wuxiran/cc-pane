@@ -822,6 +822,7 @@ impl CliToolAdapter for OpenCodeAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::Full,
                 launch_identity: true,
+                hub: false,
             },
             skills: SkillsInjection {
                 mount: SkillMount::ConfigArray,

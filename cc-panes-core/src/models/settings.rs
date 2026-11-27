@@ -115,10 +115,6 @@ pub struct ExperimentalSettings {
     /// 资料空间（docs/108：活动栏 Library 入口，一键建素材库并拉起素材助手）。
     #[serde(default = "default_experimental_flag")]
     pub library_space: bool,
-    /// 共享 MCP 聚合入口 `ccpanes-hub`（docs/113）。**Dev 也默认关**：它改变注入给 agent
-    /// 的 MCP 形状，必须由用户显式打开；打开后还要在启动档里逐个选择「只注入 hub」。
-    #[serde(default)]
-    pub mcp_hub: bool,
 }
 
 /// Dev（debug）构建 = true，Release = false。
@@ -132,7 +128,6 @@ impl Default for ExperimentalSettings {
             drama_studio: default_experimental_flag(),
             skill_market: default_experimental_flag(),
             library_space: default_experimental_flag(),
-            mcp_hub: false,
         }
     }
 }
@@ -1645,18 +1640,6 @@ mod tests {
         let enabled: AppSettings =
             toml::from_str("[privacy]\nchannelPurity = true\n").expect("privacy parses");
         assert!(enabled.privacy.channel_purity);
-    }
-
-    /// MCP hub 改变注入形状，Dev/Release 都默认关；老配置缺键也是关。
-    #[test]
-    fn mcp_hub_experiment_defaults_off_in_every_build() {
-        assert!(!ExperimentalSettings::default().mcp_hub);
-        let missing: AppSettings =
-            toml::from_str("[experimental]\nskillMarket = true\n").expect("parses");
-        assert!(!missing.experimental.mcp_hub);
-        let enabled: AppSettings =
-            toml::from_str("[experimental]\nmcpHub = true\n").expect("parses");
-        assert!(enabled.experimental.mcp_hub);
     }
 
     /// 实验功能默认值跟随 Dev/Release 隔离：debug 全开、release 全关；老配置缺

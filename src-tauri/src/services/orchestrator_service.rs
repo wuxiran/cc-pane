@@ -2664,18 +2664,18 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
         Default::default(),
     );
 
-    // docs/113：共享 MCP 聚合入口。实验开关关着时 handler 不列工具、不碰后端。
-    let hub = Arc::new(cc_panes_core::services::McpHubService::new(
-        state.shared_mcp_service.clone(),
-    ));
-    let hub_settings = state.settings_service.clone();
-    let mcp_hub_service = StreamableHttpService::new(
-        move || {
-            Ok(super::mcp_hub_handler::McpHubHandler::new(
-                hub.clone(),
-                hub_settings.clone(),
+    // docs/113：共享 MCP 聚合入口。与资源库 Hub 卡片共用 app 管理的那一份（缓存一致）。
+    let hub = state
+        .app_handle
+        .try_state::<Arc<cc_panes_core::services::McpHubService>>()
+        .map(|hub| hub.inner().clone())
+        .unwrap_or_else(|| {
+            Arc::new(cc_panes_core::services::McpHubService::new(
+                state.shared_mcp_service.clone(),
             ))
-        },
+        });
+    let mcp_hub_service = StreamableHttpService::new(
+        move || Ok(super::mcp_hub_handler::McpHubHandler::new(hub.clone())),
         Arc::new(LocalSessionManager::default()),
         Default::default(),
     );
