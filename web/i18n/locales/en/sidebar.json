@@ -950,6 +950,8 @@
     "delete": "Delete",
     "deleteConfirm": "Delete bot \"{{name}}\"? The conversation stays on the agent side, but the bot itself cannot be restored.",
     "busy": "Replying…",
+    "autoTag": "Auto",
+    "autoHint": "Default bot created when you @-mention an engine in a chat",
     "tab": "Contacts"
   },
   "sessionsTitle": "Sessions",

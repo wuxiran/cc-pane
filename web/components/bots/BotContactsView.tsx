@@ -22,6 +22,13 @@ import BotAvatar from "./BotAvatar";
 import BotEditorDialog from "./BotEditorDialog";
 import { openBotChat } from "./openBotChat";
 
+/** 自动 Bot 没有人设：副标题给「引擎 · 目录名」，区分同引擎不同 cwd 的几个。 */
+function autoBotDetail(bot: BotSummary): string {
+  if (!bot.autoCreated || !bot.cwd) return bot.engineId;
+  const folder = bot.cwd.split(/[\\/]/).filter(Boolean).pop();
+  return folder ? `${bot.engineId} · ${folder}` : bot.engineId;
+}
+
 export default function BotContactsView() {
   const { t } = useTranslation("sidebar");
   const [bots, setBots] = useState<BotSummary[]>([]);
@@ -125,9 +132,20 @@ export default function BotContactsView() {
                     )}
                   </span>
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-xs text-[var(--app-text-primary)]">{bot.name}</span>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="truncate text-xs text-[var(--app-text-primary)]">{bot.name}</span>
+                      {bot.autoCreated ? (
+                        <span
+                          className="shrink-0 rounded border border-[var(--app-border)] px-1 text-[length:var(--text-micro)] leading-4 text-[var(--app-text-tertiary)]"
+                          aria-label={t("bots.autoHint")}
+                          data-testid="bot-auto-tag"
+                        >
+                          {t("bots.autoTag")}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="truncate text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
-                      {busy ? t("bots.busy") : bot.persona.split("\n")[0] || bot.engineId}
+                      {busy ? t("bots.busy") : bot.persona.split("\n")[0] || autoBotDetail(bot)}
                     </span>
                   </span>
                 </button>
