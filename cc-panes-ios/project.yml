@@ -1,0 +1,67 @@
+name: CCPanes
+options:
+  bundleIdPrefix: com.ccpanes
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.99.4"
+targets:
+  CCPanes:
+    type: application
+    platform: iOS
+    sources:
+      - CCPanes
+    dependencies:
+      - package: SwiftTerm
+    info:
+      path: CCPanes/Info.plist
+      properties:
+        CFBundleDisplayName: CC-Panes
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocalNetworkUsageDescription: 连接局域网内电脑上运行的 CC-Panes，查看和操作终端会话。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ccpanes.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  CCPanesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - CCPanesTests
+    dependencies:
+      - target: CCPanes
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  CCPanes:
+    build:
+      targets:
+        CCPanes: all
+    test:
+      targets:
+        - CCPanesTests

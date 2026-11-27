@@ -63,6 +63,11 @@ impl PendingPermissions {
         Ok(resolution)
     }
 
+    /// 仍在等待用户处理的权限请求数（移动桥 chat 列表用）。
+    pub(super) async fn pending_count(&self) -> usize {
+        self.requests.lock().await.len()
+    }
+
     #[cfg(test)]
     async fn insert(&self, key: String, id: Value) {
         self.requests.lock().await.insert(key, id);

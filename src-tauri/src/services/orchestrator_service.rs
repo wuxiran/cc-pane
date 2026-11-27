@@ -2710,6 +2710,16 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
             "/api/heavy-jobs",
             crate::services::heavy_job_routes::router(heavy_jobs),
         )
+        // ACP 移动桥（docs/112 §3）：独立小路由，自带 Bearer 校验；cc-panes-web 反向代理到这里
+        .nest_service(
+            "/acp",
+            crate::services::acp_bridge_routes::router(
+                crate::services::acp_bridge_routes::AcpBridgeState::new(
+                    state.token.clone(),
+                    state.app_handle.clone(),
+                ),
+            ),
+        )
         .nest_service("/mcp", mcp_service)
         .nest_service("/mcp-full", mcp_full_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))

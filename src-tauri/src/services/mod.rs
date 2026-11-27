@@ -2,6 +2,8 @@
 pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
+pub mod acp_bridge_routes;
+pub(crate) mod acp_bridge_ws;
 mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
@@ -54,7 +56,7 @@ pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};
 pub(crate) use acp_chat_service::remote as acp_remote;
 pub use acp_chat_service::{
     AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, ChatEventStream,
-    PermissionBinding, PromptAnnouncement, AUTO_APPROVE_ALL,
+    PermissionBinding, PromptAnnouncement, UserPrompt, AUTO_APPROVE_ALL,
 };
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use bot_service::{Bot, BotService, BotSummary};

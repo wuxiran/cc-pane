@@ -141,7 +141,7 @@ pub use device_service::{
     DeviceService, DeviceTokenStore, KeyringDeviceTokenStore, MemoryDeviceTokenStore,
 };
 pub use device_token_service::{
-    DeviceAccessEntry, DeviceTokenRecord, DeviceTokenService, PairingOutcome,
+    DeviceAccessEntry, DeviceTokenRecord, DeviceTokenService, PairingOutcome, PairingRejection,
     DEFAULT_DEVICE_TOKEN_TTL_DAYS,
 };
 pub use drama_service::DramaService;

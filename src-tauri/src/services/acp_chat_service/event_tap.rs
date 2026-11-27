@@ -4,12 +4,16 @@
 //! 事件，但这一轮必须完整——旧实现是全局 broadcast（容量 2048），长回合或
 //! 别的会话同时刷 token 时会 `Lagged`，回复开头直接丢掉。按 chat 分发后
 //! 别的会话的流量不占配额；一轮的事件量有限，无界队列不会失控。
+//!
+//! 同时它是所有 emit 的必经点：`send` 先把事件写进移动桥事件环
+//! （`event_log`，docs/112 §3.2）再分发，因此 Tauri emit 之前环里已有这一条。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 
+use super::event_log::AcpEventHub;
 use super::AcpChatEvent;
 
 pub type ChatEventStream = mpsc::UnboundedReceiver<AcpChatEvent>;
@@ -17,6 +21,7 @@ pub type ChatEventStream = mpsc::UnboundedReceiver<AcpChatEvent>;
 #[derive(Clone, Default)]
 pub(crate) struct EventTap {
     subscribers: Arc<Mutex<HashMap<String, Vec<mpsc::UnboundedSender<AcpChatEvent>>>>>,
+    hub: Arc<AcpEventHub>,
 }
 
 impl EventTap {
@@ -37,16 +42,30 @@ impl EventTap {
         rx
     }
 
-    /// 没有订阅者时不克隆载荷（token 流是热路径）。
-    pub(crate) fn send(&self, event: &AcpChatEvent) {
+    pub(crate) fn hub(&self) -> &Arc<AcpEventHub> {
+        &self.hub
+    }
+
+    /// 先写事件环，再分发给旁路订阅者。返回 false = 重复的 `user_prompt`
+    /// （同一 promptId 已入环），调用方不应再转发到 webview。
+    /// 没有旁路订阅者时不额外克隆载荷（token 流是热路径）。
+    pub(crate) fn send(&self, event: &AcpChatEvent) -> bool {
+        if self
+            .hub
+            .publish(&event.chat_id, &event.kind, &event.payload)
+            .is_none()
+        {
+            return false;
+        }
         let mut map = self.lock();
         let Some(subscribers) = map.get_mut(&event.chat_id) else {
-            return;
+            return true;
         };
         subscribers.retain(|tx| tx.send(event.clone()).is_ok());
         if subscribers.is_empty() {
             map.remove(&event.chat_id);
         }
+        true
     }
 
     #[cfg(test)]
@@ -97,5 +116,23 @@ mod tests {
         drop(_second);
         tap.send(&event("c", 1));
         assert_eq!(tap.subscriber_count("c"), 0);
+    }
+
+    #[test]
+    fn every_send_lands_in_the_ring_even_without_subscribers() {
+        let tap = EventTap::default();
+        assert!(tap.send(&event("bot-a", 0)));
+        assert!(tap.send(&event("bot-a", 1)));
+        assert_eq!(tap.hub().info("bot-a").unwrap().last_seq, 2);
+        let prompt = AcpChatEvent {
+            chat_id: "bot-a".into(),
+            kind: "user_prompt".into(),
+            payload: json!({"promptId": "p", "origin": "im"}),
+        };
+        let mut sub = tap.subscribe("bot-a");
+        assert!(tap.send(&prompt));
+        assert!(!tap.send(&prompt), "duplicate promptId is dropped");
+        assert_eq!(sub.try_recv().unwrap().kind, "user_prompt");
+        assert!(sub.try_recv().is_err());
     }
 }

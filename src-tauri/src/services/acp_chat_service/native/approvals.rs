@@ -292,6 +292,7 @@ impl Session {
         &self,
         key: String,
         option: Option<String>,
+        by: &str,
     ) -> AppResult<()> {
         let cancelling = self.response_gate.lock().await;
         let request = self
@@ -304,6 +305,7 @@ impl Session {
         let RequestKind::Approval { choices, .. } = &request.kind else {
             return Err(AppError::from("This request is a question"));
         };
+        let selected = if *cancelling { None } else { option.clone() };
         let result = if *cancelling || option.is_none() {
             request.cancellation()
         } else {
@@ -314,13 +316,17 @@ impl Session {
         };
         self.client.respond(request.id, result).await?;
         self.pending.lock().await.remove(&key);
-        self.emit("permission_resolved", json!({"requestKey":key}));
+        self.emit(
+            "permission_resolved",
+            json!({"requestKey":key,"optionId":selected,"by":by}),
+        );
         Ok(())
     }
     pub(in crate::services::acp_chat_service) async fn respond_elicitation(
         &self,
         key: String,
         response: Value,
+        by: &str,
     ) -> AppResult<()> {
         let cancelling = self.response_gate.lock().await;
         let request = self
@@ -338,6 +344,7 @@ impl Session {
         } else {
             elicitation::validate_response(form, response)?
         };
+        let action = answer["action"].clone();
         let result = if *tool_input {
             let mut answers = serde_json::Map::new();
             if answer["action"] == "accept" {
@@ -351,8 +358,32 @@ impl Session {
         };
         self.client.respond(request.id, result).await?;
         self.pending.lock().await.remove(&key);
-        self.emit("elicitation_cancelled", json!({"requestKey":key}));
+        self.emit(
+            "elicitation_resolved",
+            json!({"requestKey":key,"action":action,"by":by}),
+        );
         Ok(())
+    }
+    /// 仍在等待的审批数（不含提问）。
+    pub(in crate::services::acp_chat_service) async fn pending_approvals(&self) -> usize {
+        self.pending
+            .lock()
+            .await
+            .values()
+            .filter(|request| matches!(request.kind, RequestKind::Approval { .. }))
+            .count()
+    }
+
+    /// 请求被宿主收起（取消回合 / agent 自己撤回）：另一端据此收卡。
+    /// `by` 沿用 `user_prompt.origin` 词表，宿主侧动作记为 `desktop`。
+    fn emit_request_closed(&self, key: &str, kind: &RequestKind) {
+        match kind {
+            RequestKind::Approval { .. } => self.emit(
+                "permission_resolved",
+                json!({"requestKey":key,"optionId":null,"by":"desktop"}),
+            ),
+            _ => self.emit("elicitation_cancelled", json!({"requestKey":key})),
+        }
     }
     pub(in crate::services::acp_chat_service) async fn cancel_requests(&self) {
         let mut gate = self.response_gate.lock().await;
@@ -366,13 +397,7 @@ impl Session {
                 .is_ok()
             {
                 self.pending.lock().await.remove(&key);
-                self.emit(
-                    match request.kind {
-                        RequestKind::Approval { .. } => "permission_resolved",
-                        _ => "elicitation_cancelled",
-                    },
-                    json!({"requestKey":key}),
-                );
+                self.emit_request_closed(&key, &request.kind);
             }
         }
     }
@@ -387,13 +412,7 @@ impl Session {
             .map(|(key, _)| key.clone());
         if let Some(key) = key {
             if let Some(request) = self.pending.lock().await.remove(&key) {
-                self.emit(
-                    match request.kind {
-                        RequestKind::Approval { .. } => "permission_resolved",
-                        _ => "elicitation_cancelled",
-                    },
-                    json!({"requestKey":key}),
-                );
+                self.emit_request_closed(&key, &request.kind);
             }
         }
     }

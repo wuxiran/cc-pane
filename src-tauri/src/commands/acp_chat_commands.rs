@@ -674,8 +674,10 @@ pub async fn prompt_acp_chat(
     service: State<'_, Arc<AcpChatService>>,
     chat_id: String,
     blocks: Vec<Value>,
+    prompt_id: Option<String>,
 ) -> AppResult<()> {
-    service.prompt(&chat_id, blocks).await
+    let user = crate::services::UserPrompt::new(prompt_id, "desktop");
+    service.prompt_from(&chat_id, blocks, user).await
 }
 
 #[tauri::command]

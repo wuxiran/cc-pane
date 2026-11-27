@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use crate::commands::{ccpanes_mcp_servers, engine_spec, resolve_engine_launch};
 use crate::services::{
-    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, PromptAnnouncement,
+    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, PromptAnnouncement, UserPrompt,
 };
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::AppPaths;
@@ -92,6 +92,15 @@ pub struct BotSummary {
 #[serde(rename_all = "camelCase")]
 pub enum BotMessageOrigin {
     Im,
+}
+
+impl BotMessageOrigin {
+    /// `user_prompt` 事件里的 origin（docs/112 §3.2）。
+    pub fn as_prompt_origin(self) -> &'static str {
+        match self {
+            Self::Im => "im",
+        }
+    }
 }
 
 pub fn bot_chat_id(bot_id: &str) -> String {
@@ -544,7 +553,10 @@ impl BotService {
             kind: EXTERNAL_PROMPT_EVENT_KIND.to_string(),
             payload: json!({"text": text, "origin": origin, "promptId": prompt_id}),
         };
-        let stop_reason = self.run_external_turn(&chat_id, text, announce).await?;
+        let user = UserPrompt::new(Some(prompt_id.to_string()), origin.as_prompt_origin());
+        let stop_reason = self
+            .run_external_turn(&chat_id, text, announce, user)
+            .await?;
         let mut collected = Vec::new();
         while let Ok(event) = events.try_recv() {
             collected.push(event);
@@ -563,15 +575,19 @@ impl BotService {
         chat_id: &str,
         text: &str,
         announce: PromptAnnouncement,
+        user: UserPrompt,
     ) -> AppResult<String> {
         let deadline = tokio::time::Instant::now() + WAIT_READY_TIMEOUT;
         loop {
             match self.chat_phase(chat_id).await {
                 Some(AcpChatPhase::Ready) => {
                     let blocks = vec![json!({"type": "text", "text": text})];
-                    let turn =
-                        self.acp
-                            .prompt_and_wait_announced(chat_id, blocks, Some(announce.clone()));
+                    let turn = self.acp.prompt_and_wait_from(
+                        chat_id,
+                        blocks,
+                        Some(announce.clone()),
+                        user.clone(),
+                    );
                     match tokio::time::timeout(TURN_TIMEOUT, turn).await {
                         Ok(Err(error)) if error.code() == Some("ACP_TURN_IN_PROGRESS") => {}
                         Ok(result) => return result,

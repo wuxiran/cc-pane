@@ -56,7 +56,7 @@ strip-ansi-escapes = "0.2"
 trash = "5"
 portable-pty = "0.8"
 parking_lot = "0.12"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tokio = { version = "1", features = [
     "rt-multi-thread",

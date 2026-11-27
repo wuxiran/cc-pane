@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod agent_sessions;
 pub mod device;
 pub mod drama;
@@ -32,7 +33,7 @@ mod delivery_tests;
 
 use axum::{
     middleware,
-    routing::{delete, get, patch, post, put},
+    routing::{any, delete, get, patch, post, put},
     Router,
 };
 
@@ -867,7 +868,11 @@ pub fn build_router(state: AppState) -> Router {
             post(workflow::reconcile_plan_collaboration),
         );
 
-    let ws = Router::new().route("/ws/{session_id}", get(ws_upgrade));
+    // ACP 移动桥（docs/112 §3）：鉴权与只读守卫同其他 /api/*，之后原样转给桌面 app。
+    let api = api.route("/api/acp/{*rest}", any(acp::proxy_rest));
+    let ws = Router::new()
+        .route("/ws/{session_id}", get(ws_upgrade))
+        .route("/ws/acp/{chat_id}", get(acp::ws_upgrade));
     // 免鉴权的存活探针：远程部署等待服务起来、设备视图区分"没在跑"和"令牌无效"。
     let auth = Router::new()
         .route(

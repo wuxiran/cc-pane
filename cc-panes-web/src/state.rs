@@ -62,6 +62,8 @@ pub struct AppState {
     pub web_auth: Arc<WebAuthStore>,
     pub default_cwd: String,
     pub output_mode: TerminalOutputMode,
+    /// ACP 移动桥的上游（桌面 app 内 orchestrator，docs/112 §3）。
+    pub acp_host: Arc<crate::routes::acp::AcpHost>,
 }
 
 #[cfg(test)]

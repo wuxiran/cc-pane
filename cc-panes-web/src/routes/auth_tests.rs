@@ -228,6 +228,7 @@ fn test_state(name: &str) -> crate::state::AppState {
         web_auth: Arc::new(WebAuthStore::default()),
         default_cwd: root.to_string_lossy().to_string(),
         output_mode: TerminalOutputMode::Emitter,
+        acp_host: std::sync::Arc::new(crate::routes::acp::AcpHost::unavailable()),
     }
 }
 
@@ -425,3 +426,6 @@ mod device_auth;
 
 #[path = "web_sessions_tests.rs"]
 mod web_sessions;
+
+#[path = "acp_tests.rs"]
+mod acp;

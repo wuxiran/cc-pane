@@ -1110,6 +1110,7 @@ mod tests {
             web_auth: Arc::new(crate::web_auth::WebAuthStore::default()),
             default_cwd: "/default/project".to_string(),
             output_mode: crate::state::TerminalOutputMode::Emitter,
+            acp_host: std::sync::Arc::new(crate::routes::acp::AcpHost::unavailable()),
         };
         (state, database)
     }

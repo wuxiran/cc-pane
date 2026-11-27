@@ -238,6 +238,7 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         web_auth: Arc::new(crate::web_auth::WebAuthStore::default()),
         default_cwd: root.to_string_lossy().to_string(),
         output_mode: TerminalOutputMode::Emitter,
+        acp_host: std::sync::Arc::new(crate::routes::acp::AcpHost::unavailable()),
     };
     (state, root)
 }

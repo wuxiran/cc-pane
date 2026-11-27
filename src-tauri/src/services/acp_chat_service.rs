@@ -11,8 +11,10 @@
 
 mod admission;
 mod auth;
+pub(crate) mod bridge;
 pub(crate) mod edits;
 mod elicitation;
+pub(crate) mod event_log;
 mod event_tap;
 mod fork;
 mod handoff;
@@ -38,8 +40,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tracing::{debug, warn};
 
-pub use admission::PromptAnnouncement;
 use admission::{Admission, Preambles};
+pub use admission::{PromptAnnouncement, UserPrompt};
 pub use event_tap::ChatEventStream;
 use event_tap::EventTap;
 
@@ -489,7 +491,9 @@ impl AcpChatSession {
             kind: kind.to_string(),
             payload,
         };
-        self.event_tap.send(&event);
+        if !self.event_tap.send(&event) {
+            return;
+        }
         if !crate::webview_reliability::webview_emits_allowed() {
             return;
         }
@@ -594,8 +598,13 @@ impl AcpChatService {
         self.preambles.set(chat_id, preamble);
     }
 
-    fn admission(&self, chat_id: &str, announce: Option<PromptAnnouncement>) -> Admission {
-        Admission::new(self.preambles.clone(), chat_id, announce)
+    fn admission(
+        &self,
+        chat_id: &str,
+        announce: Option<PromptAnnouncement>,
+        user: UserPrompt,
+    ) -> Admission {
+        Admission::new(self.preambles.clone(), chat_id, announce, Some(user))
     }
 
     async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1037,7 +1046,18 @@ impl AcpChatService {
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
     pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
-        let admission = self.admission(chat_id, None);
+        self.prompt_from(chat_id, blocks, UserPrompt::desktop())
+            .await
+    }
+
+    /// 同 `prompt`，但带上 prompt 的身份与来源（进 `user_prompt` 事件）。
+    pub async fn prompt_from(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        user: UserPrompt,
+    ) -> AppResult<()> {
+        let admission = self.admission(chat_id, None, user);
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
@@ -1089,7 +1109,8 @@ impl AcpChatService {
         chat_id: &str,
         blocks: Vec<Value>,
     ) -> AppResult<String> {
-        self.prompt_and_wait_announced(chat_id, blocks, None).await
+        self.prompt_and_wait_from(chat_id, blocks, None, UserPrompt::desktop())
+            .await
     }
 
     /// 同 `prompt_and_wait`，但「检查就绪 → 占回合 → 广播公告」是一个原子动作：
@@ -1101,7 +1122,19 @@ impl AcpChatService {
         blocks: Vec<Value>,
         announce: Option<PromptAnnouncement>,
     ) -> AppResult<String> {
-        let admission = self.admission(chat_id, announce);
+        self.prompt_and_wait_from(chat_id, blocks, announce, UserPrompt::desktop())
+            .await
+    }
+
+    /// 同 `prompt_and_wait_announced`，并指明 prompt 身份与来源（Bot / IM 外部提交）。
+    pub async fn prompt_and_wait_from(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        announce: Option<PromptAnnouncement>,
+        user: UserPrompt,
+    ) -> AppResult<String> {
+        let admission = self.admission(chat_id, announce, user);
         if let Some(session) = self.native_session(chat_id).await {
             return tokio::spawn(async move {
                 session
@@ -1314,9 +1347,22 @@ impl AcpChatService {
         request_key: String,
         option_id: Option<String>,
     ) -> AppResult<()> {
+        self.respond_permission_by(chat_id, request_key, option_id, "desktop")
+            .await
+    }
+
+    /// 同 `respond_permission`，`by` 标明是哪一端处理的（进 `permission_resolved`）。
+    pub async fn respond_permission_by(
+        &self,
+        chat_id: &str,
+        request_key: String,
+        option_id: Option<String>,
+        by: &str,
+    ) -> AppResult<()> {
         if let Some(session) = self.native_session(chat_id).await {
-            return session.respond_permission(request_key, option_id).await;
+            return session.respond_permission(request_key, option_id, by).await;
         }
+        let chosen = option_id.clone();
         let session = self.session(chat_id).await?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
@@ -1334,9 +1380,10 @@ impl AcpChatService {
                 };
                 session_ref.respond(&id, Ok(outcome.clone())).await?;
                 // 实时也发：在 IM 里批准时桌面卡片要消失，反之 IM 按钮要撤下。
+                let option_id = if cancelling { None } else { chosen };
                 session_ref.emit(
                     "permission_resolved",
-                    json!({"requestKey":recorded_key,"result":outcome}),
+                    json!({"requestKey":recorded_key,"optionId":option_id,"by":by,"result":outcome}),
                 );
                 Ok(())
             })
