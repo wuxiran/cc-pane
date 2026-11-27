@@ -13,7 +13,6 @@ function createDeps(overrides: Partial<InterruptGateDeps> = {}): InterruptGateDe
     appStartedAt: APP_STARTED_AT,
     sessionStatuses: ["idle"],
     hasOpenDialog: false,
-    isMiniMode: false,
     isFullscreen: false,
     activeInterrupt: null,
     ...overrides,
@@ -63,12 +62,6 @@ describe("checkInterruptGate", () => {
       );
     });
 
-    it("update 放行 agentBusy 后，迷你模式仍挡得住", () => {
-      expect(check("update", { sessionStatuses: ["thinking"], isMiniMode: true })).toBe(
-        "miniMode",
-      );
-    });
-
     it("update 放行 agentBusy 后，全屏仍挡得住", () => {
       expect(check("update", { sessionStatuses: ["thinking"], isFullscreen: true })).toBe(
         "fullscreen",
@@ -88,10 +81,6 @@ describe("checkInterruptGate", () => {
 
   it("有对话框打开时拦截", () => {
     expect(check("update", { hasOpenDialog: true })).toBe("dialogOpen");
-  });
-
-  it("迷你模式时拦截", () => {
-    expect(check("update", { isMiniMode: true })).toBe("miniMode");
   });
 
   it("全屏时拦截", () => {
@@ -127,10 +116,6 @@ describe("checkInterruptGate", () => {
     it("不参与单槽互斥（update 占槽时照弹）", () => {
       expect(check("notice", { activeInterrupt: "update" })).toBeNull();
     });
-
-    it("迷你模式仍被挡", () => {
-      expect(check("notice", { isMiniMode: true })).toBe("miniMode");
-    });
   });
 
   // askInput：agent 等的就是人，弹出本身就是目的
@@ -152,10 +137,6 @@ describe("checkInterruptGate", () => {
 
     it("全屏照弹", () => {
       expect(check("askInput", { isFullscreen: true })).toBeNull();
-    });
-
-    it("迷你模式仍被挡（没地方渲染，OS 通知兜底）", () => {
-      expect(check("askInput", { isMiniMode: true })).toBe("miniMode");
     });
 
     it("不参与单槽互斥", () => {

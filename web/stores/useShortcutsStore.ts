@@ -8,18 +8,16 @@ import { useSettingsStore } from "./useSettingsStore";
  * - toggle-sidebar (Ctrl+B) → Claude Code: task:background
  * - new-tab        (Ctrl+T) → Claude Code: app:toggleTodos
  * - close-tab      (Ctrl+W) → readline: delete-word
- * - toggle-mini-mode (Ctrl+M) → terminal: Enter (0x0D)
  * - command-palette (Ctrl+K) → readline: kill-line / Claude Code 常用
  *
  * 仅对「Ctrl 即应用修饰键」的平台成立。mac 上应用键是 ⌘、终端键是 ⌃，⌘W 对 readline
- * 毫无意义，照样放行等于白白吞掉最常用的 5 个快捷键——而主界面几乎总是终端聚焦，
+ * 毫无意义，照样放行等于白白吞掉最常用的 4 个快捷键——而主界面几乎总是终端聚焦，
  * 表现就是"mac 快捷键全都不能用"。mac 的让行改由 handleKeydown 按真实 ⌃ 键判断。
  */
 const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "toggle-sidebar",
   "new-tab",
   "close-tab",
-  "toggle-mini-mode",
   "command-palette",
 ]);
 

@@ -16,6 +16,8 @@ const mockCloseWindow = vi.fn();
 const mockMinimizeWindow = vi.fn();
 const mockMaximizeWindow = vi.fn();
 const mockToggleFullscreenWindow = vi.fn();
+const mockTogglePin = vi.fn();
+const mockIsPinned = vi.fn<() => boolean>();
 const mockToggleSidebar = vi.fn();
 const mockSidebarVisible = vi.fn<() => boolean>();
 const mockToggleRightDock = vi.fn();
@@ -56,6 +58,8 @@ vi.mock("@/hooks/useWindowControl", () => ({
     maximizeWindow: mockMaximizeWindow,
     toggleFullscreenWindow: mockToggleFullscreenWindow,
     isMaximized: false,
+    isPinned: mockIsPinned(),
+    togglePin: mockTogglePin,
     startDrag: mockStartDrag,
   }),
 }));
@@ -66,6 +70,7 @@ describe("TitleBar", () => {
     mockUseBorderlessStore.mockReturnValue(false);
     mockSidebarVisible.mockReturnValue(true);
     mockRightDockVisible.mockReturnValue(false);
+    mockIsPinned.mockReturnValue(false);
     useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
   });
 
@@ -139,6 +144,29 @@ describe("TitleBar", () => {
       expect(screen.getByTestId(testId)).toHaveAttribute("aria-label", label);
       unmount();
     }
+  });
+
+  it("右上角提供窗口置顶开关，点击切换且不触发拖拽", () => {
+    renderTitleBar(<TitleBar />);
+
+    const pin = screen.getByTestId("titlebar-toggle-always-on-top");
+    expect(pin).toHaveAttribute("aria-label", "窗口置顶");
+    expect(pin).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(pin);
+
+    expect(mockTogglePin).toHaveBeenCalledTimes(1);
+    expect(mockStartDrag).not.toHaveBeenCalled();
+  });
+
+  it("置顶时图钉按钮高亮并标记 pressed", () => {
+    mockIsPinned.mockReturnValue(true);
+    renderTitleBar(<TitleBar />);
+
+    const pin = screen.getByTestId("titlebar-toggle-always-on-top");
+    expect(pin).toHaveAttribute("aria-pressed", "true");
+    expect(pin.className).toContain("text-[var(--app-accent)]");
+    expect(pin.querySelector(".rotate-45")).not.toBeNull();
   });
 
   it("does not extend the right dock divider through the titlebar", () => {

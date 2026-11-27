@@ -307,7 +307,7 @@ flutter pub get && flutter analyze && flutter test
 - [x] 会话日志（工作空间级）
 - [x] Local History（文件版本管理 + Diff + 标签 + 分支感知）
 - [x] 主题切换（亮色/暗色）
-- [x] 无边框模式 + 迷你模式
+- [x] 无边框模式
 - [x] 系统托盘
 - [x] Settings 面板（通用、终端、快捷键、代理、Provider、关于）
 - [x] SQLite 数据持久化

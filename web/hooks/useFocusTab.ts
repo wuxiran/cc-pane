@@ -1,5 +1,5 @@
 // 「聚焦某个 tab」的公共实现。此前同一段逻辑在 SessionsView / HomeActiveSessions /
-// MiniView / LayoutTopBar 等 4+ 处复制粘贴（docs/78 §0 提到的重复之一），此处收敛；
+// LayoutTopBar 等多处复制粘贴（docs/78 §0 提到的重复之一），此处收敛；
 // 本次先接新调用方 + SessionsView，其余标记后续迁移。
 import { usePanesStore } from "@/stores";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";

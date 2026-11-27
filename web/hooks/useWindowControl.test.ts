@@ -12,12 +12,14 @@ import { useWindowControl } from "./useWindowControl";
 const mockStartDragging = vi.fn().mockResolvedValue(undefined);
 const mockIsMaximized = vi.fn().mockResolvedValue(false);
 const mockOnResized = vi.fn().mockResolvedValue(vi.fn());
+const mockIsAlwaysOnTop = vi.fn().mockResolvedValue(false);
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
     startDragging: mockStartDragging,
     isMaximized: mockIsMaximized,
     onResized: mockOnResized,
+    isAlwaysOnTop: mockIsAlwaysOnTop,
   })),
 }));
 
@@ -27,6 +29,7 @@ describe("useWindowControl", () => {
     resetTauriInvoke();
     mockIsMaximized.mockResolvedValue(false);
     mockOnResized.mockResolvedValue(vi.fn());
+    mockIsAlwaysOnTop.mockResolvedValue(false);
   });
 
   describe("初始状态", () => {
@@ -35,6 +38,16 @@ describe("useWindowControl", () => {
 
       await waitFor(() => {
         expect(result.current.isPinned).toBe(false);
+      });
+    });
+
+    it("挂载时回读窗口真实置顶状态（组件重挂不丢高亮）", async () => {
+      mockIsAlwaysOnTop.mockResolvedValue(true);
+
+      const { result } = renderHook(() => useWindowControl());
+
+      await waitFor(() => {
+        expect(result.current.isPinned).toBe(true);
       });
     });
 

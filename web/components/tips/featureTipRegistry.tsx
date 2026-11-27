@@ -18,7 +18,6 @@ import {
   InterfaceShapesVisual,
   LauncherVisual,
   LayoutSwitcherVisual,
-  MiniModeVisual,
   RightDockVisual,
   WorktreeIsolationVisual,
 } from "./featureTipVisuals";
@@ -137,15 +136,6 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     }),
     weight: 2,
   },
-  shortcutTip({
-    id: "mini-mode",
-    actionId: "toggle-mini-mode",
-    titleKey: "featureTips.miniMode.title",
-    bodyKey: "featureTips.miniMode.body",
-    bodyUnboundKey: "featureTips.miniMode.bodyUnbound",
-    visual: MiniModeVisual,
-    weight: 1,
-  }),
   shortcutTip({
     id: "unified-launcher",
     actionId: "new-tab",

@@ -826,11 +826,6 @@
       "body": "One split layout per kind of task - switch without rearranging windows. Open the picker to swap the whole working surface.",
       "bodyUnbound": "Bind the layout picker in Settings to move quickly between task views."
     },
-    "miniMode": {
-      "title": "Collapse into a mini terminal",
-      "body": "Watching long output doesn't need the whole workbench. Collapse into a lightweight terminal floating on the desktop; press again to return.",
-      "bodyUnbound": "Bind Mini Mode in Settings to collapse the window into a lightweight terminal."
-    },
     "launcher": {
       "title": "Create tabs from one launcher",
       "body": "Project, CLI, runtime, launch options - one entry point covers them all. New tabs start here.",

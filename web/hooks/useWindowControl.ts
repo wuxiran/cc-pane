@@ -10,6 +10,12 @@ export function useWindowControl() {
     const win = getCurrentWindowIfTauri();
     if (!win) return;
     win.isMaximized().then(setIsMaximized).catch((e) => handleErrorSilent(e, "check maximized"));
+    // 置顶状态以窗口为准：按钮所在组件（TitleBar / 无边框浮动按钮）会随模式切换卸载重挂，
+    // 不回读的话重挂后图钉高亮会与真实置顶状态脱节。
+    win
+      .isAlwaysOnTop?.()
+      .then(setIsPinned)
+      .catch((e) => handleErrorSilent(e, "check always on top"));
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unlisten = win.onResized(() => {
       if (debounceTimer) clearTimeout(debounceTimer);

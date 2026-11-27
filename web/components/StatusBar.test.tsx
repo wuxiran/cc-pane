@@ -118,6 +118,12 @@ describe("StatusBar", () => {
     expect(screen.getByTestId("system-resource-segment")).toBeInTheDocument();
   });
 
+  it("状态栏不再提供窗口置顶与迷你模式入口（置顶已移到标题栏右上角）", () => {
+    renderSB();
+    expect(screen.queryByRole("button", { name: "窗口置顶" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "迷你模式" })).not.toBeInTheDocument();
+  });
+
   it("切换语言时更新 i18n 并持久化到设置", async () => {
     const user = userEvent.setup();
     renderSB();

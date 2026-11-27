@@ -21,7 +21,6 @@ import { hasBusySessions, selectHasOpenDialog, useInterruptGate } from "@/lib/in
 import {
   useDialogStore,
   useFullscreenStore,
-  useMiniModeStore,
   useSettingsStore,
   useTerminalStatusStore,
   useUpdateStore,
@@ -72,7 +71,6 @@ export default function UpdateNotification() {
   const updateSettings = useSettingsStore((state) => state.settings?.update ?? null);
   const statusMap = useTerminalStatusStore((state) => state.statusMap);
   const hasOpenDialog = useDialogStore(selectHasOpenDialog);
-  const isMiniMode = useMiniModeStore((state) => state.isMiniMode);
   const isFullscreen = useFullscreenStore((state) => state.isFullscreen);
   const { activeInterrupt, check, occupy, release } = useInterruptGate("update");
   const [clock, setClock] = useState(Date.now);
@@ -129,7 +127,6 @@ export default function UpdateNotification() {
     clock,
     hasOpenDialog,
     isFullscreen,
-    isMiniMode,
     occupy,
     persistUpdateSettings,
     statusMap,

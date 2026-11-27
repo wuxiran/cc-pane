@@ -17,7 +17,6 @@ import {
   Maximize2,
   MessagesSquare,
   Mic,
-  Minimize2,
   PanelBottom,
   PanelLeft,
   PanelRight,
@@ -33,7 +32,6 @@ import { toastErr } from "@/lib/feedback";
 import {
   usePanesStore,
   useFullscreenStore,
-  useMiniModeStore,
   useDialogStore,
   useActivityBarStore,
   useVoiceInputStore,
@@ -375,13 +373,6 @@ export function buildBuiltinCommands(): CommandDescriptor[] {
         const sessionId = activeTerminalSessionId();
         if (sessionId) requestTerminalRebuildDisplay(sessionId);
       },
-    },
-    {
-      id: "toggle-mini-mode",
-      titleKey: "toggle-mini-mode",
-      icon: Minimize2,
-      group: "view",
-      run: () => useMiniModeStore.getState().toggleMiniMode(),
     },
     {
       id: "voice-input",

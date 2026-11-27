@@ -7,7 +7,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "@/components/TitleBar";
 import ActivityBar from "@/components/ActivityBar";
 import StatusBar from "@/components/StatusBar";
-import MiniView from "@/components/MiniView";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import ImportConfirmDialog from "@/components/resources/ImportConfirmDialog";
 import OnboardingGuide from "@/components/OnboardingGuide";
@@ -17,7 +16,7 @@ import ResponsiveRightDock from "@/components/layout/ResponsiveRightDock";
 import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
 import FeatureTips from "@/components/tips/FeatureTips";
-import { useMiniModeStore, useWorkspacesStore } from "@/stores";
+import { useWorkspacesStore } from "@/stores";
 import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
 import { useSuppressChromeContextMenu } from "@/hooks/useSuppressChromeContextMenu";
 import type { OpenTerminalOptions } from "@/types";
@@ -29,7 +28,6 @@ interface AppShellProps {
 }
 
 export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecentFiles }: AppShellProps) {
-  const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
   useFollowActiveTerminalContext();
   // chrome 区域不弹 WebView 原生右键菜单；终端/输入框/前端自处理的右键放行
@@ -51,34 +49,28 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <NotificationCenter />
         <FeatureTips />
 
-        {isMiniMode ? (
-          <MiniView />
-        ) : (
-          <>
-            <div className="shrink-0">
-              <TitleBar
-                workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name}
-              />
-            </div>
-            {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
-            <div className="min-w-0 flex-1 flex overflow-hidden relative z-[1]">
-              <div className="h-full shrink-0">
-                <ActivityBar />
-              </div>
-              <div className="min-h-0 min-w-0 flex-1 flex">
-                <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
-              </div>
-              <div className="h-full shrink-0">
-                <ResponsiveRightDock onOpenTerminal={onOpenTerminal} />
-              </div>
-            </div>
-            <div className="shrink-0">
-              <StatusBar />
-            </div>
-          </>
-        )}
+        <div className="shrink-0">
+          <TitleBar
+            workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name}
+          />
+        </div>
+        {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
+        <div className="min-w-0 flex-1 flex overflow-hidden relative z-[1]">
+          <div className="h-full shrink-0">
+            <ActivityBar />
+          </div>
+          <div className="min-h-0 min-w-0 flex-1 flex">
+            <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
+          </div>
+          <div className="h-full shrink-0">
+            <ResponsiveRightDock onOpenTerminal={onOpenTerminal} />
+          </div>
+        </div>
+        <div className="shrink-0">
+          <StatusBar />
+        </div>
 
-        {/* 无边框浮动退出按钮 */}
+        {/* 无边框浮动按钮组（窗口置顶 + 退出无边框） */}
         <BorderlessFloatingButton />
 
         {/* 一键导入确认弹窗（deep-link ccpanes://…） */}
