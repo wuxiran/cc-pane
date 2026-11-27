@@ -30,6 +30,7 @@ import NotificationBellButton from "@/components/statusbar/NotificationBellButto
 import CommandPaletteButton from "@/components/statusbar/CommandPaletteButton";
 import StatusbarCustomize from "@/components/statusbar/StatusbarCustomize";
 import ThemeQuickMenu from "@/components/statusbar/ThemeQuickMenu";
+import KeepAwakeIndicator from "@/components/statusbar/KeepAwakeIndicator";
 
 /** 右侧图标组的组间竖分隔符，与既有分隔线风格一致。窄档收进更多菜单时由容器 CSS 隐藏。 */
 function StatusDivider() {
@@ -410,6 +411,9 @@ export default function StatusBar() {
             <span>{activeCount}</span>
           </span>
         )}
+
+        {/* agent 工作时保持唤醒：持锁才显示 */}
+        <KeepAwakeIndicator />
 
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (

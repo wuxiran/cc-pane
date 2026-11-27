@@ -103,6 +103,7 @@ describe("settings registry", () => {
     ["quick-commands", { id: "library", keywordsKey: "searchKeywords.quickCommands", targetSectionId: "quick-commands-root" }],
     ["performance", { id: "build", keywordsKey: "searchKeywords.performance" }],
     ["performance", { id: "session-priority", titleKey: "lowerSessionPriority", targetSectionId: "performance-session-policy" }],
+    ["performance", { id: "keep-awake", titleKey: "performance.keepAwake", targetSectionId: "performance-session-policy" }],
     ["performance", { id: "session-cpu-weight", titleKey: "performance.sessionCpuWeight", targetSectionId: "performance-session-policy" }],
   ])("registers a %s search entry %o", (paneId, entry) => {
     expect(findPane(paneId)?.searchEntries).toContainEqual(expect.objectContaining(entry));
@@ -130,6 +131,7 @@ describe("settings registry", () => {
       "performance-codex",
       "performance-heavy-gate",
       "performance-heavy-ledger",
+      "performance-session-policy",
       "performance-session-policy",
       "performance-session-policy",
       "performance-wsl-quota",

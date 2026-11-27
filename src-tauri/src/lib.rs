@@ -1981,6 +1981,12 @@ pub fn run() {
     terminal_service.set_spec_service(spec_service.clone());
     terminal_service.set_launch_profile_service(launch_profile_service.clone());
     terminal_service.set_workspace_service(workspace_service.clone());
+    // agent 工作时阻止系统空闲休眠（app 侧：ACP 对话 + 非 daemon 模式会话）。
+    let keep_awake_service = services::keep_awake_runtime::start_app_keep_awake(
+        settings_service.clone(),
+        terminal_service.clone(),
+        acp_chat_service.clone(),
+    );
     let terminal_backend_state = Arc::new(TerminalBackendState::from_env_or_in_process(
         terminal_service.clone(),
         app_paths.as_ref(),
@@ -2133,6 +2139,7 @@ pub fn run() {
         .manage(automation_service.clone())
         .manage(bot_service.clone())
         .manage(terminal_backend_state)
+        .manage(keep_awake_service)
         .manage(launch_history_service)
         .manage(usage_stats_service)
         .manage(session_index_service)
@@ -3297,6 +3304,7 @@ pub fn run() {
             commands::get_heavy_sampler_stats,
             commands::get_performance_recorder_status,
             commands::mark_performance_incident,
+            commands::get_keep_awake_status,
             get_available_shells,
             get_windows_build_number,
             check_environment,

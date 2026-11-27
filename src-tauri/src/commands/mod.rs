@@ -31,6 +31,8 @@ mod history_commands;
 mod im_commands;
 mod import_commands;
 mod journal_commands;
+mod keep_awake_commands;
+pub use keep_awake_commands::*;
 mod launch_profile_commands;
 mod layout_snapshot_commands;
 mod local_history_commands;

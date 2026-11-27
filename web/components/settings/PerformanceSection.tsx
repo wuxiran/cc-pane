@@ -1,8 +1,8 @@
 /**
  * 设置 → 系统与连接 → "性能"（docs/107 W1）。
  *
- * 编辑 `settings.performance.*`；"会话资源策略" 分组里的两个控件
- * （`lowerSessionPriority` / `sessionCpuWeight`）仍存在 `settings.terminal.*`，
+ * 编辑 `settings.performance.*`；"会话资源策略" 分组里的控件
+ * （`lowerSessionPriority` / `keepAwakeWhileWorking` / `sessionCpuWeight`）存在 `settings.terminal.*`，
  * 只是 UI 从终端面板搬到这里，所以额外接 `terminal` / `onTerminalChange`。
  */
 import { useState } from "react";
@@ -174,6 +174,13 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
             description={t("lowerSessionPriorityHint")}
             checked={terminal.lowerSessionPriority ?? true}
             onCheckedChange={(checked) => updateTerminal("lowerSessionPriority", checked)}
+          />
+          <SettingsSwitchRow
+            id="terminal-keep-awake-while-working"
+            title={t("performance.keepAwake")}
+            description={t("performance.keepAwakeHint")}
+            checked={terminal.keepAwakeWhileWorking ?? true}
+            onCheckedChange={(checked) => updateTerminal("keepAwakeWhileWorking", checked)}
           />
           <SettingsRow
             title={t("performance.sessionCpuWeight")}

@@ -145,6 +145,7 @@
   "rateLimit.sourceAt": "数据由 Codex 于 {{time}} 写在本会话日志中。额度按账号计算，其他会话或设备的用量要等本会话下一次请求后才会反映。",
   "statusbar.ccchanShow": "显示 cc酱",
   "statusbar.ccchanHide": "隐藏 cc酱",
+  "statusbar.keepAwake": "agent 工作中，已阻止系统休眠",
   "statusbar.more": "更多工具",
   "statusbar.customize": "自定义状态栏（勾选项常驻显示）",
   "statusbar.item.webLock": "Web 锁定",

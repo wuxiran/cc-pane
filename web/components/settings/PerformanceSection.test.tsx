@@ -46,6 +46,7 @@ function createTerminal(overrides: Partial<TerminalSettings> = {}): TerminalSett
     snapshotApplyKillEnabled: false,
     autoAdoptDaemonSessions: false,
     lowerSessionPriority: true,
+    keepAwakeWhileWorking: true,
     sessionCpuWeight: null,
     splitShortcutPassthrough: false,
     inlineImagesEnabled: false,
@@ -227,6 +228,19 @@ describe("PerformanceSection", () => {
     await user.click(toggle);
 
     expect(onTerminalChange).toHaveBeenLastCalledWith({ ...terminal, lowerSessionPriority: false });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("toggles keepAwakeWhileWorking under settings.terminal (default on)", async () => {
+    const user = userEvent.setup();
+    const terminal = createTerminal({ keepAwakeWhileWorking: true });
+    const { onChange, onTerminalChange } = renderSection({ terminal });
+
+    const toggle = screen.getByRole("switch", { name: /agent 工作时保持唤醒|Keep awake while agents work/i });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+
+    expect(onTerminalChange).toHaveBeenLastCalledWith({ ...terminal, keepAwakeWhileWorking: false });
     expect(onChange).not.toHaveBeenCalled();
   });
 
