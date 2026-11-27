@@ -15,33 +15,30 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::commands::{ccpanes_mcp_servers, engine_spec, resolve_engine_launch};
-use crate::services::{
-    AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot, PromptAnnouncement,
-};
+use crate::services::{AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot};
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::AppPaths;
+
+mod ask;
+mod engine_bot;
+
+pub use ask::{BotAskRegistry, BotAskReply, ExternalTurn};
 
 pub const BOTS_CHANGED_EVENT: &str = "bots-changed";
 pub const BOT_CHAT_PREFIX: &str = "bot-";
 /// 界面据此在用户气泡上标出「来自 IM」。
 pub const EXTERNAL_PROMPT_EVENT_KIND: &str = "external_prompt";
 
-/// IM 送来的消息最多等多久前一轮（界面里手动发起的）结束。
-const WAIT_READY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const WAIT_READY_POLL: Duration = Duration::from_millis(400);
-/// 一轮回复的硬上限：超时取消该轮，避免 IM 侧无限挂起。
-const TURN_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const NAME_MAX: usize = 40;
 const PERSONA_MAX: usize = 20_000;
 
@@ -73,6 +70,10 @@ pub struct Bot {
     pub created_at: i64,
     #[serde(default)]
     pub updated_at: i64,
+    /// 由 Agent Chat 的「@引擎」自动创建的默认 Bot（同引擎同 cwd 复用一个）。
+    /// 旧 bot.json 缺字段 = false；为 false 时不写盘，保持旧文件形状。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_created: bool,
 }
 
 /// 列表视图：Bot 本体 + 运行态。
@@ -87,11 +88,34 @@ pub struct BotSummary {
     pub phase: Option<AcpChatPhase>,
 }
 
-/// 外部（IM）消息的来源，进 `external_prompt` 事件载荷。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// 外部消息的来源，进 `external_prompt` 事件载荷：IM 入站，或另一个
+/// Agent Chat 里的 `@Bot`（带来源 chatId，界面据此标注并回跳）。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BotMessageOrigin {
     Im,
+    Chat { from_chat_id: String },
+}
+
+impl BotMessageOrigin {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Im => "im",
+            Self::Chat { .. } => "chat",
+        }
+    }
+
+    /// `external_prompt` 公告的载荷（`origin` 保持字符串，旧前端照常识别 "im"）。
+    pub fn announce_payload(&self, text: &str, prompt_id: &str) -> Value {
+        let mut payload = serde_json::json!({
+            "text": text,
+            "origin": self.kind(),
+            "promptId": prompt_id,
+        });
+        if let Self::Chat { from_chat_id } = self {
+            payload["fromChatId"] = Value::String(from_chat_id.clone());
+        }
+        payload
+    }
 }
 
 pub fn bot_chat_id(bot_id: &str) -> String {
@@ -198,6 +222,10 @@ pub struct BotService {
     /// IM 提交队列锁（每个 Bot 一把）：外部消息按到达顺序串行，持有整轮；
     /// 与生命周期锁分开，长回合不挡开新话题 / 删除 / 界面启动。
     queue_locks: std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// 界面 `@Bot` 发起的在途请求（取消用）。
+    asks: BotAskRegistry,
+    /// 「@引擎」自动建 Bot 的串行锁：同引擎同 cwd 只建一个。
+    auto_create_lock: Mutex<()>,
 }
 
 impl BotService {
@@ -208,6 +236,8 @@ impl BotService {
             app_paths,
             lifecycle_locks: std::sync::Mutex::new(HashMap::new()),
             queue_locks: std::sync::Mutex::new(HashMap::new()),
+            asks: BotAskRegistry::default(),
+            auto_create_lock: Mutex::new(()),
         }
     }
 
@@ -382,6 +412,7 @@ impl BotService {
         let now = Utc::now().timestamp_millis();
         let mut reset_thread = false;
         let mut bot = if is_new {
+            // 新建时 auto_created 取草稿（只有 ensure_engine_bot 会置 true）。
             Bot {
                 id: Uuid::new_v4().to_string(),
                 created_at: now,
@@ -395,6 +426,8 @@ impl BotService {
                 id: existing.id.clone(),
                 created_at: existing.created_at,
                 acp_session_id: existing.acp_session_id.clone(),
+                // 自动 / 手建身份以磁盘为准，编辑器改不了。
+                auto_created: existing.auto_created,
                 ..draft.clone()
             }
         };
@@ -515,90 +548,6 @@ impl BotService {
         Ok(snapshot)
     }
 
-    /// 外部提交（IM）：排队等前一轮结束，发出后等回合结束，返回助手回复文本。
-    ///
-    /// `prompt_id` 进 `external_prompt` 公告的载荷，调用方（IM 入站）据此认出
-    /// 「本条消息这一轮」的事件。
-    pub async fn submit_external(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        bot_id: &str,
-        prompt_id: &str,
-        text: &str,
-        origin: BotMessageOrigin,
-    ) -> AppResult<String> {
-        let text = text.trim();
-        if text.is_empty() {
-            return Err(AppError::coded(
-                "ACP_PROMPT_REQUIRED",
-                "Message cannot be empty",
-            ));
-        }
-        let queue = self.queue_lock(bot_id);
-        let _queued = queue.lock().await;
-        self.ensure_started(app, bot_id).await?;
-        let chat_id = bot_chat_id(bot_id);
-        // 先订阅再提交：按 chat 的无界队列，整轮事件一个不丢。
-        let mut events = self.acp.subscribe_chat(&chat_id);
-        let announce = PromptAnnouncement {
-            kind: EXTERNAL_PROMPT_EVENT_KIND.to_string(),
-            payload: json!({"text": text, "origin": origin, "promptId": prompt_id}),
-        };
-        let stop_reason = self.run_external_turn(&chat_id, text, announce).await?;
-        let mut collected = Vec::new();
-        while let Ok(event) = events.try_recv() {
-            collected.push(event);
-        }
-        let reply = collect_reply_text(&chat_id, prompt_id, collected.iter());
-        if reply.is_empty() && stop_reason == "cancelled" {
-            return Ok("（已取消）".to_string());
-        }
-        Ok(reply)
-    }
-
-    /// 等会话空闲并原子地占到回合（界面里抢先发的那条先跑，这条继续等），
-    /// 占到后再计回合超时。
-    async fn run_external_turn(
-        self: &Arc<Self>,
-        chat_id: &str,
-        text: &str,
-        announce: PromptAnnouncement,
-    ) -> AppResult<String> {
-        let deadline = tokio::time::Instant::now() + WAIT_READY_TIMEOUT;
-        loop {
-            match self.chat_phase(chat_id).await {
-                Some(AcpChatPhase::Ready) => {
-                    let blocks = vec![json!({"type": "text", "text": text})];
-                    let turn =
-                        self.acp
-                            .prompt_and_wait_announced(chat_id, blocks, Some(announce.clone()));
-                    match tokio::time::timeout(TURN_TIMEOUT, turn).await {
-                        Ok(Err(error)) if error.code() == Some("ACP_TURN_IN_PROGRESS") => {}
-                        Ok(result) => return result,
-                        Err(_) => {
-                            let _ = self.acp.cancel(chat_id).await;
-                            return Err(AppError::coded("BOT_TURN_TIMEOUT", "Bot reply timed out"));
-                        }
-                    }
-                }
-                Some(AcpChatPhase::Starting | AcpChatPhase::Generating) => {}
-                _ => {
-                    return Err(AppError::coded(
-                        "ACP_SESSION_NOT_READY",
-                        "Bot session is not running",
-                    ))
-                }
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(AppError::coded(
-                    "BOT_BUSY",
-                    "Bot is still busy with a previous turn",
-                ));
-            }
-            tokio::time::sleep(WAIT_READY_POLL).await;
-        }
-    }
-
     pub async fn cancel(&self, bot_id: &str) -> AppResult<()> {
         self.acp.cancel(&bot_chat_id(bot_id)).await
     }
@@ -635,6 +584,8 @@ pub fn emit_changed(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::time::Duration;
 
     fn event(chat_id: &str, kind: &str, payload: Value) -> AcpChatEvent {
         AcpChatEvent {
@@ -665,6 +616,7 @@ mod tests {
             acp_session_id: None,
             created_at: 0,
             updated_at: 0,
+            auto_created: false,
         }
     }
 
@@ -801,5 +753,23 @@ mod tests {
             serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude"}"#).unwrap();
         assert!(parsed.cwd.is_none());
         assert!(parsed.auto_approve_kinds.is_empty());
+        assert!(!parsed.auto_created);
+        // 手建 Bot 不写 autoCreated，旧版本读到的文件形状不变。
+        let raw = serde_json::to_string(&parsed).unwrap();
+        assert!(!raw.contains("autoCreated"));
+    }
+
+    #[test]
+    fn origin_payload_keeps_string_origin() {
+        let im = BotMessageOrigin::Im.announce_payload("hi", "p1");
+        assert_eq!(im["origin"], "im");
+        assert!(im.get("fromChatId").is_none());
+        let chat = BotMessageOrigin::Chat {
+            from_chat_id: "tab-1".into(),
+        }
+        .announce_payload("hi", "p2");
+        assert_eq!(chat["origin"], "chat");
+        assert_eq!(chat["fromChatId"], "tab-1");
+        assert_eq!(chat["promptId"], "p2");
     }
 }
