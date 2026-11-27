@@ -407,5 +407,13 @@
     "cancel": "Cancel",
     "resume": "Resume Session",
     "unregistered": "Can't open session link: {{path}} isn't a registered project"
+  },
+  "worktreeSetup": {
+    "title": "Run worktree setup commands?",
+    "description": "This repository's .ccpanes/worktree.json asks to run the following commands in the new worktree. They will run in a new terminal tab.",
+    "copied": "Copied from the main tree: {{files}}",
+    "skip": "Skip",
+    "runOnce": "Run once",
+    "alwaysAllow": "Always allow"
   }
 }

@@ -1,4 +1,4 @@
-use crate::services::{WorktreeInfo, WorktreeService};
+use crate::services::{WorktreeInfo, WorktreeService, WorktreeSetupPlan, WorktreeSetupService};
 use crate::utils::{validate_path, AppError, AppResult};
 use std::sync::Arc;
 use tauri::State;
@@ -95,5 +95,35 @@ pub async fn fork_chat_worktree(
     tauri::async_runtime::spawn_blocking(move || service.fork_chat_worktree(&cwd))
         .await
         .map_err(|e| AppError::from(e.to_string()))?
+        .map_err(AppError::from)
+}
+
+/// worktree 建好后调用：应用 copyFiles / sparseCheckout，返回 setup 计划（不执行命令）。
+/// 没有 `.ccpanes/worktree.json` 时返回 None。
+#[tauri::command]
+pub async fn prepare_worktree_setup(
+    worktree_path: String,
+    service: State<'_, Arc<WorktreeSetupService>>,
+) -> AppResult<Option<WorktreeSetupPlan>> {
+    validate_path(&worktree_path)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.prepare(&worktree_path))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
+        .map_err(AppError::from)
+}
+
+/// 记「始终允许」：按 项目 + 配置 hash，配置一改就失效。
+#[tauri::command]
+pub async fn approve_worktree_setup(
+    project_path: String,
+    config_hash: String,
+    service: State<'_, Arc<WorktreeSetupService>>,
+) -> AppResult<()> {
+    validate_path(&project_path)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.approve(&project_path, &config_hash))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
         .map_err(AppError::from)
 }

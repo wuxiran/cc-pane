@@ -9,6 +9,8 @@
 //! - 项目路径白名单校验
 //! - 请求频率限制
 
+#[path = "orchestrator_service/create_worktree.rs"]
+mod create_worktree;
 #[path = "orchestrator_service/dispatch_retry.rs"]
 mod dispatch_retry;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
@@ -23,6 +25,7 @@ mod report_delivery_cache;
 mod ssh_machine_tools;
 #[path = "orchestrator_service/worker_report_requests.rs"]
 mod worker_report_requests;
+use create_worktree::McpCreateWorktreeParams;
 use open_terminal_tab::McpOpenTerminalTabParams;
 use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCache};
 use ssh_machine_tools::McpCheckSshMachineParams;
@@ -8068,6 +8071,17 @@ impl McpToolHandler {
         extensions: Extensions,
     ) -> String {
         self.open_terminal_tab_impl(params, extensions).await
+    }
+
+    /// 建 git worktree（可选登记进工作空间）。仓库有 .ccpanes/worktree.json 时：
+    /// copyFiles 照做；setup 仅在已「始终允许」时于新终端标签执行，否则跳过并在 setup.note 说明。
+    #[tool]
+    async fn create_worktree(
+        &self,
+        Parameters(params): Parameters<McpCreateWorktreeParams>,
+        extensions: Extensions,
+    ) -> String {
+        self.create_worktree_impl(params, extensions).await
     }
 
     /// 列出「设备」视图里保存的 SSH 机器（id、名称、地址、用户、标签、默认目录；不含凭据）。

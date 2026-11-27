@@ -17,5 +17,8 @@ export async function prepareLocalSessionCwd(
   const baseRef = worktree.baseRef?.trim() || "HEAD";
   if (!branch) throw new Error(i18n.t("worktreeBranchRequired", { ns: "launcher" }));
   const name = branch.replace(/[^\p{L}\p{N}_.-]+/gu, "-").replace(/^-+|-+$/g, "") || "cc-worktree";
-  return worktreeService.add(worktree.repoPath?.trim() || cwd, name, branch, baseRef, true);
+  const created = await worktreeService.add(worktree.repoPath?.trim() || cwd, name, branch, baseRef, true);
+  // setup 与会话启动并行：不等确认、不等命令跑完（docs/116）。
+  void import("@/lib/worktreeSetup").then(({ requestWorktreeSetup }) => requestWorktreeSetup(created));
+  return created;
 }

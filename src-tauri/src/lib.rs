@@ -40,6 +40,7 @@ use commands::{
     add_worktree,
     adopt_terminal_session,
     apply_fork_changes,
+    approve_worktree_setup,
     batch_update_todo_status,
     begin_cli_turn_checkpoint,
     browser_back,
@@ -408,6 +409,7 @@ use commands::{
     prepare_chat_fork,
     prepare_claude_relaunch,
     prepare_session_context,
+    prepare_worktree_setup,
     preview_external_providers,
     preview_launch_profile_native_config,
     preview_launch_profile_resolution,
@@ -663,7 +665,7 @@ use services::{
     TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
     UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    WorktreeService, WorktreeSetupService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1883,6 +1885,9 @@ pub fn run() {
     let project_context_service = Arc::new(ProjectContextService::new());
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
+    let worktree_setup_service = Arc::new(WorktreeSetupService::new(
+        app_paths.worktree_setup_approvals_path(),
+    ));
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     match workspace_service.migrate_project_identities() {
         Ok(report) if report.workspaces_updated > 0 => info!(
@@ -2143,6 +2148,7 @@ pub fn run() {
         .manage(project_context_service)
         .manage(journal_service)
         .manage(worktree_service)
+        .manage(worktree_setup_service)
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
@@ -3500,6 +3506,8 @@ pub fn run() {
             list_task_verification, run_task_verification,
             fork_chat_worktree,
             remove_worktree,
+            prepare_worktree_setup,
+            approve_worktree_setup,
             // Workspace 命令
             list_workspaces,
             create_workspace,

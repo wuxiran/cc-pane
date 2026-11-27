@@ -407,5 +407,13 @@
     "cancel": "取消",
     "resume": "恢复会话",
     "unregistered": "无法打开会话链接：{{path}} 不是已注册的项目"
+  },
+  "worktreeSetup": {
+    "title": "执行 worktree 初始化命令？",
+    "description": "仓库的 .ccpanes/worktree.json 要求在新 worktree 中执行以下命令，会在新终端标签里运行。",
+    "copied": "已从主树拷贝：{{files}}",
+    "skip": "不执行",
+    "runOnce": "仅本次执行",
+    "alwaysAllow": "始终允许"
   }
 }

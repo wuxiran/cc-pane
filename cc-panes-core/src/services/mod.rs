@@ -117,6 +117,7 @@ mod workspace_projects_manifest;
 mod workspace_service;
 mod workspace_skill_service;
 mod worktree_service;
+pub mod worktree_setup;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
@@ -261,3 +262,4 @@ pub use workspace_skill_service::{
     WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
 };
 pub use worktree_service::{WorktreeInfo, WorktreeService};
+pub use worktree_setup::{WorktreeSetupPlan, WorktreeSetupService};

@@ -105,11 +105,11 @@ trigger: |
 
 **派发前增量**（替代"直接用主仓库路径"）：
 
-1. 建 worktree（命名约定 `<repo>@<slug>`，与主仓库同级）：
-   `git -C <主仓库> worktree add ../<repo>@<slug> -b <slug>`
-2. 拷贝未跟踪运行时文件——`git worktree` 不带未跟踪文件，漏拷会构建失败。常见清单：`.env`、`.env.local`、本地证书；按项目实际情况问一句用户
-3. 注册进工作空间（provider/launch/runtime 配置自动继承自工作空间，无需任何额外配置）：
-   `mcp__ccpanes__add_project_to_workspace(workspaceName, projectPath: <worktree 绝对路径>)`
+1. 建 worktree 并注册进工作空间（一步完成；建在 `<repo>-worktrees/<slug>`，provider/launch/runtime 配置自动继承自工作空间）：
+   `"$CC_PANES_CTL" --json call create_worktree --arg projectPath=<主仓库> --arg name=<slug> --arg workspaceName=<ws>`
+   返回的 `worktreePath` 就是之后的项目路径。仓库有 `.ccpanes/worktree.json` 时，`copyFiles` 已自动拷好；`setup` 只在用户已「始终允许」时自动在新终端标签执行，`setup.status=skipped` 表示未批准被跳过——把 `setup.note` 转告用户，**不要自己替用户执行 setup 命令**
+2. 拷贝未跟踪运行时文件——`git worktree` 不带未跟踪文件，漏拷会构建失败。仓库没配 `copyFiles` 时，常见清单 `.env`、`.env.local`、本地证书按项目实际情况问一句用户
+3. （ctl 不可用时的兜底）`git -C <主仓库> worktree add ../<repo>@<slug> -b <slug>` + `add_project_to_workspace(workspaceName, projectPath)`；这条路径不处理 worktree.json
 4. 之后 Phase 3/4 的 `projectPath` 全部指向 worktree 路径（WSL 转换规则同下表）
 
 **收尾增量**（Phase 7 用户确认后追加）：
