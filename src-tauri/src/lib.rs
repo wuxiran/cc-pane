@@ -444,6 +444,7 @@ use commands::{
     register_plan_leader,
     register_plan_worker,
     release_terminal_session,
+    relocate_project_sessions,
     remove_mcp_server,
     remove_project,
     remove_provider,
@@ -1788,6 +1789,12 @@ pub fn run() {
         }
     };
     boot_mark!("database initialized");
+    let session_relocation_service = Arc::new(
+        cc_panes_core::services::session_relocation::SessionRelocationService::new(
+            &app_paths,
+            db.clone(),
+        ),
+    );
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     match project_repo.migrate_project_identities() {
         Ok(report) if report.projects_updated > 0 || report.duplicates_removed > 0 => info!(
@@ -2134,6 +2141,7 @@ pub fn run() {
         .manage(bot_service.clone())
         .manage(terminal_backend_state)
         .manage(launch_history_service)
+        .manage(session_relocation_service)
         .manage(usage_stats_service)
         .manage(session_index_service)
         .manage(history_service)
@@ -3669,6 +3677,7 @@ pub fn run() {
             skill_library_remove,
             skill_library_found,
             skill_library_import,
+            relocate_project_sessions,
             // Project Agent Skills（目录型，跨 CLI 根目录）
             list_project_skill_roots,
             list_project_skills,

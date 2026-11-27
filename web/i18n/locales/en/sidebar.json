@@ -64,6 +64,7 @@
     "offBar": "Not on the Activity Bar"
   },
   "fileHistory": "File History",
+  "relocateSessions": "Migrate session history…",
   "todoList": "TodoList",
   "importProject": "Import Project",
   "newWorkspace": "New Workspace",

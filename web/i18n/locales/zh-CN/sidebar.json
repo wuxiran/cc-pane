@@ -64,6 +64,7 @@
     "offBar": "未在左栏"
   },
   "fileHistory": "文件历史",
+  "relocateSessions": "迁移历史会话…",
   "todoList": "TodoList",
   "importProject": "导入项目",
   "newWorkspace": "新建工作空间",

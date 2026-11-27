@@ -80,6 +80,7 @@ mod session_index_parser;
 mod session_index_roots;
 mod session_index_service;
 pub mod session_provenance_persist;
+pub mod session_relocation;
 mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
