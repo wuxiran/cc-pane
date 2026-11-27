@@ -139,6 +139,19 @@
     }
   },
   "terminalLeaseReadOnly": "Read-only: another CC-Panes instance owns the write lease",
+  "leaseReclaim": {
+    "action": "Take back write access",
+    "title": "Take back write access to this terminal?",
+    "description": "Another CC-Panes instance currently holds write access. After taking it back you can type here, and the same terminal in the other instance becomes read-only (it still sees output). If that instance has already closed, this simply takes over.",
+    "confirm": "Take back",
+    "running": "Taking back…",
+    "success": "Write access taken back; the terminal accepts input again",
+    "error": {
+      "held-by-other": "Could not take it back: another instance still holds write access, or this session has ended.",
+      "force-unsupported": "Another instance is still using this terminal, and this backend version cannot force a takeover yet. Close the terminal in the other instance and retry in about 30 seconds.",
+      "failed": "Failed to take back write access. Please retry later."
+    }
+  },
   "waitingToRestore": "Waiting to restore",
   "waitingToRestoreHint": "Select this tab to start its saved session",
   "backToTerminal": "Back to Terminal",

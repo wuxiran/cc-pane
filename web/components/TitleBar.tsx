@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelRight,
   PanelRightClose,
+  Pin,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,7 @@ import {
 } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
+import { isTauriRuntime } from "@/services/runtime";
 import type { WorkspaceProject } from "@/types";
 
 // 项目没有独立 name 字段：显示别名，否则取路径最后一段
@@ -71,6 +73,8 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
     maximizeWindow,
     toggleFullscreenWindow,
     isMaximized,
+    isPinned,
+    togglePin,
     startDrag,
   } = useWindowControl();
 
@@ -252,6 +256,25 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
       {/* 右侧：工具按钮 + 窗口控件 */}
       <div className="flex items-center shrink-0" style={noDrag}>
+        {/* 窗口置顶：仅桌面端有意义；激活态用 accent 色 + 图钉旋转双编码 */}
+        {isTauriRuntime() && (
+          <IconTooltipButton
+            data-testid="titlebar-toggle-always-on-top"
+            label={tSidebar("alwaysOnTop")}
+            side="bottom"
+            aria-pressed={isPinned}
+            className={`mr-1 h-[26px] w-[26px] shrink-0 rounded-[6px] p-0 ${
+              isPinned ? "text-[var(--app-accent)] hover:text-[var(--app-accent)]" : ""
+            }`}
+            style={noDrag}
+            onClick={() => void togglePin()}
+          >
+            <Pin
+              className={`h-[15px] w-[15px] transition-transform ${isPinned ? "rotate-45" : ""}`}
+              strokeWidth={1.5}
+            />
+          </IconTooltipButton>
+        )}
         <IconTooltipButton
           data-testid="titlebar-toggle-right-dock"
           label={

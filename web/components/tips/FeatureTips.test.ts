@@ -65,11 +65,10 @@ describe("feature tip registry", () => {
     useShortcutsStore.setState({ actions: new Map(), terminalFocused: false });
   });
 
-  it("只有已核实的四个 action 绑定快捷键，扩容的六条一律不带 actionId", () => {
+  it("只有已核实的三个 action 绑定快捷键，扩容的六条一律不带 actionId", () => {
     expect(FEATURE_TIPS.filter((tip) => tip.actionId).map((tip) => tip.actionId)).toEqual([
       "command-palette",
       "toggle-layouts",
-      "toggle-mini-mode",
       "new-tab",
     ]);
     // 右坞的三个视图动作没有默认绑定、设置页也绑不上，绝不能挂 actionId（会画出快捷键 chip）

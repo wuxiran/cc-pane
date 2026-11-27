@@ -340,6 +340,36 @@ describe("TabBar", () => {
     expect(screen.queryByRole("menuitem", { name: /Other project command/ })).not.toBeInTheDocument();
   });
 
+  it("写租约被他人持有时右键显示「抢回写权限」并打开确认", async () => {
+    const { useLeaseReclaimStore } = await import("@/hooks/leaseReclaim");
+    useLeaseReclaimStore.setState({ sessionId: null });
+    const user = userEvent.setup();
+    const base = makeTab("tab-1", "Alpha");
+    const tab: Tab = {
+      ...base,
+      sessionId: "sess-ro",
+      leaseReadOnly: true,
+      terminalRootPane: { type: "leaf", id: "terminal-pane-tab-1", sessionId: "sess-ro", leaseReadOnly: true },
+    };
+    renderTabBar({ tabs: [tab] });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.click(await screen.findByRole("menuitem", { name: /抢回写权限|Take back write access/i }));
+
+    expect(useLeaseReclaimStore.getState().sessionId).toBe("sess-ro");
+  });
+
+  it("可写终端标签不显示抢回写权限", async () => {
+    renderTabBar();
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await screen.findByRole("menuitem", { name: /重命名|Rename/i });
+    expect(
+      screen.queryByRole("menuitem", { name: /抢回写权限|Take back write access/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("无 projectPath 的标签不显示克隆终端", async () => {
     const tab = { ...makeTab("tab-1", "Alpha"), projectPath: "" };
     renderTabBar({ tabs: [tab], onCloneTab: vi.fn() });

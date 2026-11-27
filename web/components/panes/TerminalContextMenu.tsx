@@ -10,6 +10,7 @@ import {
   GitFork,
   Hash,
   ListTodo,
+  LockKeyholeOpen,
   MoreHorizontal,
   PanelsTopLeft,
   RefreshCw,
@@ -71,6 +72,11 @@ interface TerminalContextMenuProps {
   onCopySessionId: () => void;
   /** 未提供时（无 projectPath）不渲染该菜单项。 */
   onOpenProjectDir?: () => void;
+  /**
+   * 抢回写权限：仅当本视图驱动 PTY 且写租约被另一个实例持有（只读）时提供，
+   * 此时置顶显示——只读终端里剪贴板/缓冲区操作都不是用户此刻要做的事。
+   */
+  onReclaimLease?: () => void;
   /** 未提供时（无 tab 的视图，如 SelfChat）不显示分叉和会话相关的复制项。 */
   sessionMenu?: TerminalSessionMenu;
 }
@@ -100,6 +106,7 @@ export default function TerminalContextMenu({
   onExportBuffer,
   onCopySessionId,
   onOpenProjectDir,
+  onReclaimLease,
   sessionMenu,
 }: TerminalContextMenuProps) {
   const { t } = useTranslation("panes");
@@ -132,6 +139,14 @@ export default function TerminalContextMenu({
     >
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-52">
+        {onReclaimLease && (
+          <>
+            <ContextMenuItem data-testid="terminal-menu-reclaim-lease" onSelect={onReclaimLease}>
+              <LockKeyholeOpen /> {t("leaseReclaim.action")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuItem disabled={!hasSelection} onSelect={onCopySelection}>
           <Copy /> {t("terminalCopySelection")}
         </ContextMenuItem>

@@ -18,13 +18,6 @@ vi.mock("@/stores/useWallpaperStore", () => ({
   },
 }));
 
-vi.mock("@/stores/useMiniModeStore", () => ({
-  useMiniModeStore: {
-    getState: () => ({ isMiniMode: false }),
-    subscribe: () => () => {},
-  },
-}));
-
 vi.mock("@/services/runtime", () => ({ isTauriRuntime: () => true }));
 
 const musicMock = {

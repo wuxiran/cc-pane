@@ -101,6 +101,22 @@ describe("useSettingsStore", () => {
       expect(useSettingsStore.getState().settings?.theme.shape).toBe("soft");
     });
 
+    it("剔除已下线的迷你模式快捷键绑定，其余绑定原样保留", async () => {
+      const legacySettings = createTestSettings();
+      legacySettings.shortcuts.bindings = {
+        ...legacySettings.shortcuts.bindings,
+        "toggle-sidebar": "Ctrl+B",
+        "toggle-mini-mode": "Ctrl+M",
+      };
+      vi.mocked(settingsService.getSettings).mockResolvedValue(legacySettings);
+
+      await useSettingsStore.getState().loadSettings();
+
+      const bindings = useSettingsStore.getState().settings?.shortcuts.bindings ?? {};
+      expect(bindings).not.toHaveProperty("toggle-mini-mode");
+      expect(bindings["toggle-sidebar"]).toBe("Ctrl+B");
+    });
+
     it("defaults a missing task queue flag to enabled", async () => {
       const legacySettings = createTestSettings();
       delete (legacySettings.terminal as Partial<typeof legacySettings.terminal>).taskQueueEnabled;

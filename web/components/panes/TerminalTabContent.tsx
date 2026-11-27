@@ -1,6 +1,6 @@
 import { isInteractivePhase, phaseOf } from "@/lib/terminalRuntimePhase";
 import { memo, useCallback, useState, type ReactNode } from "react";
-import { Loader2, LockKeyhole, MessageSquareText, Terminal } from "lucide-react";
+import { Loader2, MessageSquareText, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalPaneNode } from "@/types";
 import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
@@ -16,6 +16,7 @@ import { launchProfileIdForLaunch } from "@/lib/launchProfileSnapshot";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import { classifyTerminalLaunchPath } from "@/utils";
 import AgentChatView, { type TerminalViewMode } from "./AgentChatView";
+import LeaseReadOnlyBanner from "./LeaseReadOnlyBanner";
 import SplitView from "./SplitView";
 import { BlockedRestorePanel, LaunchErrorPanel, RestoreLogSurface } from "./TerminalLeafPanels";
 import TerminalView from "./TerminalView";
@@ -296,18 +297,7 @@ export default memo(function TerminalTabContent({
             </div>
           ) : null}
           {leaf.sessionId && leaf.leaseReadOnly ? (
-            <div
-              className="pointer-events-none absolute left-3 top-3 z-[2] flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded px-2.5 py-1.5 text-xs"
-              style={{
-                top: "calc(var(--notch-bar-height, 0px) + 12px)",
-                color: "var(--app-status-warning)",
-                background: "var(--app-status-warning-bg)",
-                border: "1px solid var(--app-status-warning)",
-              }}
-            >
-              <LockKeyhole className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 break-words">{t("terminalLeaseReadOnly")}</span>
-            </div>
+            <LeaseReadOnlyBanner sessionId={leaf.sessionId} />
           ) : null}
           {/* 状态栏被关掉时的 Chat 入口兜底（explore gotcha §8.12） */}
           {viewMode === "terminal"

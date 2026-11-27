@@ -8,7 +8,6 @@
 // muted playsInline loop preload="metadata">，声音一律走独立 audio（阶段 3）。
 import { useEffect, useMemo, useRef } from "react";
 import { useWallpaperStore } from "@/stores/useWallpaperStore";
-import { useMiniModeStore } from "@/stores/useMiniModeStore";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { useCanvasDisplayStore } from "@/stores/useCanvasDisplayStore";
@@ -41,7 +40,6 @@ export default function MainWallpaperLayer() {
   const assetUrl = useWallpaperStore((s) => s.assetUrl);
   const videoPolicy = useWallpaperStore((s) => s.videoPolicy);
   const markVideoDecodeFailed = useWallpaperStore((s) => s.markVideoDecodeFailed);
-  const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
   // 垫层遮挡信号的输入（原子 selector，不引入新对象）：
   // 与 MainViewSwitcher 的 terminalSolidUnderlay 同一事实源——那边垫纯色底，
@@ -57,7 +55,7 @@ export default function MainWallpaperLayer() {
   const pauseWhenUnfocused = resolved?.video.pauseWhenUnfocused ?? true;
   const playbackRate = resolved?.video.playbackRate ?? 1;
   const videoAutoplay = resolved?.video.autoplay ?? true;
-  // 运行时暂停（不改 mode，只 pause）：hidden / blur（按设置）/ MiniMode / 主视图切走 panes
+  // 运行时暂停（不改 mode，只 pause）：hidden / blur（按设置）/ 主视图切走 panes
   const viewVisible = appViewMode === "panes" || appViewMode === "orchestration";
   // 亮色终端主导纯色垫层 opacity=1 时壁纸被完全遮住：视频暂停省电，垫层淡出即恢复。
   const layoutHasTerminal = useMemo(
@@ -96,7 +94,6 @@ export default function MainWallpaperLayer() {
       const shouldPlay =
         videoAutoplay &&
         effectivelyVisible &&
-        !isMiniMode &&
         document.visibilityState !== "hidden" &&
         (!pauseWhenUnfocused || document.hasFocus());
       if (shouldPlay) {
@@ -117,7 +114,7 @@ export default function MainWallpaperLayer() {
       window.removeEventListener("focus", syncPlayback);
       video.pause();
     };
-  }, [showVideo, playbackRate, videoAutoplay, effectivelyVisible, isMiniMode, pauseWhenUnfocused]);
+  }, [showVideo, playbackRate, videoAutoplay, effectivelyVisible, pauseWhenUnfocused]);
 
   if (!isTauriRuntime()) return null;
   if (!active || !resolved) return null;

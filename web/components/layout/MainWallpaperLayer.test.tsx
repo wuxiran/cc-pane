@@ -14,7 +14,6 @@ const wallpaperState = vi.hoisted(() => ({
   markVideoDecodeFailed: vi.fn(),
 }));
 
-const miniModeState = vi.hoisted(() => ({ isMiniMode: false }));
 const activityBarState = vi.hoisted(() => ({ appViewMode: "panes" as AppViewMode }));
 const themeState = vi.hoisted(() => ({ isDark: true }));
 const canvasDisplayState = vi.hoisted(() => ({ mode: "panel" as "panel" | "canvas" }));
@@ -42,9 +41,6 @@ const panesState = vi.hoisted(() => ({
 vi.mock("@/stores/useWallpaperStore", () => ({
   useWallpaperStore: (selector: (s: typeof wallpaperState) => unknown) =>
     selector(wallpaperState),
-}));
-vi.mock("@/stores/useMiniModeStore", () => ({
-  useMiniModeStore: (selector: (s: typeof miniModeState) => unknown) => selector(miniModeState),
 }));
 vi.mock("@/stores/useActivityBarStore", () => ({
   useActivityBarStore: (selector: (s: typeof activityBarState) => unknown) =>
@@ -112,7 +108,6 @@ describe("MainWallpaperLayer 视频壁纸有效可见性（遮挡/不可见即�
     themeState.isDark = true;
     canvasDisplayState.mode = "panel";
     activityBarState.appViewMode = "panes";
-    miniModeState.isMiniMode = false;
     playSpy = vi
       .spyOn(HTMLMediaElement.prototype, "play")
       .mockReturnValue(Promise.resolve());

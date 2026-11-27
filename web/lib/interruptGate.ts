@@ -3,7 +3,6 @@ import { create } from "zustand";
 import {
   useDialogStore,
   useFullscreenStore,
-  useMiniModeStore,
   useTerminalStatusStore,
 } from "@/stores";
 import { isBusyStatus, type TerminalStatusType } from "@/types";
@@ -15,7 +14,6 @@ export interface InterruptGateDeps {
   appStartedAt: number;
   sessionStatuses: TerminalStatusType[];
   hasOpenDialog: boolean;
-  isMiniMode: boolean;
   isFullscreen: boolean;
   activeInterrupt: InterruptKind | null;
 }
@@ -24,7 +22,6 @@ export type GateBlockReason =
   | "agentBusy"
   | "startupGrace"
   | "dialogOpen"
-  | "miniMode"
   | "fullscreen"
   | "occupied";
 
@@ -41,7 +38,6 @@ interface GateRuleRow {
   agentBusy: boolean;
   startupGrace: boolean;
   dialogOpen: boolean;
-  miniMode: boolean;
   fullscreen: boolean;
   /** 是否参与 update/tip 的单槽互斥；通知栈自管容量，不占槽 */
   useSingleSlot: boolean;
@@ -64,8 +60,7 @@ interface GateRuleRow {
  *
  * `askInput` —— agent 在等用户输入，弹出本身就是目的，几乎全放行：
  * startupGrace 放行（恢复期 waiting_input 常见）、dialogOpen 放行（右下角
- * z-index 低于 dialog 不遮挡）、fullscreen 放行；miniMode 仍挡（没地方渲染，
- * OS 通知兜底）。
+ * z-index 低于 dialog 不遮挡）、fullscreen 放行。
  *
  * 规则按 kind 写在这里、不做成调用方传的布尔参数：否则规则散到调用方去，
  * 下一个人不读闸门源码就不知道有这回事。
@@ -75,7 +70,6 @@ const GATE_RULES: Record<InterruptKind, GateRuleRow> = {
     agentBusy: false,
     startupGrace: true,
     dialogOpen: true,
-    miniMode: true,
     fullscreen: true,
     useSingleSlot: true,
   },
@@ -83,7 +77,6 @@ const GATE_RULES: Record<InterruptKind, GateRuleRow> = {
     agentBusy: true,
     startupGrace: true,
     dialogOpen: true,
-    miniMode: true,
     fullscreen: true,
     useSingleSlot: true,
   },
@@ -91,7 +84,6 @@ const GATE_RULES: Record<InterruptKind, GateRuleRow> = {
     agentBusy: true,
     startupGrace: true,
     dialogOpen: true,
-    miniMode: true,
     fullscreen: true,
     useSingleSlot: false,
   },
@@ -99,7 +91,6 @@ const GATE_RULES: Record<InterruptKind, GateRuleRow> = {
     agentBusy: false,
     startupGrace: false,
     dialogOpen: false,
-    miniMode: true,
     fullscreen: false,
     useSingleSlot: false,
   },
@@ -136,7 +127,6 @@ export function checkInterruptGate(
     return "startupGrace";
   }
   if (rules.dialogOpen && deps.hasOpenDialog) return "dialogOpen";
-  if (rules.miniMode && deps.isMiniMode) return "miniMode";
   if (rules.fullscreen && deps.isFullscreen) return "fullscreen";
   if (
     rules.useSingleSlot &&
@@ -213,7 +203,6 @@ export function checkInterruptGateLive(
       (info) => info.status,
     ),
     hasOpenDialog: hasOpenDialog(),
-    isMiniMode: useMiniModeStore.getState().isMiniMode,
     isFullscreen: useFullscreenStore.getState().isFullscreen,
     activeInterrupt:
       options?.ignoreOwnInterrupt && currentInterrupt === kind ? null : currentInterrupt,

@@ -6,13 +6,11 @@ import { useEffect, useRef } from "react";
 import UpdateNotification from "@/components/update/UpdateNotification";
 import { checkInterruptGateLive } from "@/lib/interruptGate";
 import { autoDismissMs, classifyNotification } from "@/lib/notificationTaxonomy";
-import { useMiniModeStore } from "@/stores";
 import { useNotificationStore } from "@/stores/useNotificationStore";
 import NotificationHistoryPanel from "./NotificationHistoryPanel";
 import NotificationToastStack from "./NotificationToastStack";
 
 export default function NotificationCenter() {
-  const isMiniMode = useMiniModeStore((state) => state.isMiniMode);
   const notifications = useNotificationStore((state) => state.notifications);
   const activeToastIds = useNotificationStore((state) => state.activeToastIds);
   const historyOpen = useNotificationStore((state) => state.historyOpen);
@@ -86,8 +84,6 @@ export default function NotificationCenter() {
     }
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [activeToastIds, notifications]);
-
-  if (isMiniMode) return null;
 
   return (
     <div

@@ -33,6 +33,10 @@
     "musicUseVideoAudio": "Use the video's own audio"
   },
   "home": "Home",
+  "appUpdate": {
+    "available": "New version v{{version}} available, click to update",
+    "updating": "Updating to v{{version}}…"
+  },
   "workspaces": "Workspaces",
   "dramaStudio": "Drama studio",
   "workspaceSkills": "Workspace skills",
@@ -71,7 +75,6 @@
   "recentLaunches": "Recent Launches",
   "clearHistory": "Clear history",
   "alwaysOnTop": "Always on Top",
-  "miniMode": "Mini Mode",
   "borderlessMode": "Borderless Mode",
   "openTerminal": "Open Terminal",
   "newAgentChat": "New Agent Chat",

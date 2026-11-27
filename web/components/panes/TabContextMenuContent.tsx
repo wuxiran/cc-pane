@@ -11,6 +11,7 @@ import {
   CopyPlus,
   GitFork,
   FileDiff,
+  LockKeyholeOpen,
   ExternalLink,
   FolderTree,
   Maximize2,
@@ -42,6 +43,7 @@ import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { handleError } from "@/utils/errorHandler";
 import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
 import { useTabPurityProvider } from "./tabPurity";
+import { findLeaseReadOnlySessionId, requestLeaseReclaim } from "@/hooks/leaseReclaim";
 
 const TerminalForkDialog = lazyWithRetry(() => import("@/components/chatfork/TerminalForkDialog"), "TerminalForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
@@ -131,6 +133,7 @@ export default function TabContextMenuContent({
   const [purityOpen, setPurityOpen] = useState(false);
   const purityProvider = useTabPurityProvider(tab);
   const forkSource = terminalForkSource(tab);
+  const leaseReadOnlySessionId = findLeaseReadOnlySessionId(tab);
   const terminalLeafCount =
     tab.contentType === "terminal" && tab.terminalRootPane
       ? countTerminalLeaves(tab.terminalRootPane)
@@ -143,6 +146,15 @@ export default function TabContextMenuContent({
     {purityOpen && purityProvider && <Suspense fallback={null}><PurityDialog provider={purityProvider} accountId={tab.providerAccountId} onClose={() => setPurityOpen(false)} /></Suspense>}
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
       <ContextMenuContent className="w-56 rounded-2xl p-1.5">
+        {/* 写租约被另一个实例持有时置顶：这是用户右键这个标签最可能想做的事 */}
+        {leaseReadOnlySessionId && (
+          <>
+            <ContextMenuItem data-testid="tab-menu-reclaim-lease" onSelect={() => requestLeaseReclaim(leaseReadOnlySessionId)}>
+              <LockKeyholeOpen /> {t("leaseReclaim.action")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         {/* 顶层只留最常用的几项，其余按「拆分 / 移动到 / 更多」收进子菜单。
             原来所有动作平铺在一层（终端标签 20 多项），找一个要从头扫到尾。 */}
         <ContextMenuItem onClick={() => startRename(tab)}>

@@ -1,6 +1,7 @@
-import { Boxes, CalendarClock, Clapperboard, Cloud, Contact, FolderTree, House, Library, Settings } from "lucide-react";
+import { ArrowUpCircle, Boxes, CalendarClock, Clapperboard, Cloud, Contact, FolderTree, House, Library, Settings } from "lucide-react";
 import { ACTIVITY_ICON_ACTIVE, ACTIVITY_ICON_IDLE } from "@/components/activityBarIconStyle";
 import { openAutomationsDialog } from "@/stores/useAutomationsDialogStore";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
@@ -35,6 +36,11 @@ import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
+import { useUpdateStore } from "@/stores/useUpdateStore";
+import { isTauriRuntime } from "@/services/runtime";
+// 直接从模块导入：与 StatusBar 更新按钮共用同一条 triggerUpdate 流程（重新 check → 原生确认 → 下载安装 → 重启）
+import { triggerUpdate } from "@/services/updaterService";
+import { handleErrorSilent } from "@/utils";
 
 const ICON_CLASS = "h-[18px] w-[18px]";
 
@@ -45,6 +51,13 @@ interface ActivityBarIconProps {
   onClick: () => void;
   badge?: ModuleBadge;
   moduleId?: ModuleId;
+  /** 强调态：图标用 accent 色（非选中语义，用于「有事要做」的入口，如升级） */
+  emphasized?: boolean;
+  /** 右上角 accent 小圆点（无数字） */
+  dot?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
+  testId?: string;
 }
 
 function ActivityBarIcon({
@@ -54,6 +67,11 @@ function ActivityBarIcon({
   onClick,
   badge,
   moduleId,
+  emphasized = false,
+  dot = false,
+  disabled = false,
+  busy = false,
+  testId,
 }: ActivityBarIconProps) {
   const badgeValue = typeof badge === "number" ? badge : badge?.value;
   const showBadge = typeof badge === "number" ? badge > 0 : badge != null;
@@ -72,13 +90,28 @@ function ActivityBarIcon({
           <button
             type="button"
             aria-label={label}
-            className={`relative flex h-8 w-8 items-center justify-center rounded-lg transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
-              active ? ACTIVITY_ICON_ACTIVE : ACTIVITY_ICON_IDLE
+            aria-busy={busy || undefined}
+            data-testid={testId}
+            // 用 aria-disabled 而不是原生 disabled：原生 disabled 会吞掉 pointer 事件，进行态的 tooltip 就显示不出来
+            aria-disabled={disabled || undefined}
+            className={`relative flex h-8 w-8 items-center justify-center rounded-lg transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] aria-disabled:cursor-default aria-disabled:active:scale-100 ${
+              active
+                ? ACTIVITY_ICON_ACTIVE
+                : emphasized
+                  ? "text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-text-primary)_7%,transparent)]"
+                  : ACTIVITY_ICON_IDLE
             }`}
             style={{ boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined }}
-            onClick={onClick}
+            onClick={disabled ? undefined : onClick}
           >
             {icon}
+            {dot && !showBadge && (
+              <span
+                aria-hidden
+                data-testid={testId ? `${testId}-dot` : undefined}
+                className="absolute -right-[1px] -top-[1px] h-2 w-2 rounded-full bg-[var(--app-accent)] ring-2 ring-[var(--app-activity-bar-bg)]"
+              />
+            )}
             {showBadge && (
               <span
                 className={`absolute -right-[3px] -top-[3px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[length:var(--text-nano)] font-bold leading-none text-white ${
@@ -99,6 +132,55 @@ function ActivityBarIcon({
         </TooltipContent>
       </Tooltip>
     </div>
+  );
+}
+
+/**
+ * 有可用更新时出现在底部图标组最上方的升级入口。
+ * 点击复用 StatusBar 同一条 triggerUpdate 流程；流程期间（确认框 + 下载安装）禁用防重复点击。
+ */
+function ActivityBarUpdateButton() {
+  const { t } = useTranslation("sidebar");
+  const available = useUpdateStore((state) => state.available);
+  const version = useUpdateStore((state) => state.version);
+  const [updating, setUpdating] = useState(false);
+  // 同步闸：state 更新前的连点（同一帧两次 click）也只触发一次流程
+  const inFlightRef = useRef(false);
+
+  // 非桌面运行时 triggerUpdate 直接 no-op，入口出现只会是「点了没用」
+  if (!isTauriRuntime() || !available || !version) return null;
+
+  const handleClick = async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setUpdating(true);
+    try {
+      await triggerUpdate();
+    } catch (error) {
+      // triggerUpdate 内部已对检查/下载失败弹窗；这里兜住意外抛出，避免变成未处理拒绝
+      handleErrorSilent(error, "activity bar update");
+    } finally {
+      inFlightRef.current = false;
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <ActivityBarIcon
+      testId="activity-bar-update"
+      icon={
+        <ArrowUpCircle
+          className={`${ICON_CLASS} ${updating ? "animate-spin motion-reduce:animate-none" : ""}`}
+        />
+      }
+      label={updating ? t("appUpdate.updating", { version }) : t("appUpdate.available", { version })}
+      active={false}
+      emphasized
+      dot={!updating}
+      disabled={updating}
+      busy={updating}
+      onClick={() => void handleClick()}
+    />
   );
 }
 
@@ -310,6 +392,7 @@ export default function ActivityBar() {
           </div>
 
           <div className="mt-auto flex w-full flex-col items-center gap-1.5 pb-2">
+            <ActivityBarUpdateButton />
             {layoutSwitcherMode === "corner" && <LayoutBar />}
             <ModuleAddMenu />
             <ActivityBarIcon

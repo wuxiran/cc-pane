@@ -4,8 +4,7 @@ use crate::utils::{AppError, AppPaths, AppResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, State, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Window,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
 };
 use tracing::debug;
 
@@ -95,31 +94,6 @@ pub fn set_decorations(app: AppHandle, decorations: bool) -> AppResult<()> {
     Ok(window
         .set_decorations(decorations)
         .map_err(|e| e.to_string())?)
-}
-
-/// 进入迷你模式
-#[tauri::command]
-pub fn enter_mini_mode(app: AppHandle) -> AppResult<()> {
-    debug!("cmd::enter_mini_mode");
-    let window = main_window(&app)?;
-    window
-        .set_size(LogicalSize::new(320.0, 200.0))
-        .map_err(|e| e.to_string())?;
-    window.set_always_on_top(true).map_err(|e| e.to_string())?;
-    window.set_decorations(false).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// 退出迷你模式
-#[tauri::command]
-pub fn exit_mini_mode(app: AppHandle, width: f64, height: f64) -> AppResult<()> {
-    debug!("cmd::exit_mini_mode");
-    let window = main_window(&app)?;
-    window.set_always_on_top(false).map_err(|e| e.to_string())?;
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 /// 弹出窗口 label 前缀：与前端 `popOutTab` 的 `popup-${tabId}` 约定一致。

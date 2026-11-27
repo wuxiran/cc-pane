@@ -1,7 +1,6 @@
 export { useThemeStore } from "./useThemeStore";
 export { useFullscreenStore } from "./useFullscreenStore";
 export { useBorderlessStore } from "./useBorderlessStore";
-export { useMiniModeStore } from "./useMiniModeStore";
 export {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,

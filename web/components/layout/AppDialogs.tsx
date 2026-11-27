@@ -16,6 +16,7 @@ import CommandPalette from "@/components/CommandPalette";
 import type { OpenTerminalOptions } from "@/types";
 import ShortcutCheatsheet from "@/components/ShortcutCheatsheet";
 import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
+import LeaseReclaimDialog from "@/components/panes/LeaseReclaimDialog";
 import TrayQuitConfirmDialog from "@/components/tray/TrayQuitConfirmDialog";
 import { useDialogStore } from "@/stores";
 
@@ -130,6 +131,8 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles, onOpen
       />
       <AiPanelDialog />
       <TerminalPathLinkDialog />
+      {/* 终端「抢回写权限」确认（标签右键 / 终端区右键 / 只读横幅按钮触发） */}
+      <LeaseReclaimDialog />
       {/* 托盘退出确认（tray-action/confirm-quit 触发，确认后回调 Rust 退出） */}
       <TrayQuitConfirmDialog />
 

@@ -33,6 +33,10 @@
     "musicUseVideoAudio": "用视频自带的声音"
   },
   "home": "首页",
+  "appUpdate": {
+    "available": "发现新版本 v{{version}}，点击升级",
+    "updating": "正在升级到 v{{version}}…"
+  },
   "workspaces": "工作空间",
   "dramaStudio": "短剧制作台",
   "workspaceSkills": "工作空间技能",
@@ -71,7 +75,6 @@
   "recentLaunches": "最近启动",
   "clearHistory": "清空历史",
   "alwaysOnTop": "窗口置顶",
-  "miniMode": "迷你模式",
   "borderlessMode": "无边框模式",
   "openTerminal": "打开终端",
   "newAgentChat": "新建 Agent 对话",

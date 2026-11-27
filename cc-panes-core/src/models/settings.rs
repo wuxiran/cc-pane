@@ -688,8 +688,15 @@ pub struct ShortcutSettings {
     pub bindings: HashMap<String, String>, // actionId -> keyCombo
 }
 
+/// 已下线的快捷键 action：老 config.toml 里可能还存着它们的绑定（迷你模式已删除）。
+/// 加载时剔除，避免前端设置页出现孤儿行、按键冲突检测误报（如 Ctrl+M）。
+const RETIRED_SHORTCUT_ACTIONS: &[&str] = &["toggle-mini-mode"];
+
 impl ShortcutSettings {
     pub fn merge_missing_defaults(&mut self) {
+        for retired in RETIRED_SHORTCUT_ACTIONS {
+            self.bindings.remove(*retired);
+        }
         let defaults = Self::default();
         for (action_id, key_combo) in defaults.bindings {
             if self.bindings.contains_key(&action_id) {
@@ -1436,7 +1443,6 @@ impl Default for ShortcutSettings {
         bindings.insert("terminal-zoom-in".to_string(), "Ctrl+=".to_string());
         bindings.insert("terminal-zoom-out".to_string(), "Ctrl+-".to_string());
         bindings.insert("terminal-zoom-reset".to_string(), "Ctrl+0".to_string());
-        bindings.insert("toggle-mini-mode".to_string(), "Ctrl+M".to_string());
         bindings.insert("voice-input".to_string(), "Ctrl+Alt+M".to_string());
         for i in 1..=9 {
             bindings.insert(format!("switch-tab-{}", i), format!("Ctrl+{}", i));
@@ -1928,6 +1934,28 @@ mod tests {
         assert_eq!(
             settings.bindings.get("switch-layout-3"),
             Some(&"Alt+3".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_missing_defaults_removes_retired_mini_mode_binding() {
+        assert!(!ShortcutSettings::default()
+            .bindings
+            .contains_key("toggle-mini-mode"));
+
+        let mut settings = ShortcutSettings {
+            bindings: HashMap::from([
+                ("toggle-sidebar".to_string(), "Ctrl+B".to_string()),
+                ("toggle-mini-mode".to_string(), "Ctrl+M".to_string()),
+            ]),
+        };
+
+        settings.merge_missing_defaults();
+
+        assert!(!settings.bindings.contains_key("toggle-mini-mode"));
+        assert_eq!(
+            settings.bindings.get("toggle-sidebar"),
+            Some(&"Ctrl+B".to_string())
         );
     }
 

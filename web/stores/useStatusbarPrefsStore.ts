@@ -7,8 +7,6 @@ export type StatusbarItemId =
   | "usage-stats"
   | "music"
   | "web-lock"
-  | "pin"
-  | "mini-mode"
   | "ccchan"
   | "language";
 

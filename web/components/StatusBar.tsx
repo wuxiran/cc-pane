@@ -1,14 +1,12 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
-  ArrowUpCircle, Eye, EyeOff, LockKeyhole, Minimize2, MoreHorizontal, Music, Music2,
-  Pin, Terminal,
+  ArrowUpCircle, Eye, EyeOff, LockKeyhole, MoreHorizontal, Music, Music2, Terminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { handleErrorSilent } from "@/utils";
 import {
-  useMiniModeStore,
   useWorkspacesStore,
   useSettingsStore,
   useTerminalStatusStore,
@@ -20,7 +18,6 @@ import { useStatusbarPrefsStore, type StatusbarItemId } from "@/stores/useStatus
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { triggerUpdate } from "@/services";
 import { webAuthService, type WebAuthStatus } from "@/services/webAuthService";
-import { useWindowControl } from "@/hooks/useWindowControl";
 import { useMediaUp } from "@/hooks/useBreakpoint";
 import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
@@ -45,8 +42,6 @@ function StatusDivider() {
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
   const { t: settingsT } = useTranslation("settings");
-  const enterMiniMode = useMiniModeStore((s) => s.enterMiniMode);
-  const miniModeTransitioning = useMiniModeStore((s) => s.isTransitioning);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const updateAvailable = useUpdateStore((s) => s.available);
@@ -64,7 +59,6 @@ export default function StatusBar() {
   const showSystemResources = useSettingsStore(
     (s) => s.settings?.general.showSystemResources ?? true,
   );
-  const { isPinned, togglePin } = useWindowControl();
   // 窄档溢出策略：lg 以下低优先级项收进「更多」菜单；xs 连通知铃铛也收进菜单，
   // 行内只保留命令面板与主题快速菜单两个最高频入口。
   const upLg = useMediaUp("lg");
@@ -262,56 +256,6 @@ export default function StatusBar() {
             </TooltipContent>
           </Tooltip>
         </>
-      ),
-    },
-    {
-      id: "pin",
-      label: t("alwaysOnTop", { ns: "sidebar" }),
-      show: isTauriRuntime(),
-      node: (
-        <>
-          <StatusDivider />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                aria-label={t("alwaysOnTop", { ns: "sidebar" })}
-                className={`p-0.5 rounded transition-colors ${
-                  isPinned ? "text-[var(--app-accent)]" : ""
-                } hover:bg-[var(--app-hover)]`}
-                onClick={togglePin}
-              >
-                <Pin
-                  className={`w-3 h-3 ${isPinned ? "rotate-45" : ""} transition-transform`}
-                />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{t("alwaysOnTop", { ns: "sidebar" })}</p>
-            </TooltipContent>
-          </Tooltip>
-        </>
-      ),
-    },
-    {
-      id: "mini-mode",
-      label: t("miniMode", { ns: "sidebar" }),
-      show: isTauriRuntime(),
-      node: (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={t("miniMode", { ns: "sidebar" })}
-              className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
-              disabled={miniModeTransitioning}
-              onClick={() => enterMiniMode()}
-            >
-              <Minimize2 className="w-3 h-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{t("miniMode", { ns: "sidebar" })}</p>
-          </TooltipContent>
-        </Tooltip>
       ),
     },
     {

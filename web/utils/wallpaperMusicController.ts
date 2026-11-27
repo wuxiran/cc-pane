@@ -7,10 +7,9 @@
 // 3. 显式入口：musicGestureNeeded=true 时 StatusBar 出音符按钮
 //
 // 暂停规则：hidden → pause；blur 按 music.pauseWhenUnfocused（独立于视频的同名开关，
-// 默认 false —— BGM 属全局氛围，切走窗口未必想停）；MiniMode → pause；
+// 默认 false —— BGM 属全局氛围，切走窗口未必想停）；
 // 主视图切走 panes 不暂停。
 import { useWallpaperStore } from "@/stores/useWallpaperStore";
-import { useMiniModeStore } from "@/stores/useMiniModeStore";
 import { isTauriRuntime } from "@/services/runtime";
 import * as music from "./wallpaperMusic";
 
@@ -30,7 +29,6 @@ function musicConfigured(): boolean {
 function shouldPlayNow(): boolean {
   if (!musicConfigured() || userPaused) return false;
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
-  if (useMiniModeStore.getState().isMiniMode) return false;
   if (musicPausesOnBlur() && typeof document !== "undefined" && !document.hasFocus()) return false;
   return true;
 }
@@ -119,15 +117,6 @@ export function initWallpaperMusicController(): void {
       state.resolved?.music !== prev.resolved?.music
     ) {
       sync();
-    }
-  });
-
-  useMiniModeStore.subscribe((state, prev) => {
-    if (state.isMiniMode === prev.isMiniMode) return;
-    if (state.isMiniMode) {
-      pauseNow();
-    } else {
-      void tryPlay();
     }
   });
 

@@ -9,7 +9,6 @@ import {
   GitBranch,
   Globe,
   LayoutGrid,
-  Maximize2,
   PanelRight,
   Plus,
   Search,
@@ -83,44 +82,6 @@ export function LayoutSwitcherVisual() {
             >
               <LayoutGrid size={15} />
             </span>
-          ))}
-        </div>
-      </div>
-    </VisualStage>
-  );
-}
-
-export function MiniModeVisual() {
-  // 完整工作台半透明退后 + 虚线轨迹 + 迷你浮窗滑入；桌面用点阵纹理示意「浮在桌面上」
-  return (
-    <VisualStage>
-      <div className="relative h-56 w-full max-w-[320px]">
-        <div
-          className="absolute inset-0 rounded-[10px] opacity-50"
-          style={{
-            backgroundImage: "radial-gradient(var(--app-border) 1px, transparent 1px)",
-            backgroundSize: "14px 14px",
-          }}
-        />
-        <div className={`absolute left-0 top-3 h-40 w-[64%] p-2 opacity-55 shadow-sm ${CARD}`}>
-          <div className="flex h-full gap-1.5">
-            <span className="w-5 rounded-[5px] bg-[var(--app-hover)]" />
-            <span className="flex-1 rounded-[5px] border border-[var(--app-border)] bg-[var(--app-terminal-bg)]" />
-            <span className="w-8 rounded-[5px] bg-[var(--app-hover)]" />
-          </div>
-        </div>
-        <svg className="absolute left-[56%] top-12" width="52" height="40" viewBox="0 0 52 40" fill="none">
-          <path d="M4 8 C 24 8, 34 16, 44 30" stroke="var(--app-accent)" strokeWidth="1.5" strokeDasharray="3 4" strokeLinecap="round" />
-          <path d="M38 28 l6 3 -1 -7" stroke="var(--app-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-        <div className="tip-demo-slide-in absolute bottom-4 right-0 h-[104px] w-[150px] rounded-[10px] border border-[var(--app-accent)] bg-[var(--app-terminal-bg)] p-2.5 shadow-lg">
-          <div className="mb-2 flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--app-cli-claude)]" />
-            <span className={`h-[5px] w-[44%] ${SKELETON}`} />
-            <Maximize2 className="ml-auto text-[var(--app-accent)]" size={11} />
-          </div>
-          {["82%", "64%", "74%"].map((width, index) => (
-            <span key={index} className={`mt-[7px] block h-[5px] ${SKELETON}`} style={{ width }} />
           ))}
         </div>
       </div>

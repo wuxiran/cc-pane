@@ -46,6 +46,7 @@ import {
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import { useTerminalSessionMenu } from "./terminal/useTerminalSessionMenu";
 import TerminalContextMenu from "./TerminalContextMenu";
+import { requestLeaseReclaim } from "@/hooks/leaseReclaim";
 import TerminalZoomHud from "./TerminalZoomHud";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
@@ -351,6 +352,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         refitAndRepaintTerminal("imperative.fit");
       },
     }), [refitAndRepaintTerminal]);
+
+    // 写租约抢回（只读 → 可写）：只读期间几何不回写后端，PTY 尺寸可能与视图不符；
+    // 强制同步一次让 CLI 按当前尺寸重绘（SIGWINCH），否则抢回后画面可能仍是错位/空白。
+    const wasReadOnlyRef = useRef(Boolean(props.readOnly));
+    useEffect(() => {
+      const wasReadOnly = wasReadOnlyRef.current;
+      wasReadOnlyRef.current = Boolean(props.readOnly);
+      if (wasReadOnly && !props.readOnly && drivesBackendPty) {
+        // 本 effect 先于下方「同步 props 到 ref」的 effect 执行，canResizeBackend 读的是
+        // readOnlyRef，这里先行同步，否则这次强制同步会被当成只读而跳过回写。
+        readOnlyRef.current = false;
+        refitAndRepaintTerminal("lease.reclaimed", { force: true, forceBackendSync: true });
+      }
+    }, [props.readOnly, drivesBackendPty, refitAndRepaintTerminal]);
 
     const bumpInstanceEpoch = useCallback(() => {
       setInstanceEpoch((epoch) => epoch + 1);
@@ -814,6 +829,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onCopyBuffer={handleMenuCopyBuffer}
           onExportBuffer={handleMenuExportBuffer}
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
+          onReclaimLease={drivesBackendPty && props.readOnly ? () => requestLeaseReclaim(getMenuSessionId()) : undefined}
           sessionMenu={sessionMenu}
         >
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">

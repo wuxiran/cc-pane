@@ -11,6 +11,7 @@ import type { CCChanSettings } from "@/ccchan/types";
 import type { CliLauncherSettings, ExperimentalSettings, ImSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
 import { canonicalThemeShape, DEFAULT_THEME_SHAPE } from "@/theme/themeShapes";
 import { registerExperimentalGate } from "@/lib/experimentalGate";
+import { stripRetiredShortcutBindings } from "./retiredShortcuts";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -177,6 +178,7 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
   const maybeSettings = settings as Partial<AppSettings>;
   return {
     ...settings,
+    shortcuts: { ...settings.shortcuts, bindings: stripRetiredShortcutBindings(maybeSettings.shortcuts?.bindings) },
     theme: {
       ...settings.theme,
       shape: canonicalThemeShape(maybeSettings.theme?.shape),
@@ -385,7 +387,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "focus-pane-down": "Alt+Down",
         "next-tab": "Ctrl+Tab",
         "prev-tab": "Ctrl+Shift+Tab",
-        "toggle-mini-mode": "Ctrl+M",
         "voice-input": "Ctrl+Alt+M",
         "switch-tab-1": "Ctrl+1",
         "switch-tab-2": "Ctrl+2",
