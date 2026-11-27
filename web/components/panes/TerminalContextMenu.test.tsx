@@ -248,6 +248,25 @@ describe("TerminalContextMenu", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("提供 onReclaimLease 时（写租约被他人持有）显示「抢回写权限」并回调", async () => {
+    const user = userEvent.setup();
+    const props = renderMenu({ onReclaimLease: vi.fn() });
+    openMenu();
+
+    await user.click(await screen.findByRole("menuitem", { name: /抢回写权限|Take back write access/i }));
+    expect(props.onReclaimLease).toHaveBeenCalledTimes(1);
+  });
+
+  it("未提供 onReclaimLease 时不渲染抢回写权限", async () => {
+    renderMenu();
+    openMenu();
+
+    await screen.findByRole("menuitem", { name: /全选|Select All/i });
+    expect(
+      screen.queryByRole("menuitem", { name: /抢回写权限|Take back write access/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("enabled=false 时不挂菜单", () => {
     renderMenu({ enabled: false });
     openMenu();

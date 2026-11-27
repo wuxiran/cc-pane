@@ -139,6 +139,19 @@
     }
   },
   "terminalLeaseReadOnly": "只读：写权限由另一个 CC-Panes 实例持有",
+  "leaseReclaim": {
+    "action": "抢回写权限",
+    "title": "抢回这个终端的写权限？",
+    "description": "写权限当前由另一个 CC-Panes 实例持有。抢回后本窗口可以输入，另一个实例中的同一终端会变为只读（它仍能看到输出）。如果那个实例已经关闭，将直接接管。",
+    "confirm": "抢回",
+    "running": "正在抢回…",
+    "success": "已抢回写权限，终端恢复可输入",
+    "error": {
+      "held-by-other": "没能抢回：另一个实例仍持有写权限，或这个会话已经结束。",
+      "force-unsupported": "另一个实例仍在使用这个终端，而当前版本的后端还不支持强制抢占。可以先关闭另一个实例的该终端，约 30 秒后再试。",
+      "failed": "抢回失败，请稍后重试。"
+    }
+  },
   "waitingToRestore": "等待恢复",
   "waitingToRestoreHint": "切换到此标签后启动保存的会话",
   "backToTerminal": "返回终端",

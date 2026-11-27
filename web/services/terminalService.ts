@@ -507,6 +507,20 @@ export const terminalService = {
     );
   },
 
+  /**
+   * 强制抢回写权限：即使租约仍被另一个 CC-Panes 实例持有也覆盖它。
+   *
+   * 【待后端实现】`force_adopt_terminal_session` 命令与 daemon `/claim` 的 `force`
+   * 字段尚不存在——当前调用会以「command not found」拒绝，调用方据此降级为
+   * 「暂不支持强制抢占」并对用户可见。对侧实例的续租线程在下次续约拿到 409 后会
+   * 自行降为只读（`report_claim_lost` → `terminal-claim-lost`），无需额外通知通道。
+   */
+  async forceAdoptSession(sessionId: string): Promise<boolean> {
+    return invokeOrApi<boolean>("force_adopt_terminal_session", { sessionId }, () =>
+      apiJson<boolean>(`/api/sessions/${encodeURIComponent(sessionId)}/adopt`, "POST", { force: true }),
+    );
+  },
+
   async releaseSession(sessionId: string): Promise<void> {
     return invokeOrApi<void>("release_terminal_session", { sessionId }, () =>
       apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/release`, "POST", {}),

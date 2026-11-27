@@ -582,6 +582,17 @@ describe("terminalService", () => {
     });
   });
 
+  describe("写租约认领", () => {
+    it("强制抢回调用独立的 force_adopt IPC，不与普通认领混用", async () => {
+      mockTauriInvoke({ force_adopt_terminal_session: true });
+
+      await expect(terminalService.forceAdoptSession("session-1")).resolves.toBe(true);
+
+      expect(invoke).toHaveBeenCalledWith("force_adopt_terminal_session", { sessionId: "session-1" });
+      expect(invoke).not.toHaveBeenCalledWith("adopt_terminal_session", expect.anything());
+    });
+  });
+
   describe("endSeq 记账接线（M3b-2）", () => {
     type SeqOutputHandler = (event: {
       payload: { sessionId: string; data: string; endSeq?: number };
