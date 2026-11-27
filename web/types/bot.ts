@@ -19,6 +19,8 @@ export interface Bot {
   acpSessionId?: string;
   createdAt: number;
   updatedAt: number;
+  /** Agent Chat「@引擎」自动创建的默认 Bot（同引擎同 cwd 复用一个）。 */
+  autoCreated?: boolean;
 }
 
 export interface BotSummary extends Bot {
@@ -51,4 +53,11 @@ export function emptyBot(engineId: string): Bot {
     createdAt: 0,
     updatedAt: 0,
   };
+}
+
+/** `ask_bot` 的返回（Rust BotAskReply 镜像）。stopReason = "cancelled" 时正文可能是部分。 */
+export interface BotAskReply {
+  text: string;
+  stopReason: string;
+  botChatId: string;
 }

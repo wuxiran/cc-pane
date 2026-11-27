@@ -1,14 +1,17 @@
-// 输入框三种补全：`/` 命令（agent 上报的 available_commands）、`@` 引用文件
-// （项目内模糊搜索，发送时由 buildPromptBlocks 转成 resource_link）、`$` 使用技能
-// （项目技能 + 用户技能）。只看草稿末尾的触发词——与原斜杠菜单同一假设：
-// 补全总是在用户正在输入的位置。
+// 输入框三种补全：`/` 命令（agent 上报的 available_commands）、`@` 先列 Bot 联系人与
+// 引擎（默认 Bot，桌面端），再列文件（项目内模糊搜索，发送时由 buildPromptBlocks 转成
+// resource_link）、`$` 使用技能（项目技能 + 用户技能）。只看草稿末尾的触发词——与原
+// 斜杠菜单同一假设：补全总是在用户正在输入的位置。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AcpAvailableCommand } from "@/types/agentChat";
 import { filesystemService } from "@/services/filesystemService";
 import { skillService } from "@/services/skillService";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { useBotAskStore, type BotMention } from "@/stores/useBotAskStore";
+import { ensureBotDirectory } from "./botAskActions";
+import { matchBots, matchEngines, mentionToken } from "./botMentions";
 
-export type SuggestionKind = "command" | "file" | "skill";
+export type SuggestionKind = "command" | "file" | "skill" | "bot" | "engine";
 
 export interface ComposerSuggestion {
   key: string;
@@ -17,6 +20,10 @@ export interface ComposerSuggestion {
   detail?: string | null;
   /** 选中后的完整草稿 */
   nextDraft: string;
+  /** Bot / 引擎：选中时记下的结构化提及（发送按它路由）。 */
+  mention?: BotMention;
+  /** Bot 头像（emoji + 底色）。 */
+  avatar?: { glyph: string; color: string };
 }
 
 interface SkillEntry {
@@ -36,10 +43,12 @@ function replaceTail(draft: string, query: string, trigger: string, replacement:
 }
 
 export function useComposerSuggestions({
+  chatId = "",
   draft,
   cwd,
   availableCommands,
 }: {
+  chatId?: string;
   draft: string;
   cwd: string;
   availableCommands: AcpAvailableCommand[];
@@ -49,6 +58,8 @@ export function useComposerSuggestions({
   const [files, setFiles] = useState<{ query: string; paths: string[] } | null>(null);
   const [skills, setSkills] = useState<SkillEntry[] | null>(null);
   const skillsCwdRef = useRef<string | null>(null);
+  const bots = useBotAskStore((state) => state.bots);
+  const engines = useBotAskStore((state) => state.engines);
 
   const slashQuery = draft.startsWith("/") && !/\s/.test(draft) ? draft.slice(1) : null;
   const mentionQuery = slashQuery === null ? (MENTION_RE.exec(draft)?.[1] ?? null) : null;
@@ -58,6 +69,11 @@ export function useComposerSuggestions({
     setIndex(0);
     setDismissed(false);
   }, [draft]);
+
+  // `@`：首次触发时加载 Bot / 引擎目录（Web 壳下为空，不显示这两组）。
+  useEffect(() => {
+    if (mentionQuery !== null) ensureBotDirectory();
+  }, [mentionQuery]);
 
   // `@`：防抖后搜项目文件；过期的响应按 query 丢弃。
   useEffect(() => {
@@ -116,14 +132,41 @@ export function useComposerSuggestions({
         }));
     }
     if (mentionQuery !== null) {
-      if (!files || files.query !== mentionQuery) return [];
-      return files.paths.map((path) => ({
-        key: `file:${path}`,
-        kind: "file",
-        label: path.split("/").pop() || path,
-        detail: path,
-        nextDraft: replaceTail(draft, mentionQuery, "@", `@${path} `),
-      }));
+      const insert = (token: string) => replaceTail(draft, mentionQuery, "@", `@${token} `);
+      const engineLabel = new Map((engines ?? []).map((engine) => [engine.id, engine.label]));
+      const botItems = matchBots(bots ?? [], mentionQuery, chatId).map<ComposerSuggestion>((bot) => {
+        const token = mentionToken(bot.name);
+        return {
+          key: `bot:${bot.id}`,
+          kind: "bot",
+          label: bot.name,
+          detail: engineLabel.get(bot.engineId) ?? bot.engineId,
+          nextDraft: insert(token),
+          mention: { kind: "bot", token, botId: bot.id, name: bot.name },
+          avatar: { glyph: bot.avatar.trim() || Array.from(bot.name.trim())[0] || "?", color: bot.color },
+        };
+      });
+      const engineItems = matchEngines(engines ?? [], mentionQuery).map<ComposerSuggestion>((engine) => {
+        const token = mentionToken(engine.label);
+        return {
+          key: `engine:${engine.id}`,
+          kind: "engine",
+          label: engine.label,
+          detail: engine.id === engine.label ? null : engine.id,
+          nextDraft: insert(token),
+          mention: { kind: "engine", token, engineId: engine.id, name: engine.label },
+        };
+      });
+      const fileItems = files && files.query === mentionQuery
+        ? files.paths.map<ComposerSuggestion>((path) => ({
+          key: `file:${path}`,
+          kind: "file",
+          label: path.split("/").pop() || path,
+          detail: path,
+          nextDraft: insert(path),
+        }))
+        : [];
+      return [...botItems, ...engineItems, ...fileItems];
     }
     if (skillQuery !== null && skills) {
       const query = skillQuery.toLowerCase();
@@ -145,7 +188,7 @@ export function useComposerSuggestions({
         }));
     }
     return [];
-  }, [dismissed, slashQuery, mentionQuery, skillQuery, availableCommands, files, skills, draft]);
+  }, [dismissed, slashQuery, mentionQuery, skillQuery, availableCommands, files, skills, draft, bots, engines, chatId]);
 
   const move = useCallback(
     (delta: 1 | -1) => setIndex((previous) => (previous + delta + items.length) % Math.max(items.length, 1)),

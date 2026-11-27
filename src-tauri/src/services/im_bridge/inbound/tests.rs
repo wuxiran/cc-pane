@@ -16,6 +16,7 @@ fn bot(id: &str, name: &str) -> Bot {
         acp_session_id: None,
         created_at: 0,
         updated_at: 0,
+        auto_created: false,
     }
 }
 

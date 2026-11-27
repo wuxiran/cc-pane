@@ -953,6 +953,8 @@
     "delete": "删除",
     "deleteConfirm": "删除 Bot「{{name}}」？对话记录仍保留在 agent 侧，但 Bot 本身无法恢复。",
     "busy": "正在回复…",
+    "autoTag": "自动",
+    "autoHint": "在对话里 @引擎 时自动创建的默认 Bot",
     "tab": "联系人"
   },
   "sessionsTitle": "会话",
