@@ -230,6 +230,9 @@ use commands::{
     get_log_dir,
     get_login_account_command,
     get_login_account_status,
+    get_magpie_catalog,
+    get_magpie_provider_quotas,
+    get_magpie_session_route,
     get_mcp_market_icon,
     get_mcp_server,
     get_memory,
@@ -2146,6 +2149,7 @@ pub fn run() {
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
+        .manage(Arc::new(cc_panes_core::services::MagpieLiveService::new()))
         .manage(channel_purity_service)
         .manage(launch_profile_service)
         .manage(quick_command_service)
@@ -3318,6 +3322,9 @@ pub fn run() {
             record_terminal_input,
             query_context_usage,
             query_session_cost,
+            get_magpie_session_route,
+            get_magpie_provider_quotas,
+            get_magpie_catalog,
             query_usage_stats,
             refresh_usage_stats,
             list_session_index,

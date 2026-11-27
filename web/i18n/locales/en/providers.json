@@ -629,5 +629,17 @@
       "PURITY_DISABLED": "Channel purity checks are off: turn them on in Settings → Privacy"
     },
     "openDetails": "Show channel purity details"
+  },
+  "magpieQuota": {
+    "title": "Magpie quotas",
+    "unlimited": "unlimited",
+    "resetsAt": "resets {{time}}",
+    "lastMark": "(last served)",
+    "readFailed": "read failed",
+    "more": "{{n}} more in Magpie"
+  },
+  "magpieLive": {
+    "groups": "Magpie routing groups (live)",
+    "models": "Magpie models (live)"
   }
 }

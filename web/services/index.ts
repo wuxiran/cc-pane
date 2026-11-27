@@ -37,6 +37,7 @@ export type {
   TerminalPathKind,
 } from "./terminalPathLinkService";
 export { usageStatsService } from "./usageStatsService";
+export { magpieService } from "./magpieService";
 export { historyService } from "./historyService";
 export { claudeService } from "./claudeService";
 export { codexService } from "./codexService";

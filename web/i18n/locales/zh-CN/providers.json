@@ -629,5 +629,17 @@
       "PURITY_DISABLED": "中转纯度检测没有打开：到 设置 → 隐私 里打开"
     },
     "openDetails": "查看中转纯度详情"
+  },
+  "magpieQuota": {
+    "title": "Magpie 额度",
+    "unlimited": "不限",
+    "resetsAt": "{{time}} 重置",
+    "lastMark": "（最近应答）",
+    "readFailed": "读取失败",
+    "more": "还有 {{n}} 项，在 Magpie 里查看"
+  },
+  "magpieLive": {
+    "groups": "Magpie 路由组（实时）",
+    "models": "Magpie 模型（实时）"
   }
 }

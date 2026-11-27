@@ -201,5 +201,17 @@
     "passwordPlaceholder": "密码",
     "submitting": "登录中...",
     "unlock": "解锁"
-  }
+  },
+  "magpieRoute.title": "Magpie 路由",
+  "magpieRoute.switched": "换过 {{n}} 次",
+  "magpieRoute.switchedHint": "本会话里观察到 {{n}} 次换账号或模型（含同一轮内的回退）",
+  "magpieRoute.asked": "请求的模型",
+  "magpieRoute.group": "路由组",
+  "magpieRoute.rule": "命中规则 #{{n}}",
+  "magpieRoute.current": "当前成员",
+  "magpieRoute.served": "实际应答",
+  "magpieRoute.tries": "尝试顺序",
+  "magpieRoute.inFlight": "这一轮还在进行",
+  "magpieRoute.done": "这一轮已结束 · {{status}}",
+  "magpieRoute.ttft": "首字 {{ms}} ms"
 }
