@@ -5,6 +5,9 @@
 //! 启动档没选中全部时，在 `<data>/skills/builtin-sets/<sha256(排序后的名字)[..16]>/`
 //! 物化同样布局的子集：非技能文件照抄，技能子目录 Unix 用符号链接、Windows 复制。
 //! 同一选择复用同一目录；内置目录重新物化后按原选择重建（路径不变，运行中的会话不断）。
+//!
+//! 物化本身（hash 目录名、staging + rename、技能子目录链接/复制）是通用的，资源库技能
+//! （`library_skill_sets`）复用同一套 `pub(crate)` 函数，只是清单和来源不同。
 
 use crate::services::default_skill_service::MANAGED_SKILLS_SUBDIR;
 use sha2::{Digest, Sha256};
@@ -50,7 +53,12 @@ fn available_skills(builtin_root: &Path) -> BTreeSet<String> {
 
 fn set_hash(names: &BTreeSet<String>) -> String {
     let joined = names.iter().cloned().collect::<Vec<_>>().join("\n");
-    let digest = Sha256::digest(joined.as_bytes());
+    set_dir_name(&joined)
+}
+
+/// 子集目录名：`sha256(key)` 的前 16 个十六进制字符。同一 key 复用同一目录。
+pub(crate) fn set_dir_name(key: &str) -> String {
+    let digest = Sha256::digest(key.as_bytes());
     digest
         .iter()
         .map(|byte| format!("{:02x}", byte))
@@ -92,7 +100,9 @@ pub fn builtin_mount_dir(
     if target.is_dir() {
         return Some(target);
     }
-    match materialize_set(builtin_root, &sets_dir, &target, &chosen) {
+    match materialize_into(&sets_dir, &target, |dest| {
+        build_set(builtin_root, dest, &chosen)
+    }) {
         Ok(()) => Some(target),
         Err(error) => {
             warn!(
@@ -105,16 +115,17 @@ pub fn builtin_mount_dir(
     }
 }
 
-fn materialize_set(
-    builtin_root: &Path,
+/// 在 `sets_dir` 下的临时目录里用 `build` 摆好内容，再原子改名成 `target`。
+/// 并发启动同一选择时，后到的发现目标已存在就直接复用。
+pub(crate) fn materialize_into(
     sets_dir: &Path,
     target: &Path,
-    chosen: &BTreeSet<String>,
+    build: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     std::fs::create_dir_all(sets_dir)?;
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let staging = sets_dir.join(format!(".staging-{}", &nonce[..12]));
-    let built = build_set(builtin_root, &staging, chosen);
+    let built = std::fs::create_dir_all(&staging).and_then(|()| build(&staging));
     if let Err(error) = built {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(error);
@@ -158,7 +169,7 @@ fn build_set(builtin_root: &Path, dest: &Path, chosen: &BTreeSet<String>) -> std
     std::fs::write(dest.join(SET_MANIFEST_FILE), manifest)
 }
 
-fn copy_tree(source: &Path, dest: &Path) -> std::io::Result<()> {
+pub(crate) fn copy_tree(source: &Path, dest: &Path) -> std::io::Result<()> {
     if source.is_dir() {
         std::fs::create_dir_all(dest)?;
         for entry in std::fs::read_dir(source)?.flatten() {
@@ -170,13 +181,14 @@ fn copy_tree(source: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 技能子目录：Unix 用符号链接（源更新即生效），其余平台复制。
 #[cfg(unix)]
-fn link_or_copy_dir(source: &Path, dest: &Path) -> std::io::Result<()> {
+pub(crate) fn link_or_copy_dir(source: &Path, dest: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(source, dest)
 }
 
 #[cfg(not(unix))]
-fn link_or_copy_dir(source: &Path, dest: &Path) -> std::io::Result<()> {
+pub(crate) fn link_or_copy_dir(source: &Path, dest: &Path) -> std::io::Result<()> {
     copy_tree(source, dest)
 }
 
@@ -216,7 +228,9 @@ pub fn refresh_builtin_sets(builtin_root: &Path) {
         if still != chosen || still.is_empty() {
             continue;
         }
-        if let Err(error) = materialize_set(builtin_root, &sets_dir, &path, &chosen) {
+        if let Err(error) = materialize_into(&sets_dir, &path, |dest| {
+            build_set(builtin_root, dest, &chosen)
+        }) {
             warn!(
                 "[builtin_skill_sets] failed to rebuild {}: {}",
                 path.display(),

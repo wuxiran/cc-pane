@@ -2146,6 +2146,32 @@ impl TerminalService {
             .or_else(super::sidecar_resource::process_resource_dir)
     }
 
+    /// 资源库技能原生挂载（docs/109 第 2 批 D）。不可挂载（规则见
+    /// `library_skill_sets::library_skills_mountable`）或物化失败时返回 `None`，
+    /// 调用方据此把技能内联进提示词。
+    fn library_skill_mount(
+        &self,
+        cli_tool: CliTool,
+        runtime_kind: &str,
+        profile: Option<&LaunchProfile>,
+    ) -> Option<crate::services::library_skill_sets::LibrarySkillMount> {
+        use crate::services::library_skill_sets::{library_mount_dir, library_skills_mountable};
+        let injection = self.cli_registry.get(cli_tool.as_id())?.injection_profile();
+        if !library_skills_mountable(&injection, runtime_kind) {
+            return None;
+        }
+        let selected = self
+            .launch_profile_service
+            .read()
+            .as_ref()
+            .map(|svc| svc.session_library_skills(profile))
+            .unwrap_or_default();
+        if selected.is_empty() {
+            return None;
+        }
+        library_mount_dir(&self.app_paths.skills_dir(), &selected)
+    }
+
     fn portable_bundled_skill_prompt(
         &self,
         cli_tool: CliTool,
@@ -3168,11 +3194,18 @@ impl TerminalService {
                 );
             }
         }
-        let profile_skill_prompt = self
-            .launch_profile_service
-            .read()
+        let library_skill_mount =
+            self.library_skill_mount(cli_tool, runtime_kind, resolved_profile.as_ref());
+        let mounted_library_ids = library_skill_mount
             .as_ref()
-            .and_then(|svc| svc.session_skill_prompt_for_profile(resolved_profile.as_ref()));
+            .map(|mount| mount.mounted_ids.clone())
+            .unwrap_or_default();
+        let profile_skill_prompt = self.launch_profile_service.read().as_ref().and_then(|svc| {
+            svc.session_skill_prompt_for_profile_with_mounted(
+                resolved_profile.as_ref(),
+                &mounted_library_ids,
+            )
+        });
         let portable_bundled_skill_prompt = self.portable_bundled_skill_prompt(
             cli_tool,
             runtime_kind,
@@ -3905,11 +3938,17 @@ impl TerminalService {
                     shared_mcp_remote,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
-                    skill_mount_paths: skill_mount_paths_for_profile(
-                        resolved_profile.as_ref(),
-                        &self.app_paths.builtin_skills_dir(),
-                        workspace_skill_mount_root.as_deref(),
-                    ),
+                    skill_mount_paths: {
+                        let mut paths = skill_mount_paths_for_profile(
+                            resolved_profile.as_ref(),
+                            &self.app_paths.builtin_skills_dir(),
+                            workspace_skill_mount_root.as_deref(),
+                        );
+                        if let Some(mount) = &library_skill_mount {
+                            paths.push(mount.dir.to_string_lossy().into_owned());
+                        }
+                        paths
+                    },
                     workspace_mcp_servers: workspace_mcp_servers.clone(),
                 };
 

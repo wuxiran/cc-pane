@@ -48,6 +48,7 @@ mod journal_service;
 mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
+pub mod library_skill_sets;
 pub mod library_space_service;
 pub mod login_account;
 pub mod mcp_config_service;
