@@ -407,5 +407,21 @@
     "cancel": "取消",
     "resume": "恢复会话",
     "unregistered": "无法打开会话链接：{{path}} 不是已注册的项目"
-  }
+  },
+  "githubImportTitle": "从 GitHub Issue 导入",
+  "githubImportDesc": "经本机 gh CLI 读取。选中的 issue 会成为本项目的任务；已导入过的 issue 保持与原任务关联。",
+  "githubImportSearchPlaceholder": "搜索 issue，如 is:open label:bug",
+  "githubImportSearch": "搜索",
+  "githubImportReload": "重新加载",
+  "githubImportEmpty": "没有匹配的 issue",
+  "githubImportImported": "已导入",
+  "githubImportImporting": "导入中…",
+  "githubImportAction_one": "导入 {{count}} 个 issue",
+  "githubImportAction_other": "导入 {{count}} 个 issue",
+  "githubImportDone": "新建 {{created}} 个任务，{{existing}} 个此前已导入",
+  "githubImportPartialFailed": "新建 {{created}} 个任务，{{failed}} 个 issue 导入失败",
+  "githubImportFailed": "导入失败：{{error}}",
+  "githubMergeConfirmTitle": "合并 PR？",
+  "githubMergeConfirmDesc": "Agent 请求合并 PR #{{number}}「{{title}}」（{{head}} → {{base}}，{{method}}）。合并后无法撤销。\n\n{{url}}",
+  "githubMergeConfirmAction": "合并"
 }

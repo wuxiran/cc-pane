@@ -128,6 +128,12 @@ pub struct TodoItem {
     pub created_at: String,
     pub updated_at: String,
     pub subtasks: Vec<TodoSubtask>,
+    /// 从 GitHub Issue 导入时记下的 issue 链接（去重键）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_url: Option<String>,
+    /// 对应的 issue 编号。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_number: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +185,11 @@ pub struct CreateTodoRequest {
     pub recurrence: Option<String>,
     #[serde(default)]
     pub todo_type: Option<String>,
+    /// GitHub Issue 链接；同一链接只会导入一次。
+    #[serde(default)]
+    pub issue_url: Option<String>,
+    #[serde(default)]
+    pub issue_number: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -329,6 +340,8 @@ mod tests {
             created_at: "2025-01-01T00:00:00Z".to_string(),
             updated_at: "2025-01-01T00:00:00Z".to_string(),
             subtasks: vec![],
+            issue_url: None,
+            issue_number: None,
         };
         let json = serde_json::to_string(&item).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();

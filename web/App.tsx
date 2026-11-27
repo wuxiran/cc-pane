@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
+import { useGithubMergeConfirm } from "@/hooks/useGithubMergeConfirm";
 import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
 import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
@@ -104,6 +105,9 @@ function MainApp() {
 
   // 监听 Orchestrator 编排事件（自我对话 Claude 启动新任务）
   useOrchestratorListener();
+
+  // gh_pr_merge 前的用户确认（不确认就拒绝合并）
+  useGithubMergeConfirm();
 
   // 接收 MCP 会话驱动的 AI 面板更新与关闭事件。
   useAiPanelListener();

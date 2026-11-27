@@ -40,6 +40,7 @@ mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
+pub mod github_cli;
 pub mod heavy_command_normalize;
 pub mod heavy_job_gate;
 mod history_service;
@@ -154,6 +155,7 @@ pub use external_skill_registry::{
 };
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
+pub use github_cli::GithubCliService;
 pub use history_service::HistoryService;
 pub use history_watch_manager::{HistoryWatchManager, HistoryWatchStats};
 pub use journal_service::{JournalIndex, JournalService, SessionSummary};

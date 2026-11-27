@@ -407,5 +407,21 @@
     "cancel": "Cancel",
     "resume": "Resume Session",
     "unregistered": "Can't open session link: {{path}} isn't a registered project"
-  }
+  },
+  "githubImportTitle": "Import from GitHub issues",
+  "githubImportDesc": "Read through the local gh CLI. Each selected issue becomes a task in this project; issues already imported stay linked to their task.",
+  "githubImportSearchPlaceholder": "Search issues, e.g. is:open label:bug",
+  "githubImportSearch": "Search",
+  "githubImportReload": "Reload",
+  "githubImportEmpty": "No matching issues",
+  "githubImportImported": "Imported",
+  "githubImportImporting": "Importing…",
+  "githubImportAction_one": "Import {{count}} issue",
+  "githubImportAction_other": "Import {{count}} issues",
+  "githubImportDone": "Created {{created}} task(s), {{existing}} already imported",
+  "githubImportPartialFailed": "Created {{created}} task(s); {{failed}} issue(s) failed to import",
+  "githubImportFailed": "Import failed: {{error}}",
+  "githubMergeConfirmTitle": "Merge pull request?",
+  "githubMergeConfirmDesc": "An agent wants to merge PR #{{number}} \"{{title}}\" ({{head}} → {{base}}, {{method}}). Merging cannot be undone.\n\n{{url}}",
+  "githubMergeConfirmAction": "Merge"
 }

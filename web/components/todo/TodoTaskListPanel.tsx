@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   closestCenter,
@@ -80,6 +80,8 @@ interface TodoTaskListPanelProps {
   /** todoId → 派工会话 ID（AI 工作项视图的「已派」徽章数据源） */
   dispatchSessionByTodoId?: Record<string, string>;
   onOpenDispatchSession?: (sessionId: string) => void;
+  /** 头部额外动作（如「从 GitHub Issue 导入」，未就绪时不传） */
+  headerActions?: ReactNode;
 }
 
 export default function TodoTaskListPanel({
@@ -127,6 +129,7 @@ export default function TodoTaskListPanel({
   onReorder,
   dispatchSessionByTodoId,
   onOpenDispatchSession,
+  headerActions,
 }: TodoTaskListPanelProps) {
   const { t } = useTranslation("dialogs");
   const groups = useMemo(() => {
@@ -196,6 +199,7 @@ export default function TodoTaskListPanel({
               <p className="mt-0.5 text-xs text-muted-foreground">{t("todoTaskCount", { count: total })}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
               <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-8 w-8" onClick={onNew} aria-label={t("todoNewTask")}><Plus size={16} /></Button></TooltipTrigger><TooltipContent>{t("todoNewTask")}</TooltipContent></Tooltip>
               {todos.length > 0 && (
                 <Tooltip><TooltipTrigger asChild><Button size="icon" variant={selectionMode ? "secondary" : "ghost"} className="h-8 w-8" onClick={() => { onSelectionModeChange(!selectionMode); onClearSelection(); }} aria-label={t("todoMultiSelect")}>

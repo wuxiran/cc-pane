@@ -23,8 +23,8 @@ impl TodoRepository {
             .map_err(|e| format!("Failed to serialize tags: {}", e))?;
 
         conn.execute(
-            "INSERT INTO todos (id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            "INSERT INTO todos (id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at, issue_url, issue_number)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 todo.id,
                 todo.title,
@@ -43,6 +43,8 @@ impl TodoRepository {
                 todo.sort_order,
                 todo.created_at,
                 todo.updated_at,
+                todo.issue_url,
+                todo.issue_number,
             ],
         )
         .map_err(|e| {
@@ -53,13 +55,30 @@ impl TodoRepository {
         Ok(())
     }
 
+    /// 按 GitHub Issue 链接查已导入的 Todo id（导入去重用）。
+    pub fn find_id_by_issue_url(&self, issue_url: &str) -> Result<Option<String>, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        match conn.query_row(
+            "SELECT id FROM todos WHERE issue_url = ?1 LIMIT 1",
+            params![issue_url],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => {
+                error!(table = "todos", err = %e, "SQL find_id_by_issue_url failed");
+                Err(e.to_string())
+            }
+        }
+    }
+
     /// 获取单个 Todo（含 subtasks）
     pub fn get(&self, id: &str) -> Result<Option<TodoItem>, String> {
         // 查询 todo 主记录，连接在块结束时释放
         let todo_opt = {
             let conn = self.db.connection().map_err(|e| e.to_string())?;
             let result = conn.query_row(
-                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at
+                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at, issue_url, issue_number
                  FROM todos WHERE id = ?1",
                 params![id],
                 |row| Ok(Self::row_to_todo(row)),
@@ -272,7 +291,7 @@ impl TodoRepository {
             let offset = query.offset.unwrap_or(0);
 
             let data_sql = format!(
-                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at
+                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at, issue_url, issue_number
                  FROM todos {} ORDER BY {} LIMIT ? OFFSET ?",
                 where_clause, order
             );
@@ -598,7 +617,7 @@ impl TodoRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at
+                "SELECT id, title, description, status, priority, scope, scope_ref, tags, due_date, my_day, my_day_date, reminder_at, recurrence, todo_type, sort_order, created_at, updated_at, issue_url, issue_number
                  FROM todos WHERE reminder_at IS NOT NULL AND reminder_at <= ?1 AND status != 'done'",
             )
             .map_err(|e| {
@@ -817,6 +836,8 @@ impl TodoRepository {
             created_at: row.get(15).map_err(|e| e.to_string())?,
             updated_at: row.get(16).map_err(|e| e.to_string())?,
             subtasks: vec![], // 由调用者填充
+            issue_url: row.get(17).map_err(|e| e.to_string())?,
+            issue_number: row.get(18).map_err(|e| e.to_string())?,
         })
     }
 }
@@ -850,6 +871,8 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
             subtasks: vec![],
+            issue_url: None,
+            issue_number: None,
         }
     }
 
@@ -1259,5 +1282,31 @@ mod tests {
         repo.insert(&t2).unwrap();
 
         assert_eq!(repo.max_sort_order().unwrap(), 10);
+    }
+
+    #[test]
+    fn test_issue_link_round_trip_and_unique() {
+        let repo = setup();
+        let mut todo = make_todo("issue");
+        todo.issue_url = Some("https://github.com/o/r/issues/7".to_string());
+        todo.issue_number = Some(7);
+        repo.insert(&todo).unwrap();
+
+        let found = repo.get(&todo.id).unwrap().unwrap();
+        assert_eq!(found.issue_number, Some(7));
+        assert_eq!(
+            repo.find_id_by_issue_url("https://github.com/o/r/issues/7")
+                .unwrap()
+                .as_deref(),
+            Some(todo.id.as_str())
+        );
+        assert_eq!(repo.find_id_by_issue_url("https://x/1").unwrap(), None);
+
+        let mut duplicate = make_todo("dup");
+        duplicate.issue_url = todo.issue_url.clone();
+        assert!(repo.insert(&duplicate).is_err(), "issue_url is unique");
+        // 未关联 issue 的任务不受唯一约束影响。
+        repo.insert(&make_todo("plain-1")).unwrap();
+        repo.insert(&make_todo("plain-2")).unwrap();
     }
 }

@@ -57,6 +57,7 @@ export { launchProfileService } from "./launchProfileService";
 export { nativeConfigService } from "./nativeConfigService";
 export { quickCommandService } from "./quickCommandService";
 export { todoService } from "./todoService";
+export { githubService, isGhReady } from "./githubService";
 export { specService } from "./specService";
 export { memoryService } from "./memoryService";
 export { skillService } from "./skillService";
