@@ -2160,6 +2160,7 @@ impl TerminalService {
                 shared_mcp_urls: HashMap::new(),
                 shared_mcp_stdio: Default::default(),
                 shared_mcp_remote: Default::default(),
+                hub_covered_mcp_servers: Vec::new(),
                 allowed_mcp_server_ids: Vec::new(),
                 disable_unlisted_mcp_servers: false,
                 // 该 context 只用于解析 provider 环境变量，不产出启动参数
@@ -3345,6 +3346,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

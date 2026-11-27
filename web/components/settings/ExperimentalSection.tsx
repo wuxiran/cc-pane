@@ -13,11 +13,12 @@ interface ExperimentalSectionProps {
 
 const FEATURES: {
   id: ExperimentalFeatureId;
-  labelKey: "experimental.dramaStudio" | "experimental.librarySpace";
-  descKey: "experimental.dramaStudioDesc" | "experimental.librarySpaceDesc";
+  labelKey: "experimental.dramaStudio" | "experimental.librarySpace" | "experimental.mcpHub";
+  descKey: "experimental.dramaStudioDesc" | "experimental.librarySpaceDesc" | "experimental.mcpHubDesc";
 }[] = [
   { id: "dramaStudio", labelKey: "experimental.dramaStudio", descKey: "experimental.dramaStudioDesc" },
   { id: "librarySpace", labelKey: "experimental.librarySpace", descKey: "experimental.librarySpaceDesc" },
+  { id: "mcpHub", labelKey: "experimental.mcpHub", descKey: "experimental.mcpHubDesc" },
 ];
 
 export default function ExperimentalSection({ value, onChange }: ExperimentalSectionProps) {

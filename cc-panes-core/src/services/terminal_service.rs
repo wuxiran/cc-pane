@@ -283,6 +283,22 @@ fn workspace_skill_session_prompt(
     Some(prompt)
 }
 
+/// 本次本地启动是否改为只注入 `ccpanes-hub`（docs/113）。实验开关关着时恒为 false，
+/// 启动档字段被忽略——这保证开关关闭时注入与旧版逐字一致。目前只接 Claude / Codex：
+/// 这两家的 adapter 会把用户全局配置里同名的那份去重，其余 CLI 去重未做，照旧逐个注入。
+fn launch_uses_mcp_hub(
+    experiment_on: bool,
+    profile: Option<&LaunchProfile>,
+    cli_tool: CliTool,
+) -> bool {
+    experiment_on
+        && matches!(cli_tool, CliTool::Claude | CliTool::Codex)
+        && profile.is_some_and(|profile| {
+            profile.mcp_policy.use_mcp_hub
+                && profile.mcp_policy.mode != LaunchProfileMcpMode::Disabled
+        })
+}
+
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
     profile
         .map(|profile| match profile.mcp_policy.mode {
@@ -2483,6 +2499,7 @@ impl TerminalService {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
@@ -3875,6 +3892,38 @@ impl TerminalService {
                     }
                 }
 
+                // docs/113：实验开关 + 启动档都选了「只注入 hub」时，把共享 MCP 收成一条 ccpanes-hub
+                let hub_injection = launch_uses_mcp_hub(
+                    self.settings_service.get_settings().experimental.mcp_hub,
+                    resolved_profile.as_ref(),
+                    cli_tool,
+                )
+                .then(|| {
+                    let info = orchestrator_info_for_launch.as_ref()?;
+                    crate::services::mcp_hub::apply_hub_injection(
+                        &effective_shared_mcp_urls,
+                        &shared_mcp_config,
+                        info.port,
+                        &info.token,
+                    )
+                })
+                .flatten();
+                let (shared_mcp_urls, hub_covered_mcp_servers) = match hub_injection {
+                    Some(hub) => {
+                        info!(
+                            session_id = %session_id,
+                            covered = ?hub.covered,
+                            "create_session: shared MCP served through ccpanes-hub"
+                        );
+                        (hub.urls, hub.covered)
+                    }
+                    None => (effective_shared_mcp_urls, Vec::new()),
+                };
+                let mut shared_mcp_stdio = shared_mcp_stdio;
+                let mut shared_mcp_remote = shared_mcp_remote;
+                shared_mcp_stdio.retain(|name, _| shared_mcp_urls.contains_key(name));
+                shared_mcp_remote.retain(|name, _| shared_mcp_urls.contains_key(name));
+
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
@@ -3900,9 +3949,10 @@ impl TerminalService {
                         .map(|i| i.token.clone()),
                     launch_id: launch_id.map(|s| s.to_string()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
-                    shared_mcp_urls: effective_shared_mcp_urls,
+                    shared_mcp_urls,
                     shared_mcp_stdio,
                     shared_mcp_remote,
+                    hub_covered_mcp_servers,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
                     skill_mount_paths: skill_mount_paths_for_profile(
@@ -8633,6 +8683,49 @@ mod tests {
                 false,
             )
             .is_empty());
+    }
+
+    /// docs/113：实验开关关着时启动档的 useMcpHub 被忽略；只对 Claude / Codex 生效；
+    /// MCP 全关的启动档不会因为勾了 hub 又冒出一条 hub。
+    #[test]
+    fn mcp_hub_applies_only_with_experiment_profile_and_supported_cli() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let profiles = LaunchProfileService::new(temp_dir.path().join("launch-profiles.json"));
+        let make = |name: &str, mode, use_hub| {
+            profiles
+                .create_profile(crate::models::launch_profile::LaunchProfileDraft {
+                    name: Some(name.to_string()),
+                    alias: None,
+                    description: None,
+                    provider_id: None,
+                    provider_account_id: None,
+                    model_id: None,
+                    adapter_options: HashMap::new(),
+                    target_tools: vec![],
+                    target_runtime: None,
+                    yolo_mode: false,
+                    mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
+                        mode,
+                        use_mcp_hub: use_hub,
+                        ..Default::default()
+                    },
+                    skill_policy: Default::default(),
+                    native_overrides: Default::default(),
+                    is_default: false,
+                })
+                .expect("create profile")
+        };
+        let hub = make("hub", LaunchProfileMcpMode::Default, true);
+        let plain = make("plain", LaunchProfileMcpMode::Default, false);
+        let off = make("off", LaunchProfileMcpMode::Disabled, true);
+
+        assert!(launch_uses_mcp_hub(true, Some(&hub), CliTool::Claude));
+        assert!(launch_uses_mcp_hub(true, Some(&hub), CliTool::Codex));
+        assert!(!launch_uses_mcp_hub(false, Some(&hub), CliTool::Claude));
+        assert!(!launch_uses_mcp_hub(true, Some(&hub), CliTool::Gemini));
+        assert!(!launch_uses_mcp_hub(true, Some(&plain), CliTool::Claude));
+        assert!(!launch_uses_mcp_hub(true, Some(&off), CliTool::Claude));
+        assert!(!launch_uses_mcp_hub(true, None, CliTool::Claude));
     }
 
     #[test]

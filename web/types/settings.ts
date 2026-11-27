@@ -61,6 +61,8 @@ export interface ExperimentalSettings {
   dramaStudio: boolean;
   skillMarket: boolean;
   librarySpace: boolean;
+  /** 共享 MCP 聚合入口 ccpanes-hub（docs/113）。Dev 也默认关：开了还要在启动档里逐个选「只注入 hub」。 */
+  mcpHub: boolean;
 }
 
 export type ExperimentalFeatureId = keyof ExperimentalSettings;

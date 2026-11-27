@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import { hasAnyMcp, mcpIsolationGap, mcpProfileHints, runtimeMcpNote } from "@/lib/cliInjectionRules";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 import { useInjectionProfile } from "@/stores/useCliInjectionProfilesStore";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
@@ -37,6 +38,8 @@ interface LaunchProfileMcpCardProps {
 export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setMcpMode, effective, effectiveStale }: LaunchProfileMcpCardProps) {
   const { t } = useTranslation(["providers", "common", "settings"]);
   const mcpDisabled = draft.mcpPolicy.mode === "disabled";
+  // docs/113：实验开关关着时不渲染「只注入 hub」，字段也不会被后端读取
+  const mcpHubEnabled = useExperimentalFeature("mcpHub");
   // 门控与注入形态提示都读 CLI 注入描述（docs/110 单源），不再维护 per-CLI 提示表。
   const profile = useInjectionProfile(activeTool);
   const mcpSupported = activeTool === "none" || hasAnyMcp(profile);
@@ -140,6 +143,15 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
           onCheckedChange={(next) => setDraft((current) => ({ ...current, mcpPolicy: { ...current.mcpPolicy, includeSharedMcp: next } }))}
           label={t("sharedMcpService")}
           hint={t("sharedMcpServiceDesc")}
+        />
+      )}
+
+      {!mcpDisabled && mcpHubEnabled && draft.mcpPolicy.includeSharedMcp && (
+        <InlineCheck
+          checked={draft.mcpPolicy.useMcpHub === true}
+          onCheckedChange={(next) => setDraft((current) => ({ ...current, mcpPolicy: { ...current.mcpPolicy, useMcpHub: next } }))}
+          label={t("useMcpHub")}
+          hint={t("useMcpHubDesc")}
         />
       )}
 

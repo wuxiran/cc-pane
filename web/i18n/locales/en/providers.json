@@ -172,6 +172,8 @@
   "ccpanesMcpDesc": "Injects CC-Panes session, dispatch, and orchestration tools (core surface). Admin work goes through cc-panes-ctl.",
   "sharedMcpService": "Shared MCP services",
   "sharedMcpServiceDesc": "Reuse configured MCP from the shared library.",
+  "useMcpHub": "Inject ccpanes-hub only",
+  "useMcpHubDesc": "Shared MCP servers are no longer injected one by one; agents use search_tools / call_tool on demand. Local Claude Code / Codex only for now.",
   "sharedMcpSelection": "Shared MCP selection",
   "sharedMcpEmpty": "The shared library is empty. Add or import via “Manage shared MCP”.",
   "skillDisabledHint": "This profile won't inject CC-Panes built-in Skills, profile Skills, or workspace project Skills.",

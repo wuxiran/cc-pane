@@ -172,6 +172,8 @@
   "ccpanesMcpDesc": "注入 CC-Panes 自身的会话、派发与编排能力（core 面）。管理台操作走 cc-panes-ctl。",
   "sharedMcpService": "共享 MCP 服务",
   "sharedMcpServiceDesc": "从共享服务库复用已配置的 MCP。",
+  "useMcpHub": "只注入 ccpanes-hub",
+  "useMcpHubDesc": "共享 MCP 不再逐个注入，agent 用 search_tools / call_tool 按需调用。目前只对本机 Claude Code / Codex 生效。",
   "sharedMcpSelection": "共享 MCP 选择",
   "sharedMcpEmpty": "共享服务库为空，可以通过“管理共享 MCP”新增或导入。",
   "skillDisabledHint": "当前配置不会注入 CC-Panes 内置 Skill、运行配置 Skill 或工作空间项目 Skill。",

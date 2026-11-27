@@ -9,6 +9,8 @@ import { useSshMachinesStore } from "@/stores/useSshMachinesStore";
 import type { SharedMcpServerInfo } from "@/types/shared-mcp";
 import type { KnownCliTool } from "@/types/terminal";
 import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
+// 组件先于 settings store 导入：反过来会踩到 stores/index 的循环依赖
+import { useSettingsStore } from "@/stores/useSettingsStore";
 
 // 卡片挂载时会 load SSH 机器：测试里桩掉，避免真去 invoke
 beforeEach(() => {
@@ -139,5 +141,38 @@ describe("LaunchProfileMcpCard 新增", () => {
     const pending = screen.getByTestId("mcp-pending");
     expect(pending).toHaveTextContent("fetch");
     expect(pending).not.toHaveTextContent("context7");
+  });
+});
+
+describe("LaunchProfileMcpCard 只注入 hub（docs/113）", () => {
+  const hubLabel = () => String(i18n.t("providers:useMcpHub" as never));
+
+  function setMcpHubExperiment(on: boolean) {
+    const defaults = useSettingsStore.getState().getDefaults();
+    useSettingsStore.setState({
+      settings: { ...defaults, experimental: { ...defaults.experimental, mcpHub: on } },
+    });
+  }
+
+  afterEach(() => {
+    useSettingsStore.setState({ settings: null });
+  });
+
+  it("实验开关关着时不出现", () => {
+    setMcpHubExperiment(false);
+    renderCard("claude", {});
+    expect(screen.queryByText(hubLabel())).not.toBeInTheDocument();
+  });
+
+  it("实验开关打开且启用共享 MCP 时出现", () => {
+    setMcpHubExperiment(true);
+    renderCard("claude", {});
+    expect(screen.getByText(hubLabel())).toBeInTheDocument();
+  });
+
+  it("没勾共享 MCP 时不出现", () => {
+    setMcpHubExperiment(true);
+    renderCard("claude", { includeSharedMcp: false });
+    expect(screen.queryByText(hubLabel())).not.toBeInTheDocument();
   });
 });

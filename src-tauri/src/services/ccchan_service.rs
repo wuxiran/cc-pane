@@ -894,6 +894,7 @@ impl CCChanService {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill
@@ -947,6 +948,7 @@ impl CCChanService {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill

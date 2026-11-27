@@ -23,6 +23,8 @@ export interface LaunchProfileMcpPolicy {
   disabledServerIds: string[];
   includeCcpanesMcp: boolean;
   includeSharedMcp: boolean;
+  /** 只注入 ccpanes-hub（docs/113）。仅在实验开关 mcpHub 打开时生效；缺省 = false。 */
+  useMcpHub?: boolean;
 }
 
 export interface LaunchProfileSkillPolicy {

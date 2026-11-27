@@ -17,6 +17,7 @@ mod heavy_job_policy_queue;
 pub mod heavy_job_routes;
 pub mod im_bridge;
 mod launch_backfill_service;
+mod mcp_hub_handler;
 mod mcp_market;
 pub(crate) mod notification_preferences;
 mod notification_service;

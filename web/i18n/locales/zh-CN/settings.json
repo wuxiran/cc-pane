@@ -168,7 +168,9 @@
     "dramaStudio": "短剧制作台",
     "dramaStudioDesc": "活动栏「短剧制作台」入口与剧本 → 分镜 → 镜头 → 成片流水线全屏页，含批量转绘（依赖媒体工作台的 Provider 选择）。",
     "librarySpace": "资料空间",
-    "librarySpaceDesc": "活动栏「资料空间」入口：一键创建 AI 维护的素材文件夹（默认 ~/CC-Panes-Library），并拉起 Claude Code 素材助手负责收集、视频转写与整理。"
+    "librarySpaceDesc": "活动栏「资料空间」入口：一键创建 AI 维护的素材文件夹（默认 ~/CC-Panes-Library），并拉起 Claude Code 素材助手负责收集、视频转写与整理。",
+    "mcpHub": "共享 MCP 聚合入口（ccpanes-hub）",
+    "mcpHubDesc": "启动档可改为只注入一个 ccpanes-hub，agent 通过 search_tools / call_tool 按需使用共享 MCP，少占启动上下文。打开后在启动档的 MCP 卡片里逐个选择；目前只对本机 Claude Code / Codex 生效。"
   },
   "modules": {
     "title": "模块",

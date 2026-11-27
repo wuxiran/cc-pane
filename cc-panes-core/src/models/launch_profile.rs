@@ -115,6 +115,10 @@ pub struct LaunchProfileMcpPolicy {
     pub include_ccpanes_mcp: bool,
     #[serde(default = "default_true")]
     pub include_shared_mcp: bool,
+    /// 只注入 `ccpanes-hub`，不再逐个注入共享 MCP（docs/113）。仅在实验开关
+    /// `experimental.mcpHub` 打开时生效；关着时这个字段被忽略，行为与旧版一致。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub use_mcp_hub: bool,
 }
 
 impl Default for LaunchProfileMcpPolicy {
@@ -125,6 +129,7 @@ impl Default for LaunchProfileMcpPolicy {
             disabled_server_ids: Vec::new(),
             include_ccpanes_mcp: true,
             include_shared_mcp: true,
+            use_mcp_hub: false,
         }
     }
 }
