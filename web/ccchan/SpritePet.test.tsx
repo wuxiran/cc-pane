@@ -17,3 +17,9 @@ it("does not schedule animation work for a single-frame pet", () => {
   expect(raf).not.toHaveBeenCalled();
   raf.mockRestore();
 });
+it("scales illustrated pets smoothly and keeps hard edges only for pixel-art pets", () => {
+  const { rerender } = render(<SpritePet pet={FALLBACK_PET} state="idle" size={120} />);
+  expect(screen.getByRole("button").querySelector("span")!.style.imageRendering).toBe("auto");
+  rerender(<SpritePet pet={{ ...FALLBACK_PET, pixelArt: true }} state="idle" size={120} />);
+  expect(screen.getByRole("button").querySelector("span")!.style.imageRendering).toBe("pixelated");
+});

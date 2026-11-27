@@ -66,7 +66,8 @@ export function SpritePet({
         backgroundRepeat: "no-repeat",
         backgroundSize: `${cols * cellW * scale}px ${rows * cellH * scale}px`,
         backgroundPosition: `${-(frame + (animation.colOffset ?? 0)) * cellW * scale}px ${-animation.row * cellH * scale}px`,
-        imageRendering: "pixelated",
+        // 插画风精灵非整数缩小时 pixelated 会锯齿；仅声明 pixelArt 的像素风皮肤保持硬边。
+        imageRendering: pet.pixelArt ? "pixelated" : "auto",
       }} />
     </button>
   );

@@ -5,10 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CC-Panes</title>
-    <!-- 首帧底色：CSS bundle 到达前窗口不闪白；CSP 不允许内联脚本，这里只能按系统明暗取色。 -->
+    <!-- 首帧底色：CSS bundle 到达前窗口不闪白；CSP 不允许内联脚本，这里只能按系统明暗取色（桌宠窗口例外，见下）。 -->
     <style>
       html, body { margin: 0; background: #181818; }
       @media (prefers-color-scheme: light) { html, body { background: #ffffff; } }
+      /* 桌宠窗口：<html> 标记由窗口初始化脚本（不受 CSP 限制）或 main.tsx 打上，首帧即透明。 */
+      html[data-ccchan-window], html[data-ccchan-window] body, html[data-ccchan-window] #root { background: transparent !important; }
     </style>
   </head>
 

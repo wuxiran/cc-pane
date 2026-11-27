@@ -19,6 +19,8 @@ export interface PetMeta {
   spritesheetUrl: string;
   atlas: { cellW: number; cellH: number; cols: number; rows: number };
   animations: Record<string, { row: number; frames: number; fps: number; colOffset?: number }>;
+  /** 像素风精灵：缩放用最近邻（pixelated）；缺省为插画风平滑缩放。 */
+  pixelArt?: boolean;
 }
 
 export interface CCChanEvent {

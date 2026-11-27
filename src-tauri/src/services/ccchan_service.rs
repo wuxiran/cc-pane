@@ -7,7 +7,7 @@ mod process;
 use process::ChatProcess;
 #[path = "ccchan_window.rs"]
 mod window;
-pub use window::{window_size_for, CCChanWindowMode, WindowPlacement, WindowSize};
+pub use window::{window_size_for, CCChanWindowMode, RevealGate, WindowPlacement, WindowSize};
 
 use crate::models::settings::CCChanSettings;
 use crate::models::{CliTool, LaunchProviderSelection};
@@ -144,6 +144,9 @@ pub struct PetMeta {
     pub spritesheet_url: String,
     pub atlas: PetAtlas,
     pub animations: HashMap<String, PetAnimation>,
+    /// 像素风精灵用最近邻缩放；插画风（默认）走平滑缩放，避免非整数缩小锯齿。
+    #[serde(default)]
+    pub pixel_art: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -174,6 +177,8 @@ struct PetsManifest {
 #[serde(rename_all = "camelCase")]
 struct PetDefinition {
     id: String,
+    #[serde(default)]
+    pixel_art: bool,
     display_name: String,
     description: String,
     spritesheet_path: String,
@@ -195,6 +200,7 @@ pub struct CCChanService {
     chat_session: Mutex<Option<ChatSessionState>>,
     placement: Mutex<WindowPlacement>,
     pending_say: Mutex<Option<CCChanSay>>,
+    reveal: Arc<Mutex<RevealGate>>,
 }
 
 impl CCChanService {
@@ -206,6 +212,7 @@ impl CCChanService {
             chat_session: Mutex::new(None),
             placement: Mutex::new(WindowPlacement::default()),
             pending_say: Mutex::new(None),
+            reveal: Arc::new(Mutex::new(RevealGate::default())),
         }
     }
 
@@ -313,6 +320,9 @@ impl CCChanService {
                 return Ok(());
             }
         }
+        if app.get_webview_window(CCCHAN_WINDOW_LABEL).is_none() {
+            self.lock_reveal().reset();
+        }
         let window = ccchan_window(app)?;
         *self.placement.lock().unwrap_or_else(|e| e.into_inner()) = WindowPlacement::default();
         let (width, height) = self.window_size(CCChanWindowMode::Collapsed);
@@ -327,10 +337,64 @@ impl CCChanService {
             .map_err(|error| AppError::from(error.to_string()))?;
         position_window(&window, &self.settings())?;
         self.resize_window(&window, CCChanWindowMode::Collapsed)?;
-        window
-            .show()
-            .map_err(|error| AppError::from(error.to_string()))?;
+        if self.lock_reveal().request_show() {
+            return reveal_window(&window);
+        }
+        self.schedule_reveal_fallback(app);
         Ok(())
+    }
+
+    /// 前端首帧渲染完成后调用：执行挂起的 show。
+    pub fn mark_window_ready(&self, app: &AppHandle) -> AppResult<()> {
+        if !self.lock_reveal().mark_ready() {
+            return Ok(());
+        }
+        match app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+            Some(window) => reveal_window(&window),
+            None => Ok(()),
+        }
+    }
+
+    fn lock_reveal(&self) -> std::sync::MutexGuard<'_, RevealGate> {
+        self.reveal.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 前端迟迟不发 ready（脚本加载失败等）时兜底显示，避免宠物永远不出现。
+    fn schedule_reveal_fallback(&self, app: &AppHandle) {
+        let generation = self.lock_reveal().generation();
+        let reveal = Arc::clone(&self.reveal);
+        let app_for_timer = app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("ccchan-reveal-fallback".into())
+            .spawn(move || {
+                let app = app_for_timer;
+                std::thread::sleep(REVEAL_FALLBACK_TIMEOUT);
+                let fire = reveal
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take_timeout(generation);
+                if !fire {
+                    return;
+                }
+                warn!(
+                    "[ccchan] frontend not ready after {REVEAL_FALLBACK_TIMEOUT:?}, showing anyway"
+                );
+                if let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+                    if let Err(error) = reveal_window(&window) {
+                        warn!(%error, "failed to show ccchan window after ready timeout");
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            // 起不了兜底线程就不等 ready，直接显示（退回旧行为，至少不会永远不出现）。
+            warn!(%error, "failed to spawn ccchan reveal fallback; showing immediately");
+            self.lock_reveal().take_timeout(generation);
+            if let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+                if let Err(error) = reveal_window(&window) {
+                    warn!(%error, "failed to show ccchan window");
+                }
+            }
+        }
     }
 
     /// 关闭桌宠时直接销毁窗口而非隐藏：长期隐藏的 WebView2 会被系统置为
@@ -339,6 +403,7 @@ impl CCChanService {
     /// 否则"隐藏"反而会先创建一个隐藏 WebView）。下次启用经 show_window 重建。
     pub fn hide_window(&self, app: &AppHandle) -> AppResult<()> {
         self.stop_structured_chat();
+        self.lock_reveal().reset();
         let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) else {
             return Ok(());
         };
@@ -1103,6 +1168,7 @@ impl CCChanService {
             spritesheet_url: file_asset_url(&spritesheet_path),
             atlas: definition.atlas,
             animations: definition.animations,
+            pixel_art: definition.pixel_art,
         })
     }
 
@@ -1290,6 +1356,30 @@ impl SessionNotifier for CcChanSessionNotifier {
     }
 }
 
+const REVEAL_FALLBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// 在页面任何脚本/样式执行前给 <html> 打标记，index.html 的内联样式据此
+/// 把 html/body/#root 置透明——首帧即透明，不依赖 bundle 加载。
+/// 初始化脚本由 webview 原生注入，不受页面 CSP（禁止内联脚本）约束。
+const TRANSPARENT_INIT_SCRIPT: &str = r#"(function () {
+  var mark = function () {
+    var el = document.documentElement;
+    if (!el) return false;
+    el.setAttribute("data-ccchan-window", "");
+    return true;
+  };
+  if (mark()) return;
+  new MutationObserver(function (_records, observer) {
+    if (mark()) observer.disconnect();
+  }).observe(document, { childList: true });
+})();"#;
+
+fn reveal_window(window: &WebviewWindow) -> AppResult<()> {
+    window
+        .show()
+        .map_err(|error| AppError::from(error.to_string()))
+}
+
 fn ccchan_window(app: &AppHandle) -> AppResult<WebviewWindow> {
     if let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) {
         return Ok(window);
@@ -1307,8 +1397,11 @@ fn ccchan_window(app: &AppHandle) -> AppResult<WebviewWindow> {
     .resizable(false)
     .decorations(false)
     .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
+    .initialization_script(TRANSPARENT_INIT_SCRIPT)
     .shadow(false)
     .always_on_top(true)
+    .visible_on_all_workspaces(true)
     .skip_taskbar(true)
     .build()
     .map_err(|error| AppError::from(format!("Failed to create ccchan window: {error}")))?;
@@ -1385,6 +1478,7 @@ pets/
 - 状态可用：`idle` / `working` / `waiting` / `happy` / `sad` / `thinking` / `walking` / `jumping`。
   只有 `idle` 是必要的——缺失的状态会自动回退到 idle。
 - `spritesheetPath` 必须是本文件夹内的相对路径（不允许绝对路径和 `..`）。
+- 可选 `pixelArt: true`：像素风精灵用最近邻缩放保持硬边；默认（插画风）平滑缩放。
 
 ## 提示
 
@@ -1422,6 +1516,7 @@ fn load_user_pet(pet_dir: &Path) -> AppResult<PetMeta> {
         spritesheet_url: file_asset_url(&spritesheet_path),
         atlas: definition.atlas,
         animations: definition.animations,
+        pixel_art: definition.pixel_art,
     })
 }
 
@@ -1919,6 +2014,7 @@ mod tests {
                 rows: 9,
             },
             animations: HashMap::new(),
+            pixel_art: false,
         }
     }
 
@@ -2059,6 +2155,49 @@ mod tests {
             assert!(resolve_user_spritesheet(&dir, &definition.spritesheet_path)
                 .unwrap()
                 .is_file());
+        }
+    }
+
+    /// 内置皮肤都是 Codex 标准 8x9 图集：状态必须落在约定行，帧数不超过该行实际帧数。
+    #[test]
+    fn bundled_pets_follow_codex_standard_rows() {
+        const ROW_FRAMES: [u32; 9] = [6, 8, 8, 4, 5, 8, 6, 6, 6];
+        let expected_rows: HashMap<&str, &[u32]> = HashMap::from([
+            ("idle", &[0][..]),
+            ("walking", &[1][..]),
+            ("happy", &[3, 4][..]),
+            ("jumping", &[4][..]),
+            ("sad", &[5][..]),
+            ("waiting", &[6][..]),
+            ("working", &[7][..]),
+            ("thinking", &[8][..]),
+        ]);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ccchan");
+        let manifest: PetsManifest = serde_json::from_str(
+            &std::fs::read_to_string(root.join("pets-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        for id in manifest.pets {
+            let json = std::fs::read_to_string(root.join(&id).join("pet.json")).unwrap();
+            let definition: PetDefinition = serde_json::from_str(&json).unwrap();
+            assert!(
+                !definition.pixel_art,
+                "{id}: bundled pets are illustrations"
+            );
+            for (state, animation) in &definition.animations {
+                let rows = expected_rows[state.as_str()];
+                assert!(
+                    rows.contains(&animation.row),
+                    "{id}.{state} row {}",
+                    animation.row
+                );
+                let max = ROW_FRAMES[animation.row as usize];
+                assert!(
+                    animation.frames <= max,
+                    "{id}.{state} frames {}",
+                    animation.frames
+                );
+            }
         }
     }
 

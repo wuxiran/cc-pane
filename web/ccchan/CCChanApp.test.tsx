@@ -248,6 +248,27 @@ describe("CCChanApp pet interactions", () => {
     expect(settings.wanderEnabled).toBe(true);
     expect(settings.petSize).toBe(200);
   });
+
+  it("tells the backend the first frame is painted so it can show the window", async () => {
+    const mockInvoke = mockCcChanInvoke();
+    render(<CCChanApp />);
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("ccchan_window_ready"));
+    expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === "ccchan_window_ready")).toHaveLength(1);
+  });
+
+  it("shows task events as a bubble only, without a toast", async () => {
+    const listeners = createWebviewListenerRegistry();
+    mockCcChanInvoke();
+    render(<CCChanApp />);
+    await waitFor(() => expect(listeners.listenerCount("ccchan-event")).toBeGreaterThan(0));
+
+    act(() => {
+      listeners.emit("ccchan-event", { kind: "task-complete", sessionId: "s1", title: "构建任务", ok: true, ts: 1 });
+    });
+
+    expect(await screen.findByText(/构建任务/)).toBeInTheDocument();
+    expect(screen.getAllByText(/构建任务/)).toHaveLength(1);
+  });
 });
 
 describe("CCChanApp wandering", () => {
