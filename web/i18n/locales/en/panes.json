@@ -722,5 +722,12 @@
   "unpinLayout": "Unpin",
   "pinnedLayoutsToRight": "Move pinned to the right",
   "pinnedLayoutsToLeft": "Move pinned to the left",
-  "agentChatDropToAttach": "Drop to add to the conversation"
+  "agentChatDropToAttach": "Drop to add to the conversation",
+  "portPreview": {
+    "title": "Port previews",
+    "open": "Open in built-in browser",
+    "close": "Close tunnel",
+    "failed": "Local preview failed: {{error}}",
+    "notSsh": "Port preview is only needed for SSH sessions"
+  }
 }

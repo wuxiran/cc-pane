@@ -1,4 +1,5 @@
 import "@/i18n";
+import { LocalhostPreviewLinkProvider } from "@/lib/localhostPreviewLink";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "@/components/ui/toast";
@@ -464,11 +465,12 @@ describe("TerminalView", () => {
     expect(term.linkProviderDisposable.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it("does not register a local path provider for SSH terminals", async () => {
+  it("registers the localhost preview provider instead of local paths for SSH terminals", async () => {
     renderTerminalView({ ssh: { host: "example.com", username: "dev" } as never });
     const term = await lastTerm();
 
-    expect(term.registerLinkProvider).not.toHaveBeenCalled();
+    expect(term.registerLinkProvider).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(term.registerLinkProvider).mock.calls[0][0]).toBeInstanceOf(LocalhostPreviewLinkProvider);
   });
 
   it("routes OSC 8 file links through the current live session", async () => {

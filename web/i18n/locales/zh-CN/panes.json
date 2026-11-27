@@ -722,5 +722,12 @@
   "unpinLayout": "取消固定",
   "pinnedLayoutsToRight": "固定区移到右侧",
   "pinnedLayoutsToLeft": "固定区移到左侧",
-  "agentChatDropToAttach": "松开添加到对话"
+  "agentChatDropToAttach": "松开添加到对话",
+  "portPreview": {
+    "title": "端口预览",
+    "open": "在内置浏览器打开",
+    "close": "关闭隧道",
+    "failed": "本机预览失败：{{error}}",
+    "notSsh": "只有 SSH 会话需要端口预览"
+  }
 }
