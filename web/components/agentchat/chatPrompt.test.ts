@@ -21,4 +21,10 @@ describe("agent prompt resource references", () => {
       "file://server/share/a%23b.txt", "file:///C:/Project/src/file.txt", "file:///D:/other/report%231.md",
     ]);
   });
+
+  it("does not turn @Bot / @engine mentions into resource links", () => {
+    const blocks = buildPromptBlocks("ask @Code_Reviewer about @src/a.ts", [], "/repo", new Set(["Code_Reviewer"]));
+    expect(blocks.filter((block) => block.type === "resource_link").map((block) => block.name)).toEqual(["src/a.ts"]);
+    expect(blocks[blocks.length - 1]).toEqual({ type: "text", text: "ask @Code_Reviewer about @src/a.ts" });
+  });
 });
