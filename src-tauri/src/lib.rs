@@ -15,11 +15,11 @@ pub mod utils;
 mod webview_reliability;
 
 use ccchan_commands::{
-    focus_ccchan_main, get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
-    is_ccchan_chat_session_alive, move_ccchan_window, open_ccchan_pets_dir,
-    resize_ccchan_for_bubble, resize_ccchan_for_chat, resize_ccchan_for_menu, save_ccchan_settings,
-    send_to_ccchan, set_ccchan_window_mode, show_ccchan, start_ccchan_chat, stop_ccchan_chat,
-    take_ccchan_say,
+    ccchan_window_ready, focus_ccchan_main, get_ccchan_pets, get_ccchan_pets_dir,
+    get_ccchan_settings, hide_ccchan, is_ccchan_chat_session_alive, move_ccchan_window,
+    open_ccchan_pets_dir, resize_ccchan_for_bubble, resize_ccchan_for_chat, resize_ccchan_for_menu,
+    save_ccchan_settings, send_to_ccchan, set_ccchan_window_mode, show_ccchan, start_ccchan_chat,
+    stop_ccchan_chat, take_ccchan_say,
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::retry_dispatched_task;
@@ -3392,6 +3392,7 @@ pub fn run() {
             save_layout_switcher_state,
             take_ccchan_say,
             show_ccchan,
+            ccchan_window_ready,
             focus_ccchan_main,
             hide_ccchan,
             resize_ccchan_for_bubble,

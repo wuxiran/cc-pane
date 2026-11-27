@@ -168,9 +168,72 @@ impl WindowPlacement {
     }
 }
 
+/// 首帧门闩：新建窗口先不 show，等前端首帧渲染完发 ready 再显示，
+/// 避免透明背景注入前闪出一帧不透明底色。超时兜底由调用方按 generation 触发。
+#[derive(Default)]
+pub struct RevealGate {
+    generation: u64,
+    ready: bool,
+    pending: bool,
+}
+
+impl RevealGate {
+    /// 窗口即将新建或已销毁：作废旧窗口的 ready 与在途兜底。
+    pub fn reset(&mut self) -> u64 {
+        self.generation += 1;
+        self.ready = false;
+        self.pending = false;
+        self.generation
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// 请求显示；前端已 ready 时返回 true（立即 show），否则挂起等待 ready。
+    pub fn request_show(&mut self) -> bool {
+        if self.ready {
+            return true;
+        }
+        self.pending = true;
+        false
+    }
+
+    /// 前端首帧就绪；返回 true 表示有挂起的显示请求需要执行。
+    pub fn mark_ready(&mut self) -> bool {
+        self.ready = true;
+        std::mem::take(&mut self.pending)
+    }
+
+    /// 兜底超时到点；仅当同一代窗口仍在挂起时返回 true。
+    pub fn take_timeout(&mut self, generation: u64) -> bool {
+        generation == self.generation && std::mem::take(&mut self.pending)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reveal_gate_waits_for_ready_then_shows_once() {
+        let mut gate = RevealGate::default();
+        let generation = gate.reset();
+        assert!(!gate.request_show());
+        assert!(gate.mark_ready());
+        assert!(!gate.take_timeout(generation));
+        assert!(gate.request_show());
+    }
+    #[test]
+    fn reveal_gate_timeout_fires_only_for_current_generation() {
+        let mut gate = RevealGate::default();
+        let stale = gate.reset();
+        assert!(!gate.request_show());
+        let current = gate.reset();
+        assert!(!gate.request_show());
+        assert!(!gate.take_timeout(stale));
+        assert!(gate.take_timeout(current));
+        assert!(!gate.take_timeout(current));
+    }
     #[test]
     fn expansion_at_bottom_right_keeps_chat_inside_work_area() {
         let areas = [Rect {

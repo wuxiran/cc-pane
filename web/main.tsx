@@ -24,6 +24,12 @@ const appPlatform = (() => {
 })();
 document.documentElement.dataset.platform = appPlatform;
 
+// 桌宠窗口必须全程透明（含出错兜底界面）：与 index.html 的 html[data-ccchan-window] 规则配合。
+// Tauri 侧初始化脚本已更早打标，这里覆盖 web/dev 等无初始化脚本的场景。
+if (new URLSearchParams(window.location.search).get("mode") === "ccchan") {
+  document.documentElement.setAttribute("data-ccchan-window", "");
+}
+
 installAppMenuPasteHandler();
 
 // 全局未捕获错误处理（调试白屏用）

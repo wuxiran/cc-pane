@@ -5,7 +5,7 @@ import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AppToaster } from "@/components/ui/toast";
-import { TOASTER_OFFSET_CCCHAN, toastErr, toastInfo, toastOk } from "@/lib/feedback";
+import { TOASTER_OFFSET_CCCHAN, toastErr } from "@/lib/feedback";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useTerminalStatusStore } from "@/stores";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -254,6 +254,19 @@ export function CCChanApp() {
     return () => style.remove();
   }, []);
 
+  // 首帧提交后通知后端 show（后端新建窗口时先隐藏，避免闪出不透明底色；3s 超时兜底）。
+  // 用 setTimeout 而非 rAF：窗口尚未 show 时 WKWebView/WebView2 可能暂停 rAF，会白等到兜底超时。
+  const hasPet = Boolean(selectedPet);
+  const readySentRef = useRef(false);
+  useEffect(() => {
+    if (!hasPet || readySentRef.current) return;
+    const timer = setTimeout(() => {
+      readySentRef.current = true;
+      invoke("ccchan_window_ready").catch((error) => console.warn("[ccchan] window ready:", error));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [hasPet]);
+
   useEffect(() => {
     void loadCCChan();
     void initTerminalStatus().catch(() => {});
@@ -300,9 +313,7 @@ export function CCChanApp() {
             : translate.current("events.waiting", { title }),
         "event",
       );
-      if (payload.kind === "task-complete") toastOk(title);
-      if (payload.kind === "task-failed") toastErr(title);
-      if (payload.kind === "task-waiting") toastInfo(title);
+      // 只弹气泡不弹 toast：小窗口里 toast 会被截断，且与气泡信息重复。
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         setEventState(null);

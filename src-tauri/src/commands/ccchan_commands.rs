@@ -16,6 +16,16 @@ pub async fn show_ccchan(app: AppHandle) -> AppResult<()> {
     service.set_window_visible(true)
 }
 
+/// 宠物窗口前端首帧渲染完成后调用，后端据此执行挂起的 show（首帧透明保护）。
+#[tauri::command]
+pub fn ccchan_window_ready(
+    app: AppHandle,
+    service: State<'_, Arc<CCChanService>>,
+) -> AppResult<()> {
+    debug!("cmd::ccchan_window_ready");
+    service.mark_window_ready(&app)
+}
+
 #[tauri::command]
 pub async fn hide_ccchan(app: AppHandle) -> AppResult<()> {
     debug!("cmd::hide_ccchan");
