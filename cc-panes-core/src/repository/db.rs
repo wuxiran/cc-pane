@@ -2089,8 +2089,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 47]);
-        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 48]);
+        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 47, 48]);
     }
 
     #[test]
