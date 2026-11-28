@@ -17,7 +17,7 @@ mod webview_reliability;
 use ccchan_commands::{
     ccchan_window_ready, focus_ccchan_main, get_ccchan_pets, get_ccchan_pets_dir,
     get_ccchan_settings, hide_ccchan, open_ccchan_pets_dir, save_ccchan_settings,
-    set_ccchan_hit_regions, show_ccchan, take_ccchan_say,
+    set_ccchan_hit_regions, set_ccchan_orb_expanded, show_ccchan, take_ccchan_say,
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::retry_dispatched_task;
@@ -3474,6 +3474,7 @@ pub fn run() {
             focus_ccchan_main,
             hide_ccchan,
             set_ccchan_hit_regions,
+            set_ccchan_orb_expanded,
             get_ccchan_pets,
             get_ccchan_settings,
             save_ccchan_settings,

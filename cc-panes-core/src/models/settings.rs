@@ -1013,6 +1013,35 @@ pub struct CCChanSettings {
     /// 桌宠当前代表的 Bot；None / 已删除 = 回退到第一个 Bot，没有 Bot 时用 cc酱。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_bot_id: Option<String>,
+    /// 外观：桌宠 / 任务球（缺字段 = 桌宠，旧配置兼容）。
+    #[serde(default)]
+    pub appearance: CCChanAppearance,
+    /// 任务球列表排序：最近输入优先 / 需要我优先。
+    #[serde(default)]
+    pub orb_sort: CCChanOrbSort,
+    /// 任务球列表「悬停即切换」。
+    #[serde(default = "default_true")]
+    pub orb_hover_switch: bool,
+}
+
+/// ccchan 窗口外观。窗口尺寸随外观变化（见 src-tauri ccchan_window.rs）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CCChanAppearance {
+    #[default]
+    Pet,
+    Orb,
+}
+
+/// 任务球列表排序。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CCChanOrbSort {
+    /// 最近一次键盘输入越近越前。
+    #[default]
+    Recent,
+    /// 状态权重优先（等你回复 › 出错 › …）。
+    Attention,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1526,6 +1555,9 @@ impl Default for CCChanSettings {
             window_pos_physical: false,
             pet_size: default_ccchan_pet_size(),
             active_bot_id: None,
+            appearance: CCChanAppearance::Pet,
+            orb_sort: CCChanOrbSort::Recent,
+            orb_hover_switch: true,
         }
     }
 }
@@ -2192,7 +2224,12 @@ mod tests {
         assert_eq!(settings.default_pet_id, "doro.codex-pet");
         assert!(!settings.window_pos_physical);
         assert!(settings.active_bot_id.is_none());
+        assert_eq!(settings.appearance, CCChanAppearance::Pet);
+        assert_eq!(settings.orb_sort, CCChanOrbSort::Recent);
+        assert!(settings.orb_hover_switch);
         let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["appearance"], "pet");
+        assert_eq!(json["orbSort"], "recent");
         assert!(json.get("aiEngine").is_none());
         assert!(json.get("wanderEnabled").is_none());
         let toml_settings: CCChanSettings =
@@ -2201,6 +2238,20 @@ mod tests {
         let mut toml_settings = toml_settings;
         toml_settings.merge_missing_defaults();
         assert_eq!(toml_settings.active_bot_id.as_deref(), Some("b1"));
+    }
+
+    #[test]
+    fn ccchan_settings_round_trips_orb_appearance() {
+        let settings: CCChanSettings = serde_json::from_str(
+            r#"{"appearance":"orb","orbSort":"attention","orbHoverSwitch":false}"#,
+        )
+        .expect("orb ccchan settings");
+        assert_eq!(settings.appearance, CCChanAppearance::Orb);
+        assert_eq!(settings.orb_sort, CCChanOrbSort::Attention);
+        assert!(!settings.orb_hover_switch);
+        let toml_text = toml::to_string(&settings).expect("serialize toml");
+        let back: CCChanSettings = toml::from_str(&toml_text).expect("toml round trip");
+        assert_eq!(back.appearance, CCChanAppearance::Orb);
     }
 
     #[test]
