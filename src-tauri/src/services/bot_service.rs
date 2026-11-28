@@ -74,6 +74,9 @@ pub struct Bot {
     /// 旧 bot.json 缺字段 = false；为 false 时不写盘，保持旧文件形状。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_created: bool,
+    /// 桌宠形象（ccchan 皮肤 id）；None = 用桌宠设置里的默认角色。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pet_id: Option<String>,
 }
 
 /// 列表视图：Bot 本体 + 运行态。
@@ -116,6 +119,13 @@ impl BotMessageOrigin {
         }
         payload
     }
+}
+
+/// 桌宠形象 id：去空白，空串视为未设置。
+fn normalized_pet_id(pet_id: Option<String>) -> Option<String> {
+    pet_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
 }
 
 pub fn bot_chat_id(bot_id: &str) -> String {
@@ -436,6 +446,7 @@ impl BotService {
             .cwd
             .map(|cwd| cwd.trim().to_string())
             .filter(|cwd| !cwd.is_empty());
+        bot.pet_id = normalized_pet_id(bot.pet_id.take());
         bot.updated_at = now;
         if reset_thread {
             bot.acp_session_id = None;
@@ -617,6 +628,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             auto_created: false,
+            pet_id: None,
         }
     }
 
@@ -757,6 +769,18 @@ mod tests {
         // 手建 Bot 不写 autoCreated，旧版本读到的文件形状不变。
         let raw = serde_json::to_string(&parsed).unwrap();
         assert!(!raw.contains("autoCreated"));
+        // 旧 bot.json 没有 petId：读进来为 None，写回也不多出这个键。
+        assert!(parsed.pet_id.is_none());
+        assert!(!raw.contains("petId"));
+        let with_pet: Bot =
+            serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude","petId":"homie"}"#)
+                .unwrap();
+        assert_eq!(with_pet.pet_id.as_deref(), Some("homie"));
+        assert_eq!(normalized_pet_id(Some("  ".into())), None);
+        assert_eq!(
+            normalized_pet_id(Some(" doro ".into())).as_deref(),
+            Some("doro")
+        );
     }
 
     #[test]

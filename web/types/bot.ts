@@ -2,6 +2,8 @@
 import type { AcpChatPhase } from "./agentChat";
 
 export const BOTS_CHANGED_EVENT = "bots-changed";
+/** 窗口内 DOM 事件：联系人列表据此打开新建 Bot 对话框（桌宠「新建 Bot」入口）。 */
+export const CREATE_BOT_DOM_EVENT = "ccpanes:create-bot";
 /** Bot 的会话 chatId = 标签 id = `bot-{id}`。 */
 export const BOT_CHAT_PREFIX = "bot-";
 
@@ -21,6 +23,8 @@ export interface Bot {
   updatedAt: number;
   /** Agent Chat「@引擎」自动创建的默认 Bot（同引擎同 cwd 复用一个）。 */
   autoCreated?: boolean;
+  /** 桌宠形象（ccchan 皮肤 id）；缺省 = 桌宠设置里的默认角色。 */
+  petId?: string | null;
 }
 
 export interface BotSummary extends Bot {
