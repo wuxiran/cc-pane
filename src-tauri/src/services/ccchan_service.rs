@@ -1,185 +1,40 @@
-//! ccchan mascot backend service.
+//! 桌宠 ccchan：会话状态指示器窗口（Bot 形象）。
+//!
+//! 窗口固定大小（只随角色大小变），透明区域经命中测试动态
+//! `set_ignore_cursor_events` 放行点击；聊天不再自带 CLI 进程，单次提问
+//! 走 Bot 的 `ask_bot` 通路（bot_service/ask.rs）。
 //!
 //! Sprite attribution: Homie spritesheet from oc-claw (MIT), Copyright (c) rainnoon.
 
-#[path = "ccchan_process.rs"]
-mod process;
-use process::ChatProcess;
+#[path = "ccchan_pets.rs"]
+mod pets;
+pub use pets::PetMeta;
 #[path = "ccchan_window.rs"]
 mod window;
-pub use window::{window_size_for, CCChanWindowMode, WindowPlacement, WindowSize};
+pub use window::{window_size_for, Rect, RevealGate};
 
 use crate::models::settings::CCChanSettings;
-use crate::models::{CliTool, LaunchProviderSelection};
-use crate::services::{SettingsService, TerminalService};
-use crate::utils::{ensure_cli_color_env, AppError, AppPaths, AppResult};
-use cc_cli_adapters::{
-    no_window_command, ClaudeAdapter, CliAdapterContext, CliToolAdapter, CodexAdapter,
-};
+use crate::services::SettingsService;
+use crate::utils::{AppError, AppPaths, AppResult};
 use cc_panes_core::events::SessionNotifier;
-use cc_panes_core::services::terminal_service::KillReason;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
-use tracing::{debug, info, warn};
-use uuid::Uuid;
+use tracing::{debug, warn};
 
-const CCCHAN_WINDOW_LABEL: &str = "ccchan";
+pub const CCCHAN_WINDOW_LABEL: &str = "ccchan";
 const CCCHAN_EVENT: &str = "ccchan-event";
-const CCCHAN_CHAT_OUTPUT_EVENT: &str = "ccchan-chat-output";
-const CCCHAN_CHAT_STATUS_EVENT: &str = "ccchan-chat-status";
-const CCCHAN_HELPER_PROMPT: &str =
-    include_str!("../../resources/claude-bundle/default-skills/ccchan-helper.md");
-
-#[derive(Debug, Clone)]
-enum ChatSessionState {
-    Terminal {
-        session_id: String,
-    },
-    ClaudeStructured {
-        session_id: String,
-        chat_dir: PathBuf,
-        claude_session_id: Option<String>,
-        process: Arc<ChatProcess>,
-    },
-    CodexStructured {
-        session_id: String,
-        chat_dir: PathBuf,
-        codex_thread_id: Option<String>,
-        process: Arc<ChatProcess>,
-    },
-}
-
-impl ChatSessionState {
-    fn session_id(&self) -> &str {
-        match self {
-            Self::Terminal { session_id }
-            | Self::ClaudeStructured { session_id, .. }
-            | Self::CodexStructured { session_id, .. } => session_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ClaudeCommandSpec {
-    command: String,
-    args: Vec<String>,
-    env_remove: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct CodexCommandSpec {
-    command: String,
-    args: Vec<String>,
-    env_remove: Vec<String>,
-    env_inject: HashMap<String, String>,
-}
-
-fn spawn_stderr_reader(
-    stderr: Option<std::process::ChildStderr>,
-    name: &'static str,
-) -> AppResult<std::thread::JoinHandle<String>> {
-    std::thread::Builder::new()
-        .name(name.to_string())
-        .spawn(move || {
-            let mut text = String::new();
-            if let Some(mut stderr) = stderr {
-                let _ = stderr.read_to_string(&mut text);
-            }
-            text
-        })
-        .map_err(|error| {
-            AppError::from(format!(
-                "Failed to start structured chat stderr reader: {error}"
-            ))
-        })
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct ParsedClaudeLine {
-    text: Option<String>,
-    status: Option<&'static str>,
-    session_id: Option<String>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct ParsedCodexLine {
-    text: Option<String>,
-    status: Option<&'static str>,
-    thread_id: Option<String>,
-    error: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct CCChanChatOutputPayload<'a> {
-    session_id: &'a str,
-    role: &'a str,
-    text: &'a str,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct CCChanChatStatusPayload<'a> {
-    session_id: &'a str,
-    status: &'a str,
-    message: Option<&'a str>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PetMeta {
-    pub id: String,
-    pub display_name: String,
-    pub description: String,
-    pub spritesheet_url: String,
-    pub atlas: PetAtlas,
-    pub animations: HashMap<String, PetAnimation>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PetAtlas {
-    pub cell_w: u32,
-    pub cell_h: u32,
-    pub cols: u32,
-    pub rows: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PetAnimation {
-    pub row: u32,
-    pub frames: u32,
-    pub fps: u32,
-    #[serde(default)]
-    pub col_offset: u32,
-}
-
-#[derive(Deserialize)]
-struct PetsManifest {
-    pets: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PetDefinition {
-    id: String,
-    display_name: String,
-    description: String,
-    spritesheet_path: String,
-    atlas: PetAtlas,
-    animations: HashMap<String, PetAnimation>,
-}
+const CCCHAN_HOVER_EVENT: &str = "ccchan:hover";
+const REVEAL_FALLBACK_TIMEOUT: Duration = Duration::from_secs(3);
+/// 命中测试轮询间隔：光标进出角色包围盒的响应延迟上限。
+const HIT_POLL_INTERVAL: Duration = Duration::from_millis(60);
+/// 拖拽停下多久后才吸附 + 持久化位置。
+const MOVE_SETTLE: Duration = Duration::from_millis(450);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,13 +43,25 @@ pub struct CCChanSay {
     pub duration_ms: u64,
 }
 
+/// 点击穿透状态：前端上报的命中区域 + 当前穿透开关 + 拖拽后的待落盘位置。
+#[derive(Default)]
+struct HitState {
+    generation: u64,
+    regions: Vec<Rect>,
+    ignoring: Option<bool>,
+    inside: bool,
+    /// 平台不支持（或光标位置读不到）时降级为「不穿透」，不再反复尝试。
+    disabled: bool,
+    pending_move: Option<Instant>,
+}
+
 pub struct CCChanService {
     settings_service: Arc<SettingsService>,
     app_paths: Arc<AppPaths>,
     app_handle: Mutex<Option<AppHandle>>,
-    chat_session: Mutex<Option<ChatSessionState>>,
-    placement: Mutex<WindowPlacement>,
     pending_say: Mutex<Option<CCChanSay>>,
+    reveal: Arc<Mutex<RevealGate>>,
+    hit: Arc<Mutex<HitState>>,
 }
 
 impl CCChanService {
@@ -203,9 +70,9 @@ impl CCChanService {
             settings_service,
             app_paths,
             app_handle: Mutex::new(None),
-            chat_session: Mutex::new(None),
-            placement: Mutex::new(WindowPlacement::default()),
             pending_say: Mutex::new(None),
+            reveal: Arc::new(Mutex::new(RevealGate::default())),
+            hit: Arc::new(Mutex::new(HitState::default())),
         }
     }
 
@@ -215,11 +82,18 @@ impl CCChanService {
         }
     }
 
+    pub fn app_handle(&self) -> Option<AppHandle> {
+        self.app_handle
+            .lock()
+            .ok()
+            .and_then(|handle| handle.clone())
+    }
+
     pub fn say(&self, app: &AppHandle, text: String, duration_ms: u64) -> AppResult<()> {
         *self.pending_say.lock().unwrap_or_else(|e| e.into_inner()) =
             Some(CCChanSay { text, duration_ms });
         self.show_window(app)?;
-        app.emit_to("ccchan", "ccchan-say", ())
+        app.emit_to(CCCHAN_WINDOW_LABEL, "ccchan-say", ())
             .map_err(|e| AppError::from(e.to_string()))?;
         Ok(())
     }
@@ -250,61 +124,41 @@ impl CCChanService {
         }
     }
 
-    pub fn pet_size(&self) -> f64 {
-        self.settings().pet_size
-    }
-
-    pub fn window_size(&self, mode: CCChanWindowMode) -> (f64, f64) {
-        let s = self.pet_size();
-        window_size_for(mode, s)
-    }
-
-    pub fn resize_window(
-        &self,
-        window: &WebviewWindow,
-        mode: CCChanWindowMode,
-    ) -> AppResult<WindowSize> {
-        self.placement
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .resize(window, mode, self.pet_size())
-    }
-
-    pub fn move_window(
-        &self,
-        window: &WebviewWindow,
-        x: f64,
-        y: f64,
-        persist: bool,
-    ) -> AppResult<()> {
-        let (x, y) = self
-            .placement
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .move_to(window, x, y)?;
-        if persist {
-            self.save_window_position(x, y)?;
-        }
-        Ok(())
-    }
-
     pub fn user_pets_dir(&self) -> PathBuf {
         self.app_paths.data_dir().join("ccchan").join("pets")
     }
 
-    /// 确保用户皮肤目录存在，并在首次创建时放一份 README 模板，
-    /// 告诉用户 pet.json 的完整格式。已有 README 不覆盖。
+    /// 确保用户皮肤目录存在，并在首次创建时放一份 README 模板。已有 README 不覆盖。
     pub fn ensure_user_pets_dir_scaffold(&self) -> AppResult<PathBuf> {
         let dir = self.user_pets_dir();
         std::fs::create_dir_all(&dir)
             .map_err(|error| AppError::from(format!("cannot create pets dir: {error}")))?;
         let readme = dir.join("README.md");
         if !readme.exists() {
-            if let Err(error) = std::fs::write(&readme, USER_PETS_README) {
+            if let Err(error) = std::fs::write(&readme, pets::USER_PETS_README) {
                 warn!(%error, "failed to write ccchan pets README");
             }
         }
         Ok(dir)
+    }
+
+    /// 皮肤列表：内置 < `~/.codex/pets`（只读）< 用户目录，同 id 后者覆盖。
+    pub fn get_pets(&self, app: &AppHandle) -> AppResult<Vec<PetMeta>> {
+        let built_in = resolve_ccchan_root(app)
+            .and_then(|root| pets::load_bundled_pets(&root))
+            .unwrap_or_else(|error| {
+                warn!(%error, "failed to load bundled pets; keeping custom pets available");
+                Vec::new()
+            });
+        let codex = pets::codex_pets_dir()
+            .map(|dir| pets::scan_pet_root(&dir, "codex"))
+            .unwrap_or_default();
+        let user = pets::scan_pet_root(&self.user_pets_dir(), "user");
+        let all = pets::merge_pets(pets::merge_pets(built_in, codex), user);
+        if let Err(error) = app.emit("ccchan:pets-updated", &all) {
+            warn!(%error, "failed to publish refreshed pets");
+        }
+        Ok(all)
     }
 
     pub fn show_window(&self, app: &AppHandle) -> AppResult<()> {
@@ -313,767 +167,101 @@ impl CCChanService {
                 return Ok(());
             }
         }
+        let created = app.get_webview_window(CCCHAN_WINDOW_LABEL).is_none();
+        if created {
+            self.lock_reveal().reset();
+        }
         let window = ccchan_window(app)?;
-        *self.placement.lock().unwrap_or_else(|e| e.into_inner()) = WindowPlacement::default();
-        let (width, height) = self.window_size(CCChanWindowMode::Collapsed);
+        self.apply_window_size(&window)?;
+        self.position_window(&window)?;
+        if created {
+            self.start_hit_loop(app);
+        }
+        if self.lock_reveal().request_show() {
+            return reveal_window(&window);
+        }
+        self.schedule_reveal_fallback(app);
+        Ok(())
+    }
+
+    /// 窗口尺寸只随角色大小变（设置改了角色大小时调用）。
+    pub fn apply_window_size(&self, window: &WebviewWindow) -> AppResult<()> {
+        let (width, height) = window_size_for(self.settings().pet_size);
         window
             .set_size(LogicalSize::new(width, height))
-            .map_err(|error| AppError::from(error.to_string()))?;
-        window
-            .set_decorations(false)
-            .map_err(|error| AppError::from(error.to_string()))?;
-        window
-            .set_always_on_top(true)
-            .map_err(|error| AppError::from(error.to_string()))?;
-        position_window(&window, &self.settings())?;
-        self.resize_window(&window, CCChanWindowMode::Collapsed)?;
-        window
-            .show()
-            .map_err(|error| AppError::from(error.to_string()))?;
-        Ok(())
+            .map_err(|error| AppError::from(error.to_string()))
+    }
+
+    /// 前端首帧渲染完成后调用：执行挂起的 show。
+    pub fn mark_window_ready(&self, app: &AppHandle) -> AppResult<()> {
+        if !self.lock_reveal().mark_ready() {
+            return Ok(());
+        }
+        match app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+            Some(window) => reveal_window(&window),
+            None => Ok(()),
+        }
+    }
+
+    fn lock_reveal(&self) -> std::sync::MutexGuard<'_, RevealGate> {
+        self.reveal.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lock_hit(&self) -> std::sync::MutexGuard<'_, HitState> {
+        self.hit.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 前端迟迟不发 ready（脚本加载失败等）时兜底显示，避免宠物永远不出现。
+    fn schedule_reveal_fallback(&self, app: &AppHandle) {
+        let generation = self.lock_reveal().generation();
+        let reveal = Arc::clone(&self.reveal);
+        let app_for_timer = app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("ccchan-reveal-fallback".into())
+            .spawn(move || {
+                std::thread::sleep(REVEAL_FALLBACK_TIMEOUT);
+                let fire = reveal
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take_timeout(generation);
+                if !fire {
+                    return;
+                }
+                warn!(
+                    "[ccchan] frontend not ready after {REVEAL_FALLBACK_TIMEOUT:?}, showing anyway"
+                );
+                if let Some(window) = app_for_timer.get_webview_window(CCCHAN_WINDOW_LABEL) {
+                    if let Err(error) = reveal_window(&window) {
+                        warn!(%error, "failed to show ccchan window after ready timeout");
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            warn!(%error, "failed to spawn ccchan reveal fallback; showing immediately");
+            self.lock_reveal().take_timeout(generation);
+            if let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+                if let Err(error) = reveal_window(&window) {
+                    warn!(%error, "failed to show ccchan window");
+                }
+            }
+        }
     }
 
     /// 关闭桌宠时直接销毁窗口而非隐藏：长期隐藏的 WebView2 会被系统置为
     /// 失效状态（0x8007139F），之后所有 emit 广播对它投递失败形成日志洪水。
-    /// 窗口不存在时为幂等 no-op（不能走 ccchan_window() 的 get-or-create，
-    /// 否则"隐藏"反而会先创建一个隐藏 WebView）。下次启用经 show_window 重建。
+    /// 窗口不存在时为幂等 no-op。下次启用经 show_window 重建。
     pub fn hide_window(&self, app: &AppHandle) -> AppResult<()> {
-        self.stop_structured_chat();
+        self.lock_reveal().reset();
+        self.lock_hit().generation += 1;
         let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) else {
             return Ok(());
         };
         window
             .close()
-            .map_err(|error| AppError::from(error.to_string()))?;
-        Ok(())
-    }
-
-    pub fn stop_structured_chat(&self) {
-        if let Ok(mut session) = self.chat_session.lock() {
-            match session.as_ref() {
-                Some(ChatSessionState::ClaudeStructured { process, .. })
-                | Some(ChatSessionState::CodexStructured { process, .. }) => process.stop(),
-                _ => return,
-            }
-            *session = None;
-        }
-    }
-
-    pub fn save_window_position(&self, x: f64, y: f64) -> AppResult<()> {
-        self.settings_service.update_ccchan(|settings| {
-            settings.window_x = Some(x);
-            settings.window_y = Some(y);
-        })?;
-        self.publish_settings();
-        Ok(())
-    }
-
-    pub fn get_pets(&self, app: &AppHandle) -> AppResult<Vec<PetMeta>> {
-        let built_in = self.load_builtin_pets(app).unwrap_or_else(|error| {
-            warn!(%error, "failed to load bundled pets; keeping custom pets available");
-            Vec::new()
-        });
-        let pets = merge_pets(built_in, self.load_user_pets());
-        if let Err(error) = app.emit("ccchan:pets-updated", &pets) {
-            warn!(%error, "failed to publish refreshed pets");
-        }
-        Ok(pets)
-    }
-
-    fn load_builtin_pets(&self, app: &AppHandle) -> AppResult<Vec<PetMeta>> {
-        let root = resolve_ccchan_root(app)?;
-        let content = std::fs::read_to_string(root.join("pets-manifest.json"))?;
-        let manifest: PetsManifest = serde_json::from_str(&content)
-            .map_err(|error| AppError::from(format!("Invalid pets manifest: {error}")))?;
-        Ok(manifest
-            .pets
-            .iter()
-            .filter_map(|id| {
-                self.load_pet(&root, id)
-                    .map_err(|error| warn!(%id, %error, "skipping invalid bundled pet"))
-                    .ok()
-            })
-            .collect())
-    }
-
-    /// 扫描用户皮肤目录（data_dir/ccchan/pets/<folder>/pet.json）。目录不存在或
-    /// 单个皮肤非法都不算错误——warn 跳过，保证内置角色始终可用。
-    fn load_user_pets(&self) -> Vec<PetMeta> {
-        let pets_dir = self.user_pets_dir();
-        let Ok(entries) = std::fs::read_dir(&pets_dir) else {
-            return Vec::new();
-        };
-        let mut pet_dirs: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect();
-        // 按目录名排序遍历，重复 id 时保证覆盖结果确定。
-        pet_dirs.sort();
-
-        let mut pets = Vec::new();
-        for pet_dir in pet_dirs {
-            if !pet_dir.join("pet.json").is_file() {
-                continue;
-            }
-            match load_user_pet(&pet_dir) {
-                Ok(pet) => {
-                    info!(dir = %pet_dir.display(), id = %pet.id, "loaded user ccchan pet");
-                    pets.push(pet);
-                }
-                Err(error) => {
-                    warn!(dir = %pet_dir.display(), %error, "skipping invalid user ccchan pet");
-                }
-            }
-        }
-        pets
-    }
-
-    pub fn start_chat(
-        &self,
-        terminal_service: Arc<TerminalService>,
-        ai_engine: String,
-    ) -> AppResult<String> {
-        let cli_tool = parse_ai_engine(&ai_engine)?;
-        let chat_dir = self.app_paths.data_dir().join("ccchan");
-        info!(
-            ai_engine = %ai_engine,
-            cli_tool = ?cli_tool,
-            chat_dir = %chat_dir.display(),
-            "ccchan chat start requested"
-        );
-        std::fs::create_dir_all(&chat_dir).map_err(|error| {
-            AppError::from(format!(
-                "Failed to create ccchan chat directory {}: {}",
-                chat_dir.display(),
-                error
-            ))
-        })?;
-
-        if let Some(existing) = self.take_chat_session()? {
-            self.stop_existing_chat_for_replacement(terminal_service.clone(), existing);
-        }
-
-        if cli_tool == CliTool::Claude {
-            return self.start_structured_claude_chat(chat_dir);
-        }
-        if cli_tool == CliTool::Codex {
-            return self.start_structured_codex_chat(chat_dir);
-        }
-
-        let chat_dir_str = chat_dir.to_string_lossy().to_string();
-        let session_id = terminal_service.create_session(
-            None,
-            &chat_dir_str,
-            120,
-            32,
-            None,
-            None,
-            None,
-            LaunchProviderSelection::None,
-            None,
-            None,
-            None,
-            cli_tool,
-            None,
-            true,
-            Some(CCCHAN_HELPER_PROMPT),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
-        info!(
-            session_id = %session_id,
-            ai_engine = %ai_engine,
-            cli_tool = ?cli_tool,
-            provider_id = "none",
-            "ccchan chat session created"
-        );
-
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        *stored = Some(ChatSessionState::Terminal {
-            session_id: session_id.clone(),
-        });
-        Ok(session_id)
-    }
-
-    pub fn send_to_chat(
-        &self,
-        terminal_service: Arc<TerminalService>,
-        session_id: &str,
-        text: &str,
-    ) -> AppResult<()> {
-        debug!(session_id, text_len = text.len(), "ccchan chat send input");
-        let session = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?
-            .clone();
-        match session {
-            Some(ChatSessionState::Terminal {
-                session_id: stored_id,
-            }) if stored_id == session_id => {
-                terminal_service.write(session_id, text)?;
-                terminal_service.write(session_id, "\r")?;
-                Ok(())
-            }
-            Some(ChatSessionState::ClaudeStructured {
-                session_id: stored_id,
-                chat_dir,
-                claude_session_id,
-                process,
-            }) if stored_id == session_id => {
-                self.run_structured_claude_turn(
-                    session_id,
-                    &chat_dir,
-                    claude_session_id.as_deref(),
-                    text,
-                    &process,
-                )?;
-                Ok(())
-            }
-            Some(ChatSessionState::CodexStructured {
-                session_id: stored_id,
-                chat_dir,
-                codex_thread_id,
-                process,
-            }) if stored_id == session_id => {
-                self.run_structured_codex_turn(
-                    session_id,
-                    &chat_dir,
-                    codex_thread_id.as_deref(),
-                    text,
-                    &process,
-                )?;
-                Ok(())
-            }
-            _ => Err(AppError::from(format!(
-                "ccchan chat session '{session_id}' is not active"
-            ))),
-        }
-    }
-
-    pub fn stop_chat(
-        &self,
-        terminal_service: Arc<TerminalService>,
-        session_id: &str,
-    ) -> AppResult<()> {
-        info!(session_id, "ccchan chat stop requested");
-        let session = self.clear_chat_session(session_id)?;
-        match session {
-            None => Ok(()),
-            Some(ChatSessionState::Terminal { .. }) => {
-                match terminal_service.kill_with_reason(session_id, KillReason::UserClose) {
-                    Ok(()) => {
-                        info!(session_id, "ccchan chat stopped");
-                        Ok(())
-                    }
-                    Err(error) if error.to_string().to_ascii_lowercase().contains("not found") => {
-                        info!(
-                            session_id,
-                            "ccchan chat stop ignored because session is gone"
-                        );
-                        Ok(())
-                    }
-                    Err(error) => Err(AppError::from(error.to_string())),
-                }
-            }
-            Some(ChatSessionState::ClaudeStructured { process, .. }) => {
-                process.stop();
-                self.emit_chat_status(
-                    session_id,
-                    "exited",
-                    Some("Claude CLI chat 已停止。点“重启 CLI”重新连接。"),
-                );
-                info!(session_id, "ccchan structured chat stopped");
-                Ok(())
-            }
-            Some(ChatSessionState::CodexStructured { process, .. }) => {
-                process.stop();
-                self.emit_chat_status(
-                    session_id,
-                    "exited",
-                    Some("Codex CLI chat 已停止。点“重启 CLI”重新连接。"),
-                );
-                info!(session_id, "ccchan structured Codex chat stopped");
-                Ok(())
-            }
-        }
-    }
-
-    pub fn is_chat_session_alive(
-        &self,
-        terminal_service: Arc<TerminalService>,
-        session_id: &str,
-    ) -> AppResult<bool> {
-        let session = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?
-            .clone();
-        match session {
-            Some(ChatSessionState::ClaudeStructured {
-                session_id: stored_id,
-                ..
-            }) if stored_id == session_id => Ok(true),
-            Some(ChatSessionState::CodexStructured {
-                session_id: stored_id,
-                ..
-            }) if stored_id == session_id => Ok(true),
-            Some(ChatSessionState::Terminal {
-                session_id: stored_id,
-            }) if stored_id == session_id => Ok(terminal_service
-                .get_all_status()?
-                .iter()
-                .any(|status| status.session_id == session_id)),
-            _ => Ok(false),
-        }
-    }
-
-    fn start_structured_claude_chat(&self, chat_dir: PathBuf) -> AppResult<String> {
-        let session_id = format!("ccchan-claude-{}", Uuid::new_v4());
-
-        self.build_structured_claude_command(&session_id, &chat_dir, None, None)?;
-
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        *stored = Some(ChatSessionState::ClaudeStructured {
-            session_id: session_id.clone(),
-            chat_dir,
-            claude_session_id: None,
-            process: Arc::new(ChatProcess::default()),
-        });
-        info!(
-            session_id = %session_id,
-            provider_id = "none",
-            "ccchan structured Claude chat session created"
-        );
-        drop(stored);
-        self.emit_chat_status(&session_id, "ready", None);
-        Ok(session_id)
-    }
-
-    fn start_structured_codex_chat(&self, chat_dir: PathBuf) -> AppResult<String> {
-        let session_id = format!("ccchan-codex-{}", Uuid::new_v4());
-
-        self.build_structured_codex_command(&session_id, &chat_dir, None, None)?;
-
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        *stored = Some(ChatSessionState::CodexStructured {
-            session_id: session_id.clone(),
-            chat_dir,
-            codex_thread_id: None,
-            process: Arc::new(ChatProcess::default()),
-        });
-        info!(
-            session_id = %session_id,
-            provider_id = "none",
-            "ccchan structured Codex chat session created"
-        );
-        drop(stored);
-        self.emit_chat_status(&session_id, "ready", None);
-        Ok(session_id)
-    }
-
-    fn run_structured_claude_turn(
-        &self,
-        session_id: &str,
-        chat_dir: &Path,
-        resume_id: Option<&str>,
-        text: &str,
-        process: &Arc<ChatProcess>,
-    ) -> AppResult<Option<String>> {
-        let turn = process.begin()?;
-        self.emit_chat_status(session_id, "starting", None);
-        let spec =
-            self.build_structured_claude_command(session_id, chat_dir, resume_id, Some(text))?;
-        let mut command = no_window_command(&spec.command);
-        command
-            .args(&spec.args)
-            .current_dir(chat_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        for key in &spec.env_remove {
-            command.env_remove(key);
-        }
-        for (key, value) in self.structured_claude_env_vars(session_id) {
-            command.env(key, value);
-        }
-
-        info!(
-            session_id,
-            resume_id = resume_id.unwrap_or("none"),
-            "ccchan structured Claude turn starting"
-        );
-        let (stdout, stderr) = turn.spawn(&mut command)?;
-        let stderr_reader = spawn_stderr_reader(stderr, "ccpanes-ccchan-claude-stderr")?;
-
-        let mut next_claude_session_id = resume_id.map(str::to_string);
-        let mut last_error: Option<String> = None;
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            let line = line.map_err(|error| {
-                AppError::from(format!("Failed to read Claude structured output: {error}"))
-            })?;
-            let Some(parsed) = parse_claude_stream_line(&line) else {
-                continue;
-            };
-            if let Some(claude_session_id) = parsed.session_id {
-                next_claude_session_id = Some(claude_session_id);
-            }
-            if let Some(status) = parsed.status {
-                self.emit_chat_status(session_id, status, None);
-            }
-            if let Some(error) = parsed.error {
-                last_error = Some(error);
-            }
-            if let Some(text) = parsed.text {
-                self.emit_chat_output(session_id, &text);
-            }
-        }
-
-        let result = turn.wait();
-        let stderr_text = stderr_reader.join().unwrap_or_default();
-        let status = result?;
-        if !status.success() {
-            let exit_message = status.code().map(|code| format!("exit {code}"));
-            let message = first_non_empty([
-                last_error.as_deref(),
-                Some(stderr_text.trim()),
-                exit_message.as_deref(),
-            ])
-            .unwrap_or_else(|| "Claude structured chat failed".to_string());
-            self.emit_chat_status(session_id, "error", Some(&message));
-            return Err(AppError::from(message));
-        }
-
-        if let Some(error) = last_error {
-            self.emit_chat_status(session_id, "error", Some(&error));
-            return Err(AppError::from(error));
-        }
-
-        if let Some(id) = &next_claude_session_id {
-            self.update_structured_claude_session_id(session_id, id.clone())?;
-        }
-        self.emit_chat_status(session_id, "ready", None);
-        Ok(next_claude_session_id)
-    }
-
-    fn run_structured_codex_turn(
-        &self,
-        session_id: &str,
-        chat_dir: &Path,
-        resume_id: Option<&str>,
-        text: &str,
-        process: &Arc<ChatProcess>,
-    ) -> AppResult<Option<String>> {
-        let turn = process.begin()?;
-        self.emit_chat_status(session_id, "starting", None);
-        let spec =
-            self.build_structured_codex_command(session_id, chat_dir, resume_id, Some(text))?;
-        let mut command = no_window_command(&spec.command);
-        command
-            .args(&spec.args)
-            .current_dir(chat_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        for key in &spec.env_remove {
-            command.env_remove(key);
-        }
-        for (key, value) in self.structured_codex_env_vars(session_id) {
-            command.env(key, value);
-        }
-        for (key, value) in spec.env_inject {
-            command.env(key, value);
-        }
-
-        info!(
-            session_id,
-            resume_id = resume_id.unwrap_or("none"),
-            "ccchan structured Codex turn starting"
-        );
-        let (stdout, stderr) = turn.spawn(&mut command)?;
-        let stderr_reader = spawn_stderr_reader(stderr, "ccpanes-ccchan-codex-stderr")?;
-
-        let mut next_thread_id = resume_id.map(str::to_string);
-        let mut last_error: Option<String> = None;
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            let line = line.map_err(|error| {
-                AppError::from(format!("Failed to read Codex structured output: {error}"))
-            })?;
-            let Some(parsed) = parse_codex_stream_line(&line) else {
-                continue;
-            };
-            if let Some(thread_id) = parsed.thread_id {
-                next_thread_id = Some(thread_id);
-            }
-            if let Some(status) = parsed.status {
-                self.emit_chat_status(session_id, status, None);
-            }
-            if let Some(error) = parsed.error {
-                last_error = Some(error);
-            }
-            if let Some(text) = parsed.text {
-                self.emit_chat_output(session_id, &text);
-            }
-        }
-
-        let result = turn.wait();
-        let stderr_text = stderr_reader.join().unwrap_or_default();
-        let status = result?;
-        if !status.success() {
-            let exit_message = status.code().map(|code| format!("exit {code}"));
-            let message = first_non_empty([
-                last_error.as_deref(),
-                Some(stderr_text.trim()),
-                exit_message.as_deref(),
-            ])
-            .unwrap_or_else(|| "Codex structured chat failed".to_string());
-            self.emit_chat_status(session_id, "error", Some(&message));
-            return Err(AppError::from(message));
-        }
-
-        if let Some(error) = last_error {
-            self.emit_chat_status(session_id, "error", Some(&error));
-            return Err(AppError::from(error));
-        }
-
-        if let Some(id) = &next_thread_id {
-            self.update_structured_codex_thread_id(session_id, id.clone())?;
-        }
-        self.emit_chat_status(session_id, "ready", None);
-        Ok(next_thread_id)
-    }
-
-    fn build_structured_claude_command(
-        &self,
-        session_id: &str,
-        chat_dir: &Path,
-        resume_id: Option<&str>,
-        prompt: Option<&str>,
-    ) -> AppResult<ClaudeCommandSpec> {
-        let adapter = ClaudeAdapter::new();
-        let ctx = CliAdapterContext {
-            session_id: session_id.to_string(),
-            project_path: chat_dir.to_string_lossy().to_string(),
-            workspace_path: None,
-            provider: None,
-            // 结构化模式不走 CLI 启动器覆盖：包装器（如 reclaude）转发含换行的
-            // argv 时会吞掉后续参数——ccchan 每轮必带多行 --append-system-prompt，
-            // 位置 prompt 被吞后 claude -p 直接报 "Input must be provided..."。
-            // 覆盖只面向交互式终端启动，程序化调用直连真实 CLI。
-            executable_override: None,
-            adapter_options: Default::default(),
-            resume_id: resume_id.map(str::to_string),
-            issued_session_id: None,
-            skip_mcp: true,
-            skip_ccpanes_mcp: true,
-            yolo_mode: false,
-            append_system_prompt: Some(CCCHAN_HELPER_PROMPT.to_string()),
-            initial_prompt: prompt.map(str::to_string),
-            orchestrator_port: None,
-            orchestrator_token: None,
-            launch_id: None,
-            data_dir: self.app_paths.data_dir().to_path_buf(),
-            shared_mcp_urls: HashMap::new(),
-            shared_mcp_stdio: Default::default(),
-            shared_mcp_remote: Default::default(),
-            allowed_mcp_server_ids: Vec::new(),
-            disable_unlisted_mcp_servers: false,
-            // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill
-            skill_mount_paths: Vec::new(),
-            workspace_mcp_servers: Default::default(),
-        };
-        let result = adapter
-            .build_command(&ctx)
-            .map_err(|error| AppError::from(error.to_string()))?;
-        let mut args = vec![
-            "-p".to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--verbose".to_string(),
-        ];
-        args.extend(result.args);
-        Ok(ClaudeCommandSpec {
-            command: result.command,
-            args,
-            env_remove: result.env_remove,
-        })
-    }
-
-    fn build_structured_codex_command(
-        &self,
-        session_id: &str,
-        chat_dir: &Path,
-        resume_id: Option<&str>,
-        prompt: Option<&str>,
-    ) -> AppResult<CodexCommandSpec> {
-        let adapter = CodexAdapter::new();
-        let ctx = CliAdapterContext {
-            session_id: session_id.to_string(),
-            project_path: chat_dir.to_string_lossy().to_string(),
-            workspace_path: None,
-            provider: None,
-            // 同 Claude 侧：结构化 exec 调用不走启动器覆盖（包装器换行 argv 吞参问题）
-            executable_override: None,
-            adapter_options: Default::default(),
-            resume_id: resume_id.map(str::to_string),
-            issued_session_id: None,
-            skip_mcp: true,
-            skip_ccpanes_mcp: true,
-            yolo_mode: false,
-            append_system_prompt: Some(CCCHAN_HELPER_PROMPT.to_string()),
-            initial_prompt: prompt.map(str::to_string),
-            orchestrator_port: None,
-            orchestrator_token: None,
-            launch_id: None,
-            data_dir: self.app_paths.data_dir().to_path_buf(),
-            shared_mcp_urls: HashMap::new(),
-            shared_mcp_stdio: Default::default(),
-            shared_mcp_remote: Default::default(),
-            allowed_mcp_server_ids: Vec::new(),
-            disable_unlisted_mcp_servers: false,
-            // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill
-            skill_mount_paths: Vec::new(),
-            workspace_mcp_servers: Default::default(),
-        };
-        let result = adapter
-            .build_command(&ctx)
-            .map_err(|error| AppError::from(error.to_string()))?;
-        let mut args = vec![
-            "exec".to_string(),
-            "--json".to_string(),
-            "--color".to_string(),
-            "never".to_string(),
-            "--skip-git-repo-check".to_string(),
-        ];
-        args.extend(result.args);
-        Ok(CodexCommandSpec {
-            command: result.command,
-            args,
-            env_remove: result.env_remove,
-            env_inject: result.env_inject,
-        })
-    }
-
-    fn structured_claude_env_vars(&self, session_id: &str) -> HashMap<String, String> {
-        let mut env_vars = self.settings_service.get_proxy_env_vars();
-        ensure_cli_color_env(&mut env_vars);
-        env_vars.insert("CC_PANES_CLI_TOOL".to_string(), "claude".to_string());
-        env_vars.insert("CC_PANES_RUNTIME_KIND".to_string(), "local".to_string());
-        env_vars.insert(
-            "CC_PANES_CCCHAN_SESSION_ID".to_string(),
-            session_id.to_string(),
-        );
-        env_vars
-    }
-
-    fn structured_codex_env_vars(&self, session_id: &str) -> HashMap<String, String> {
-        let mut env_vars = self.settings_service.get_proxy_env_vars();
-        ensure_cli_color_env(&mut env_vars);
-        env_vars.insert("CC_PANES_CLI_TOOL".to_string(), "codex".to_string());
-        env_vars.insert("CC_PANES_RUNTIME_KIND".to_string(), "local".to_string());
-        env_vars.insert(
-            "CC_PANES_CCCHAN_SESSION_ID".to_string(),
-            session_id.to_string(),
-        );
-        env_vars
-    }
-
-    fn update_structured_claude_session_id(
-        &self,
-        session_id: &str,
-        claude_session_id: String,
-    ) -> AppResult<()> {
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        if let Some(ChatSessionState::ClaudeStructured {
-            session_id: stored_id,
-            claude_session_id: stored_claude_session_id,
-            ..
-        }) = stored.as_mut()
-        {
-            if stored_id == session_id {
-                *stored_claude_session_id = Some(claude_session_id);
-            }
-        }
-        Ok(())
-    }
-
-    fn update_structured_codex_thread_id(
-        &self,
-        session_id: &str,
-        codex_thread_id: String,
-    ) -> AppResult<()> {
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        if let Some(ChatSessionState::CodexStructured {
-            session_id: stored_id,
-            codex_thread_id: stored_codex_thread_id,
-            ..
-        }) = stored.as_mut()
-        {
-            if stored_id == session_id {
-                *stored_codex_thread_id = Some(codex_thread_id);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn notify_task_done(&self, session_id: &str, ok: bool) {
-        if self.is_chat_session(session_id) {
-            debug!(
-                session_id,
-                ok, "ccchan chat session exit notification suppressed"
-            );
-            return;
-        }
-        let kind = if ok { "task-complete" } else { "task-failed" };
-        self.emit_ccchan_event(kind, session_id, ok);
-    }
-
-    pub fn notify_task_waiting(&self, session_id: &str) {
-        if self.is_chat_session(session_id) {
-            debug!(session_id, "ccchan chat waiting notification suppressed");
-            return;
-        }
-        self.emit_ccchan_event("task-waiting", session_id, true);
-    }
-
-    fn is_chat_session(&self, session_id: &str) -> bool {
-        self.chat_session
-            .lock()
-            .ok()
-            .and_then(|stored| {
-                stored
-                    .as_ref()
-                    .map(|session| session.session_id() == session_id)
-            })
-            .unwrap_or(false)
+            .map_err(|error| AppError::from(error.to_string()))
     }
 
     /// 用户显式开关宠物时持久化可见性，保证下次启动按最后一次开关恢复。
-    /// 仅由 show_ccchan/hide_ccchan 命令调用；ccchan_say 等临时展示不持久化。
     pub fn set_window_visible(&self, visible: bool) -> AppResult<()> {
         self.settings_service
             .update_ccchan(|settings| settings.window_visible = visible)?;
@@ -1081,162 +269,203 @@ impl CCChanService {
         Ok(())
     }
 
-    fn load_pet(&self, root: &Path, pet_id: &str) -> AppResult<PetMeta> {
-        let pet_dir = root.join(pet_id);
-        let pet_json_path = pet_dir.join("pet.json");
-        let pet_content = std::fs::read_to_string(&pet_json_path).map_err(|error| {
-            AppError::from(format!(
-                "Failed to read {}: {}",
-                pet_json_path.display(),
-                error
+    /// 前端上报的可点击区域（窗口内 CSS 像素）：角色包围盒、悬停控件条、气泡。
+    pub fn set_hit_regions(&self, regions: Vec<Rect>) {
+        let regions = regions
+            .into_iter()
+            .filter(|r| r.x.is_finite() && r.y.is_finite() && r.width > 0.0 && r.height > 0.0)
+            .take(16)
+            .collect();
+        self.lock_hit().regions = regions;
+    }
+
+    fn position_window(&self, window: &WebviewWindow) -> AppResult<()> {
+        let settings = self.settings();
+        let size = window
+            .outer_size()
+            .map_err(|e| AppError::from(e.to_string()))?;
+        let scale = window
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0);
+        let (x, y) = stored_physical_position(&settings, scale).unwrap_or((80.0, 80.0));
+        let rect = window::fit_window(
+            x,
+            y,
+            size.width as f64,
+            size.height as f64,
+            &window::work_areas(window),
+        );
+        window
+            .set_position(PhysicalPosition::new(
+                rect.x.round() as i32,
+                rect.y.round() as i32,
             ))
-        })?;
-        let definition: PetDefinition = serde_json::from_str(&pet_content)
-            .map_err(|error| AppError::from(format!("Invalid pet.json for {pet_id}: {error}")))?;
-        validate_pet_definition(&definition)?;
-        let spritesheet_path = resolve_user_spritesheet(&pet_dir, &definition.spritesheet_path)?;
-
-        Ok(PetMeta {
-            id: definition.id,
-            display_name: definition.display_name,
-            description: definition.description,
-            spritesheet_url: file_asset_url(&spritesheet_path),
-            atlas: definition.atlas,
-            animations: definition.animations,
-        })
+            .map_err(|e| AppError::from(e.to_string()))
     }
 
-    fn take_chat_session(&self) -> AppResult<Option<ChatSessionState>> {
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        Ok(stored.take())
-    }
-
-    fn clear_chat_session(&self, session_id: &str) -> AppResult<Option<ChatSessionState>> {
-        let mut stored = self
-            .chat_session
-            .lock()
-            .map_err(|_| AppError::from("ccchan chat session lock poisoned"))?;
-        if stored
-            .as_ref()
-            .map(|session| session.session_id() == session_id)
-            .unwrap_or(false)
-        {
-            return Ok(stored.take());
+    /// 设置页「重置位置」或手工改坐标：按物理像素放回并吸附进工作区。
+    pub fn reposition(&self, app: &AppHandle) -> AppResult<()> {
+        match app.get_webview_window(CCCHAN_WINDOW_LABEL) {
+            Some(window) => self.position_window(&window),
+            None => Ok(()),
         }
-        Ok(None)
     }
 
-    fn stop_existing_chat_for_replacement(
-        &self,
-        terminal_service: Arc<TerminalService>,
-        existing: ChatSessionState,
-    ) {
-        match existing {
-            ChatSessionState::Terminal { session_id } => {
-                match terminal_service.kill_with_reason(&session_id, KillReason::UserClose) {
-                    Ok(()) => {
-                        info!(
-                            session_id = %session_id,
-                            "ccchan replaced previous terminal chat session"
-                        );
-                    }
-                    Err(error) => {
-                        warn!(
-                            session_id = %session_id,
-                            error = %error,
-                            "ccchan failed to stop previous terminal chat session before replacement"
-                        );
-                    }
+    fn note_moved(&self) {
+        self.lock_hit().pending_move = Some(Instant::now());
+    }
+
+    /// 拖拽停稳后：吸附到近处屏幕边缘，并以物理像素落盘。
+    fn settle_position(&self, window: &WebviewWindow) {
+        let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+            return;
+        };
+        let current = Rect {
+            x: pos.x as f64,
+            y: pos.y as f64,
+            width: size.width as f64,
+            height: size.height as f64,
+        };
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let snapped = window::snap_window(
+            current,
+            &window::work_areas(window),
+            window::SNAP_DISTANCE * scale,
+        );
+        if (snapped.x, snapped.y) != (current.x, current.y) {
+            if let Err(error) = window.set_position(PhysicalPosition::new(
+                snapped.x.round() as i32,
+                snapped.y.round() as i32,
+            )) {
+                warn!(%error, "failed to snap ccchan window");
+            }
+        }
+        let saved = self.settings_service.update_ccchan(|settings| {
+            settings.window_x = Some(snapped.x.round());
+            settings.window_y = Some(snapped.y.round());
+            settings.window_pos_physical = true;
+        });
+        match saved {
+            Ok(()) => self.publish_settings(),
+            Err(error) => warn!(%error, "failed to persist ccchan position"),
+        }
+    }
+
+    /// 命中测试轮询：低频读全局光标，进出角色区域时切换穿透并通知前端悬停。
+    /// 读全局光标而不是依赖 DOM 事件，窗口失焦 / 已穿透时也能重新捕获悬停。
+    fn start_hit_loop(&self, app: &AppHandle) {
+        let generation = {
+            let mut hit = self.lock_hit();
+            hit.generation += 1;
+            hit.ignoring = None;
+            hit.inside = false;
+            hit.disabled = false;
+            hit.generation
+        };
+        let app = app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("ccchan-hit-test".into())
+            .spawn(move || loop {
+                std::thread::sleep(HIT_POLL_INTERVAL);
+                let Some(service) = app.try_state::<Arc<CCChanService>>() else {
+                    return;
+                };
+                if service.lock_hit().generation != generation {
+                    return;
+                }
+                let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) else {
+                    return;
+                };
+                if !window.is_visible().unwrap_or(false) {
+                    continue;
+                }
+                service.hit_tick(&window);
+            });
+        if let Err(error) = spawned {
+            warn!(%error, "failed to spawn ccchan hit-test loop; click-through disabled");
+        }
+    }
+
+    fn hit_tick(&self, window: &WebviewWindow) {
+        let settle = {
+            let mut hit = self.lock_hit();
+            let ready = hit
+                .pending_move
+                .is_some_and(|at| at.elapsed() >= MOVE_SETTLE);
+            if ready {
+                hit.pending_move = None;
+            }
+            ready
+        };
+        if settle {
+            self.settle_position(window);
+        }
+        if self.lock_hit().disabled {
+            return;
+        }
+        let probe = (|| {
+            let cursor = window.cursor_position().ok()?;
+            let origin = window.outer_position().ok()?;
+            let scale = window.scale_factor().ok()?;
+            Some((cursor, origin, scale))
+        })();
+        let Some((cursor, origin, scale)) = probe else {
+            self.disable_click_through(window, "cursor position unavailable");
+            return;
+        };
+        let (inside, toggle, hover_changed) = {
+            let mut hit = self.lock_hit();
+            let inside = window::hit_test(
+                &hit.regions,
+                (cursor.x, cursor.y),
+                (origin.x as f64, origin.y as f64),
+                scale,
+            );
+            let toggle = hit.ignoring != Some(!inside);
+            let hover_changed = hit.inside != inside;
+            hit.inside = inside;
+            (inside, toggle, hover_changed)
+        };
+        if toggle {
+            match window.set_ignore_cursor_events(!inside) {
+                Ok(()) => self.lock_hit().ignoring = Some(!inside),
+                Err(error) => {
+                    self.disable_click_through(window, &error.to_string());
+                    return;
                 }
             }
-            ChatSessionState::ClaudeStructured {
-                session_id,
-                process,
-                ..
-            } => {
-                process.stop();
-                self.emit_chat_status(
-                    &session_id,
-                    "exited",
-                    Some("Claude CLI chat 已被新会话替换。"),
-                );
-                info!(
-                    session_id = %session_id,
-                    "ccchan replaced previous structured Claude chat session"
-                );
-            }
-            ChatSessionState::CodexStructured {
-                session_id,
-                process,
-                ..
-            } => {
-                process.stop();
-                self.emit_chat_status(
-                    &session_id,
-                    "exited",
-                    Some("Codex CLI chat 已被新会话替换。"),
-                );
-                info!(
-                    session_id = %session_id,
-                    "ccchan replaced previous structured Codex chat session"
-                );
+        }
+        if hover_changed {
+            if let Err(error) = window.emit_to(CCCHAN_WINDOW_LABEL, CCCHAN_HOVER_EVENT, inside) {
+                debug!(%error, "failed to emit ccchan hover");
             }
         }
     }
 
-    fn emit_chat_output(&self, session_id: &str, text: &str) {
-        if text.trim().is_empty() || !self.is_chat_session(session_id) {
-            return;
-        }
-        let Some(app) = self.app_handle() else {
-            debug!(
-                session_id,
-                text_len = text.len(),
-                "ccchan structured chat output skipped before app handle is set"
-            );
-            return;
-        };
-        let payload = CCChanChatOutputPayload {
-            session_id,
-            role: "assistant",
-            text,
-        };
-        if let Err(error) = app.emit(CCCHAN_CHAT_OUTPUT_EVENT, payload) {
-            warn!(session_id, error = %error, "failed to emit ccchan chat output");
-        }
+    fn disable_click_through(&self, window: &WebviewWindow, reason: &str) {
+        warn!(
+            reason,
+            "ccchan click-through unavailable; window stays clickable"
+        );
+        let _ = window.set_ignore_cursor_events(false);
+        let mut hit = self.lock_hit();
+        hit.disabled = true;
+        hit.ignoring = Some(false);
     }
 
-    fn emit_chat_status(&self, session_id: &str, status: &str, message: Option<&str>) {
-        if status != "exited" && !self.is_chat_session(session_id) {
-            return;
-        }
-        let Some(app) = self.app_handle() else {
-            debug!(
-                session_id,
-                status, "ccchan structured chat status skipped before app handle is set"
-            );
-            return;
-        };
-        let payload = CCChanChatStatusPayload {
-            session_id,
-            status,
-            message,
-        };
-        if let Err(error) = app.emit(CCCHAN_CHAT_STATUS_EVENT, payload) {
-            warn!(session_id, status, error = %error, "failed to emit ccchan chat status");
-        }
+    pub fn notify_task_done(&self, session_id: &str, ok: bool) {
+        let kind = if ok { "task-complete" } else { "task-failed" };
+        self.emit_ccchan_event(kind, session_id, ok);
     }
 
-    pub fn app_handle(&self) -> Option<AppHandle> {
-        self.app_handle
-            .lock()
-            .ok()
-            .and_then(|handle| handle.clone())
+    pub fn notify_task_waiting(&self, session_id: &str) {
+        self.emit_ccchan_event("task-waiting", session_id, true);
     }
 
+    /// 会话名由宠物前端经主窗口的会话目录反查（Rust 侧没有标签标题）。
     fn emit_ccchan_event(&self, kind: &str, session_id: &str, ok: bool) {
         let Some(app) = self.app_handle() else {
             debug!(
@@ -1245,17 +474,32 @@ impl CCChanService {
             );
             return;
         };
-
+        if app.get_webview_window(CCCHAN_WINDOW_LABEL).is_none() {
+            return;
+        }
         let payload = serde_json::json!({
             "kind": kind,
             "sessionId": session_id,
-            "title": serde_json::Value::Null,
             "ok": ok,
             "ts": current_epoch_seconds(),
         });
-        if let Err(error) = app.emit(CCCHAN_EVENT, payload) {
+        if let Err(error) = app.emit_to(CCCHAN_WINDOW_LABEL, CCCHAN_EVENT, payload) {
             warn!(session_id, kind, error = %error, "failed to emit ccchan event");
         }
+    }
+}
+
+/// 持久化位置 → 物理像素。旧版本存的是逻辑像素（`window_pos_physical = false`），
+/// 按主显示器 scale 换算一次；之后统一以物理像素落盘。
+fn stored_physical_position(settings: &CCChanSettings, legacy_scale: f64) -> Option<(f64, f64)> {
+    let (x, y) = (settings.window_x?, settings.window_y?);
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    if settings.window_pos_physical {
+        Some((x, y))
+    } else {
+        Some((x * legacy_scale, y * legacy_scale))
     }
 }
 
@@ -1290,11 +534,32 @@ impl SessionNotifier for CcChanSessionNotifier {
     }
 }
 
+/// 在页面任何脚本/样式执行前给 <html> 打标记，index.html 的内联样式据此
+/// 把 html/body/#root 置透明——首帧即透明，不依赖 bundle 加载。
+const TRANSPARENT_INIT_SCRIPT: &str = r#"(function () {
+  var mark = function () {
+    var el = document.documentElement;
+    if (!el) return false;
+    el.setAttribute("data-ccchan-window", "");
+    return true;
+  };
+  if (mark()) return;
+  new MutationObserver(function (_records, observer) {
+    if (mark()) observer.disconnect();
+  }).observe(document, { childList: true });
+})();"#;
+
+fn reveal_window(window: &WebviewWindow) -> AppResult<()> {
+    window
+        .show()
+        .map_err(|error| AppError::from(error.to_string()))
+}
+
+/// 按需创建（get-or-create）。绝不在 tauri.conf.json 预创建隐藏窗口。
 fn ccchan_window(app: &AppHandle) -> AppResult<WebviewWindow> {
     if let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) {
         return Ok(window);
     }
-
     let window = WebviewWindowBuilder::new(
         app,
         CCCHAN_WINDOW_LABEL,
@@ -1302,302 +567,40 @@ fn ccchan_window(app: &AppHandle) -> AppResult<WebviewWindow> {
     )
     .title("cc酱")
     .visible(false)
-    .inner_size(120.0, 120.0)
+    .inner_size(280.0, 280.0)
     .position(-9999.0, -9999.0)
     .resizable(false)
     .decorations(false)
     .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
+    .initialization_script(TRANSPARENT_INIT_SCRIPT)
     .shadow(false)
     .always_on_top(true)
+    .visible_on_all_workspaces(true)
     .skip_taskbar(true)
     .build()
     .map_err(|error| AppError::from(format!("Failed to create ccchan window: {error}")))?;
     let app = app.clone();
+    let label_window = window.clone();
     window.on_window_event(move |event| {
-        if let Some(service) = app.try_state::<Arc<CCChanService>>() {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+        let Some(service) = app.try_state::<Arc<CCChanService>>() else {
+            return;
+        };
+        match event {
+            tauri::WindowEvent::Moved(_) => {
+                if label_window.is_visible().unwrap_or(false) {
+                    service.note_moved();
+                }
+            }
+            tauri::WindowEvent::CloseRequested { .. } => {
                 if let Err(error) = service.set_window_visible(false) {
                     warn!(%error, "failed to persist ccchan close");
                 }
             }
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                // Application shutdown also destroys windows; preserve the user's
-                // last visibility preference unless they explicitly closed this one.
-                service.stop_structured_chat();
-            }
+            _ => {}
         }
     });
     Ok(window)
-}
-
-/// 合并内置与用户皮肤：同 id 时用户版覆盖内置（re-skin），新 id 追加在后。
-fn merge_pets(built_in: Vec<PetMeta>, user: Vec<PetMeta>) -> Vec<PetMeta> {
-    let mut pets = built_in;
-    for user_pet in user {
-        if let Some(existing) = pets.iter_mut().find(|pet| pet.id == user_pet.id) {
-            *existing = user_pet;
-        } else {
-            pets.push(user_pet);
-        }
-    }
-    pets
-}
-
-/// 首次打开用户皮肤目录时生成的说明文件（`ensure_user_pets_dir_scaffold`）。
-const USER_PETS_README: &str = r#"# CC-Panes 自定义宠物（cc酱皮肤）
-
-在本目录下为每个自定义角色建一个文件夹：
-
-```
-pets/
-└── my-pet/                 # 文件夹名随意，建议与 id 一致
-    ├── pet.json            # 角色定义（必需）
-    └── spritesheet.png     # 精灵图（png / webp / gif / jpg，≤ 20MB）
-```
-
-## pet.json 格式
-
-```json
-{
-  "id": "my-pet",
-  "displayName": "我的宠物",
-  "description": "一句话介绍",
-  "spritesheetPath": "spritesheet.png",
-  "atlas": { "cellW": 192, "cellH": 208, "cols": 8, "rows": 9 },
-  "animations": {
-    "idle":    { "row": 0, "frames": 4, "fps": 8 },
-    "working": { "row": 1, "frames": 6, "fps": 10 },
-    "waiting": { "row": 2, "frames": 4, "fps": 6 },
-    "happy":   { "row": 3, "frames": 6, "fps": 10 },
-    "sad":     { "row": 4, "frames": 4, "fps": 6 },
-    "thinking":{ "row": 5, "frames": 4, "fps": 6 },
-    "walking": { "row": 6, "frames": 6, "fps": 10 }
-  }
-}
-```
-
-## 字段说明
-
-- `atlas`：精灵图按网格切帧。`cellW`/`cellH` 是单帧像素尺寸，`cols`/`rows` 是网格列数/行数。
-- `animations`：每个状态一行动画。`row` 是该动画所在的行（从 0 开始，必须 < rows），
-  `frames` 是帧数（从该行第 0 列开始取），`fps` 是播放速度（1~60）。
-  可选 `colOffset` 指定起始列。
-- 状态可用：`idle` / `working` / `waiting` / `happy` / `sad` / `thinking` / `walking` / `jumping`。
-  只有 `idle` 是必要的——缺失的状态会自动回退到 idle。
-- `spritesheetPath` 必须是本文件夹内的相对路径（不允许绝对路径和 `..`）。
-
-## 提示
-
-- `id` 与内置角色相同（`homie` / `doro.codex-pet`）时会**覆盖**内置形象（换皮）。
-- 改完后到 设置 → cc酱 → 「刷新角色列表」，在「默认角色」下拉里选择即可。
-- 参考模板可直接复制安装目录 `resources/ccchan/homie/` 里的文件。
-- pet.json 不合法时该角色会被跳过（日志里有 warn），不影响其他角色。
-"#;
-
-const USER_PET_JSON_MAX_BYTES: u64 = 64 * 1024;
-const USER_PET_SPRITESHEET_MAX_BYTES: u64 = 20 * 1024 * 1024;
-const USER_PET_IMAGE_EXTENSIONS: [&str; 5] = ["png", "webp", "gif", "jpg", "jpeg"];
-
-fn load_user_pet(pet_dir: &Path) -> AppResult<PetMeta> {
-    let pet_json_path = pet_dir.join("pet.json");
-    let json_len = std::fs::metadata(&pet_json_path)
-        .map_err(|error| AppError::from(format!("cannot stat pet.json: {error}")))?
-        .len();
-    if json_len > USER_PET_JSON_MAX_BYTES {
-        return Err(AppError::from(format!(
-            "pet.json too large ({json_len} bytes, max {USER_PET_JSON_MAX_BYTES})"
-        )));
-    }
-    let content = std::fs::read_to_string(&pet_json_path)
-        .map_err(|error| AppError::from(format!("cannot read pet.json: {error}")))?;
-    let definition: PetDefinition = serde_json::from_str(&content)
-        .map_err(|error| AppError::from(format!("invalid pet.json: {error}")))?;
-    validate_pet_definition(&definition)?;
-    let spritesheet_path = resolve_user_spritesheet(pet_dir, &definition.spritesheet_path)?;
-
-    Ok(PetMeta {
-        id: definition.id,
-        display_name: definition.display_name,
-        description: definition.description,
-        spritesheet_url: file_asset_url(&spritesheet_path),
-        atlas: definition.atlas,
-        animations: definition.animations,
-    })
-}
-
-fn validate_pet_definition(definition: &PetDefinition) -> AppResult<()> {
-    if definition.id.trim().is_empty() {
-        return Err(AppError::from("pet.json id is empty"));
-    }
-    let atlas = &definition.atlas;
-    if atlas.cell_w == 0 || atlas.cell_h == 0 || atlas.cols == 0 || atlas.rows == 0 {
-        return Err(AppError::from("pet.json atlas dimensions must be positive"));
-    }
-    for (state, animation) in &definition.animations {
-        if animation.row >= atlas.rows {
-            return Err(AppError::from(format!(
-                "animation '{state}' row {} out of atlas rows {}",
-                animation.row, atlas.rows
-            )));
-        }
-        if animation
-            .col_offset
-            .checked_add(animation.frames)
-            .is_none_or(|end| end > atlas.cols)
-        {
-            return Err(AppError::from(format!(
-                "animation '{state}' exceeds atlas columns"
-            )));
-        }
-        if animation.frames == 0 {
-            return Err(AppError::from(format!(
-                "animation '{state}' has zero frames"
-            )));
-        }
-        if !(1..=60).contains(&animation.fps) {
-            return Err(AppError::from(format!(
-                "animation '{state}' fps {} out of range 1..=60",
-                animation.fps
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// 用户 spritesheetPath 只允许指向 pet 目录内部的图片文件：拒绝绝对路径、
-/// `..`、symlink 逃逸和非图片扩展名（asset scope 是 `**`，必须在这里兜安全）。
-fn resolve_user_spritesheet(pet_dir: &Path, sprite_rel: &str) -> AppResult<PathBuf> {
-    let rel = Path::new(sprite_rel);
-    if rel.is_absolute() {
-        return Err(AppError::from("spritesheetPath must be relative"));
-    }
-    if rel
-        .components()
-        .any(|component| matches!(component, std::path::Component::ParentDir))
-    {
-        return Err(AppError::from("spritesheetPath must not contain '..'"));
-    }
-    let extension = rel
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .unwrap_or_default();
-    if !USER_PET_IMAGE_EXTENSIONS.contains(&extension.as_str()) {
-        return Err(AppError::from(format!(
-            "spritesheetPath extension '{extension}' is not an allowed image type"
-        )));
-    }
-
-    let candidate = pet_dir.join(rel);
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|error| AppError::from(format!("spritesheet not found: {error}")))?;
-    let canonical_dir = pet_dir
-        .canonicalize()
-        .map_err(|error| AppError::from(format!("cannot canonicalize pet dir: {error}")))?;
-    if !canonical.starts_with(&canonical_dir) {
-        return Err(AppError::from("spritesheetPath escapes the pet directory"));
-    }
-    let sprite_len = std::fs::metadata(&canonical)
-        .map_err(|error| AppError::from(format!("cannot stat spritesheet: {error}")))?
-        .len();
-    if sprite_len > USER_PET_SPRITESHEET_MAX_BYTES {
-        return Err(AppError::from(format!(
-            "spritesheet too large ({sprite_len} bytes, max {USER_PET_SPRITESHEET_MAX_BYTES})"
-        )));
-    }
-    // asset URL 用未 canonicalize 的路径，避免 Windows `\\?\` 前缀进 URL。
-    Ok(candidate)
-}
-
-fn position_window(window: &WebviewWindow, settings: &CCChanSettings) -> AppResult<()> {
-    let (x, y) = match (settings.window_x, settings.window_y) {
-        (Some(x), Some(y)) => clamp_position_to_visible(window, x, y, settings.pet_size),
-        _ => (80.0, 80.0),
-    };
-    window
-        .set_position(LogicalPosition::new(x, y))
-        .map_err(|error| AppError::from(error.to_string()))
-}
-
-/// Snap a window position into a currently-attached monitor.
-///
-/// - If `(x, y)` is already inside any monitor (with a 40px sliver for half-off
-///   tolerance), return as-is.
-/// - Otherwise pick the monitor closest to `(x, y)` and clamp the position to
-///   that monitor's interior (leaving the mascot's full body visible).
-/// - If no monitors are attached at all, fall back to (80, 80).
-///
-/// Used both on startup (resolve stale persisted positions after monitor
-/// hot-unplug / DPI change) AND on every drag-release (so a user who drags
-/// the mascot off-screen sees it snap back instead of vanishing).
-pub fn clamp_position_to_visible(
-    window: &WebviewWindow,
-    x: f64,
-    y: f64,
-    pet_size: f64,
-) -> (f64, f64) {
-    const SAFE_MARGIN: f64 = 8.0;
-    const HALF_OFF_TOLERANCE: f64 = 40.0;
-
-    let Ok(monitors) = window.available_monitors() else {
-        return (80.0, 80.0);
-    };
-    if monitors.is_empty() {
-        return (80.0, 80.0);
-    }
-
-    let already_visible = monitors.iter().any(|m| {
-        let (lx, ly, lw, lh) = monitor_logical_rect(m);
-        x + HALF_OFF_TOLERANCE > lx
-            && x < lx + lw - HALF_OFF_TOLERANCE
-            && y + HALF_OFF_TOLERANCE > ly
-            && y < ly + lh - HALF_OFF_TOLERANCE
-    });
-    if already_visible {
-        return (x, y);
-    }
-
-    let mut best: Option<(f64, f64, f64)> = None;
-    for m in &monitors {
-        let (lx, ly, lw, lh) = monitor_logical_rect(m);
-        let cx = x.clamp(
-            lx + SAFE_MARGIN,
-            (lx + lw - pet_size - SAFE_MARGIN).max(lx + SAFE_MARGIN),
-        );
-        let cy = y.clamp(
-            ly + SAFE_MARGIN,
-            (ly + lh - pet_size - SAFE_MARGIN).max(ly + SAFE_MARGIN),
-        );
-        let dist = (cx - x).powi(2) + (cy - y).powi(2);
-        if best.is_none_or(|b| dist < b.0) {
-            best = Some((dist, cx, cy));
-        }
-    }
-    best.map(|(_, cx, cy)| (cx, cy)).unwrap_or((80.0, 80.0))
-}
-
-fn monitor_logical_rect(monitor: &tauri::Monitor) -> (f64, f64, f64, f64) {
-    let scale = monitor.scale_factor();
-    let pos = monitor.position();
-    let size = monitor.size();
-    (
-        pos.x as f64 / scale,
-        pos.y as f64 / scale,
-        size.width as f64 / scale,
-        size.height as f64 / scale,
-    )
-}
-
-fn parse_ai_engine(ai_engine: &str) -> AppResult<CliTool> {
-    match ai_engine.trim().to_ascii_lowercase().as_str() {
-        "claude" => Ok(CliTool::Claude),
-        "codex" => Ok(CliTool::Codex),
-        other => Err(AppError::from(format!(
-            "Unsupported ccchan aiEngine '{}'; expected 'claude' or 'codex'",
-            other
-        ))),
-    }
 }
 
 fn resolve_ccchan_root(app: &AppHandle) -> AppResult<PathBuf> {
@@ -1607,7 +610,6 @@ fn resolve_ccchan_root(app: &AppHandle) -> AppResult<PathBuf> {
             return Ok(root);
         }
     }
-
     let cwd = std::env::current_dir()?;
     for candidate in [
         cwd.join("src-tauri").join("resources").join("ccchan"),
@@ -1617,18 +619,7 @@ fn resolve_ccchan_root(app: &AppHandle) -> AppResult<PathBuf> {
             return Ok(candidate);
         }
     }
-
     Err(AppError::from("ccchan resources not found"))
-}
-
-fn file_asset_url(path: &Path) -> String {
-    let path_text = path.to_string_lossy();
-    let encoded = urlencoding::encode(&path_text);
-    if cfg!(windows) {
-        format!("http://asset.localhost/{encoded}")
-    } else {
-        format!("asset://localhost/{encoded}")
-    }
 }
 
 fn current_epoch_seconds() -> u64 {
@@ -1638,519 +629,27 @@ fn current_epoch_seconds() -> u64 {
         .as_secs()
 }
 
-fn parse_claude_stream_line(line: &str) -> Option<ParsedClaudeLine> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let value: Value = serde_json::from_str(trimmed).ok()?;
-    let event_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let mut parsed = ParsedClaudeLine {
-        session_id: stream_session_id(&value).map(str::to_string),
-        ..ParsedClaudeLine::default()
-    };
-
-    match event_type {
-        "assistant" => {
-            if contains_thinking_content(&value) {
-                parsed.status = Some("thinking");
-            }
-            parsed.text = extract_assistant_text(&value);
-        }
-        "content" | "text" => {
-            parsed.text = value
-                .get("text")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
-        "content_block_delta" => {
-            parsed.text = value
-                .pointer("/delta/text")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
-        "thinking" | "thought" => {
-            parsed.status = Some("thinking");
-        }
-        "agent_status" => {
-            parsed.status = value
-                .get("status")
-                .and_then(Value::as_str)
-                .and_then(structured_status);
-        }
-        "result"
-            if value
-                .get("is_error")
-                .and_then(Value::as_bool)
-                .unwrap_or(false) =>
-        {
-            parsed.error = value
-                .get("error")
-                .or_else(|| value.get("result"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
-        _ => {}
-    }
-
-    if parsed.text.as_deref().unwrap_or_default().is_empty() {
-        parsed.text = None;
-    }
-    if parsed.status.is_none()
-        && parsed.text.is_none()
-        && parsed.session_id.is_none()
-        && parsed.error.is_none()
-    {
-        return None;
-    }
-    Some(parsed)
-}
-
-fn parse_codex_stream_line(line: &str) -> Option<ParsedCodexLine> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let value: Value = serde_json::from_str(trimmed).ok()?;
-    let event_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let mut parsed = ParsedCodexLine {
-        thread_id: stream_thread_id(&value).map(str::to_string),
-        ..ParsedCodexLine::default()
-    };
-
-    match event_type {
-        "thread.started" => {}
-        "turn.started" => {
-            parsed.status = Some("thinking");
-        }
-        "turn.completed" => {
-            parsed.status = Some("ready");
-        }
-        "turn.failed" | "error" => {
-            parsed.error = extract_codex_error(&value);
-        }
-        "item.completed" | "item.updated" | "item.failed" => {
-            if let Some(item) = value.get("item") {
-                parsed.text = extract_codex_item_text(item);
-                parsed.error = extract_codex_error(item);
-            }
-        }
-        "agent_message" | "message" => {
-            parsed.text = extract_codex_item_text(&value);
-        }
-        _ => {}
-    }
-
-    if parsed.text.as_deref().unwrap_or_default().is_empty() {
-        parsed.text = None;
-    }
-    if parsed.status.is_none()
-        && parsed.text.is_none()
-        && parsed.thread_id.is_none()
-        && parsed.error.is_none()
-    {
-        return None;
-    }
-    Some(parsed)
-}
-
-fn extract_assistant_text(value: &Value) -> Option<String> {
-    let mut parts = Vec::new();
-    if let Some(content) = value.pointer("/message/content") {
-        collect_text_content(content, &mut parts);
-    }
-    if parts.is_empty() {
-        if let Some(content) = value.get("content") {
-            collect_text_content(content, &mut parts);
-        }
-    }
-    if parts.is_empty() {
-        if let Some(text) = value.pointer("/message/delta/text").and_then(Value::as_str) {
-            parts.push(text.to_string());
-        }
-    }
-    if parts.is_empty() {
-        if let Some(text) = value.pointer("/delta/text").and_then(Value::as_str) {
-            parts.push(text.to_string());
-        }
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    Some(parts.join(""))
-}
-
-fn extract_codex_item_text(value: &Value) -> Option<String> {
-    let item_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let role = value
-        .get("role")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if !matches!(
-        item_type,
-        "agent_message" | "message" | "assistant_message" | ""
-    ) || (!role.is_empty() && role != "assistant")
-    {
-        return None;
-    }
-
-    if let Some(text) = value.get("text").and_then(Value::as_str) {
-        return Some(text.to_string());
-    }
-    if let Some(text) = value.pointer("/message/content").and_then(Value::as_str) {
-        return Some(text.to_string());
-    }
-    if let Some(content) = value.get("content") {
-        let mut parts = Vec::new();
-        collect_text_content(content, &mut parts);
-        if !parts.is_empty() {
-            return Some(parts.join(""));
-        }
-    }
-    None
-}
-
-fn extract_codex_error(value: &Value) -> Option<String> {
-    [
-        "/error/message",
-        "/error",
-        "/message",
-        "/item/error/message",
-        "/item/error",
-        "/item/message",
-    ]
-    .iter()
-    .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
-    .map(str::to_string)
-}
-
-fn collect_text_content(content: &Value, parts: &mut Vec<String>) {
-    match content {
-        Value::String(text) => parts.push(text.clone()),
-        Value::Array(items) => {
-            for item in items {
-                let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
-                if matches!(item_type, "text" | "output_text" | "") {
-                    if let Some(text) = item.get("text").and_then(Value::as_str) {
-                        parts.push(text.to_string());
-                    }
-                }
-            }
-        }
-        Value::Object(map) => {
-            if let Some(text) = map.get("text").and_then(Value::as_str) {
-                parts.push(text.to_string());
-            }
-        }
-        _ => {}
-    }
-}
-
-fn contains_thinking_content(value: &Value) -> bool {
-    value
-        .pointer("/message/content")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items.iter().any(|item| {
-                matches!(
-                    item.get("type").and_then(Value::as_str),
-                    Some("thinking") | Some("redacted_thinking")
-                )
-            })
-        })
-        .unwrap_or(false)
-}
-
-fn stream_session_id(value: &Value) -> Option<&str> {
-    value
-        .get("session_id")
-        .or_else(|| value.get("sessionId"))
-        .and_then(Value::as_str)
-}
-
-fn stream_thread_id(value: &Value) -> Option<&str> {
-    value
-        .get("thread_id")
-        .or_else(|| value.get("threadId"))
-        .and_then(Value::as_str)
-}
-
-fn structured_status(status: &str) -> Option<&'static str> {
-    match status {
-        "thinking" | "working" | "running" => Some("thinking"),
-        "ready" | "completed" | "done" => Some("ready"),
-        "error" | "failed" => Some("error"),
-        _ => None,
-    }
-}
-
-fn first_non_empty<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
-    values
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .find(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn pet_meta(id: &str, name: &str) -> PetMeta {
-        PetMeta {
-            id: id.to_string(),
-            display_name: name.to_string(),
-            description: String::new(),
-            spritesheet_url: String::new(),
-            atlas: PetAtlas {
-                cell_w: 192,
-                cell_h: 208,
-                cols: 8,
-                rows: 9,
-            },
-            animations: HashMap::new(),
-        }
-    }
-
     #[test]
-    fn window_size_for_restores_legacy_values_at_default_pet_size() {
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Collapsed, 120.0),
-            (120.0, 120.0)
-        );
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Bubble, 120.0),
-            (300.0, 220.0)
-        );
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Menu, 120.0),
-            (300.0, 280.0)
-        );
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Chat, 120.0),
-            (460.0, 680.0)
-        );
-    }
-
-    #[test]
-    fn window_size_for_scales_up_and_floors_below_default() {
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Collapsed, 240.0),
-            (240.0, 240.0)
-        );
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Bubble, 240.0),
-            (420.0, 340.0)
-        );
-        // 小尺寸不低于历史窗口下限（气泡/菜单/chat 内容不缩水）
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Bubble, 80.0),
-            (300.0, 220.0)
-        );
-        assert_eq!(
-            window_size_for(CCChanWindowMode::Chat, 80.0),
-            (460.0, 680.0)
-        );
-    }
-
-    #[test]
-    fn merge_pets_user_overrides_built_in_by_id_and_appends_new() {
-        let built_in = vec![pet_meta("homie", "Homie"), pet_meta("doro", "Doro")];
-        let user = vec![
-            pet_meta("homie", "Custom Homie"),
-            pet_meta("my-pet", "Mine"),
-        ];
-
-        let merged = merge_pets(built_in, user);
-
-        assert_eq!(merged.len(), 3);
-        assert_eq!(merged[0].id, "homie");
-        assert_eq!(merged[0].display_name, "Custom Homie");
-        assert_eq!(merged[1].id, "doro");
-        assert_eq!(merged[2].id, "my-pet");
-    }
-
-    fn write_user_pet(dir: &Path, sprite_name: &str, pet_json: &str) {
-        std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join("pet.json"), pet_json).unwrap();
-        if !sprite_name.is_empty() {
-            std::fs::write(dir.join(sprite_name), b"fake-png").unwrap();
-        }
-    }
-
-    fn valid_pet_json(sprite_path: &str) -> String {
-        format!(
-            r#"{{"id":"my-pet","displayName":"Mine","description":"d","spritesheetPath":"{sprite_path}","atlas":{{"cellW":192,"cellH":208,"cols":8,"rows":9}},"animations":{{"idle":{{"row":0,"frames":4,"fps":8}}}}}}"#
-        )
-    }
-
-    #[test]
-    fn load_user_pet_accepts_valid_pet() {
-        let temp = tempfile::tempdir().unwrap();
-        let pet_dir = temp.path().join("my-pet");
-        write_user_pet(
-            &pet_dir,
-            "spritesheet.png",
-            &valid_pet_json("spritesheet.png"),
-        );
-
-        let pet = load_user_pet(&pet_dir).expect("valid pet should load");
-        assert_eq!(pet.id, "my-pet");
-        assert!(pet.spritesheet_url.contains("spritesheet.png"));
-    }
-
-    #[test]
-    fn load_user_pet_rejects_path_escape_and_absolute_paths() {
-        let temp = tempfile::tempdir().unwrap();
-        let pet_dir = temp.path().join("evil");
-        write_user_pet(&pet_dir, "", &valid_pet_json("../escape.png"));
-        assert!(load_user_pet(&pet_dir).is_err());
-
-        let abs = if cfg!(windows) {
-            "C:/Windows/x.png"
-        } else {
-            "/etc/x.png"
+    fn legacy_logical_position_converts_once_to_physical() {
+        let mut settings = CCChanSettings {
+            window_x: Some(100.0),
+            window_y: Some(50.0),
+            ..CCChanSettings::default()
         };
-        std::fs::write(pet_dir.join("pet.json"), valid_pet_json(abs)).unwrap();
-        assert!(load_user_pet(&pet_dir).is_err());
-    }
-
-    #[test]
-    fn load_user_pet_rejects_bad_extension_and_invalid_atlas() {
-        let temp = tempfile::tempdir().unwrap();
-        let pet_dir = temp.path().join("bad-ext");
-        write_user_pet(&pet_dir, "payload.exe", &valid_pet_json("payload.exe"));
-        assert!(load_user_pet(&pet_dir).is_err());
-
-        let pet_dir2 = temp.path().join("bad-atlas");
-        let bad_atlas = valid_pet_json("spritesheet.png").replace(r#""rows":9"#, r#""rows":0"#);
-        write_user_pet(&pet_dir2, "spritesheet.png", &bad_atlas);
-        assert!(load_user_pet(&pet_dir2).is_err());
-
-        let pet_dir3 = temp.path().join("bad-anim");
-        let bad_anim = valid_pet_json("spritesheet.png").replace(r#""fps":8"#, r#""fps":600"#);
-        write_user_pet(&pet_dir3, "spritesheet.png", &bad_anim);
-        assert!(load_user_pet(&pet_dir3).is_err());
-    }
-
-    #[test]
-    fn bundled_pet_definitions_fit_their_atlases() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ccchan");
-        let manifest: PetsManifest = serde_json::from_str(
-            &std::fs::read_to_string(root.join("pets-manifest.json")).unwrap(),
-        )
-        .unwrap();
-        for id in manifest.pets {
-            let dir = root.join(id);
-            let definition: PetDefinition =
-                serde_json::from_str(&std::fs::read_to_string(dir.join("pet.json")).unwrap())
-                    .unwrap();
-            validate_pet_definition(&definition).unwrap();
-            assert!(resolve_user_spritesheet(&dir, &definition.spritesheet_path)
-                .unwrap()
-                .is_file());
-        }
-    }
-
-    #[test]
-    fn rejects_frames_and_offsets_that_leave_the_atlas_row() {
-        for (offset, frames) in [(0, 9), (7, 2), (u32::MAX, 1)] {
-            let mut definition: PetDefinition =
-                serde_json::from_str(&valid_pet_json("spritesheet.png")).unwrap();
-            definition.atlas.cols = 8;
-            let animation = definition.animations.get_mut("idle").unwrap();
-            animation.col_offset = offset;
-            animation.frames = frames;
-            assert!(validate_pet_definition(&definition).is_err());
-        }
-    }
-
-    #[test]
-    fn load_user_pet_rejects_broken_json() {
-        let temp = tempfile::tempdir().unwrap();
-        let pet_dir = temp.path().join("broken");
-        write_user_pet(&pet_dir, "spritesheet.png", "{not json");
-        assert!(load_user_pet(&pet_dir).is_err());
-    }
-
-    #[test]
-    fn parses_assistant_text_without_thinking_content() {
-        let parsed = parse_claude_stream_line(
-            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"你好，结构化正文。"}]}}"#,
-        )
-        .expect("assistant line should parse");
-
-        assert_eq!(parsed.text.as_deref(), Some("你好，结构化正文。"));
-        assert_eq!(parsed.status, Some("thinking"));
-    }
-
-    #[test]
-    fn parses_session_id_from_init_and_ignores_result_text() {
-        let init = parse_claude_stream_line(
-            r#"{"type":"system","subtype":"init","session_id":"claude-session-1"}"#,
-        )
-        .expect("init line should parse");
-        assert_eq!(init.session_id.as_deref(), Some("claude-session-1"));
-        assert_eq!(init.text, None);
-
-        let result = parse_claude_stream_line(
-            r#"{"type":"result","subtype":"success","session_id":"claude-session-1","result":"不要重复进气泡"}"#,
-        )
-        .expect("result line should parse for session id");
-        assert_eq!(result.session_id.as_deref(), Some("claude-session-1"));
-        assert_eq!(result.text, None);
-    }
-
-    #[test]
-    fn parses_error_result_as_error_not_assistant_text() {
-        let parsed = parse_claude_stream_line(
-            r#"{"type":"result","subtype":"error","is_error":true,"error":"boom","result":"boom"}"#,
-        )
-        .expect("error result should parse");
-
-        assert_eq!(parsed.error.as_deref(), Some("boom"));
-        assert_eq!(parsed.text, None);
-    }
-
-    #[test]
-    fn parses_codex_thread_id_and_agent_message() {
-        let thread = parse_codex_stream_line(
-            r#"{"type":"thread.started","thread_id":"019eb100-092d-7aa3-9fb4-600e0c3ef5ab"}"#,
-        )
-        .expect("thread line should parse");
         assert_eq!(
-            thread.thread_id.as_deref(),
-            Some("019eb100-092d-7aa3-9fb4-600e0c3ef5ab")
+            stored_physical_position(&settings, 2.0),
+            Some((200.0, 100.0))
         );
-        assert_eq!(thread.text, None);
-
-        let message = parse_codex_stream_line(
-            r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"OK"}}"#,
-        )
-        .expect("agent message should parse");
-        assert_eq!(message.text.as_deref(), Some("OK"));
-        assert_eq!(message.thread_id, None);
-    }
-
-    #[test]
-    fn parses_codex_status_and_error() {
-        let started = parse_codex_stream_line(r#"{"type":"turn.started"}"#)
-            .expect("turn started should parse");
-        assert_eq!(started.status, Some("thinking"));
-
-        let failed =
-            parse_codex_stream_line(r#"{"type":"turn.failed","error":{"message":"Codex failed"}}"#)
-                .expect("turn failed should parse");
-        assert_eq!(failed.error.as_deref(), Some("Codex failed"));
+        settings.window_pos_physical = true;
+        assert_eq!(
+            stored_physical_position(&settings, 2.0),
+            Some((100.0, 50.0))
+        );
+        settings.window_x = None;
+        assert_eq!(stored_physical_position(&settings, 2.0), None);
     }
 }

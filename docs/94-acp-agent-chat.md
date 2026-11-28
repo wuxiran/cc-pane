@@ -140,6 +140,21 @@ Orca 架构的必要之恶，不是我们的（docs/55 H6 数量竞赛不追的�
 - 回收：关标签走 `TAB_LIFECYCLE["agent-chat"].onClosed`（组件未挂载路径可
   达），generating 中关闭有 closeGuard 确认。
 
+## 5.1 输入框里的 `@Bot` / `@引擎`（委托给联系人）
+
+- `@` 补全先列 Bot 联系人（头像 + 名字 + 引擎），再列可用引擎（「默认 Bot」），最后列文件。
+  选中时插入无空格 token（`Code Reviewer` → `@Code_Reviewer`），同时在 `useBotAskStore.mentions`
+  记一条结构化提及——**发送按记录路由，不从文本反推名字**；记录丢失时只兜底识别以手建 Bot token
+  开头的草稿。命中 Bot 的 `@token` 不进 `buildPromptBlocks` 的 resource_link。
+- 草稿含提及 → 不发给当前会话，走 `ask_bot(askId, botId, text, fromChatId)`：`BotService::ask`
+  复用 IM 的 `submit_external` 通路（排队 ≤30min、单轮 ≤60min），公告 origin = `chat` +
+  `fromChatId`，`promptId` = askId（前端据此把卡片标成「已接下」）。取消 `cancel_bot_ask`：
+  本条被接下前直接放弃，接下后才发 ACP cancel——**绝不在接下前 cancel**，否则会取消 Bot 正在跑的别人的回合。
+- `@引擎` → `ensure_engine_bot(engineId, cwd)`：同引擎同 cwd 只建一个 `autoCreated` Bot
+  （旧 bot.json 缺字段 = 手建；编辑器改不了这个标记），之后与 `@Bot` 同路。
+- 委托卡片停靠在输入框上方（`BotAskCards`，状态在 `useBotAskStore`，内存态：切标签保持、刷新丢失）。
+  Bot 回合里的审批只在 Bot 对话里处理，卡片只提示并跳转。桌面端独有（Web 壳下目录为空、不出现这两组）。
+
 ## 6. MCP 注入（差异项）
 
 `session/new`/`load` 的 `mcpServers` 注入 ccpanes orchestrator MCP（http

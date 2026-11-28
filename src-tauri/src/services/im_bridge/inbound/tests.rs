@@ -19,6 +19,8 @@ fn bot(id: &str, name: &str) -> Bot {
         remote_allow_kinds: vec![],
         created_at: 0,
         updated_at: 0,
+        auto_created: false,
+        pet_id: None,
     }
 }
 

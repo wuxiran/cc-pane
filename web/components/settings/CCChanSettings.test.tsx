@@ -6,19 +6,27 @@ import { FALLBACK_PET, useCCChanStore } from "@/stores/useCCChanStore";
 import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
 import CCChanSettings from "./CCChanSettings";
 
+vi.mock("@/services/botService", () => ({
+  botService: {
+    list: vi.fn(async () => [
+      { id: "b1", name: "Reviewer", avatar: "", color: "", persona: "", engineId: "claude", autoApproveKinds: [], createdAt: 0, updatedAt: 0, chatId: "bot-b1", effectiveCwd: "/tmp" },
+    ]),
+    listenChanged: vi.fn(async () => () => {}),
+  },
+}));
+
 function createValue(overrides: Partial<CCChanSettingsValue> = {}): CCChanSettingsValue {
   return {
-    aiEngine: "claude",
     defaultPetId: FALLBACK_PET.id,
     autoStart: false,
-    soundEnabled: true,
     windowVisible: true,
     windowX: 100,
     windowY: 200,
-    wanderEnabled: false,
+    windowPosPhysical: true,
     petSize: 120,
+    activeBotId: null,
     ...overrides,
-  } as CCChanSettingsValue;
+  };
 }
 
 const loadMock = vi.fn(async () => {});
@@ -40,14 +48,15 @@ describe("CCChanSettings", () => {
     expect(loadMock).toHaveBeenCalled();
   });
 
-  it("switches the AI engine and highlights the active option", async () => {
+  it("picks the bot the desktop pet represents", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<CCChanSettings value={createValue()} onChange={onChange} />);
 
-    await user.click(screen.getByRole("button", { name: "Codex" }));
-
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ aiEngine: "codex" }));
+    const select = screen.getByRole("combobox", { name: "桌宠当前 Bot" });
+    await user.click(select);
+    await user.click(await screen.findByRole("option", { name: "Reviewer" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ activeBotId: "b1" }));
   });
 
   it("lists store pets in the role select and emits selection changes", async () => {
@@ -62,7 +71,7 @@ describe("CCChanSettings", () => {
     });
     render(<CCChanSettings value={createValue()} onChange={onChange} />);
 
-    const select = screen.getByRole("combobox");
+    const select = screen.getByRole("combobox", { name: "默认角色" });
     await user.click(select);
     expect(screen.getAllByRole("option")).toHaveLength(2);
     await user.click(screen.getByRole("option", { name: "Neko" }));
@@ -74,32 +83,26 @@ describe("CCChanSettings", () => {
     useCCChanStore.setState({ pets: [], load: loadMock });
     render(<CCChanSettings value={createValue()} onChange={vi.fn()} />);
 
-    const select = screen.getByRole("combobox");
+    const select = screen.getByRole("combobox", { name: "默认角色" });
     expect(select).toHaveTextContent(FALLBACK_PET.displayName);
     await user.click(select);
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
-  it("toggles autoStart / soundEnabled / windowVisible / wander switches", async () => {
+  it("toggles autoStart / windowVisible switches (sound and wander are gone)", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<CCChanSettings value={createValue()} onChange={onChange} />);
 
     const checkboxes = screen.getAllByRole("switch");
-    expect(checkboxes).toHaveLength(4);
+    expect(checkboxes).toHaveLength(2);
     expect(screen.getByRole("switch", { name: "开机自动显示" })).toBe(checkboxes[0]);
 
     await user.click(checkboxes[0]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));
 
     await user.click(checkboxes[1]);
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ soundEnabled: false }));
-
-    await user.click(checkboxes[2]);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ windowVisible: false }));
-
-    await user.click(checkboxes[3]);
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ wanderEnabled: true }));
   });
 
   it("changes the pet size via the slider and resets to the default", async () => {
@@ -151,14 +154,13 @@ describe("CCChanSettings", () => {
     await i18n.changeLanguage("en");
     render(<CCChanSettings value={createValue()} onChange={vi.fn()} />);
 
-    expect(screen.getByText("AI Engine")).toBeInTheDocument();
+    expect(screen.getByText("Pet represents bot")).toBeInTheDocument();
     expect(screen.getByText("Default character")).toBeInTheDocument();
     expect(screen.getByText("Show on startup")).toBeInTheDocument();
-    expect(screen.getByText("Notification sound")).toBeInTheDocument();
     expect(screen.getByText("Companion window visible")).toBeInTheDocument();
     expect(screen.getByText("Current position")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset position" })).toBeInTheDocument();
-    expect(screen.queryByText("AI 引擎")).not.toBeInTheDocument();
+    expect(screen.queryByText("默认角色")).not.toBeInTheDocument();
   });
 
   it("localizes bundled pet descriptions while keeping custom descriptions intact", async () => {

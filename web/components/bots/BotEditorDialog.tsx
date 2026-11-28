@@ -15,6 +15,7 @@ import { botService } from "@/services/botService";
 import type { AcpEngineInfo } from "@/types/agentChat";
 import type { Bot } from "@/types/bot";
 import BotAvatar from "./BotAvatar";
+import BotPetPicker from "./BotPetPicker";
 
 const COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#64748b"];
 const AUTO_APPROVE_ALL = "*";
@@ -104,6 +105,7 @@ export default function BotEditorDialog({ bot, onClose, onSaved }: BotEditorDial
               />
             ))}
           </div>
+          <BotPetPicker value={draft.petId} onChange={(petId) => setDraft({ ...draft, petId })} />
           <FormField label={t("bots.persona")} hint={t("bots.personaHint")} hintClassName="text-[length:var(--text-micro)] text-[var(--app-text-muted)]" className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
             {({ id }) => (
               <textarea

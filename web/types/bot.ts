@@ -2,6 +2,8 @@
 import type { AcpChatPhase } from "./agentChat";
 
 export const BOTS_CHANGED_EVENT = "bots-changed";
+/** 窗口内 DOM 事件：联系人列表据此打开新建 Bot 对话框（桌宠「新建 Bot」入口）。 */
+export const CREATE_BOT_DOM_EVENT = "ccpanes:create-bot";
 /** Bot 的会话 chatId = 标签 id = `bot-{id}`。 */
 export const BOT_CHAT_PREFIX = "bot-";
 
@@ -25,6 +27,10 @@ export interface Bot {
   remoteAllowKinds?: string[];
   createdAt: number;
   updatedAt: number;
+  /** Agent Chat「@引擎」自动创建的默认 Bot（同引擎同 cwd 复用一个）。 */
+  autoCreated?: boolean;
+  /** 桌宠形象（ccchan 皮肤 id）；缺省 = 桌宠设置里的默认角色。 */
+  petId?: string | null;
 }
 
 /** 远程权限四档（Rust `bot_mesh::RemotePolicy`）。`full` = 最高权限，危险。 */
@@ -64,4 +70,11 @@ export function emptyBot(engineId: string): Bot {
     createdAt: 0,
     updatedAt: 0,
   };
+}
+
+/** `ask_bot` 的返回（Rust BotAskReply 镜像）。stopReason = "cancelled" 时正文可能是部分。 */
+export interface BotAskReply {
+  text: string;
+  stopReason: string;
+  botChatId: string;
 }

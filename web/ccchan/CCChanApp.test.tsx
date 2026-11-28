@@ -1,338 +1,149 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CCCHAN_SETTINGS, FALLBACK_PET, useCCChanStore } from "@/stores/useCCChanStore";
-import { useTerminalStatusStore } from "@/stores";
-import { CCChanApp } from "./CCChanApp";
+import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
+import type { BotSummary } from "@/types/bot";
+import type { TerminalStatusInfo } from "@/types";
+import { botWithPet, CCChanApp } from "./CCChanApp";
 
-type WebviewListener = (event: { payload: unknown }) => void;
-
-const mockOuterPosition = vi.fn(() => Promise.resolve({ x: 200, y: 120 }));
-const mockScaleFactor = vi.fn(() => Promise.resolve(1));
-const mockClose = vi.fn(() => Promise.resolve());
-
+const setFocus = vi.fn(() => Promise.resolve());
 vi.mock("@tauri-apps/api/window", () => ({
-  currentMonitor: vi.fn(() => Promise.resolve(null)),
-  getCurrentWindow: vi.fn(() => ({
-    outerPosition: mockOuterPosition,
-    scaleFactor: mockScaleFactor,
-    close: mockClose,
-  })),
+  getCurrentWindow: () => ({ setFocus, startDragging: vi.fn(() => Promise.resolve()) }),
 }));
 
-function createWebviewListenerRegistry() {
-  const listeners = new Map<string, Set<WebviewListener>>();
-  vi.mocked(getCurrentWebview().listen).mockImplementation(async (eventName, handler) => {
-    const eventListeners = listeners.get(eventName) ?? new Set<WebviewListener>();
-    const listener = handler as WebviewListener;
-    eventListeners.add(listener);
-    listeners.set(eventName, eventListeners);
-    return () => {
-      eventListeners.delete(listener);
-    };
-  });
+type Listener = (event: { payload: unknown }) => void;
+const listeners = new Map<string, Set<Listener>>();
 
-  return {
-    emit(eventName: string, payload: unknown) {
-      for (const listener of listeners.get(eventName) ?? []) {
-        listener({ payload });
-      }
-    },
-    listenerCount(eventName: string) {
-      return listeners.get(eventName)?.size ?? 0;
-    },
-  };
+function emitWebview(name: string, payload: unknown) {
+  for (const listener of listeners.get(name) ?? []) listener({ payload });
 }
 
-function mockCcChanInvoke(settings = DEFAULT_CCCHAN_SETTINGS) {
-  const mockInvoke = invoke as ReturnType<typeof vi.fn>;
-  mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
-    if (cmd === "get_ccchan_settings") return Promise.resolve(settings);
+const BOT: BotSummary = {
+  id: "b1",
+  name: "小审",
+  avatar: "🦉",
+  color: "",
+  persona: "",
+  engineId: "claude",
+  autoApproveKinds: [],
+  createdAt: 0,
+  updatedAt: 0,
+  chatId: "bot-b1",
+  effectiveCwd: "/tmp",
+  petId: "homie",
+};
+
+function mockInvoke(options: { bots?: BotSummary[]; statuses?: TerminalStatusInfo[]; reply?: string } = {}) {
+  vi.mocked(invoke).mockImplementation(((cmd: string) => {
+    if (cmd === "get_ccchan_settings") return Promise.resolve(DEFAULT_CCCHAN_SETTINGS);
     if (cmd === "get_ccchan_pets") return Promise.resolve([FALLBACK_PET]);
-    if (cmd === "get_all_terminal_status") return Promise.resolve([]);
-    if (cmd === "resize_ccchan_for_chat") return Promise.resolve(undefined);
-    if (cmd === "resize_ccchan_for_menu") return Promise.resolve(undefined);
-    if (cmd === "resize_ccchan_for_bubble") return Promise.resolve(undefined);
-    if (cmd === "start_ccchan_chat") return Promise.resolve("chat-session");
-    if (cmd === "is_ccchan_chat_session_alive") return Promise.resolve(args?.sessionId !== "dead-chat");
+    if (cmd === "get_all_terminal_status") return Promise.resolve(options.statuses ?? []);
+    if (cmd === "list_bots") return Promise.resolve(options.bots ?? []);
+    if (cmd === "get_acp_chat") return Promise.resolve(null);
+    if (cmd === "ask_bot") return Promise.resolve({ text: options.reply ?? "好的", stopReason: "end_turn", botChatId: "bot-b1" });
     return Promise.resolve(undefined);
-  });
-  return mockInvoke;
+  }) as never);
 }
 
-describe("CCChanApp pet interactions", () => {
-  beforeEach(() => {
+function status(sessionId: string, value: TerminalStatusInfo["status"]): TerminalStatusInfo {
+  return { sessionId, status: value, lastOutputAt: 0, updatedAt: 1 };
+}
+
+describe("CCChanApp", () => {
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockScaleFactor.mockResolvedValue(1);
-    mockOuterPosition.mockResolvedValue({ x: 200, y: 120 });
-    createWebviewListenerRegistry();
-    useCCChanStore.setState({
-      settings: DEFAULT_CCCHAN_SETTINGS,
-      pets: [FALLBACK_PET],
-      expanded: false,
-      chatSessionId: null,
-      loading: false,
-      loaded: false,
+    listeners.clear();
+    await i18n.changeLanguage("zh-CN");
+    (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    vi.mocked(getCurrentWebview().listen).mockImplementation(async (name, handler) => {
+      const set = listeners.get(name) ?? new Set<Listener>();
+      set.add(handler as Listener);
+      listeners.set(name, set);
+      return () => set.delete(handler as Listener);
     });
-    useTerminalStatusStore.setState({
-      statusMap: new Map(),
-      _unlisten: null,
-      _idleCheckInterval: null,
-      _initialized: false,
-    });
+    useCCChanStore.setState({ settings: DEFAULT_CCCHAN_SETTINGS, pets: [FALLBACK_PET], loading: false, loaded: false });
+    useTerminalStatusStore.setState({ statusMap: new Map(), _unlisten: null, _idleCheckInterval: null, _initialized: false });
   });
 
-  it("opens chat on a fast left pointer click before window position resolves", async () => {
-    const mockInvoke = mockCcChanInvoke();
-    let resolvePosition: (position: { x: number; y: number }) => void = () => {};
-    mockOuterPosition.mockImplementationOnce(
-      () => new Promise((resolve) => {
-        resolvePosition = resolve;
-      }),
-    );
-
+  it("asks the active bot through ask_bot and shows the single reply", async () => {
+    mockInvoke({ bots: [BOT], reply: "这个 PR 可以合" });
     render(<CCChanApp />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("list_bots"));
 
-    const pet = screen.getByTitle("打开 cc酱 chat");
-    fireEvent.pointerDown(pet, {
-      button: 0,
-      pointerId: 7,
-      screenX: 24,
-      screenY: 24,
-    });
-    fireEvent.pointerUp(pet, {
-      button: 0,
-      pointerId: 7,
-      screenX: 24,
-      screenY: 24,
-    });
+    const pet = await screen.findByRole("button", { name: /小审/ });
+    fireEvent.pointerDown(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
+    fireEvent.pointerUp(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
+
+    const input = await screen.findByRole("textbox");
+    fireEvent.change(input, { target: { value: "看下 #12" } });
+    fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" });
+      expect(invoke).toHaveBeenCalledWith("ask_bot", expect.objectContaining({
+        botId: "b1",
+        text: "看下 #12",
+        fromChatId: "ccchan-pet",
+      }));
     });
-    resolvePosition({ x: 200, y: 120 });
+    expect(await screen.findByText("这个 PR 可以合")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /在主窗口查看完整/ }));
+    expect(emitTo).toHaveBeenCalledWith("main", "ccchan:open-bot-chat", { botId: "b1" });
   });
 
-  it("switches cc-chan labels when the app language changes", async () => {
-    mockCcChanInvoke();
-    await act(async () => {
-      await i18n.changeLanguage("zh-CN");
-    });
+  it("jumps to the most urgent session instead of asking", async () => {
+    mockInvoke({ bots: [BOT], statuses: [status("s-wait", "waitingInput"), status("s-run", "thinking")] });
     render(<CCChanApp />);
+    await waitFor(() => expect(useTerminalStatusStore.getState().statusMap.size).toBe(2));
 
-    expect(screen.getByTitle("打开 cc酱 chat")).toBeInTheDocument();
+    const pet = await screen.findByRole("button", { name: /等你输入/ });
+    fireEvent.pointerDown(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
+    fireEvent.pointerUp(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
 
-    await act(async () => {
-      await i18n.changeLanguage("en");
-    });
-
-    expect(screen.getByTitle("Open cc-chan chat")).toBeInTheDocument();
-    expect(screen.queryByTitle("打开 cc酱 chat")).not.toBeInTheDocument();
-
-    await act(async () => {
-      await i18n.changeLanguage("zh-CN");
-    });
+    expect(emitTo).toHaveBeenCalledWith("main", "ccchan:focus-session", { sessionId: "s-wait" });
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("opens the menu from right pointer down and can open chat from the menu", async () => {
-    const mockInvoke = mockCcChanInvoke();
-
+  it("guides to creating a bot when there is none", async () => {
+    mockInvoke({ bots: [] });
     render(<CCChanApp />);
-
-    const pet = screen.getByTitle("打开 cc酱 chat");
-    fireEvent.pointerDown(pet, {
-      button: 2,
-      pointerId: 8,
-      screenX: 24,
-      screenY: 24,
-    });
-
-    const openChatItem = await screen.findByRole("button", { name: "打开对话" });
-    fireEvent.click(openChatItem);
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" });
-    });
+    const pet = await screen.findByRole("button", { name: /cc酱/ });
+    fireEvent.pointerDown(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
+    fireEvent.pointerUp(pet, { button: 0, pointerId: 1, screenX: 5, screenY: 5 });
+    expect(emitTo).toHaveBeenCalledWith("main", "ccchan:open-bots", { create: true });
+    expect(await screen.findByText("还没有 Bot，先去建一个吧")).toBeInTheDocument();
   });
 
-  it("keeps the active chat transcript when the panel is closed and opened again", async () => {
-    const listeners = createWebviewListenerRegistry();
-    const mockInvoke = mockCcChanInvoke();
-
+  it("names sessions in event bubbles from the main window directory", async () => {
+    mockInvoke();
     render(<CCChanApp />);
-
-    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("start_ccchan_chat", {
-        aiEngine: DEFAULT_CCCHAN_SETTINGS.aiEngine,
-      });
-    });
-    await waitFor(() => {
-      expect(listeners.listenerCount("ccchan-chat-output")).toBeGreaterThan(0);
-    });
-
+    await waitFor(() => expect(listeners.get("ccchan-event")?.size).toBeGreaterThan(0));
     act(() => {
-      listeners.emit("ccchan-chat-output", {
-        sessionId: "chat-session",
-        role: "assistant",
-        text: "这条回复关闭后还应该在。",
-      });
+      emitWebview("ccchan:session-directory", { sessions: [{ sessionId: "abc-123456", title: "修复登录", viewed: false }] });
     });
-
-    expect(await screen.findByText("这条回复关闭后还应该在。")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTitle("关闭 chat"));
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "collapsed" });
-    });
-
-    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
-
-    expect(await screen.findByText("这条回复关闭后还应该在。")).toBeInTheDocument();
-    expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === "start_ccchan_chat")).toHaveLength(1);
-  });
-
-  it("receives replies and retains the draft while chat is collapsed", async () => {
-    const listeners = createWebviewListenerRegistry();
-    mockCcChanInvoke();
-    render(<CCChanApp />);
-    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
-    await waitFor(() => expect(listeners.listenerCount("ccchan-chat-output")).toBe(1));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "未发送的草稿" } });
-    fireEvent.click(screen.getByTitle("关闭 chat"));
-    act(() => listeners.emit("ccchan-chat-output", { sessionId: "chat-session", role: "assistant", text: "收起时收到的回复" }));
-    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
-    expect(screen.getByText("收起时收到的回复")).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toHaveValue("未发送的草稿");
-  });
-
-  it("does not resurrect the menu after a delayed resize finishes", async () => {
-    const mockInvoke = mockCcChanInvoke();
-    const original = mockInvoke.getMockImplementation() as (cmd: string, args?: Record<string, unknown>) => unknown;
-    let finish!: () => void;
-    mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
-      if (cmd === "set_ccchan_window_mode" && args?.mode === "menu") return new Promise<void>((resolve) => { finish = resolve; });
-      return original(cmd, args);
-    });
-    render(<CCChanApp />);
-    fireEvent.contextMenu(screen.getByTitle("打开 cc酱 chat"));
-    await waitFor(() => expect(finish).toBeDefined());
-    fireEvent.click(screen.getByRole("button", { name: "打开对话" }));
-    await act(async () => finish());
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" }));
-    expect(screen.queryByRole("button", { name: "隐藏" })).not.toBeInTheDocument();
-  });
-
-  it("applies settings pushed via ccchan:settings-updated without reloading", async () => {
-    const listeners = createWebviewListenerRegistry();
-    mockCcChanInvoke();
-
-    render(<CCChanApp />);
-
-    await waitFor(() => {
-      expect(listeners.listenerCount("ccchan:settings-updated")).toBeGreaterThan(0);
-    });
-
     act(() => {
-      listeners.emit("ccchan:settings-updated", {
-        ...DEFAULT_CCCHAN_SETTINGS,
-        wanderEnabled: true,
-        petSize: 200,
-      });
+      emitWebview("ccchan-event", { kind: "task-complete", sessionId: "abc-123456", ok: true, ts: 0 });
     });
-
-    const settings = useCCChanStore.getState().settings;
-    expect(settings.wanderEnabled).toBe(true);
-    expect(settings.petSize).toBe(200);
-  });
-});
-
-describe("CCChanApp wandering", () => {
-  const wanderMonitor = {
-    position: { x: 0, y: 0 },
-    size: { width: 1920, height: 1080 },
-    scaleFactor: 1,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockScaleFactor.mockResolvedValue(1);
-    mockOuterPosition.mockResolvedValue({ x: 200, y: 120 });
-    createWebviewListenerRegistry();
-    useCCChanStore.setState({
-      settings: DEFAULT_CCCHAN_SETTINGS,
-      pets: [FALLBACK_PET],
-      expanded: false,
-      chatSessionId: null,
-      loading: false,
-      loaded: false,
-    });
-    useTerminalStatusStore.setState({
-      statusMap: new Map(),
-      _unlisten: null,
-      _idleCheckInterval: null,
-      _initialized: false,
-    });
-    vi.useFakeTimers();
-    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    expect(await screen.findByText("修复登录 完成")).toBeInTheDocument();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  function moveCalls(mockInvoke: ReturnType<typeof vi.fn>) {
-    return mockInvoke.mock.calls.filter(([cmd]) => cmd === "move_ccchan_window");
-  }
-
-  it("does not wander when wanderEnabled is off (default)", async () => {
-    const mockInvoke = mockCcChanInvoke();
-    const { currentMonitor } = await import("@tauri-apps/api/window");
-    vi.mocked(currentMonitor).mockResolvedValue(wanderMonitor as never);
-
+  it("reports hit regions and applies pushed settings without resizing modes", async () => {
+    mockInvoke();
     render(<CCChanApp />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-
-    expect(moveCalls(mockInvoke)).toHaveLength(0);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("set_ccchan_hit_regions", expect.anything()));
+    await waitFor(() => expect(listeners.get("ccchan:settings-updated")?.size).toBeGreaterThan(0));
+    act(() => emitWebview("ccchan:settings-updated", { ...DEFAULT_CCCHAN_SETTINGS, petSize: 200 }));
+    expect(useCCChanStore.getState().settings.petSize).toBe(200);
+    expect(invoke).not.toHaveBeenCalledWith("set_ccchan_window_mode", expect.anything());
   });
 
-  it("wanders when wanderEnabled is on and stops after toggling off", async () => {
-    const mockInvoke = mockCcChanInvoke({ ...DEFAULT_CCCHAN_SETTINGS, wanderEnabled: true });
-    const { currentMonitor } = await import("@tauri-apps/api/window");
-    vi.mocked(currentMonitor).mockResolvedValue(wanderMonitor as never);
-    useCCChanStore.setState({
-      settings: { ...DEFAULT_CCCHAN_SETTINGS, wanderEnabled: true },
-    });
-
-    render(<CCChanApp />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    expect(moveCalls(mockInvoke).length).toBeGreaterThan(0);
-
-    // 走动途中关闭开关：在途 step 应立即停止，不再发移动
-    act(() => {
-      useCCChanStore.getState().applySettings({
-        ...DEFAULT_CCCHAN_SETTINGS,
-        wanderEnabled: false,
-      });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(200);
-    });
-    const countAfterDisable = moveCalls(mockInvoke).length;
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    expect(moveCalls(mockInvoke)).toHaveLength(countAfterDisable);
+  it("keeps the bot record intact when only the pet changes", () => {
+    const bot = botWithPet(BOT, "doro.codex-pet");
+    expect(bot).toMatchObject({ id: "b1", name: "小审", petId: "doro.codex-pet" });
+    expect(bot).not.toHaveProperty("chatId");
+    expect(bot).not.toHaveProperty("effectiveCwd");
   });
 });

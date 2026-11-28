@@ -19,15 +19,22 @@ import { nativeConfirm } from "@/services/nativeDialog";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import { emptyBot, type Bot, type BotSummary } from "@/types/bot";
+import { CREATE_BOT_DOM_EVENT, emptyBot, type Bot, type BotSummary } from "@/types/bot";
 import { mergeOutbox, type ContactGroup, type OutboxEntry, type SharedBot } from "@/types/botMesh";
 import BotAvatar from "./BotAvatar";
 import BotEditorDialog from "./BotEditorDialog";
-import { openBotChat } from "./openBotChat";
+import { consumeBotCreateRequest, openBotChat } from "./openBotChat";
 import MeshPeersDialog from "./MeshPeersDialog";
 import RemoteBotDialog, { type RemoteBotTarget } from "./RemoteBotDialog";
 import RemoteDeviceGroup from "./RemoteDeviceGroup";
 import RemotePolicyDialog from "./RemotePolicyDialog";
+
+/** 自动 Bot 没有人设：副标题给「引擎 · 目录名」，区分同引擎不同 cwd 的几个。 */
+function autoBotDetail(bot: BotSummary): string {
+  if (!bot.autoCreated || !bot.cwd) return bot.engineId;
+  const folder = bot.cwd.split(/[\\/]/).filter(Boolean).pop();
+  return folder ? `${bot.engineId} · ${folder}` : bot.engineId;
+}
 
 export default function BotContactsView() {
   const { t } = useTranslation("sidebar");
@@ -90,6 +97,16 @@ export default function BotContactsView() {
       unlisten?.();
     };
   }, [reload]);
+
+  // 桌宠「新建 Bot」：主窗口切到联系人后派发此事件。
+  useEffect(() => {
+    const create = () => {
+      if (consumeBotCreateRequest()) setEditing(emptyBot(""));
+    };
+    create();
+    window.addEventListener(CREATE_BOT_DOM_EVENT, create);
+    return () => window.removeEventListener(CREATE_BOT_DOM_EVENT, create);
+  }, []);
 
   const newThread = async (bot: BotSummary) => {
     try {
@@ -196,13 +213,22 @@ export default function BotContactsView() {
                     )}
                   </span>
                   <span className="flex min-w-0 flex-col">
-                    <span className="flex items-center gap-1 truncate text-xs text-[var(--app-text-primary)]">
-                      {bot.name}
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="truncate text-xs text-[var(--app-text-primary)]">{bot.name}</span>
+                      {bot.autoCreated ? (
+                        <span
+                          className="shrink-0 rounded border border-[var(--app-border)] px-1 text-[length:var(--text-micro)] leading-4 text-[var(--app-text-tertiary)]"
+                          aria-label={t("bots.autoHint")}
+                          data-testid="bot-auto-tag"
+                        >
+                          {t("bots.autoTag")}
+                        </span>
+                      ) : null}
                       {bot.remoteShared !== false && bot.remotePolicy === "full" && (
                         <span
                           data-testid="bot-full-badge"
                           title={t("bots.mesh.fullBadge")}
-                          className="rounded px-1 text-[length:var(--text-micro)] text-white"
+                          className="shrink-0 rounded px-1 text-[length:var(--text-micro)] text-white"
                           style={{ background: "var(--app-status-danger)" }}
                         >
                           {t("bots.mesh.fullShort")}
@@ -210,7 +236,7 @@ export default function BotContactsView() {
                       )}
                     </span>
                     <span className="truncate text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
-                      {busy ? t("bots.busy") : bot.persona.split("\n")[0] || bot.engineId}
+                      {busy ? t("bots.busy") : bot.persona.split("\n")[0] || autoBotDetail(bot)}
                     </span>
                   </span>
                 </button>

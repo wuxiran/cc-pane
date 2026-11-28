@@ -936,6 +936,9 @@
     "avatar": "头像",
     "color": "颜色",
     "persona": "人设",
+    "pet": "桌面形象",
+    "petDefault": "默认",
+    "petHint": "桌宠代表这个 Bot 时显示的角色；默认 = 桌宠设置里的默认角色。",
     "personaHint": "它是谁、怎么做事、有什么规矩。不绑项目时会写进 Bot 家目录的 CLAUDE.md / AGENTS.md。",
     "personaPlaceholder": "例如：你是我的周报助手，回答简洁，用中文。",
     "engine": "引擎",
@@ -953,6 +956,8 @@
     "delete": "删除",
     "deleteConfirm": "删除 Bot「{{name}}」？对话记录仍保留在 agent 侧，但 Bot 本身无法恢复。",
     "busy": "正在回复…",
+    "autoTag": "自动",
+    "autoHint": "在对话里 @引擎 时自动创建的默认 Bot",
     "tab": "联系人",
     "mesh": {
       "peersTitle": "其他电脑",

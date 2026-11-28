@@ -1,15 +1,22 @@
-import type { TerminalOutput } from "@/types";
-
 export interface CCChanSettings {
-  aiEngine: "claude" | "codex";
+  /** 没有 Bot（或 Bot 没选形象）时用的角色。 */
   defaultPetId: string;
   autoStart: boolean;
-  soundEnabled: boolean;
   windowVisible: boolean;
+  /** 物理像素桌面坐标（windowPosPhysical=false 时是旧版本的逻辑像素）。 */
   windowX: number | null;
   windowY: number | null;
-  wanderEnabled: boolean;
+  windowPosPhysical: boolean;
   petSize: number;
+  /** 桌宠当前代表的 Bot；缺省 / 已删除 = 第一个 Bot，没有 Bot 时用 cc酱。 */
+  activeBotId?: string | null;
+}
+
+export interface PetAnimationSpec {
+  row: number;
+  frames: number;
+  fps: number;
+  colOffset?: number;
 }
 
 export interface PetMeta {
@@ -18,37 +25,28 @@ export interface PetMeta {
   description: string;
   spritesheetUrl: string;
   atlas: { cellW: number; cellH: number; cols: number; rows: number };
-  animations: Record<string, { row: number; frames: number; fps: number; colOffset?: number }>;
+  animations: Record<string, PetAnimationSpec>;
+  /** 像素风精灵：缩放用最近邻（pixelated）；缺省为插画风平滑缩放。 */
+  pixelArt?: boolean;
+  /** builtin / user / codex（只读的 ~/.codex/pets）。 */
+  source?: string;
 }
 
 export interface CCChanEvent {
   kind: "task-complete" | "task-failed" | "task-waiting";
   sessionId: string;
-  title: string | null;
   ok: boolean;
   ts: number;
 }
 
-export interface CCChanChatOutputPayload {
+/** 主窗口推给宠物窗口的会话目录：会话名 + 用户是否正在看它。 */
+export interface SessionDirectoryEntry {
   sessionId: string;
-  role: "assistant";
-  text: string;
+  title: string;
+  /** 主窗口聚焦且该会话所在标签可见。 */
+  viewed: boolean;
 }
 
-export interface CCChanChatStatusPayload {
-  sessionId: string;
-  status: "starting" | "thinking" | "ready" | "exited" | "error";
-  message?: string | null;
+export interface SessionDirectoryPayload {
+  sessions: SessionDirectoryEntry[];
 }
-
-export type CCChanPetState =
-  | "idle"
-  | "working"
-  | "waiting"
-  | "happy"
-  | "sad"
-  | "thinking"
-  | "walking"
-  | "jumping";
-
-export type TerminalOutputPayload = TerminalOutput;

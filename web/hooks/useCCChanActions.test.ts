@@ -32,3 +32,36 @@ it("updates the toolbar when the pet window hides itself", async () => {
   await act(async () => handlers.get("ccchan:settings-updated")!({ payload: DEFAULT_CCCHAN_SETTINGS }));
   expect(useCCChanStore.getState().settings.windowVisible).toBe(false);
 });
+it("builds the pet session directory from tab titles and view state", async () => {
+  const { buildSessionDirectory } = await import("./useCCChanActions");
+  const { usePanesStore } = await import("@/stores");
+  const { useTabViewStateStore } = await import("@/stores/useTabViewStateStore");
+  const { useTerminalStatusStore } = await import("@/stores/useTerminalStatusStore");
+  useTerminalStatusStore.setState({
+    statusMap: new Map([
+      ["s1", { sessionId: "s1", status: "idle", lastOutputAt: 0, updatedAt: 0 }],
+      ["orphan", { sessionId: "orphan", status: "idle", lastOutputAt: 0, updatedAt: 0 }],
+    ]),
+  });
+  const find = vi.spyOn(usePanesStore.getState(), "findTabBySessionAcrossLayouts");
+  find.mockImplementation((sessionId: string) => (sessionId === "s1"
+    ? { tab: { id: "tab-1", title: "修复登录" } } as never
+    : null));
+  useTabViewStateStore.getState().reportView("tab-1", "primary", "active");
+  expect(buildSessionDirectory(true)).toEqual([{ sessionId: "s1", title: "修复登录", viewed: true }]);
+  expect(buildSessionDirectory(false)[0].viewed).toBe(false);
+  find.mockRestore();
+});
+it("opens the bot conversation in the main window", async () => {
+  const { botService } = await import("@/services/botService");
+  const openBot = await import("@/components/bots/openBotChat");
+  const list = vi.spyOn(botService, "list").mockResolvedValue([
+    { id: "b1", name: "B", chatId: "bot-b1", effectiveCwd: "/tmp" } as never,
+  ]);
+  const open = vi.spyOn(openBot, "openBotChat").mockImplementation(() => {});
+  renderHook(useCCChanActions);
+  await act(async () => handlers.get("ccchan:open-bot-chat")!({ payload: { botId: "b1" } }));
+  await vi.waitFor(() => expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: "b1" })));
+  list.mockRestore();
+  open.mockRestore();
+});

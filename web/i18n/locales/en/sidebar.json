@@ -936,6 +936,9 @@
     "avatar": "Avatar",
     "color": "Color",
     "persona": "Persona",
+    "pet": "Desktop look",
+    "petDefault": "Default",
+    "petHint": "The character the desktop pet shows while it represents this bot; Default = the pet settings' default character.",
     "personaHint": "Who it is, how it works, what rules it follows. Without a project it is written to CLAUDE.md / AGENTS.md in the bot's home folder.",
     "personaPlaceholder": "e.g. You are my weekly-report assistant. Keep answers short.",
     "engine": "Engine",
@@ -953,6 +956,8 @@
     "delete": "Delete",
     "deleteConfirm": "Delete bot \"{{name}}\"? The conversation stays on the agent side, but the bot itself cannot be restored.",
     "busy": "Replying…",
+    "autoTag": "Auto",
+    "autoHint": "Default bot created when you @-mention an engine in a chat",
     "tab": "Contacts",
     "mesh": {
       "peersTitle": "Other computers",

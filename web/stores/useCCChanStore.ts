@@ -13,19 +13,20 @@ const fallbackSprite = `data:image/svg+xml;utf8,${encodeURIComponent(`
 `)}`;
 
 export const DEFAULT_CCCHAN_SETTINGS: CCChanSettings = {
-  aiEngine: "claude",
   defaultPetId: "homie",
   // 宠物模块默认不打开：全新用户默认不自动显示、浮窗默认隐藏，
   // 需要时可从状态栏 cc酱 开关手动召出。
   autoStart: false,
-  soundEnabled: true,
   windowVisible: false,
   windowX: null,
   windowY: null,
-  // 随机漫游默认关闭：宠物待在原地，仍可拖拽。
-  wanderEnabled: false,
+  windowPosPhysical: false,
   petSize: 120,
+  activeBotId: null,
 };
+
+/** 旧版本设置里已删除的字段：读到就丢掉，不再写回。 */
+const LEGACY_KEYS = ["aiEngine", "soundEnabled", "wanderEnabled"] as const;
 
 export const CCCHAN_PET_SIZE_MIN = 80;
 export const CCCHAN_PET_SIZE_MAX = 240;
@@ -45,18 +46,13 @@ export const FALLBACK_PET: PetMeta = {
   atlas: { cellW: 64, cellH: 64, cols: 1, rows: 1 },
   animations: {
     idle: { row: 0, frames: 1, fps: 1 },
-    working: { row: 0, frames: 1, fps: 1 },
-    waiting: { row: 0, frames: 1, fps: 1 },
-    happy: { row: 0, frames: 1, fps: 1 },
-    sad: { row: 0, frames: 1, fps: 1 },
   },
+  source: "builtin",
 };
 
 interface CCChanStoreState {
   settings: CCChanSettings;
   pets: PetMeta[];
-  expanded: boolean;
-  chatSessionId: string | null;
   loading: boolean;
   loaded: boolean;
   load: () => Promise<void>;
@@ -64,20 +60,20 @@ interface CCChanStoreState {
   /** 只更新内存（供跨窗口 settings 同步事件用），不回写后端。 */
   applySettings: (settings: Partial<CCChanSettings>) => void;
   applyPets: (pets: PetMeta[]) => void;
-  setExpanded: (expanded: boolean) => void;
-  setChatSessionId: (sessionId: string | null) => void;
   setWindowVisible: (visible: boolean) => void;
-  setPosition: (x: number, y: number) => void;
-  setDefaultPetId: (petId: string) => void;
-  switchPet: () => Promise<void>;
+  /** 桌宠代表哪个 Bot（null = 回退到第一个 / cc酱）。 */
+  setActiveBotId: (botId: string | null) => Promise<void>;
 }
 
 export function normalizeCCChanSettings(
   settings: Partial<CCChanSettings> | null | undefined,
 ): CCChanSettings {
-  const merged = { ...DEFAULT_CCCHAN_SETTINGS, ...settings };
+  const merged: CCChanSettings & Record<string, unknown> = { ...DEFAULT_CCCHAN_SETTINGS, ...settings };
+  for (const key of LEGACY_KEYS) delete merged[key];
   merged.petSize = clampPetSize(merged.petSize);
-  merged.wanderEnabled = merged.wanderEnabled === true;
+  merged.windowPosPhysical = merged.windowPosPhysical === true;
+  const botId = typeof merged.activeBotId === "string" ? merged.activeBotId.trim() : "";
+  merged.activeBotId = botId || null;
   return merged;
 }
 
@@ -92,8 +88,6 @@ let settingsRevision = 0;
 export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
   settings: DEFAULT_CCCHAN_SETTINGS,
   pets: [FALLBACK_PET],
-  expanded: false,
-  chatSessionId: null,
   loading: false,
   loaded: false,
 
@@ -141,30 +135,13 @@ export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
   },
 
   applyPets: (pets) => set({ pets: normalizePets(pets) }),
-  setExpanded: (expanded) => set({ expanded }),
-  setChatSessionId: (sessionId) => set({ chatSessionId: sessionId }),
   setWindowVisible: (visible) => {
     settingsRevision++;
     set((state) => ({
       settings: { ...state.settings, windowVisible: visible },
     }));
   },
-  setPosition: (x, y) => {
-    settingsRevision++;
-    set((state) => ({
-      settings: { ...state.settings, windowX: x, windowY: y },
-    }));
-  },
-  setDefaultPetId: (petId) => {
-    set((state) => ({
-      settings: { ...state.settings, defaultPetId: petId },
-    }));
-  },
-  switchPet: async () => {
-    const { pets, settings } = get();
-    if (pets.length === 0) return;
-    const currentIndex = Math.max(0, pets.findIndex((pet) => pet.id === settings.defaultPetId));
-    const nextPet = pets[(currentIndex + 1) % pets.length];
-    await get().saveSettings({ ...settings, defaultPetId: nextPet.id });
+  setActiveBotId: async (botId) => {
+    await get().saveSettings({ ...get().settings, activeBotId: botId });
   },
 }));

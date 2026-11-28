@@ -22,7 +22,11 @@ import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
 import ChatAddMenu from "./ChatAddMenu";
 import ComposerSuggestionMenu from "./ComposerSuggestionMenu";
-import { useComposerSuggestions } from "./useComposerSuggestions";
+import { useComposerSuggestions, type ComposerSuggestion } from "./useComposerSuggestions";
+import { selectMentions, useBotAskStore } from "@/stores/useBotAskStore";
+import { buildBotAskText, mentionTokens, resolveBotRoute } from "./botMentions";
+import { askBot } from "./botAskActions";
+import BotAskCards from "./BotAskCards";
 import type { OpenChatAttachment } from "./useChatFileActions";
 
 export interface ChatComposerProps {
@@ -139,7 +143,15 @@ export default function ChatComposer({
   );
 
   // `/` 命令 · `@` 引用文件 · `$` 使用技能：统一补全（发送仍是普通文本，@ 在 buildPromptBlocks 转 resource_link）。
-  const suggestions = useComposerSuggestions({ draft, cwd, availableCommands });
+  const suggestions = useComposerSuggestions({ chatId, draft, cwd, availableCommands });
+  // `@Bot` / `@引擎`：选中补全时记下结构化提及；草稿含提及时整条交给 Bot，不发给当前会话。
+  const mentions = useBotAskStore(selectMentions(chatId));
+  const knownBots = useBotAskStore((state) => state.bots);
+  const botRoute = useMemo(() => resolveBotRoute(draft.trim(), mentions, knownBots), [draft, mentions, knownBots]);
+  const pickSuggestion = useCallback((item: ComposerSuggestion) => {
+    setDraft(item.nextDraft);
+    if (item.mention) useBotAskStore.getState().addMention(chatId, item.mention);
+  }, [chatId, setDraft]);
 
   /** 手动把文本插到光标处（接管粘贴后，默认插入行为已被 preventDefault）。 */
   const insertTextAtCursor = useCallback(
@@ -198,11 +210,29 @@ export default function ChatComposer({
     [pushFileAttachment, attachClipboardFiles, insertTextAtCursor],
   );
 
+  /** 交给 Bot：插委托卡片，草稿清空；不占用当前会话（生成中也能发）。 */
+  const sendToBot = useCallback(() => {
+    if (!botRoute?.message) return;
+    const excluded = mentionTokens(mentions, knownBots);
+    const { text, skippedImages } = buildBotAskText(botRoute.message, attachments, cwd, excluded);
+    askBot({ fromChatId: chatId, cwd, mention: botRoute.mention, text });
+    if (skippedImages > 0) useAgentChatStore.getState().pushNotice(chatId, t("botAskImagesSkipped", { count: skippedImages }));
+    useAgentChatDraftStore.getState().rememberSent(chatId, draftToken, draft.trim());
+    setDraft("");
+    clearAttachments();
+    useBotAskStore.getState().clearMentions(chatId);
+    historyIndexRef.current = null;
+  }, [botRoute, mentions, knownBots, attachments, cwd, chatId, draftToken, draft, setDraft, clearAttachments, t]);
+
   const send = useCallback(() => {
+    if (botRoute) {
+      sendToBot();
+      return;
+    }
     const text = draft.trim();
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
-    const blocks = buildPromptBlocks(text, attachments, cwd);
+    const blocks = buildPromptBlocks(text, attachments, cwd, mentionTokens(mentions, knownBots));
     const token = useAgentChatStore.getState().beginPrompt(chatId, { text, attachments, promptBlocks: blocks });
     if (token === null) return;
 
@@ -211,8 +241,9 @@ export default function ChatComposer({
     onBeforeSend?.();
     historyIndexRef.current = null;
     if (text) useAgentChatDraftStore.getState().rememberSent(chatId, draftToken, text);
+    useBotAskStore.getState().clearMentions(chatId);
     void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "submit acp prompt"));
-  }, [draft, attachments, phase, chatId, cwd, draftToken, setDraft, clearAttachments, onBeforeSend]);
+  }, [botRoute, sendToBot, draft, attachments, phase, chatId, cwd, draftToken, setDraft, clearAttachments, onBeforeSend, mentions, knownBots]);
 
   const recallHistory = useCallback(
     (direction: -1 | 1) => {
@@ -258,7 +289,9 @@ export default function ChatComposer({
 
   const platform = detectAppPlatform();
   const canCapture = platform === "macos" || platform === "windows";
-  const canSend = phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
+  const canSend = botRoute
+    ? Boolean(botRoute.message)
+    : phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
   const captureScreenshot = () => void screenshotService.trigger().catch((error) => {
     handleErrorSilent(error, "capture chat screenshot");
     if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, error instanceof Error ? error.message : String(error));
@@ -267,16 +300,21 @@ export default function ChatComposer({
   return (
     <div ref={hostRef} className={look.host} data-composer-look={compact ? "compact" : "pane"}>
       <div className={look.column}>
+        <BotAskCards chatId={chatId} cwd={cwd} />
         {header}
         <ComposerSuggestionMenu
           items={suggestions.items}
           activeIndex={suggestions.index}
           onHover={suggestions.setIndex}
-          onPick={(item) => setDraft(item.nextDraft)}
+          onPick={pickSuggestion}
         />
         {suggestions.mentionPending !== null ? (
           <div className="px-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
             {t("agentChatMentionHint", { query: suggestions.mentionPending || "…" })}
+          </div>
+        ) : botRoute && suggestions.items.length === 0 ? (
+          <div className="px-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]" data-testid="composer-bot-route">
+            {t(botRoute.message ? "agentChatBotRouteHint" : "agentChatBotRouteEmpty", { name: botRoute.mention.name })}
           </div>
         ) : null}
         <div
@@ -310,8 +348,7 @@ export default function ChatComposer({
                 }
                 if (event.key === "Tab" || event.key === "Enter") {
                   event.preventDefault();
-                  const item = suggestions.items[suggestions.index] ?? suggestions.items[0];
-                  setDraft(item.nextDraft);
+                  pickSuggestion(suggestions.items[suggestions.index] ?? suggestions.items[0]);
                   return;
                 }
                 if (event.key === "Escape") {
@@ -376,7 +413,7 @@ export default function ChatComposer({
                 sizeClass={look.button}
                 onText={(text) => useAgentChatDraftStore.getState().appendText(chatId, draftToken, text)}
               />
-              {generating ? (
+              {generating && !botRoute ? (
                 <IconTooltipButton
                   label={t("agentChatStop")}
                   className={`${look.button} bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85`}

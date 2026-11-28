@@ -156,5 +156,12 @@
   "CURSOR_BRIDGE_TASK_REQUIRED": "do requires a task",
   "CURSOR_BRIDGE_IO": "Cursor Bridge registry I/O failed",
   "MAGPIE_GATEWAY_UNREACHABLE": "The Magpie gateway is not running ({{address}}). Open Magpie or run magpie serve first.",
-  "CC_SWITCH_PROXY_UNREACHABLE": "The cc-switch proxy is not running ({{address}}). Open cc-switch and enable its local proxy first."
+  "CC_SWITCH_PROXY_UNREACHABLE": "The cc-switch proxy is not running ({{address}}). Open cc-switch and enable its local proxy first.",
+
+  "BOT_NOT_FOUND": "Bot not found; it may have been deleted",
+  "BOT_BUSY": "The bot stayed busy with a previous message for 30 minutes",
+  "BOT_TURN_TIMEOUT": "The bot took longer than 60 minutes; the turn was cancelled",
+  "BOT_ASK_SELF": "A bot cannot be mentioned in its own chat",
+  "BOT_ASK_DUPLICATE": "This request is already in progress",
+  "BOT_ASK_BAD_ID": "Invalid request id"
 }

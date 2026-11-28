@@ -156,5 +156,12 @@
   "CURSOR_BRIDGE_TASK_REQUIRED": "do 必须带 task",
   "CURSOR_BRIDGE_IO": "Cursor Bridge 登记簿读写失败",
   "MAGPIE_GATEWAY_UNREACHABLE": "Magpie 网关未运行（{{address}}），请先打开 Magpie 或运行 magpie serve",
-  "CC_SWITCH_PROXY_UNREACHABLE": "cc-switch 代理未运行（{{address}}），请先打开 cc-switch 并启用本地代理"
+  "CC_SWITCH_PROXY_UNREACHABLE": "cc-switch 代理未运行（{{address}}），请先打开 cc-switch 并启用本地代理",
+
+  "BOT_NOT_FOUND": "找不到这个 Bot，可能已被删除",
+  "BOT_BUSY": "Bot 一直在忙上一条，等了 30 分钟仍未空闲",
+  "BOT_TURN_TIMEOUT": "Bot 回复超时（超过 60 分钟），已取消该轮",
+  "BOT_ASK_SELF": "不能在 Bot 自己的对话里 @它",
+  "BOT_ASK_DUPLICATE": "这条委托已在进行中",
+  "BOT_ASK_BAD_ID": "委托 id 无效"
 }

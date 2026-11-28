@@ -20,6 +20,7 @@ import { parentToolCallIdOf } from "@/types/agentChat";
 import { applyRestoredTranscript, persistAgentChatTranscript } from "./agentChatTranscript";
 import { contentText, useAgentChatStore } from "./useAgentChatStore";
 import { dropAgentChatRemote } from "./useAgentChatRemoteStore";
+import { useBotAskStore } from "./useBotAskStore";
 
 const FLUSH_INTERVAL_MS = 16;
 
@@ -160,13 +161,18 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "transcript_restore":
       applyRestoredTranscript(chatId, payload);
       return;
-    // Bot 经 IM 收到的消息：后端代发 prompt 前先广播，界面补一个用户气泡。
+    // Bot 收到的外部消息（IM / 别的对话里 @Bot / 组网投递）：后端代发 prompt 前先广播，界面补一个用户气泡；
+    // @Bot 的 promptId 就是委托卡片 id，借此把卡片标成「Bot 已接下」。
     // 组网投递（origin=remote）同时有 user_prompt：两者按 promptId 去重，谁先到谁画。
     case "external_prompt": {
       const data = payload as { text?: string; origin?: string; promptId?: string } | null;
+      const origin = data?.origin === "chat" ? "chat" : data?.origin === "remote" ? undefined : "im";
+      if (origin === "chat" && typeof data?.promptId === "string") {
+        useBotAskStore.getState().markAdmitted(data.promptId);
+      }
       if (typeof data?.promptId === "string" && !rememberRemotePrompt(chatId, data.promptId)) return;
       if (typeof data?.text === "string" && data.text) {
-        store.addUserMessage(chatId, data.text, undefined, undefined, data.origin === "im" ? "im" : undefined);
+        store.addUserMessage(chatId, data.text, undefined, undefined, origin);
       }
       return;
     }

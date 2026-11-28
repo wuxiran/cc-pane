@@ -80,7 +80,7 @@ interface AgentChatStoreState extends PromptSubmissionActions, ElicitationAction
   seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
   setCwdOverride: (chatId: string, cwd: string | null) => void;
-  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[], origin?: "im") => void;
+  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[], origin?: "im" | "chat") => void;
   beginHistoryReplay: (chatId: string, acpSessionId: string) => void;
   finishHistoryReplay: (chatId: string, acpSessionId: string, commit: boolean) => void;
   preserveTranscriptPrefix: (chatId: string) => void;

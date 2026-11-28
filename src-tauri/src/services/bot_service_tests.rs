@@ -1,5 +1,7 @@
 //! bot_service 单元测试（拆出以保持主文件 <800 行）。
 use super::*;
+use serde_json::json;
+use std::time::Duration;
 
 fn event(chat_id: &str, kind: &str, payload: Value) -> AcpChatEvent {
     AcpChatEvent {
@@ -33,6 +35,8 @@ fn bot(name: &str, persona: &str) -> Bot {
         remote_allow_kinds: vec![],
         created_at: 0,
         updated_at: 0,
+        auto_created: false,
+        pet_id: None,
     }
 }
 
@@ -168,4 +172,50 @@ fn bot_json_tolerates_missing_optional_fields() {
     let parsed: Bot = serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude"}"#).unwrap();
     assert!(parsed.cwd.is_none());
     assert!(parsed.auto_approve_kinds.is_empty());
+    assert!(!parsed.auto_created);
+    // 手建 Bot 不写 autoCreated，旧版本读到的文件形状不变。
+    let raw = serde_json::to_string(&parsed).unwrap();
+    assert!(!raw.contains("autoCreated"));
+    // 旧 bot.json 没有 petId：读进来为 None，写回也不多出这个键。
+    assert!(parsed.pet_id.is_none());
+    assert!(!raw.contains("petId"));
+    let with_pet: Bot =
+        serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude","petId":"homie"}"#)
+            .unwrap();
+    assert_eq!(with_pet.pet_id.as_deref(), Some("homie"));
+    assert_eq!(normalized_pet_id(Some("  ".into())), None);
+    assert_eq!(
+        normalized_pet_id(Some(" doro ".into())).as_deref(),
+        Some("doro")
+    );
+}
+
+#[test]
+fn origin_payload_keeps_string_origin() {
+    let im = BotMessageOrigin::Im.announce_payload("hi", "p1");
+    assert_eq!(im["origin"], "im");
+    assert!(im.get("fromChatId").is_none());
+    let chat = BotMessageOrigin::Chat {
+        from_chat_id: "tab-1".into(),
+    }
+    .announce_payload("hi", "p2");
+    assert_eq!(chat["origin"], "chat");
+    assert_eq!(chat["fromChatId"], "tab-1");
+    assert_eq!(chat["promptId"], "p2");
+    let remote = BotMessageOrigin::Remote.announce_payload("hi", "p3");
+    assert_eq!(remote["origin"], "remote");
+}
+
+#[test]
+fn prompt_origin_per_message_origin() {
+    assert_eq!(BotMessageOrigin::Im.as_prompt_origin(), "im");
+    assert_eq!(
+        BotMessageOrigin::Remote.as_prompt_origin(),
+        "device:unknown"
+    );
+    let chat = BotMessageOrigin::Chat {
+        from_chat_id: "tab-1".into(),
+    };
+    // 界面 `@Bot` 不是移动端来源：桌面 user_prompt 处理器忽略，气泡由 external_prompt 画。
+    assert_eq!(chat.as_prompt_origin(), "chat");
 }

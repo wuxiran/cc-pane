@@ -107,7 +107,9 @@ function renderPanel(onOpenChange = vi.fn()) {
   return { user, onOpenChange };
 }
 
-function editLanguage(language = "en") {
+async function editLanguage(language = "en") {
+  // GeneralSection 在 lazy 的 SettingsPaneContent 里，乱序/首个用例时可能尚未挂载
+  await waitFor(() => expect(generalSectionProps).not.toBeNull());
   act(() => {
     generalSectionProps!.onChange({ ...generalSectionProps!.value, language } as never);
   });
@@ -116,7 +118,11 @@ function editLanguage(language = "en") {
 const closeButton = () => screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!;
 
 describe("SettingsPanel", () => {
-  const saveSettings = vi.fn().mockResolvedValue(undefined);
+  // 与真实 store 一致：保存成功后写回 settings。否则 500ms 防抖自动保存落地后，
+  // syncDraft 会从仍是旧值的 store 重建草稿，把未完成的编辑打回原值（慢 runner 上间歇失败）。
+  const saveSettings = vi.fn(async (next: AppSettings) => {
+    useSettingsStore.setState({ settings: next } as never);
+  });
   const saveCCChanSettings = vi.fn().mockResolvedValue(undefined);
   const getDefaults = vi.fn(() => makeSettings({
     webAccess: { passwordSalt: "salt-default", passwordHash: "hash-default" } as never,
@@ -274,7 +280,7 @@ describe("SettingsPanel", () => {
         }),
       } as never);
     });
-    editLanguage();
+    await editLanguage();
 
     await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1), { timeout: 2000 });
     const saved = saveSettings.mock.calls[0][0];
@@ -298,7 +304,7 @@ describe("SettingsPanel", () => {
   it("keeps the dialog open and reports the error when auto-save fails", async () => {
     saveSettings.mockRejectedValueOnce(new Error("disk full"));
     const { onOpenChange } = renderPanel();
-    editLanguage();
+    await editLanguage();
 
     await waitFor(() => expect(toastErr).toHaveBeenCalled(), { timeout: 2000 });
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -307,7 +313,7 @@ describe("SettingsPanel", () => {
   it("flushes a pending edit immediately when closing", async () => {
     const { user, onOpenChange } = renderPanel();
 
-    editLanguage();
+    await editLanguage();
     // 不等防抖，直接关闭：最后一笔编辑应立即落盘
     await user.click(closeButton());
 
@@ -320,7 +326,7 @@ describe("SettingsPanel", () => {
     const { user } = renderPanel();
 
     // 先把 general 改掉，确认重置能打回默认
-    editLanguage();
+    await editLanguage();
 
     // 第一次点击只是待确认，不重置
     await user.click(screen.getByRole("button", { name: tSettings("resetSection") }));
