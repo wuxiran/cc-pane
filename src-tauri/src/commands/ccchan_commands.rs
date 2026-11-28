@@ -1,4 +1,4 @@
-use crate::ccchan_service::{CCChanService, PetMeta, Rect};
+use crate::ccchan_service::{CCChanService, OrbLayout, PetMeta, Rect};
 use crate::models::settings::CCChanSettings;
 use crate::utils::{AppError, AppResult};
 use std::sync::Arc;
@@ -57,9 +57,21 @@ pub fn focus_ccchan_main(app: AppHandle) -> AppResult<()> {
 pub fn set_ccchan_hit_regions(
     service: State<'_, Arc<CCChanService>>,
     regions: Vec<Rect>,
+    track_cursor: Option<bool>,
 ) -> AppResult<()> {
-    service.set_hit_regions(regions);
+    service.set_hit_regions(regions, track_cursor.unwrap_or(false));
     Ok(())
+}
+
+/// 任务球展开 / 收起列表：后端改窗口尺寸并返回球格位置与展开方向。
+#[tauri::command]
+pub fn set_ccchan_orb_expanded(
+    app: AppHandle,
+    service: State<'_, Arc<CCChanService>>,
+    expanded: bool,
+    panel_height: f64,
+) -> AppResult<OrbLayout> {
+    service.set_orb_expanded(&app, expanded, panel_height)
 }
 
 #[tauri::command]
@@ -93,7 +105,9 @@ pub async fn save_ccchan_settings(
         }
     }
     if let Some(window) = app.get_webview_window("ccchan") {
-        if settings.pet_size != previous.pet_size {
+        if settings.appearance != previous.appearance {
+            service.switch_appearance(&window)?;
+        } else if settings.pet_size != previous.pet_size {
             service.apply_window_size(&window)?;
         }
         if (settings.window_x, settings.window_y) != (previous.window_x, previous.window_y) {

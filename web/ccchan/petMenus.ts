@@ -3,7 +3,7 @@
 import type { TFunction } from "i18next";
 import type { BotSummary } from "@/types/bot";
 import type { PetStatus, SessionPetEntry } from "./petStatus";
-import type { PetMeta } from "./types";
+import type { CCChanAppearance, PetMeta } from "./types";
 
 export type MenuSpec =
   | { kind: "item"; text: string; enabled?: boolean; checked?: boolean; action?: () => void }
@@ -27,11 +27,19 @@ export interface PetMenuActions {
   selectPet: (petId: string) => void;
   openSettings: () => void;
   hide: () => void;
+  /** 切换外观（桌宠 ⇄ 任务球）。 */
+  setAppearance?: (appearance: CCChanAppearance) => void;
+  /** 复位窗口位置。 */
+  resetPosition?: () => void;
 }
 
 type T = TFunction<"ccchan">;
 
-export function sessionMenu(entries: readonly SessionPetEntry[], t: T, actions: PetMenuActions): MenuSpec[] {
+export function sessionMenu(
+  entries: readonly SessionPetEntry[],
+  t: T,
+  actions: Pick<PetMenuActions, "focusSession">,
+): MenuSpec[] {
   if (entries.length === 0) return [{ kind: "item", text: t("menu.noSessions"), enabled: false }];
   return entries.slice(0, MAX_SESSIONS).map((entry) => ({
     kind: "item",
@@ -76,9 +84,34 @@ export function contextMenu(args: {
     { kind: "submenu", text: t("menu.switchBot"), items: botMenu(args.bots, args.activeBotId, t, actions) },
     { kind: "submenu", text: t("menu.changePet"), items: petMenu(args.pets, args.currentPetId, actions) },
     { kind: "separator" },
+    ...(actions.setAppearance
+      ? [{ kind: "item" as const, text: t("menu.switchToOrb"), action: () => actions.setAppearance?.("orb") }]
+      : []),
     { kind: "item", text: t("menu.settings"), action: actions.openSettings },
     { kind: "item", text: t("menu.hide"), action: actions.hide },
   ];
+}
+
+export type OrbMenuActions = Pick<
+  PetMenuActions,
+  "focusSession" | "openSettings" | "hide" | "setAppearance" | "resetPosition"
+>;
+
+/** 任务球右键：会话 / 复位 / 切回桌宠 / 设置 / 隐藏。 */
+export function orbContextMenu(entries: readonly SessionPetEntry[], t: T, actions: OrbMenuActions): MenuSpec[] {
+  const items: MenuSpec[] = [
+    { kind: "submenu", text: t("menu.sessions"), items: sessionMenu(entries, t, actions) },
+    { kind: "separator" },
+  ];
+  if (actions.resetPosition) items.push({ kind: "item", text: t("menu.resetPosition"), action: actions.resetPosition });
+  if (actions.setAppearance) {
+    items.push({ kind: "item", text: t("menu.switchToPet"), action: () => actions.setAppearance?.("pet") });
+  }
+  items.push(
+    { kind: "item", text: t("menu.settings"), action: actions.openSettings },
+    { kind: "item", text: t("menu.hideOrb"), action: actions.hide },
+  );
+  return items;
 }
 
 type MenuModule = typeof import("@tauri-apps/api/menu");

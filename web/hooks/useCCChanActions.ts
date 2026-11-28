@@ -8,6 +8,7 @@ import { invokeIfTauri } from "@/services/runtime";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useActivityBarStore, usePanesStore, useSettingsStore } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
+import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { listenCCChan } from "@/ccchan/listen";
 import { REQUEST_DIRECTORY_EVENT, SESSION_DIRECTORY_EVENT } from "@/ccchan/usePetSessions";
@@ -19,10 +20,16 @@ async function showMain() {
   await invokeIfTauri("focus_ccchan_main");
 }
 
-/** 会话目录：会话 id → 标签名 + 用户此刻是否在看（主窗口聚焦且标签可见）。 */
+/**
+ * 会话目录：会话 id → 标签名 + 用户此刻是否在看（主窗口聚焦且标签可见）
+ * + 最后一次真实键盘输入（任务球「最近输入优先」）+ 是否主窗口当前激活的会话。
+ * 任务球是独立 webview，读不到主窗口 store，输入时间戳只能经这条通道过去。
+ */
 export function buildSessionDirectory(focused: boolean): SessionDirectoryEntry[] {
   const panes = usePanesStore.getState();
   const views = useTabViewStateStore.getState();
+  const inputs = useTerminalInputActivityStore.getState().entries;
+  const activePanel = panes.activePane();
   const entries: SessionDirectoryEntry[] = [];
   for (const sessionId of useTerminalStatusStore.getState().statusMap.keys()) {
     const location = panes.findTabBySessionAcrossLayouts(sessionId);
@@ -32,6 +39,8 @@ export function buildSessionDirectory(focused: boolean): SessionDirectoryEntry[]
       sessionId,
       title: tab.title?.trim() || sessionId.slice(0, 8),
       viewed: focused && Boolean(views.getAggregate(tab.id)?.anyVisible),
+      lastInputAt: inputs[sessionId]?.lastInputAt ?? null,
+      active: activePanel?.id === location.panel.id && activePanel.activeTabId === tab.id,
     });
   }
   return entries;
@@ -55,6 +64,7 @@ function startDirectoryPublisher(): () => void {
     usePanesStore.subscribe(schedule),
     useTabViewStateStore.subscribe(schedule),
     useCCChanStore.subscribe(schedule),
+    useTerminalInputActivityStore.subscribe(schedule),
   ];
   window.addEventListener("focus", schedule);
   window.addEventListener("blur", schedule);

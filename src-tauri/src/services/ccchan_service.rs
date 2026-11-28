@@ -11,7 +11,10 @@ mod pets;
 pub use pets::PetMeta;
 #[path = "ccchan_window.rs"]
 mod window;
-pub use window::{window_size_for, Rect, RevealGate};
+pub use window::{Rect, RevealGate};
+#[path = "ccchan_orb.rs"]
+mod orb;
+pub use orb::OrbLayout;
 
 use crate::models::settings::CCChanSettings;
 use crate::services::SettingsService;
@@ -30,6 +33,8 @@ use tracing::{debug, warn};
 pub const CCCHAN_WINDOW_LABEL: &str = "ccchan";
 const CCCHAN_EVENT: &str = "ccchan-event";
 const CCCHAN_HOVER_EVENT: &str = "ccchan:hover";
+/// 光标在命中区域内移动时的窗口内坐标（CSS 像素）；仅前端开启跟踪时发。
+const CCCHAN_CURSOR_EVENT: &str = "ccchan:cursor";
 const REVEAL_FALLBACK_TIMEOUT: Duration = Duration::from_secs(3);
 /// 命中测试轮询间隔：光标进出角色包围盒的响应延迟上限。
 const HIT_POLL_INTERVAL: Duration = Duration::from_millis(60);
@@ -53,6 +58,11 @@ struct HitState {
     /// 平台不支持（或光标位置读不到）时降级为「不穿透」，不再反复尝试。
     disabled: bool,
     pending_move: Option<Instant>,
+    /// 任务球展开中：球格在窗口内的偏移（逻辑像素）。展开期间不吸附、不落盘位置。
+    orb_offset: Option<(f64, f64)>,
+    /// 前端要逐点光标（任务球列表的悬停切换不依赖窗口焦点下的 DOM hover）。
+    track_cursor: bool,
+    last_cursor: Option<(i64, i64)>,
 }
 
 pub struct CCChanService {
@@ -184,9 +194,12 @@ impl CCChanService {
         Ok(())
     }
 
-    /// 窗口尺寸只随角色大小变（设置改了角色大小时调用）。
+    /// 窗口尺寸只随外观 / 角色大小变（设置改了它们时调用）；任务球回到收起态。
     pub fn apply_window_size(&self, window: &WebviewWindow) -> AppResult<()> {
-        let (width, height) = window_size_for(self.settings().pet_size);
+        let settings = self.settings();
+        self.lock_hit().orb_offset = None;
+        let (width, height) =
+            window::window_size_for_appearance(settings.appearance, settings.pet_size);
         window
             .set_size(LogicalSize::new(width, height))
             .map_err(|error| AppError::from(error.to_string()))
@@ -252,7 +265,11 @@ impl CCChanService {
     /// 窗口不存在时为幂等 no-op。下次启用经 show_window 重建。
     pub fn hide_window(&self, app: &AppHandle) -> AppResult<()> {
         self.lock_reveal().reset();
-        self.lock_hit().generation += 1;
+        {
+            let mut hit = self.lock_hit();
+            hit.generation += 1;
+            hit.orb_offset = None;
+        }
         let Some(window) = app.get_webview_window(CCCHAN_WINDOW_LABEL) else {
             return Ok(());
         };
@@ -270,13 +287,15 @@ impl CCChanService {
     }
 
     /// 前端上报的可点击区域（窗口内 CSS 像素）：角色包围盒、悬停控件条、气泡。
-    pub fn set_hit_regions(&self, regions: Vec<Rect>) {
+    pub fn set_hit_regions(&self, regions: Vec<Rect>, track_cursor: bool) {
         let regions = regions
             .into_iter()
             .filter(|r| r.x.is_finite() && r.y.is_finite() && r.width > 0.0 && r.height > 0.0)
             .take(16)
             .collect();
-        self.lock_hit().regions = regions;
+        let mut hit = self.lock_hit();
+        hit.regions = regions;
+        hit.track_cursor = track_cursor;
     }
 
     fn position_window(&self, window: &WebviewWindow) -> AppResult<()> {
@@ -320,6 +339,9 @@ impl CCChanService {
 
     /// 拖拽停稳后：吸附到近处屏幕边缘，并以物理像素落盘。
     fn settle_position(&self, window: &WebviewWindow) {
+        if self.lock_hit().orb_offset.is_some() {
+            return;
+        }
         let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
             return;
         };
@@ -416,7 +438,7 @@ impl CCChanService {
             self.disable_click_through(window, "cursor position unavailable");
             return;
         };
-        let (inside, toggle, hover_changed) = {
+        let (inside, toggle, hover_changed, cursor_moved) = {
             let mut hit = self.lock_hit();
             let inside = window::hit_test(
                 &hit.regions,
@@ -427,7 +449,15 @@ impl CCChanService {
             let toggle = hit.ignoring != Some(!inside);
             let hover_changed = hit.inside != inside;
             hit.inside = inside;
-            (inside, toggle, hover_changed)
+            let local = (
+                ((cursor.x - origin.x as f64) / scale).round(),
+                ((cursor.y - origin.y as f64) / scale).round(),
+            );
+            let key = (local.0 as i64, local.1 as i64);
+            let cursor_moved =
+                (hit.track_cursor && inside && hit.last_cursor != Some(key)).then_some(local);
+            hit.last_cursor = if inside { Some(key) } else { None };
+            (inside, toggle, hover_changed, cursor_moved)
         };
         if toggle {
             match window.set_ignore_cursor_events(!inside) {
@@ -441,6 +471,12 @@ impl CCChanService {
         if hover_changed {
             if let Err(error) = window.emit_to(CCCHAN_WINDOW_LABEL, CCCHAN_HOVER_EVENT, inside) {
                 debug!(%error, "failed to emit ccchan hover");
+            }
+        }
+        if let Some((x, y)) = cursor_moved {
+            let payload = serde_json::json!({ "x": x, "y": y });
+            if let Err(error) = window.emit_to(CCCHAN_WINDOW_LABEL, CCCHAN_CURSOR_EVENT, payload) {
+                debug!(%error, "failed to emit ccchan cursor");
             }
         }
     }

@@ -31,7 +31,11 @@
     "createBot": "新建 Bot…",
     "changePet": "换形象",
     "settings": "设置",
-    "hide": "隐藏桌宠"
+    "hide": "隐藏桌宠",
+    "switchToPet": "切换为桌宠",
+    "switchToOrb": "切换为任务球",
+    "resetPosition": "复位位置",
+    "hideOrb": "隐藏任务球"
   },
   "status": {
     "idle": "空闲",
@@ -39,5 +43,30 @@
     "needsInput": "等你输入",
     "ready": "完成未看",
     "blocked": "出错"
+  },
+  "orb": {
+    "label": "任务球：悬停展开会话列表，单击切到第 1 个，拖动移动",
+    "waiting": "等你",
+    "title": "切换任务",
+    "summary": "{{count}} 个会话 · {{need}} 个等你",
+    "sort": "排序",
+    "sortRecent": "最近输入优先",
+    "sortAttention": "需要我优先",
+    "hoverSwitch": "悬停即切换",
+    "current": "当前",
+    "noCurrent": "主窗口没有激活的会话",
+    "sectionPinned": "置顶",
+    "sectionRecent": "自动 · 最近输入优先",
+    "sectionAttention": "自动 · 需要我优先",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "empty": "没有其他会话",
+    "age": {
+      "never": "还没输入过",
+      "justNow": "刚刚输入",
+      "seconds": "{{count}} 秒前输入",
+      "minutes": "{{count}} 分钟前输入",
+      "hours": "{{count}} 小时前输入"
+    }
   }
 }

@@ -18,6 +18,19 @@ export const PET_STATUS_PRIORITY: Record<PetStatus, number> = {
   needsInput: 4,
 };
 
+/**
+ * 状态色（主题 token，深浅色由 index.css 两套值保证）。docs/46 §3：
+ * 等输入 = 琥珀、出错 = 危险、完成未看 = 成功（结果态）、运行 = accent、空闲 = 中性。
+ * 任务球外圈、列表状态点共用这一份。
+ */
+export const PET_STATUS_COLOR: Record<PetStatus, string> = {
+  needsInput: "var(--app-status-warning)",
+  blocked: "var(--app-status-danger)",
+  ready: "var(--app-status-success)",
+  running: "var(--app-accent)",
+  idle: "var(--app-text-tertiary)",
+};
+
 const WORKING: ReadonlySet<TerminalStatusType> = new Set([
   "initializing",
   "thinking",

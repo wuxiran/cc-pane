@@ -4,6 +4,7 @@
 //! 物理像素，混合 DPI 下不会因为「各显示器各除各的 scale」凭空造出缝隙/重叠。
 //! 只有前端上报的命中区域是窗口内 CSS 像素，换算时乘本窗口的 scale。
 
+use crate::models::settings::CCChanAppearance;
 use serde::Deserialize;
 use tauri::WebviewWindow;
 
@@ -24,6 +25,89 @@ pub fn window_size_for(pet_size: f64) -> (f64, f64) {
     let width = (pet_size + PET_PADDING * 2.0).max(MIN_WINDOW_WIDTH);
     let height = pet_size + PET_PADDING + TOOLBAR_AREA + BUBBLE_AREA;
     (width, height)
+}
+
+/// 任务球直径（逻辑像素）。与前端 orbModel.ts 同步。
+pub const ORB_SIZE: f64 = 56.0;
+/// 球四周留白：容纳阴影与等待脉冲。
+pub const ORB_PADDING: f64 = 14.0;
+/// 收起时的任务球窗口边长。
+pub const ORB_WINDOW: f64 = ORB_SIZE + ORB_PADDING * 2.0;
+/// 展开列表的宽度。
+pub const ORB_PANEL_WIDTH: f64 = 320.0;
+/// 球格与列表之间的间隙。
+pub const ORB_PANEL_GAP: f64 = 4.0;
+/// 列表高度上下限（前端按内容上报，后端夹紧）。
+pub const ORB_PANEL_MIN_HEIGHT: f64 = 80.0;
+pub const ORB_PANEL_MAX_HEIGHT: f64 = 480.0;
+
+/// 按外观给出窗口固定尺寸（逻辑像素）：任务球收起时只有球那么大。
+pub fn window_size_for_appearance(appearance: CCChanAppearance, pet_size: f64) -> (f64, f64) {
+    match appearance {
+        CCChanAppearance::Pet => window_size_for(pet_size),
+        CCChanAppearance::Orb => (ORB_WINDOW, ORB_WINDOW),
+    }
+}
+
+/// 任务球展开后的窗口位置（物理像素）与球格在窗口内的偏移（逻辑像素）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OrbPlacement {
+    pub window: Rect,
+    pub orb_x: f64,
+    pub orb_y: f64,
+    pub align_right: bool,
+    pub open_up: bool,
+}
+
+/// 球格（物理像素，收起窗口那么大）→ 展开窗口：球在屏幕右半边就右对齐，
+/// 在下半边就向上展开；夹进工作区后反推球格偏移，保证球在屏幕上不动。
+pub fn orb_expanded_placement(
+    cell: Rect,
+    panel_height: f64,
+    scale: f64,
+    areas: &[Rect],
+) -> OrbPlacement {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let panel_height = if panel_height.is_finite() {
+        panel_height.clamp(ORB_PANEL_MIN_HEIGHT, ORB_PANEL_MAX_HEIGHT)
+    } else {
+        ORB_PANEL_MIN_HEIGHT
+    };
+    let width = ORB_PANEL_WIDTH.max(ORB_WINDOW) * scale;
+    let height = (ORB_WINDOW + ORB_PANEL_GAP + panel_height) * scale;
+    let (cx, cy) = (cell.x + cell.width / 2.0, cell.y + cell.height / 2.0);
+    let area = *nearest_area(cx, cy, areas, &cell);
+    let align_right = cx > area.x + area.width / 2.0;
+    let open_up = cy > area.y + area.height / 2.0;
+    let x = if align_right {
+        cell.x + cell.width - width
+    } else {
+        cell.x
+    };
+    let y = if open_up {
+        cell.y + cell.height - height
+    } else {
+        cell.y
+    };
+    let window = fit_window(x, y, width, height, areas);
+    OrbPlacement {
+        window,
+        orb_x: ((cell.x - window.x) / scale).max(0.0),
+        orb_y: ((cell.y - window.y) / scale).max(0.0),
+        align_right,
+        open_up,
+    }
+}
+
+/// 换外观时窗口尺寸变化：保持底边中点不动（角色脚、任务球都在窗口底部）。
+pub fn reanchor_bottom_center(old: Rect, width: f64, height: f64, areas: &[Rect]) -> Rect {
+    let x = old.x + old.width / 2.0 - width / 2.0;
+    let y = old.y + old.height - height;
+    fit_window(x, y, width, height, areas)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -194,6 +278,52 @@ mod tests {
         assert_eq!(window_size_for(120.0), (280.0, 278.0));
         assert_eq!(window_size_for(240.0), (280.0, 398.0));
         assert_eq!(window_size_for(80.0).0, 280.0);
+    }
+
+    #[test]
+    fn orb_window_is_smaller_than_pet_window() {
+        assert_eq!(
+            window_size_for_appearance(CCChanAppearance::Orb, 240.0),
+            (ORB_WINDOW, ORB_WINDOW)
+        );
+        assert_eq!(
+            window_size_for_appearance(CCChanAppearance::Pet, 120.0),
+            window_size_for(120.0)
+        );
+    }
+
+    #[test]
+    fn orb_expands_toward_screen_center_and_keeps_orb_in_place() {
+        let areas = [area(0.0, 0.0, 1000.0, 800.0)];
+        // 左上：向右下展开，球格就在窗口左上角。
+        let p = orb_expanded_placement(area(100.0, 100.0, 84.0, 84.0), 200.0, 1.0, &areas);
+        assert!(!p.align_right && !p.open_up);
+        assert_eq!((p.window.x, p.window.y), (100.0, 100.0));
+        assert_eq!((p.orb_x, p.orb_y), (0.0, 0.0));
+        // 右下：右对齐、向上展开；球格偏移指向窗口右下角。
+        let p = orb_expanded_placement(area(900.0, 700.0, 84.0, 84.0), 200.0, 1.0, &areas);
+        assert!(p.align_right && p.open_up);
+        assert_eq!(p.window.x + p.orb_x, 900.0);
+        assert_eq!(p.window.y + p.orb_y, 700.0);
+        assert_eq!(p.orb_x, ORB_PANEL_WIDTH - ORB_WINDOW);
+    }
+
+    #[test]
+    fn orb_expansion_scales_and_clamps_panel_height() {
+        let areas = [area(0.0, 0.0, 4000.0, 3000.0)];
+        let p = orb_expanded_placement(area(100.0, 100.0, 168.0, 168.0), 10_000.0, 2.0, &areas);
+        assert_eq!(p.window.width, ORB_PANEL_WIDTH * 2.0);
+        assert_eq!(
+            p.window.height,
+            (ORB_WINDOW + ORB_PANEL_GAP + ORB_PANEL_MAX_HEIGHT) * 2.0
+        );
+    }
+
+    #[test]
+    fn appearance_switch_keeps_bottom_center() {
+        let areas = [area(0.0, 0.0, 1000.0, 800.0)];
+        let r = reanchor_bottom_center(area(300.0, 300.0, 280.0, 278.0), 84.0, 84.0, &areas);
+        assert_eq!((r.x, r.y), (398.0, 494.0));
     }
 
     #[test]

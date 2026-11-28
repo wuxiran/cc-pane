@@ -23,6 +23,9 @@ export const DEFAULT_CCCHAN_SETTINGS: CCChanSettings = {
   windowPosPhysical: false,
   petSize: 120,
   activeBotId: null,
+  appearance: "pet",
+  orbSort: "recent",
+  orbHoverSwitch: true,
 };
 
 /** 旧版本设置里已删除的字段：读到就丢掉，不再写回。 */
@@ -74,6 +77,9 @@ export function normalizeCCChanSettings(
   merged.windowPosPhysical = merged.windowPosPhysical === true;
   const botId = typeof merged.activeBotId === "string" ? merged.activeBotId.trim() : "";
   merged.activeBotId = botId || null;
+  merged.appearance = merged.appearance === "orb" ? "orb" : "pet";
+  merged.orbSort = merged.orbSort === "attention" ? "attention" : "recent";
+  merged.orbHoverSwitch = merged.orbHoverSwitch !== false;
   return merged;
 }
 

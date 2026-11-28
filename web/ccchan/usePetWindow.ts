@@ -47,21 +47,24 @@ export function usePetWindowChrome(ready: boolean): void {
   }, [ready]);
 }
 
-/** 命中区域变化才上报；后端据此切换点击穿透。 */
-export function useHitRegions(regions: HitRect[]): void {
+/**
+ * 命中区域变化才上报；后端据此切换点击穿透。
+ * trackCursor：让后端在命中区域内逐点推 `ccchan:cursor`（任务球列表悬停切换用）。
+ */
+export function useHitRegions(regions: HitRect[], trackCursor = false): void {
   const key = JSON.stringify(regions);
   useEffect(() => {
     if (!isTauriRuntime()) return;
-    invoke("set_ccchan_hit_regions", { regions: JSON.parse(key) as HitRect[] })
+    invoke("set_ccchan_hit_regions", { regions: JSON.parse(key) as HitRect[], trackCursor })
       .catch((error) => console.warn("[ccchan] hit regions:", error));
-  }, [key]);
+  }, [key, trackCursor]);
 }
 
 /**
  * 悬停：后端轮询全局光标判断（窗口失焦 / 已穿透时 DOM 收不到事件）；
  * 点击穿透降级时后端不发，退回 DOM 指针事件。离开有短暂延迟，避免控件条闪烁。
  */
-export function usePetHover() {
+export function usePetHover(leaveDelayMs = 350) {
   const [nativeHover, setNativeHover] = useState(false);
   const [domHover, setDomHover] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -72,9 +75,9 @@ export function usePetHover() {
       setHovered(true);
       return;
     }
-    const timer = setTimeout(() => setHovered(false), 350);
+    const timer = setTimeout(() => setHovered(false), leaveDelayMs);
     return () => clearTimeout(timer);
-  }, [raw]);
+  }, [leaveDelayMs, raw]);
   return {
     hovered,
     onPointerEnter: () => setDomHover(true),

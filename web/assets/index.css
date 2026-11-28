@@ -2433,6 +2433,23 @@ textarea,
   user-select: text;
 }
 
+/* cc酱任务球：有会话等你回复时外圈慢脉冲（不弹横幅）；行悬停切换的进度条。 */
+@keyframes ccchan-orb-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.ccchan-orb-halo { animation: ccchan-orb-pulse 1800ms var(--ease-out) infinite; }
+
+@keyframes ccchan-orb-dwell {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ccchan-orb-halo { animation: none; opacity: 0; }
+}
+
 /* xterm 的隐藏 textarea 会让 WebKit/macOS 弹出原生 Paste callout；终端区统一交给 xterm/快捷键处理。 */
 :root[data-platform="macos"] .cc-terminal-host,
 :root[data-platform="macos"] .cc-terminal-host * {

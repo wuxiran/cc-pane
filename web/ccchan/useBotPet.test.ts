@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TFunction } from "i18next";
 import type { BotSummary } from "@/types/bot";
-import { botMenu, contextMenu, sessionMenu, type PetMenuActions } from "./petMenus";
+import { botMenu, contextMenu, orbContextMenu, sessionMenu, type PetMenuActions } from "./petMenus";
 import { botPetStatus } from "./petStatus";
 import { EMPTY_TRACKED, pickActiveBot, reduceBotEvent } from "./useBotPet";
 
@@ -79,5 +79,19 @@ describe("petMenus", () => {
     expect(acts.hide).toHaveBeenCalledTimes(1);
     expect(acts.openSettings).not.toHaveBeenCalled();
     expect(settings).toBeDefined();
+  });
+
+  it("builds the orb context menu with appearance switch and reset", () => {
+    const acts = { ...actions(), setAppearance: vi.fn(), resetPosition: vi.fn() };
+    const items = orbContextMenu([], t, acts);
+    const texts = items.map((item) => (item.kind === "separator" ? "-" : item.text));
+    expect(texts).toEqual(["menu.sessions", "-", "menu.resetPosition", "menu.switchToPet", "menu.settings", "menu.hideOrb"]);
+    const toPet = items[3];
+    if (toPet.kind === "item") toPet.action?.();
+    expect(acts.setAppearance).toHaveBeenCalledWith("pet");
+    const petItems = contextMenu({ bots: [], activeBotId: null, pets: [], currentPetId: "", entries: [], t, actions: acts });
+    const toOrb = petItems.find((item) => item.kind === "item" && item.text === "menu.switchToOrb");
+    if (toOrb?.kind === "item") toOrb.action?.();
+    expect(acts.setAppearance).toHaveBeenCalledWith("orb");
   });
 });
