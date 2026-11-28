@@ -39,6 +39,7 @@ mod agent_chat_launch;
 pub use agent_chat_launch::{codex_config_overrides_to_json, AgentChatLaunchOverlay};
 mod csi_mode_detect;
 mod cursor_chat_capture;
+mod hooks_sync;
 mod launch_threads;
 mod osc_resume_capture;
 mod osc_state_detect;
@@ -56,9 +57,7 @@ mod wsl_mcp_proxy;
 #[cfg(any(windows, test))]
 mod wsl_opencode;
 
-use self::wsl_codex::{
-    strip_wsl_proxy_env_vars, windows_path_to_wsl, WslManagedPiStateCleanup, WSL_PROXY_ENV_KEYS,
-};
+use self::wsl_codex::{strip_wsl_proxy_env_vars, WslManagedPiStateCleanup, WSL_PROXY_ENV_KEYS};
 use super::ssh_terminal_service::{spawn_ssh_terminal, SshTerminalConfig};
 use super::terminal_output_flow::{
     OutputFlowDiagnostics, OutputFlowGate, ParkOutcome, FAILSAFE_TIMEOUTS_BEFORE_DESYNC,
@@ -3634,52 +3633,12 @@ impl TerminalService {
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
                 let launch_hooks_path = resolved_wsl.launch_cwd_host_path();
                 if sync_project_hooks {
-                    let hook_sync_result = if cli_tool == CliTool::Codex {
-                        let hook_binary =
-                            ProjectCliHooksService::get_hook_binary_path().and_then(|path| {
-                                windows_path_to_wsl(&path)
-                                    .map(PathBuf::from)
-                                    .ok_or_else(|| {
-                                        format!(
-                                            "Failed to translate hook binary path to WSL path: {}",
-                                            path.display()
-                                        )
-                                    })
-                            });
-                        match hook_binary {
-                            Ok(wsl_hook_binary) => {
-                                self.project_cli_hooks_service.sync_wsl_codex_project_hooks(
-                                    hooks_project_path,
-                                    launch_hooks_path.as_deref().unwrap_or(project_path),
-                                    &wsl_hook_binary,
-                                )
-                            }
-                            Err(error) => Err(error),
-                        }
-                    } else {
-                        let hook_binary =
-                            ProjectCliHooksService::get_hook_binary_path().and_then(|path| {
-                                windows_path_to_wsl(&path)
-                                    .map(PathBuf::from)
-                                    .ok_or_else(|| {
-                                        format!(
-                                            "Failed to translate hook binary path to WSL path: {}",
-                                            path.display()
-                                        )
-                                    })
-                            });
-                        match hook_binary {
-                            Ok(wsl_hook_binary) => {
-                                self.project_cli_hooks_service.sync_launch_hooks(
-                                    hooks_project_path,
-                                    launch_hooks_path.as_deref().unwrap_or(hooks_project_path),
-                                    cli_tool_id,
-                                    Some(&wsl_hook_binary),
-                                )
-                            }
-                            Err(error) => Err(error),
-                        }
-                    };
+                    let hook_sync_result = self.sync_wsl_project_hooks_with_timeout(
+                        cli_tool,
+                        hooks_project_path,
+                        launch_hooks_path.as_deref(),
+                        project_path,
+                    );
 
                     if let Err(error) = hook_sync_result {
                         warn!(
@@ -3890,13 +3849,15 @@ impl TerminalService {
                     "launch.project_hooks.begin",
                     "started",
                 );
+                let mut project_hooks_outcome = hooks_sync::HOOKS_OUTCOME_OK;
                 if sync_project_hooks {
-                    if let Err(error) = self.project_cli_hooks_service.sync_launch_hooks(
+                    let result = self.sync_local_project_hooks_with_timeout(
                         hooks_project_path,
                         local_cwd,
                         cli_tool_id,
-                        None,
-                    ) {
+                    );
+                    project_hooks_outcome = hooks_sync::hooks_outcome(&result);
+                    if let Err(error) = result {
                         warn!(
                             session_id = %session_id,
                             cli_tool = cli_tool_id,
@@ -3920,7 +3881,7 @@ impl TerminalService {
                     runtime_kind,
                     launch_trace_started_at,
                     "launch.project_hooks.end",
-                    "ok",
+                    project_hooks_outcome,
                 );
 
                 // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 prompt/运行配置 Skill 时）
