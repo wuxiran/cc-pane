@@ -410,3 +410,11 @@ export type {
   SkillProvenance, SkillRemoveResult, SkillSourceKind, SkillUpdateResult,
 } from "./skillLibrary";
 export type { KeepAwakeReport, KeepAwakeSideStatus } from "./keepAwake";
+export type {
+  Workflow,
+  WorkflowStage,
+  WorkflowStageStatus,
+  WorkflowStatus,
+  WorkflowTask,
+  WorkflowTaskStatus,
+} from "./workflow";

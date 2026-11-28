@@ -102,3 +102,4 @@ export {
   type ModulePreferences,
   type ModulePreset,
 } from "./useModulePrefsStore";
+export { useWorkflowStore } from "./useWorkflowStore";

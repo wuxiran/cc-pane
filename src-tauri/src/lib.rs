@@ -656,6 +656,7 @@ use commands::{
     window_material_active,
     write_terminal,
 };
+use commands::{approve_workflow_stage, list_workflows};
 use repository::{
     Database, HistoryRepository, PlanRepository, ProjectRepository, SessionIndexRepository,
     SpecRepository, TaskBindingRepository, TaskQueueRepository, TodoRepository,
@@ -1847,6 +1848,9 @@ pub fn run() {
     ));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let workflow_service = Arc::new(cc_panes_core::services::WorkflowService::new(Arc::new(
+        cc_panes_core::repository::WorkflowRepository::new(db.clone()),
+    )));
     let task_verification_service = Arc::new(services::TaskVerificationService::new(
         app_paths.data_dir().to_path_buf(),
         task_binding_service.clone(),
@@ -2204,6 +2208,7 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(workflow_service)
         .manage(task_verification_service)
         .manage(fork_review_service)
         .manage(task_queue_service)
@@ -3822,6 +3827,9 @@ pub fn run() {
             register_plan_child,
             get_plan_collaboration,
             reconcile_plan_collaboration,
+            // 多阶段工作流（docs/114）
+            list_workflows,
+            approve_workflow_stage,
             // Memory 命令
             search_memory,
             store_memory,

@@ -20,7 +20,13 @@ pub struct TaskBindingService {
     emitter: parking_lot::RwLock<Option<Arc<dyn EventEmitter>>>,
     /// 串行化 "读旧状态 + 更新" 这对操作（见 update_returning_previous_status）
     update_lock: std::sync::Mutex<()>,
+    /// 子任务进入终态时的观察者（多阶段工作流驱动器用来唤醒，docs/114）。
+    /// 覆盖所有写入路径（MCP / 终端退出 / UI）；回调只能做非阻塞的投递。
+    terminal_observer: parking_lot::RwLock<Option<TerminalObserver>>,
 }
+
+/// Called after a child binding (one with a parent) is written in a terminal status.
+pub type TerminalObserver = Arc<dyn Fn(&TaskBinding) + Send + Sync>;
 
 impl TaskBindingService {
     pub fn new(repo: Arc<TaskBindingRepository>) -> Self {
@@ -28,6 +34,25 @@ impl TaskBindingService {
             repo,
             emitter: parking_lot::RwLock::new(None),
             update_lock: std::sync::Mutex::new(()),
+            terminal_observer: parking_lot::RwLock::new(None),
+        }
+    }
+
+    pub fn set_terminal_observer(&self, observer: TerminalObserver) {
+        *self.terminal_observer.write() = Some(observer);
+    }
+
+    fn notify_terminal_observer(&self, binding: &TaskBinding) {
+        if binding.parent_id.is_none()
+            || !matches!(
+                binding.status,
+                TaskBindingStatus::Completed | TaskBindingStatus::Failed
+            )
+        {
+            return;
+        }
+        if let Some(observer) = self.terminal_observer.read().as_ref().cloned() {
+            observer(binding);
         }
     }
 
@@ -238,6 +263,7 @@ impl TaskBindingService {
         if emit {
             self.emit_changed(TaskBindingChangeOp::Update, id, Some(&binding));
         }
+        self.notify_terminal_observer(&binding);
         Ok(binding)
     }
 
