@@ -986,27 +986,28 @@ impl VoiceSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CCChanSettings {
-    #[serde(default = "default_ccchan_ai_engine")]
-    pub ai_engine: String,
+    /// 没有 Bot（或 Bot 没选形象）时用的角色。
     #[serde(default = "default_ccchan_pet_id")]
     pub default_pet_id: String,
     // 宠物模块默认不打开：开机自动显示与浮窗可见均默认 false（bool 的 serde
     // 默认即 false）。老用户已持久化的设置不受影响，仅全新安装默认隐藏。
     #[serde(default)]
     pub auto_start: bool,
-    #[serde(default = "default_true")]
-    pub sound_enabled: bool,
     #[serde(default)]
     pub window_visible: bool,
     #[serde(default)]
     pub window_x: Option<f64>,
     #[serde(default)]
     pub window_y: Option<f64>,
-    // 随机漫游默认关闭：宠物待在原地，仍可手动拖拽。
+    /// window_x/y 是否为物理像素。旧版本存的是逻辑像素（缺字段 = false），
+    /// 首次恢复时按主显示器 scale 换算，之后统一以物理像素落盘。
     #[serde(default)]
-    pub wander_enabled: bool,
+    pub window_pos_physical: bool,
     #[serde(default = "default_ccchan_pet_size")]
     pub pet_size: f64,
+    /// 桌宠当前代表的 Bot；None / 已删除 = 回退到第一个 Bot，没有 Bot 时用 cc酱。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_bot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1203,9 +1204,6 @@ pub const CCCHAN_PET_SIZE_MAX: f64 = 240.0;
 
 impl CCChanSettings {
     pub fn merge_missing_defaults(&mut self) {
-        if !matches!(self.ai_engine.as_str(), "claude" | "codex") {
-            self.ai_engine = default_ccchan_ai_engine();
-        }
         if self.default_pet_id.trim().is_empty() {
             self.default_pet_id = default_ccchan_pet_id();
         }
@@ -1214,11 +1212,12 @@ impl CCChanSettings {
         {
             self.pet_size = default_ccchan_pet_size();
         }
+        self.active_bot_id = self
+            .active_bot_id
+            .take()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
     }
-}
-
-fn default_ccchan_ai_engine() -> String {
-    "claude".to_string()
 }
 
 fn default_ccchan_pet_id() -> String {
@@ -1513,15 +1512,14 @@ impl Default for VoiceSettings {
 impl Default for CCChanSettings {
     fn default() -> Self {
         Self {
-            ai_engine: default_ccchan_ai_engine(),
             default_pet_id: default_ccchan_pet_id(),
             auto_start: false,
-            sound_enabled: true,
             window_visible: false,
             window_x: None,
             window_y: None,
-            wander_enabled: false,
+            window_pos_physical: false,
             pet_size: default_ccchan_pet_size(),
+            active_bot_id: None,
         }
     }
 }
@@ -2149,7 +2147,7 @@ mod tests {
     #[test]
     fn ccchan_merge_missing_defaults_normalizes_pet_size_and_pet_id() {
         let mut settings = CCChanSettings::default();
-        assert!(!settings.wander_enabled);
+        assert!(settings.active_bot_id.is_none());
         assert_eq!(settings.pet_size, 120.0);
         assert_eq!(settings.default_pet_id, "homie");
 
@@ -2170,12 +2168,25 @@ mod tests {
 
     #[test]
     fn ccchan_settings_deserializes_legacy_config_without_new_fields() {
-        let settings: CCChanSettings =
-            serde_json::from_str(r#"{"aiEngine":"claude","defaultPetId":"doro.codex-pet"}"#)
-                .expect("legacy ccchan settings");
-        assert!(!settings.wander_enabled);
+        // 旧配置里已删除的字段（aiEngine / soundEnabled / wanderEnabled）必须被忽略，
+        // 而不是让整份设置反序列化失败。
+        let settings: CCChanSettings = serde_json::from_str(
+            r#"{"aiEngine":"codex","soundEnabled":false,"wanderEnabled":true,"defaultPetId":"doro.codex-pet","windowX":10.0,"windowY":20.0}"#,
+        )
+        .expect("legacy ccchan settings");
         assert_eq!(settings.pet_size, 120.0);
         assert_eq!(settings.default_pet_id, "doro.codex-pet");
+        assert!(!settings.window_pos_physical);
+        assert!(settings.active_bot_id.is_none());
+        let json = serde_json::to_value(&settings).unwrap();
+        assert!(json.get("aiEngine").is_none());
+        assert!(json.get("wanderEnabled").is_none());
+        let toml_settings: CCChanSettings =
+            toml::from_str("aiEngine = \"claude\"\nsoundEnabled = true\nactiveBotId = \" b1 \"\n")
+                .expect("legacy toml ccchan settings");
+        let mut toml_settings = toml_settings;
+        toml_settings.merge_missing_defaults();
+        assert_eq!(toml_settings.active_bot_id.as_deref(), Some("b1"));
     }
 
     #[test]

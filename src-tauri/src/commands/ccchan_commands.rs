@@ -1,17 +1,20 @@
-use crate::ccchan_service::{CCChanService, CCChanWindowMode, PetMeta};
+use crate::ccchan_service::{CCChanService, PetMeta, Rect};
 use crate::models::settings::CCChanSettings;
-use crate::services::TerminalService;
 use crate::utils::{AppError, AppResult};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State};
 use tracing::debug;
+
+fn service_of(app: &AppHandle) -> AppResult<Arc<CCChanService>> {
+    app.try_state::<Arc<CCChanService>>()
+        .map(|state| state.inner().clone())
+        .ok_or_else(|| AppError::from("CCChanService is not registered"))
+}
 
 #[tauri::command]
 pub async fn show_ccchan(app: AppHandle) -> AppResult<()> {
     debug!("cmd::show_ccchan");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
+    let service = service_of(&app)?;
     service.show_window(&app)?;
     service.set_window_visible(true)
 }
@@ -26,12 +29,11 @@ pub fn ccchan_window_ready(
     service.mark_window_ready(&app)
 }
 
+/// 隐藏 = 销毁宠物窗口并记住「不显示」；下次从状态栏 / 设置重新打开。
 #[tauri::command]
 pub async fn hide_ccchan(app: AppHandle) -> AppResult<()> {
     debug!("cmd::hide_ccchan");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
+    let service = service_of(&app)?;
     service.hide_window(&app)?;
     service.set_window_visible(false)
 }
@@ -50,155 +52,20 @@ pub fn focus_ccchan_main(app: AppHandle) -> AppResult<()> {
         .map_err(|e| AppError::from(e.to_string()))
 }
 
-fn resize_ccchan_window(window: &WebviewWindow, mode: CCChanWindowMode) -> AppResult<()> {
-    let service = window
-        .app_handle()
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.resize_window(window, mode).map(|_| ())
-}
-
+/// 宠物窗口上报可点击区域（窗口内 CSS 像素）；区域外的透明部分点击穿透。
 #[tauri::command]
-pub async fn set_ccchan_window_mode(
-    window: WebviewWindow,
-    mode: CCChanWindowMode,
-) -> AppResult<crate::ccchan_service::WindowSize> {
-    let service = window
-        .app_handle()
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.resize_window(&window, mode)
-}
-
-#[tauri::command]
-pub async fn resize_ccchan_for_chat(window: WebviewWindow, expanded: bool) -> AppResult<()> {
-    debug!(expanded, "cmd::resize_ccchan_for_chat");
-    let mode = if expanded {
-        CCChanWindowMode::Chat
-    } else {
-        CCChanWindowMode::Collapsed
-    };
-    resize_ccchan_window(&window, mode)
-}
-
-#[tauri::command]
-pub async fn resize_ccchan_for_menu(window: WebviewWindow, expanded: bool) -> AppResult<()> {
-    debug!(expanded, "cmd::resize_ccchan_for_menu");
-    let mode = if expanded {
-        CCChanWindowMode::Menu
-    } else {
-        CCChanWindowMode::Collapsed
-    };
-    resize_ccchan_window(&window, mode)
-}
-
-#[tauri::command]
-pub async fn resize_ccchan_for_bubble(window: WebviewWindow, expanded: bool) -> AppResult<()> {
-    debug!(expanded, "cmd::resize_ccchan_for_bubble");
-    let mode = if expanded {
-        CCChanWindowMode::Bubble
-    } else {
-        CCChanWindowMode::Collapsed
-    };
-    resize_ccchan_window(&window, mode)
-}
-
-#[tauri::command]
-pub async fn move_ccchan_window(
-    window: WebviewWindow,
-    x: f64,
-    y: f64,
-    persist: Option<bool>,
-) -> AppResult<()> {
-    debug!(x, y, persist, "cmd::move_ccchan_window");
-    let service = window
-        .app_handle()
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.move_window(&window, x, y, persist.unwrap_or(true))
-}
-
-#[tauri::command]
-pub async fn start_ccchan_chat(
-    app: AppHandle,
-    terminal_service: State<'_, Arc<TerminalService>>,
-    ai_engine: String,
-) -> AppResult<String> {
-    debug!(ai_engine = %ai_engine, "cmd::start_ccchan_chat");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?
-        .inner()
-        .clone();
-    let terminal_service = terminal_service.inner().clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        service.start_chat(terminal_service, ai_engine)
-    })
-    .await
-    .map_err(|error| AppError::from(error.to_string()))?;
-    result
-}
-
-#[tauri::command]
-pub async fn send_to_ccchan(
+pub fn set_ccchan_hit_regions(
     service: State<'_, Arc<CCChanService>>,
-    terminal_service: State<'_, Arc<TerminalService>>,
-    session_id: String,
-    text: String,
+    regions: Vec<Rect>,
 ) -> AppResult<()> {
-    debug!(session_id = %session_id, "cmd::send_to_ccchan");
-    let service = service.inner().clone();
-    let terminal_service = terminal_service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        service.send_to_chat(terminal_service, &session_id, &text)
-    })
-    .await
-    .map_err(|error| AppError::from(error.to_string()))?
-}
-
-#[tauri::command]
-pub async fn stop_ccchan_chat(
-    app: AppHandle,
-    terminal_service: State<'_, Arc<TerminalService>>,
-    session_id: String,
-) -> AppResult<()> {
-    debug!(session_id = %session_id, "cmd::stop_ccchan_chat");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?
-        .inner()
-        .clone();
-    let terminal_service = terminal_service.inner().clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        service.stop_chat(terminal_service, &session_id)
-    })
-    .await
-    .map_err(|error| AppError::from(error.to_string()))?;
-    result
-}
-
-#[tauri::command]
-pub fn is_ccchan_chat_session_alive(
-    app: AppHandle,
-    terminal_service: State<'_, Arc<TerminalService>>,
-    session_id: String,
-) -> AppResult<bool> {
-    debug!(session_id = %session_id, "cmd::is_ccchan_chat_session_alive");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?
-        .inner()
-        .clone();
-    service.is_chat_session_alive(terminal_service.inner().clone(), &session_id)
+    service.set_hit_regions(regions);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn get_ccchan_pets(app: AppHandle) -> AppResult<Vec<PetMeta>> {
     debug!("cmd::get_ccchan_pets");
-    let service = app
-        .try_state::<Arc<CCChanService>>()
-        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.get_pets(&app)
+    service_of(&app)?.get_pets(&app)
 }
 
 #[tauri::command]
@@ -215,23 +82,22 @@ pub async fn save_ccchan_settings(
     debug!("cmd::save_ccchan_settings");
     let previous = service.settings();
     service.save_settings(settings.clone())?;
-    if let Some(app) = service.app_handle() {
-        if settings.window_visible != previous.window_visible {
-            if settings.window_visible {
-                service.show_window(&app)?;
-            } else {
-                service.hide_window(&app)?;
-            }
+    let Some(app) = service.app_handle() else {
+        return Ok(());
+    };
+    if settings.window_visible != previous.window_visible {
+        if settings.window_visible {
+            service.show_window(&app)?;
+        } else {
+            service.hide_window(&app)?;
+        }
+    }
+    if let Some(window) = app.get_webview_window("ccchan") {
+        if settings.pet_size != previous.pet_size {
+            service.apply_window_size(&window)?;
         }
         if (settings.window_x, settings.window_y) != (previous.window_x, previous.window_y) {
-            if let Some(window) = app.get_webview_window("ccchan") {
-                service.move_window(
-                    &window,
-                    settings.window_x.unwrap_or(80.0),
-                    settings.window_y.unwrap_or(80.0),
-                    true,
-                )?;
-            }
+            service.reposition(&app)?;
         }
     }
     Ok(())
