@@ -959,7 +959,93 @@
     "busy": "正在回复…",
     "autoTag": "自动",
     "autoHint": "在对话里 @引擎 时自动创建的默认 Bot",
-    "tab": "联系人"
+    "tab": "联系人",
+    "mesh": {
+      "peersTitle": "其他电脑",
+      "pairedPeers": "已配对的电脑",
+      "noPeers": "还没有配对的电脑。",
+      "lastSeen": "最近在线 {{at}}",
+      "remove": "移除",
+      "removeConfirm": "移除电脑「{{name}}」？它的 Bot 不再出现在联系人里，令牌一并删除。",
+      "discovered": "附近 / tailnet 上的 CC-Panes",
+      "scan": "重新扫描",
+      "scanning": "扫描中…",
+      "discoveryState": "Tailscale：{{tailscale}} · 局域网：{{mdns}}",
+      "mdnsOk": "正常",
+      "notAdvertising": "本机未广播（需打开 Web 访问并允许其他设备连接）",
+      "tailscale": {
+        "running": "已连接",
+        "notInstalled": "未安装",
+        "stopped": "未连接",
+        "error": "读取失败"
+      },
+      "source": {
+        "lan": "局域网",
+        "tailscale": "Tailscale",
+        "manual": "手填"
+      },
+      "pairTitle": "用配对码连接",
+      "pairHint": "在对方电脑「设置 → Web 访问 → 其他设备」生成 6 位配对码，填在这里。点上方发现的电脑可自动填地址。",
+      "pairName": "显示名（可留空）",
+      "pairUrl": "地址",
+      "pairCode": "6 位配对码",
+      "pair": "配对",
+      "paired": "已配对",
+      "localGroup": "本机 Bot",
+      "otherComputers": "其他电脑",
+      "noSharedBots": "这台电脑没有共享的 Bot",
+      "deviceStatus": {
+        "online": "在线",
+        "offline": "离线",
+        "unauthorized": "令牌失效，需重新配对",
+        "unsupported": "版本过旧，不支持 Bot 组网",
+        "error": "出错"
+      },
+      "remotePolicyMenu": "远程权限…",
+      "policyTitle": "「{{name}}」的远程权限",
+      "policySaved": "远程权限已保存",
+      "shared": "允许其他设备找到并联系它",
+      "sharedHint": "已配对的电脑与手机能在通讯录里看到它、给它发消息。",
+      "policy": "远程权限",
+      "level": {
+        "deny": "拒绝一切操作",
+        "ask_origin": "问发起方",
+        "allowlist": "白名单自动放行",
+        "full": "最高权限（危险）"
+      },
+      "levelHint": {
+        "deny": "远程发来的消息可以聊天，但读写文件、执行命令等一律自动拒绝。",
+        "ask_origin": "每个操作都回传发起方（手机 / 发起的电脑）审批，本机桌面也可代批。默认。",
+        "allowlist": "勾选的操作类型自动放行，其余回传发起方审批。",
+        "full": "远程消息触发的回合，所有操作自动放行，不再询问。只对已配对设备生效。"
+      },
+      "kind": {
+        "read": "读文件",
+        "search": "搜索",
+        "fetch": "联网",
+        "edit": "改文件",
+        "execute": "执行命令",
+        "other": "其他"
+      },
+      "fullWarning": "最高权限等于把这台电脑的执行权交给所有已配对设备：它们发来的消息可以让 Bot 改文件、跑任何命令而不再询问。确认只在完全可信的设备之间使用；每次操作仍会记入运行日志。",
+      "fullConfirm": "把「{{name}}」的远程权限设为最高权限？已配对设备发来的消息将可以不经询问执行任何操作。",
+      "fullBadge": "远程权限：最高权限",
+      "fullShort": "全权",
+      "remoteHint": "消息经本机转给这台电脑上的 Bot。它的远程权限：{{policy}}。",
+      "message": "消息",
+      "messagePlaceholder": "写点什么… ⌘/Ctrl+Enter 发送",
+      "send": "发送",
+      "status": {
+        "queued": "排队中",
+        "running": "回复中…",
+        "waiting_permission": "等待审批",
+        "done": "已回复",
+        "failed": "失败"
+      },
+      "hops": "第 {{hops}} 跳",
+      "needsApproval": "对方 Bot 请求执行：{{title}}",
+      "waitingBanner": "{{device}} 上的 {{bot}} 在等你审批"
+    }
   },
   "sessionsTitle": "会话",
   "sessionFilterAll": "全部",

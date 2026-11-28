@@ -25,6 +25,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::commands::{ccpanes_mcp_servers, engine_spec, resolve_engine_launch};
+use crate::services::bot_mesh::RemotePolicy;
 use crate::services::{AcpChatEvent, AcpChatPhase, AcpChatService, AcpChatSnapshot};
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::AppPaths;
@@ -66,6 +67,15 @@ pub struct Bot {
     /// 当前长期线程。None = 下次启动开新线程。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp_session_id: Option<String>,
+    /// 是否对已配对的其他设备可见、可收远程消息（Bot 组网，docs/112 §5）。
+    #[serde(default = "default_true")]
+    pub remote_shared: bool,
+    /// 远程消息开启的回合用哪一档权限（默认 ask_origin）。
+    #[serde(default)]
+    pub remote_policy: RemotePolicy,
+    /// `allowlist` 档自动放行的 ACP ToolKind。
+    #[serde(default)]
+    pub remote_allow_kinds: Vec<String>,
     #[serde(default)]
     pub created_at: i64,
     #[serde(default)]
@@ -77,6 +87,10 @@ pub struct Bot {
     /// 桌宠形象（ccchan 皮肤 id）；None = 用桌宠设置里的默认角色。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pet_id: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// 列表视图：Bot 本体 + 运行态。
@@ -96,7 +110,11 @@ pub struct BotSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BotMessageOrigin {
     Im,
-    Chat { from_chat_id: String },
+    Chat {
+        from_chat_id: String,
+    },
+    /// 其他设备 / 其他 Bot 经组网送来（docs/112 §5）。界面靠 `user_prompt` 画气泡。
+    Remote,
 }
 
 impl BotMessageOrigin {
@@ -104,6 +122,17 @@ impl BotMessageOrigin {
         match self {
             Self::Im => "im",
             Self::Chat { .. } => "chat",
+            Self::Remote => "remote",
+        }
+    }
+
+    /// `user_prompt` 事件里的 origin（docs/112 §3.2）。`chat`（界面 `@Bot`）
+    /// 不是移动端来源，桌面的 `user_prompt` 处理器忽略它，气泡由 `external_prompt` 画。
+    pub fn as_prompt_origin(&self) -> &'static str {
+        match self {
+            Self::Im => "im",
+            Self::Chat { .. } => "chat",
+            Self::Remote => "device:unknown",
         }
     }
 
@@ -119,6 +148,17 @@ impl BotMessageOrigin {
         }
         payload
     }
+}
+
+/// 外部回合的附加选项（组网投递用）。
+#[derive(Debug, Clone, Default)]
+pub struct ExternalTurnOptions {
+    /// `user_prompt.origin`；None = 按 `BotMessageOrigin` 的默认值。
+    pub prompt_origin: Option<String>,
+    /// 本回合期间临时替换的自动放行集合（远程权限策略），回合结束恢复。
+    pub auto_approve_override: Option<Vec<String>>,
+    /// 本条公告的额外字段（来源设备 / Bot、traceId 等），进 `external_prompt` 载荷。
+    pub announce_extra: Option<Value>,
 }
 
 /// 桌宠形象 id：去空白，空串视为未设置。
@@ -534,7 +574,7 @@ impl BotService {
         })
         .await
         .map_err(|error| AppError::from(error.to_string()))??;
-        spec.mcp_servers = ccpanes_mcp_servers(&self.app_paths);
+        spec.mcp_servers = with_caller_chat(ccpanes_mcp_servers(&self.app_paths), &chat_id);
         spec.resume_acp_session_id = bot.acp_session_id.clone();
         spec.auto_approve_kinds = bot.auto_approve_kinds.clone();
         let requested = bot.acp_session_id.clone();
@@ -576,6 +616,21 @@ fn lock_in(
         .clone()
 }
 
+/// Bot 会话的 ccpanes MCP 地址带上 `acpChatId`：组网工具据此认出调用方是哪个 Bot，
+/// 把它正在服务的 traceId / hops 接力下去（docs/112 §5.4 防环）。
+fn with_caller_chat(mut servers: Vec<Value>, chat_id: &str) -> Vec<Value> {
+    for server in servers.iter_mut() {
+        if let Some(url) = server.get("url").and_then(Value::as_str) {
+            let sep = if url.contains('?') { '&' } else { '?' };
+            server["url"] = Value::String(format!(
+                "{url}{sep}acpChatId={}",
+                urlencoding::encode(chat_id)
+            ));
+        }
+    }
+    servers
+}
+
 fn normalized_cwd(cwd: Option<&str>) -> Option<&str> {
     cwd.map(str::trim).filter(|cwd| !cwd.is_empty())
 }
@@ -593,207 +648,5 @@ pub fn emit_changed(app: &AppHandle) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::time::Duration;
-
-    fn event(chat_id: &str, kind: &str, payload: Value) -> AcpChatEvent {
-        AcpChatEvent {
-            chat_id: chat_id.into(),
-            kind: kind.into(),
-            payload,
-        }
-    }
-
-    fn chunk(chat_id: &str, text: &str) -> AcpChatEvent {
-        event(
-            chat_id,
-            "update",
-            json!({"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}),
-        )
-    }
-
-    fn bot(name: &str, persona: &str) -> Bot {
-        Bot {
-            id: "b1".into(),
-            name: name.into(),
-            avatar: String::new(),
-            color: String::new(),
-            persona: persona.into(),
-            engine_id: "claude".into(),
-            cwd: None,
-            auto_approve_kinds: vec![],
-            acp_session_id: None,
-            created_at: 0,
-            updated_at: 0,
-            auto_created: false,
-            pet_id: None,
-        }
-    }
-
-    #[test]
-    fn reply_joins_main_agent_chunks_until_turn_end() {
-        let events = vec![
-            // 排队期间界面里那一轮的输出，以及别的 IM 消息的公告：都不算。
-            chunk("bot-a", "desktop turn"),
-            event("bot-a", "turn_ended", json!({"stopReason": "end_turn"})),
-            event(
-                "bot-a",
-                EXTERNAL_PROMPT_EVENT_KIND,
-                json!({"text": "x", "promptId": "p0"}),
-            ),
-            event(
-                "bot-a",
-                EXTERNAL_PROMPT_EVENT_KIND,
-                json!({"text": "hi", "promptId": "p1"}),
-            ),
-            chunk("bot-a", "Hel"),
-            chunk("bot-other", "noise"),
-            event(
-                "bot-a",
-                "update",
-                json!({"update": {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}}}),
-            ),
-            event(
-                "bot-a",
-                "update",
-                json!({"update": {"sessionUpdate": "agent_message_chunk", "_meta": {"claudeCode": {"parentToolUseId": "t1"}}, "content": {"type": "text", "text": "sub"}}}),
-            ),
-            chunk("bot-a", "lo "),
-            event("bot-a", "turn_ended", json!({"stopReason": "end_turn"})),
-            chunk("bot-a", "next turn"),
-        ];
-        assert_eq!(collect_reply_text("bot-a", "p1", events.iter()), "Hello");
-    }
-
-    #[test]
-    fn reply_empty_without_chunks() {
-        let events = [
-            event(
-                "bot-a",
-                EXTERNAL_PROMPT_EVENT_KIND,
-                json!({"promptId": "p"}),
-            ),
-            event("bot-a", "turn_ended", json!({})),
-        ];
-        assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
-        // 没见到本条公告（例如被拒绝）就什么都不收。
-        let events = [chunk("bot-a", "other turn")];
-        assert_eq!(collect_reply_text("bot-a", "p", events.iter()), "");
-    }
-
-    #[test]
-    fn engine_or_cwd_change_resets_the_thread() {
-        let base = bot("a", "");
-        let mut same = base.clone();
-        same.persona = "new persona".into();
-        same.cwd = Some("  ".into());
-        assert!(!thread_identity_changed(&base, &same));
-        let mut engine = base.clone();
-        engine.engine_id = "codex".into();
-        assert!(thread_identity_changed(&base, &engine));
-        let mut cwd = base.clone();
-        cwd.cwd = Some("/repo".into());
-        assert!(thread_identity_changed(&base, &cwd));
-        let mut trimmed = cwd.clone();
-        trimmed.cwd = Some(" /repo ".into());
-        assert!(!thread_identity_changed(&cwd, &trimmed));
-    }
-
-    #[test]
-    fn persona_markdown_falls_back_to_default() {
-        let md = persona_markdown(&bot("小助", "  "));
-        assert!(md.starts_with("# 小助"));
-        assert!(md.contains("乐于助人"));
-        let md = persona_markdown(&bot("Rev", "You review PRs."));
-        assert!(md.contains("You review PRs."));
-    }
-
-    #[test]
-    fn preamble_only_when_persona_present() {
-        assert!(persona_preamble(&bot("a", "")).is_none());
-        let text = persona_preamble(&bot("a", "be terse")).unwrap();
-        assert!(text.contains("be terse"));
-    }
-
-    #[test]
-    fn bot_ids_are_path_safe() {
-        assert!(valid_bot_id("8b0c-1_a"));
-        assert!(!valid_bot_id("../etc"));
-        assert!(!valid_bot_id(""));
-        assert_eq!(bot_chat_id("x"), "bot-x");
-    }
-
-    fn service() -> (tempfile::TempDir, BotService) {
-        let temp = tempfile::tempdir().unwrap();
-        let data = temp.path().to_string_lossy().into_owned();
-        let acp = Arc::new(AcpChatService::new(temp.path().join("agent-chats")));
-        let service = BotService::new(
-            temp.path().join("bots"),
-            acp,
-            Arc::new(AppPaths::new(Some(data))),
-        );
-        (temp, service)
-    }
-
-    /// IM 长回合持有的是队列锁；开新话题 / 删除只要生命周期锁，不被挡住。
-    #[tokio::test]
-    async fn long_im_turn_does_not_block_new_thread_or_delete() {
-        let (_temp, service) = service();
-        let mut b = bot("a", "");
-        b.id = "b1".into();
-        b.acp_session_id = Some("old-thread".into());
-        service.write(&b).unwrap();
-        let queue = service.queue_lock("b1");
-        let _turn = queue.lock().await;
-        let fresh = tokio::time::timeout(Duration::from_secs(5), service.new_thread("b1"))
-            .await
-            .expect("new_thread must not wait for the IM queue")
-            .unwrap();
-        assert!(fresh.acp_session_id.is_none());
-        tokio::time::timeout(Duration::from_secs(5), service.delete("b1"))
-            .await
-            .expect("delete must not wait for the IM queue")
-            .unwrap();
-        assert!(service.get("b1").is_err());
-    }
-
-    #[test]
-    fn bot_json_tolerates_missing_optional_fields() {
-        let parsed: Bot =
-            serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude"}"#).unwrap();
-        assert!(parsed.cwd.is_none());
-        assert!(parsed.auto_approve_kinds.is_empty());
-        assert!(!parsed.auto_created);
-        // 手建 Bot 不写 autoCreated，旧版本读到的文件形状不变。
-        let raw = serde_json::to_string(&parsed).unwrap();
-        assert!(!raw.contains("autoCreated"));
-        // 旧 bot.json 没有 petId：读进来为 None，写回也不多出这个键。
-        assert!(parsed.pet_id.is_none());
-        assert!(!raw.contains("petId"));
-        let with_pet: Bot =
-            serde_json::from_str(r#"{"id":"a","name":"n","engineId":"claude","petId":"homie"}"#)
-                .unwrap();
-        assert_eq!(with_pet.pet_id.as_deref(), Some("homie"));
-        assert_eq!(normalized_pet_id(Some("  ".into())), None);
-        assert_eq!(
-            normalized_pet_id(Some(" doro ".into())).as_deref(),
-            Some("doro")
-        );
-    }
-
-    #[test]
-    fn origin_payload_keeps_string_origin() {
-        let im = BotMessageOrigin::Im.announce_payload("hi", "p1");
-        assert_eq!(im["origin"], "im");
-        assert!(im.get("fromChatId").is_none());
-        let chat = BotMessageOrigin::Chat {
-            from_chat_id: "tab-1".into(),
-        }
-        .announce_payload("hi", "p2");
-        assert_eq!(chat["origin"], "chat");
-        assert_eq!(chat["fromChatId"], "tab-1");
-        assert_eq!(chat["promptId"], "p2");
-    }
-}
+#[path = "bot_service_tests.rs"]
+mod tests;

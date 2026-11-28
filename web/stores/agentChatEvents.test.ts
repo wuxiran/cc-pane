@@ -126,3 +126,36 @@ describe("external prompt event (bot via IM)", () => {
     expect(last).toMatchObject({ type: "user", text: "from phone", origin: "im" });
   });
 });
+
+describe("bot mesh delivery (docs/112 §5)", () => {
+  it("draws a remote message once whether external_prompt or user_prompt arrives first", () => {
+    const blocks = [{ type: "text", text: "from studio" }];
+    emit("external_prompt", { text: "from studio", origin: "remote", promptId: "mesh-1" });
+    emit("user_prompt", { promptId: "mesh-1", blocks, origin: "device:studio" });
+    emit("user_prompt", { promptId: "mesh-2", blocks: [{ type: "text", text: "bot to bot" }], origin: "bot:b2" });
+    emit("external_prompt", { text: "bot to bot", origin: "remote", promptId: "mesh-2" });
+    expect(messages()).toEqual(["question-a", "answer-a", "from studio", "bot to bot"]);
+    const items = useAgentChatStore.getState().chats[CHAT].items;
+    expect(items[items.length - 1]).not.toMatchObject({ origin: "im" });
+  });
+});
+
+describe("user_prompt event (docs/112 §3.2)", () => {
+  it("renders prompts from the phone once and skips desktop / IM origins", () => {
+    const blocks = [{ type: "text", text: "from iPhone" }];
+    emit("user_prompt", { promptId: "p-desktop", blocks: [{ type: "text", text: "local" }], origin: "desktop" });
+    emit("user_prompt", { promptId: "p-im", blocks: [{ type: "text", text: "via im" }], origin: "im" });
+    emit("user_prompt", { promptId: "p-phone", blocks, origin: "device:iPhone" });
+    emit("user_prompt", { promptId: "p-phone", blocks, origin: "device:iPhone" });
+    emit("user_prompt", { promptId: "p-web", blocks: [{ type: "text", text: "from web" }], origin: "mobile" });
+    emit("user_prompt", null);
+    expect(messages()).toEqual(["question-a", "answer-a", "from iPhone", "from web"]);
+  });
+
+  it("closes a question card when another device answers it", () => {
+    emit("elicitation_request", { requestKey: "q1", params: { mode: "form", message: "Question" } });
+    expect(useAgentChatStore.getState().chats[CHAT].pendingElicitations).toHaveLength(1);
+    emit("elicitation_resolved", { requestKey: "q1", action: "accept", by: "device:iPhone" });
+    expect(useAgentChatStore.getState().chats[CHAT].pendingElicitations).toEqual([]);
+  });
+});

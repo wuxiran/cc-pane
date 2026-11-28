@@ -111,9 +111,33 @@ pub enum PairingOutcome {
         record: DeviceTokenRecord,
         token: String,
     },
-    /// 没有进行中的配对、已过期，或码不对
-    Rejected,
+    /// 兑换失败（原因见 [`PairingRejection`]）
+    Rejected(PairingRejection),
 }
+
+/// 配对码兑换失败的原因（web 据此回 `PAIR_CODE_*` 错误码）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairingRejection {
+    /// 码不对，还有尝试机会
+    Invalid,
+    /// 没有进行中的配对，或已过期
+    Expired,
+    /// 尝试次数用尽（本次失败耗尽了最后一次，配对码随即作废）
+    TooManyAttempts,
+}
+
+impl PairingRejection {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Invalid => "PAIR_CODE_INVALID",
+            Self::Expired => "PAIR_CODE_EXPIRED",
+            Self::TooManyAttempts => "PAIR_TOO_MANY_ATTEMPTS",
+        }
+    }
+}
+
+/// 本机实例的稳定标识文件（数据目录内）。dev / release 数据目录不同，id 也不同。
+pub const INSTANCE_ID_FILE: &str = "instance-id";
 
 #[derive(Default)]
 struct Cache {
@@ -147,6 +171,31 @@ impl DeviceTokenService {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 本机实例的稳定 id（首次调用时生成并写入 `<data>/instance-id`）。
+    /// 手机据此把经局域网 / Tailscale 等不同地址连到的同一台电脑归并。
+    pub fn instance_id(&self) -> Option<String> {
+        let path = self.path.parent()?.join(INSTANCE_ID_FILE);
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            let existing = existing.trim();
+            if !existing.is_empty() {
+                return Some(existing.to_string());
+            }
+        }
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            if !existing.trim().is_empty() {
+                return Some(existing.trim().to_string());
+            }
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        std::fs::write(&path, &id).ok()?;
+        Some(id)
     }
 
     pub fn list(&self) -> Vec<DeviceTokenRecord> {
@@ -237,20 +286,27 @@ impl DeviceTokenService {
             .unwrap_or_else(|err| err.into_inner());
         let mut file = self.read_file()?;
         let Some(mut pairing) = file.pairing.take() else {
-            return Ok(PairingOutcome::Rejected);
+            return Ok(PairingOutcome::Rejected(PairingRejection::Expired));
         };
-        if pairing.expires_at <= chrono::Utc::now() || pairing.attempts_left == 0 {
+        if pairing.attempts_left == 0 {
             self.write_file(&file)?;
-            return Ok(PairingOutcome::Rejected);
+            return Ok(PairingOutcome::Rejected(PairingRejection::TooManyAttempts));
+        }
+        if pairing.expires_at <= chrono::Utc::now() {
+            self.write_file(&file)?;
+            return Ok(PairingOutcome::Rejected(PairingRejection::Expired));
         }
         let digest = sha256_hex(code.trim());
         if !constant_time_eq(pairing.code_sha256.as_bytes(), digest.as_bytes()) {
             pairing.attempts_left -= 1;
-            if pairing.attempts_left > 0 {
+            let reason = if pairing.attempts_left > 0 {
                 file.pairing = Some(pairing);
-            }
+                PairingRejection::Invalid
+            } else {
+                PairingRejection::TooManyAttempts
+            };
             self.write_file(&file)?;
-            return Ok(PairingOutcome::Rejected);
+            return Ok(PairingOutcome::Rejected(reason));
         }
         let (record, token) = new_record(device_name, pairing.token_ttl_days);
         file.tokens.push(record.clone());
@@ -535,7 +591,7 @@ mod tests {
         let service = temp_service("pairing");
         assert!(matches!(
             service.redeem_pairing_code("123456", "x").expect("redeem"),
-            PairingOutcome::Rejected
+            PairingOutcome::Rejected(PairingRejection::Expired)
         ));
 
         let (code, _) = service.create_pairing_code().expect("code");
@@ -544,7 +600,7 @@ mod tests {
         let wrong = if code == "000000" { "111111" } else { "000000" };
         assert!(matches!(
             service.redeem_pairing_code(wrong, "x").expect("redeem"),
-            PairingOutcome::Rejected
+            PairingOutcome::Rejected(PairingRejection::Invalid)
         ));
         let PairingOutcome::Paired { record, token } = service
             .redeem_pairing_code(&code, "laptop")
@@ -558,22 +614,38 @@ mod tests {
         assert!(!service.pairing_active());
         assert!(matches!(
             service.redeem_pairing_code(&code, "again").expect("redeem"),
-            PairingOutcome::Rejected
+            PairingOutcome::Rejected(PairingRejection::Expired)
         ));
 
         // 错 5 次作废，正确码也不再可用
         let (code, _) = service.create_pairing_code().expect("code");
         let wrong = if code == "000000" { "111111" } else { "000000" };
-        for _ in 0..PAIRING_MAX_ATTEMPTS {
-            service.redeem_pairing_code(wrong, "x").expect("redeem");
+        for attempt in 1..=PAIRING_MAX_ATTEMPTS {
+            let outcome = service.redeem_pairing_code(wrong, "x").expect("redeem");
+            let expected = if attempt == PAIRING_MAX_ATTEMPTS {
+                PairingRejection::TooManyAttempts
+            } else {
+                PairingRejection::Invalid
+            };
+            assert!(matches!(outcome, PairingOutcome::Rejected(reason) if reason == expected));
         }
         assert!(!service.pairing_active());
         assert!(matches!(
             service.redeem_pairing_code(&code, "x").expect("redeem"),
-            PairingOutcome::Rejected
+            PairingOutcome::Rejected(PairingRejection::Expired)
         ));
         // 令牌没有被配对码逻辑冲掉
         assert!(service.verify(&token).is_some());
+    }
+
+    #[test]
+    fn instance_id_is_generated_once_and_stable() {
+        let service = temp_service("instance-id");
+        let first = service.instance_id().expect("id");
+        assert!(!first.is_empty());
+        assert_eq!(service.instance_id().as_deref(), Some(first.as_str()));
+        let again = DeviceTokenService::new(service.path().to_path_buf());
+        assert_eq!(again.instance_id(), Some(first));
     }
 
     #[test]

@@ -731,7 +731,12 @@ pub async fn device_pair(
         .map_err(|error| AppError::from(format!("Cannot reach {base_url}: {error}")))?;
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let raw = response.text().await.unwrap_or_default();
+        // 新版回 `{code,message}`，老版本是纯文本。
+        let body = serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|json| json.get("message")?.as_str().map(str::to_string))
+            .unwrap_or(raw);
         return Err(AppError::from(match status.as_u16() {
             401 => "Pairing code is wrong or has expired".to_string(),
             403 => format!("The other computer refused the connection: {body}"),

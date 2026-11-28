@@ -1414,6 +1414,8 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "gh_ci_rerun",
     "gh_issue_list",
     "gh_issue_view",
+    "list_contacts",
+    "message_contact",
     "open_browser_tab",
     "browser_list_tabs",
     "browser_navigate",

@@ -24,6 +24,7 @@ pub fn start_web_access(
     web_access: State<'_, Arc<WebAccessLifecycle>>,
 ) -> AppResult<WebAccessStatus> {
     debug!("cmd::start_web_access");
+    crate::commands::sync_mesh_advertisement(&app);
     let all_settings = settings_service.get_settings();
     let resource_dir = app.path().resource_dir().ok();
     web_access.start(
@@ -42,6 +43,7 @@ pub fn restart_web_access(
     web_access: State<'_, Arc<WebAccessLifecycle>>,
 ) -> AppResult<WebAccessStatus> {
     debug!("cmd::restart_web_access");
+    crate::commands::sync_mesh_advertisement(&app);
     let all_settings = settings_service.get_settings();
     let resource_dir = app.path().resource_dir().ok();
     web_access.restart(
@@ -54,11 +56,13 @@ pub fn restart_web_access(
 
 #[tauri::command]
 pub fn stop_web_access(
+    app: AppHandle,
     settings_service: State<'_, Arc<SettingsService>>,
     web_access: State<'_, Arc<WebAccessLifecycle>>,
 ) -> AppResult<WebAccessStatus> {
     debug!("cmd::stop_web_access");
     web_access.stop();
+    crate::commands::sync_mesh_advertisement(&app);
     let settings = settings_service.get_settings().web_access;
     Ok(web_access.status(&settings))
 }

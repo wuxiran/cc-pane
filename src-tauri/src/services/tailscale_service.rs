@@ -59,7 +59,7 @@ pub fn detect_tailscale() -> TailscaleStatus {
 
 /// GUI 应用的 PATH 往往不含 tailscale（macOS 从 Finder 启动、Windows 安装目录）：
 /// PATH 找不到时回落到各平台的默认安装位置。
-fn tailscale_binary() -> PathBuf {
+pub(crate) fn tailscale_binary() -> PathBuf {
     if let Ok(path) = which::which("tailscale") {
         return path;
     }

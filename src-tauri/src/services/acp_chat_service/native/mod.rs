@@ -56,7 +56,9 @@ impl AcpChatService {
     ) -> AppResult<AcpChatSnapshot> {
         let tap = self.event_tap();
         let sink: EventSink = Arc::new(move |event| {
-            tap.send(&event);
+            if !tap.send(&event) {
+                return;
+            }
             if crate::webview_reliability::webview_emits_allowed() {
                 if let Err(error) = app.emit(ACP_CHAT_EVENT, event) {
                     tracing::debug!(%error, "Native Agent event delivery failed");
@@ -74,6 +76,13 @@ impl AcpChatService {
         sink: EventSink,
     ) -> AppResult<AcpChatSnapshot> {
         let _lifecycle = self.lock_chat_lifecycle(chat_id).await;
+        // 与生产路径同形：先过旁路（事件环），再交给测试 sink。
+        let tap = self.event_tap();
+        let sink: EventSink = Arc::new(move |event| {
+            if tap.send(&event) {
+                sink(event);
+            }
+        });
         self.start_native_inner(chat_id, spec, sink).await
     }
 
@@ -207,6 +216,9 @@ impl Session {
 
     pub(super) async fn snapshot(&self) -> AcpChatSnapshot {
         self.snapshot.read().await.clone()
+    }
+    pub(super) fn cwd(&self) -> &Path {
+        &self.cwd
     }
     async fn thread_id(&self) -> AppResult<String> {
         self.snapshot

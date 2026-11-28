@@ -42,12 +42,34 @@ export interface AcpConfigOptionChoice {
 /** ACP `configOptions[]` 条目（当前只有 `select` 类型；其他类型原样保留不渲染）。 */
 export interface AcpConfigOption {
   configId: string;
+  /** claude-agent-acp 实测用 `id` 而非规范的 `configId`；读取一律经 {@link normalizeAcpConfigOptions}。 */
+  id?: string;
   name?: string;
   description?: string;
   category?: AcpConfigOptionCategory;
   type?: "select" | string;
   currentValue?: unknown;
   options?: AcpConfigOptionChoice[];
+}
+
+/** 只带 `id` 的配置项补上 `configId`（`configId` 优先）；不改入参。 */
+export function normalizeAcpConfigOptions(options: AcpConfigOption[] | undefined): AcpConfigOption[] | undefined {
+  if (!Array.isArray(options)) return options;
+  let changed = false;
+  const next = options.map((option) => {
+    if (!option || typeof option !== "object") return option;
+    if (typeof option.configId === "string" && option.configId) return option;
+    if (typeof option.id !== "string" || !option.id) return option;
+    changed = true;
+    return { ...option, configId: option.id };
+  });
+  return changed ? next : options;
+}
+
+/** 快照里的 configOptions 统一成带 `configId` 的形状。 */
+export function normalizeAcpSnapshot<T extends { configOptions?: AcpConfigOption[] }>(snapshot: T): T {
+  const configOptions = normalizeAcpConfigOptions(snapshot.configOptions);
+  return configOptions === snapshot.configOptions ? snapshot : { ...snapshot, configOptions };
 }
 
 /** Rust AcpChatSnapshot 的镜像。 */

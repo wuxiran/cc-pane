@@ -37,6 +37,7 @@ urlencoding = "2"
 encoding_rs = "0.8"
 chrono = "0.4"
 rand = "0.8"
+reqwest = { version = "0.13", default-features = false }
 sysinfo = "0.33"
 
 [target.'cfg(windows)'.dependencies]

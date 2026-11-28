@@ -20,7 +20,7 @@ impl Session {
         let thread = self.thread_id().await?;
         let receiver = self.begin_run(&thread, &blocks).await?;
         let params = self.turn_params(&thread, input).await?;
-        if let Some(announce) = admission.take_announcement() {
+        for announce in admission.take_events() {
             self.emit_live(&announce.kind, announce.payload);
         }
         admission.commit();

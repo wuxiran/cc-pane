@@ -45,6 +45,10 @@ impl BotService {
             cwd: cwd.map(str::to_string),
             auto_approve_kinds: Vec::new(),
             acp_session_id: None,
+            // 自动建的 Bot 默认不进其他设备的通讯录，需要时用户手动开共享。
+            remote_shared: false,
+            remote_policy: Default::default(),
+            remote_allow_kinds: Vec::new(),
             created_at: 0,
             updated_at: 0,
             auto_created: true,
@@ -96,6 +100,10 @@ mod tests {
             .await
             .unwrap();
         assert!(first.auto_created);
+        assert!(
+            !first.remote_shared,
+            "auto-created bots are private by default"
+        );
         assert_eq!(first.cwd.as_deref(), Some(repo.as_str()));
         let again = service
             .ensure_engine_bot("claude", Some(&format!(" {repo} ")))

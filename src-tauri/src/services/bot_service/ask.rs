@@ -18,9 +18,11 @@ use tokio::time::Instant;
 
 use super::{
     bot_chat_id, collect_reply_text, is_own_external_prompt, BotMessageOrigin, BotService,
-    EXTERNAL_PROMPT_EVENT_KIND,
+    ExternalTurnOptions, EXTERNAL_PROMPT_EVENT_KIND,
 };
-use crate::services::{AcpChatEvent, AcpChatPhase, ChatEventStream, PromptAnnouncement};
+use crate::services::{
+    AcpChatEvent, AcpChatPhase, ChatEventStream, PromptAnnouncement, UserPrompt,
+};
 use crate::utils::{AppError, AppResult};
 
 /// 外部消息最多等多久前一轮（界面里手动发起的）结束。
@@ -138,6 +140,15 @@ fn valid_ask_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// 一轮外部提交要发出的内容（重试占回合时原样复用）。
+struct TurnRequest<'a> {
+    prompt_id: &'a str,
+    blocks: Vec<Value>,
+    announce: PromptAnnouncement,
+    user: UserPrompt,
+    auto_approve_override: Option<&'a [String]>,
+}
+
 /// 本条消息这一轮的事件：先订阅再提交，整轮一个不丢；也用来判断本条是否已被接下。
 struct TurnTap {
     events: ChatEventStream,
@@ -172,8 +183,29 @@ impl BotService {
         text: &str,
         origin: BotMessageOrigin,
     ) -> AppResult<String> {
+        self.submit_external_with(
+            app,
+            bot_id,
+            prompt_id,
+            text,
+            origin,
+            ExternalTurnOptions::default(),
+        )
+        .await
+    }
+
+    /// [`Self::submit_external`] + 组网选项（来源、临时权限策略、公告附加字段）。
+    pub async fn submit_external_with(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        bot_id: &str,
+        prompt_id: &str,
+        text: &str,
+        origin: BotMessageOrigin,
+        options: ExternalTurnOptions,
+    ) -> AppResult<String> {
         let turn = self
-            .submit_turn(app, bot_id, prompt_id, text, origin, None)
+            .submit_turn(app, bot_id, prompt_id, text, origin, options, None)
             .await?;
         if turn.reply.is_empty() && turn.stop_reason == "cancelled" {
             return Ok("（已取消）".to_string());
@@ -208,7 +240,15 @@ impl BotService {
             from_chat_id: from_chat_id.to_string(),
         };
         let turn = self
-            .submit_turn(app, bot_id, ask_id, text, origin, Some(cancel))
+            .submit_turn(
+                app,
+                bot_id,
+                ask_id,
+                text,
+                origin,
+                ExternalTurnOptions::default(),
+                Some(cancel),
+            )
             .await?;
         Ok(BotAskReply {
             text: turn.reply,
@@ -221,6 +261,7 @@ impl BotService {
         self.asks.cancel(ask_id.trim())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn submit_turn(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -228,6 +269,7 @@ impl BotService {
         prompt_id: &str,
         text: &str,
         origin: BotMessageOrigin,
+        options: ExternalTurnOptions,
         mut cancel: CancelRx,
     ) -> AppResult<ExternalTurn> {
         let text = text.trim();
@@ -252,13 +294,29 @@ impl BotService {
             events: self.acp.subscribe_chat(&chat_id),
             seen: Vec::new(),
         };
+        let mut payload = origin.announce_payload(text, prompt_id);
+        if let Some(Value::Object(extra)) = options.announce_extra {
+            for (key, value) in extra {
+                payload[key] = value;
+            }
+        }
         let announce = PromptAnnouncement {
             kind: EXTERNAL_PROMPT_EVENT_KIND.to_string(),
-            payload: origin.announce_payload(text, prompt_id),
+            payload,
         };
-        let blocks = vec![json!({"type": "text", "text": text})];
+        // 同一条 prompt 也以 `user_prompt` 进事件环（docs/112 §3），手机 / 桌面据此对齐。
+        let prompt_origin = options
+            .prompt_origin
+            .unwrap_or_else(|| origin.as_prompt_origin().to_string());
+        let turn = TurnRequest {
+            prompt_id,
+            blocks: vec![json!({"type": "text", "text": text})],
+            announce,
+            user: UserPrompt::new(Some(prompt_id.to_string()), prompt_origin),
+            auto_approve_override: options.auto_approve_override.as_deref(),
+        };
         let stop_reason = self
-            .run_external_turn(&chat_id, prompt_id, blocks, announce, &mut tap, &mut cancel)
+            .run_external_turn(&chat_id, &turn, &mut tap, &mut cancel)
             .await?;
         tap.drain();
         let reply = collect_reply_text(&chat_id, prompt_id, tap.seen.iter());
@@ -270,9 +328,7 @@ impl BotService {
     async fn run_external_turn(
         self: &Arc<Self>,
         chat_id: &str,
-        prompt_id: &str,
-        blocks: Vec<Value>,
-        announce: PromptAnnouncement,
+        turn: &TurnRequest<'_>,
         tap: &mut TurnTap,
         cancel: &mut CancelRx,
     ) -> AppResult<String> {
@@ -280,16 +336,15 @@ impl BotService {
         loop {
             match self.chat_phase(chat_id).await {
                 Some(AcpChatPhase::Ready) => {
-                    let attempt = self
-                        .drive_turn(
-                            chat_id,
-                            prompt_id,
-                            blocks.clone(),
-                            announce.clone(),
-                            tap,
-                            cancel,
-                        )
-                        .await;
+                    // 远程策略只罩住本回合：占回合前换上，结束（或没占到）就换回。
+                    let restore = match turn.auto_approve_override {
+                        Some(kinds) => Some(self.swap_auto_approve(chat_id, kinds).await?),
+                        None => None,
+                    };
+                    let attempt = self.drive_turn(chat_id, turn, tap, cancel).await;
+                    if let Some(previous) = restore {
+                        let _ = self.acp.set_auto_approve(chat_id, previous).await;
+                    }
                     match attempt {
                         Err(error) if error.code() == Some("ACP_TURN_IN_PROGRESS") => {}
                         other => return other,
@@ -323,15 +378,17 @@ impl BotService {
     async fn drive_turn(
         self: &Arc<Self>,
         chat_id: &str,
-        prompt_id: &str,
-        blocks: Vec<Value>,
-        announce: PromptAnnouncement,
+        request: &TurnRequest<'_>,
         tap: &mut TurnTap,
         cancel: &mut CancelRx,
     ) -> AppResult<String> {
-        let turn = self
-            .acp
-            .prompt_and_wait_announced(chat_id, blocks, Some(announce));
+        let prompt_id = request.prompt_id;
+        let turn = self.acp.prompt_and_wait_from(
+            chat_id,
+            request.blocks.clone(),
+            Some(request.announce.clone()),
+            request.user.clone(),
+        );
         tokio::pin!(turn);
         let turn_deadline = Instant::now() + TURN_TIMEOUT;
         let mut cancel_wanted = is_cancelled(cancel);
@@ -361,6 +418,18 @@ impl BotService {
                 _ = tokio::time::sleep(CANCEL_POLL), if cancel_wanted && !cancel_sent => {}
             }
         }
+    }
+
+    /// 换上新的自动放行集合，返回原来的（供回合结束后恢复）。
+    async fn swap_auto_approve(&self, chat_id: &str, kinds: &[String]) -> AppResult<Vec<String>> {
+        let previous = self
+            .acp
+            .snapshot(chat_id)
+            .await
+            .map(|snapshot| snapshot.auto_approve_kinds)
+            .unwrap_or_default();
+        self.acp.set_auto_approve(chat_id, kinds.to_vec()).await?;
+        Ok(previous)
     }
 }
 

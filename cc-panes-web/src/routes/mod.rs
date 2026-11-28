@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod agent_sessions;
 pub mod device;
 pub mod drama;
@@ -9,8 +10,10 @@ pub mod launch_profiles;
 pub mod local_history;
 pub mod mcp;
 pub mod memory;
+pub mod mesh;
 pub mod plans;
 pub mod process;
+pub mod provider_export;
 pub mod quick_commands;
 pub mod resources;
 pub mod runner;
@@ -32,7 +35,7 @@ mod delivery_tests;
 
 use axum::{
     middleware,
-    routing::{delete, get, patch, post, put},
+    routing::{any, delete, get, patch, post, put},
     Router,
 };
 
@@ -697,6 +700,8 @@ pub fn build_router(state: AppState) -> Router {
             "/api/projects/{id}/alias",
             patch(resources::update_project_alias),
         )
+        // 导出到手机（docs/112 §6）：仅设备令牌 + 一次性导出码
+        .route("/api/providers/export", post(provider_export::redeem))
         .route("/api/providers", get(resources::list_providers))
         .route("/api/providers", post(resources::add_provider))
         .route(
@@ -867,7 +872,17 @@ pub fn build_router(state: AppState) -> Router {
             post(workflow::reconcile_plan_collaboration),
         );
 
-    let ws = Router::new().route("/ws/{session_id}", get(ws_upgrade));
+    // ACP 移动桥（docs/112 §3）：鉴权与只读守卫同其他 /api/*，之后原样转给桌面 app。
+    let api = api.route("/api/acp/{*rest}", any(acp::proxy_rest));
+    // Bot 组网（docs/112 §5）：同上，原样转给桌面 app 的 /mesh/*。
+    let api = api
+        .route("/api/bots", get(mesh::bots_root))
+        .route("/api/bots/{*rest}", any(mesh::bots_rest))
+        .route("/api/contacts", get(mesh::contacts_root))
+        .route("/api/contacts/{*rest}", any(mesh::contacts_rest));
+    let ws = Router::new()
+        .route("/ws/{session_id}", get(ws_upgrade))
+        .route("/ws/acp/{chat_id}", get(acp::ws_upgrade));
     // 免鉴权的存活探针：远程部署等待服务起来、设备视图区分"没在跑"和"令牌无效"。
     let auth = Router::new()
         .route(

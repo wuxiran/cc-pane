@@ -15,6 +15,7 @@ import {
 import ProviderCard, { type SystemProbeInfo } from "./ProviderCard";
 import { useChannelPurityStore } from "@/stores/useChannelPurityStore";
 import ProviderFormPanel from "./ProviderFormPanel";
+import ProviderExportAction from "./ProviderExportAction";
 import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
@@ -410,15 +411,18 @@ export default function ProvidersPanel({ compact, view: fixedTopView, initialVie
       onBack={!fixedTopView && activeTopView === "providers" ? () => handleTopViewChange("profiles") : undefined}
       showToolSelect={activeTopView !== "profiles" || Boolean(compact)}
       actions={activeTopView === "providers" ? (
-        <Button
-          variant="outline"
-          size={compact ? "xs" : "sm"}
-          disabled={importingCcSwitch}
-          onClick={() => void handleImportCcSwitch()}
-        >
-          <Download size={14} />
-          {t("importFromCcSwitch")}
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size={compact ? "xs" : "sm"}
+            disabled={importingCcSwitch}
+            onClick={() => void handleImportCcSwitch()}
+          >
+            <Download size={14} />
+            {t("importFromCcSwitch")}
+          </Button>
+          <ProviderExportAction compact={compact} />
+        </>
       ) : undefined}
     />
   );

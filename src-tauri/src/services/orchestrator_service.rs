@@ -15,6 +15,8 @@ mod create_worktree;
 mod dispatch_retry;
 #[path = "orchestrator_service/github_tools.rs"]
 mod github_tools;
+#[path = "orchestrator_service/mesh_tools.rs"]
+mod mesh_tools;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
 mod open_terminal_tab;
 #[path = "orchestrator_service/pending_approval.rs"]
@@ -32,6 +34,7 @@ use github_tools::{
     McpGhCiLogsParams, McpGhCiRerunParams, McpGhIssueListParams, McpGhIssueViewParams,
     McpGhPrCreateParams, McpGhPrMergeParams, McpGhProjectParams,
 };
+use mesh_tools::{McpListContactsParams, McpMessageContactParams};
 #[path = "orchestrator_service/workflow_tools.rs"]
 mod workflow_tools;
 use open_terminal_tab::McpOpenTerminalTabParams;
@@ -2760,6 +2763,36 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
         .nest_service(
             "/api/heavy-jobs",
             crate::services::heavy_job_routes::router(heavy_jobs),
+        )
+        // ACP 移动桥（docs/112 §3）：独立小路由，自带 Bearer 校验；cc-panes-web 反向代理到这里
+        .nest_service(
+            "/acp",
+            crate::services::acp_bridge_routes::router(
+                crate::services::acp_bridge_routes::AcpBridgeState::new(
+                    state.token.clone(),
+                    state.app_handle.clone(),
+                ),
+            ),
+        )
+        // Bot 组网（docs/112 §5）：同上，独立小路由 + Bearer；web 的 /api/bots*、/api/contacts* 代理到这里
+        .nest_service(
+            "/mesh",
+            crate::services::bot_mesh::routes::router(
+                crate::services::bot_mesh::routes::MeshRouteState::new(
+                    state.token.clone(),
+                    state.app_handle.clone(),
+                ),
+            ),
+        )
+        // 「导出到手机」（docs/112 §6）：web 的 POST /api/providers/export 核实设备令牌后转发到这里
+        .nest_service(
+            "/provider-export",
+            crate::services::provider_export_routes::router(
+                crate::services::provider_export_routes::ProviderExportRouteState::new(
+                    state.token.clone(),
+                    state.app_handle.clone(),
+                ),
+            ),
         )
         .nest_service("/mcp", mcp_service)
         .nest_service("/mcp-full", mcp_full_service)
@@ -8190,6 +8223,25 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpCheckSshMachineParams>,
     ) -> String {
         self.check_ssh_machine_impl(params).await
+    }
+
+    /// Bot 通讯录：本机 Bot + 各已配对电脑上共享的 Bot（按电脑分组，含在线状态 / deviceId / 远程权限档）。
+    /// 给其中某个 Bot 发消息用 message_contact。
+    #[tool]
+    async fn list_contacts(&self, Parameters(params): Parameters<McpListContactsParams>) -> String {
+        self.list_contacts_impl(params).await
+    }
+
+    /// 给通讯录里的 Bot（本机或其他电脑）发一条消息，默认等它回复（status=done 时 reply 为回复正文）。
+    /// device 省略 = 本机；status=waiting_permission 表示对方 Bot 在等审批（由发起方电脑上的人处理）。
+    /// 转发链最多 3 跳，同一条对话回到已经过的 Bot 会被拒绝（MESH_LOOP_DETECTED）。
+    #[tool]
+    async fn message_contact(
+        &self,
+        Parameters(params): Parameters<McpMessageContactParams>,
+        extensions: Extensions,
+    ) -> String {
+        self.message_contact_impl(params, extensions).await
     }
 
     /// 当前分支的 PR：状态、review 结论、CI checks 摘要。pr=null 表示没有 PR。

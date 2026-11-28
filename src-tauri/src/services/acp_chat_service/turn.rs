@@ -39,7 +39,7 @@ impl AcpChatService {
             self.note_chat_title(&acp_session_id, &text);
         }
         session.emit_state().await;
-        if let Some(announce) = admission.take_announcement() {
+        for announce in admission.take_events() {
             session.emit_live(&announce.kind, announce.payload);
         }
         let response = session

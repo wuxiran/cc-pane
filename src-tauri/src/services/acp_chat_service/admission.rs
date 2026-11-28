@@ -12,6 +12,30 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
+/// 这条 prompt 的身份与来源，接纳时以 `user_prompt` 事件进事件环（docs/112 §3.2）。
+/// origin：`desktop` / `mobile` / `device:<name>` / `im` / `bot:<id>`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserPrompt {
+    pub prompt_id: String,
+    pub origin: String,
+}
+
+impl UserPrompt {
+    pub fn new(prompt_id: Option<String>, origin: impl Into<String>) -> Self {
+        Self {
+            // 客户端给的 promptId 原样保留（iOS 按它抵消本地回显），空白才代为生成。
+            prompt_id: prompt_id
+                .filter(|id| !id.trim().is_empty())
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            origin: origin.into(),
+        }
+    }
+
+    pub fn desktop() -> Self {
+        Self::new(None, "desktop")
+    }
+}
+
 /// 外部提交在被接纳时广播的事件（仅实时，不进 journal）。
 #[derive(Debug, Clone)]
 pub struct PromptAnnouncement {
@@ -84,6 +108,9 @@ pub(crate) struct Admission {
     preambles: Arc<Preambles>,
     chat_id: String,
     announce: Option<PromptAnnouncement>,
+    user: Option<UserPrompt>,
+    /// 并入前言之前的用户原文（`user_prompt` 载荷不含隐藏前言）。
+    original: Option<Vec<Value>>,
     taken: Option<String>,
 }
 
@@ -92,26 +119,44 @@ impl Admission {
         preambles: Arc<Preambles>,
         chat_id: &str,
         announce: Option<PromptAnnouncement>,
+        user: Option<UserPrompt>,
     ) -> Self {
         Self {
             preambles,
             chat_id: chat_id.trim().to_string(),
             announce,
+            user,
+            original: None,
             taken: None,
         }
     }
 
     /// 已占到回合之后调用。
     pub(crate) fn apply(&mut self, blocks: &mut Vec<Value>) {
+        if self.user.is_some() {
+            self.original = Some(blocks.clone());
+        }
         if let Some(preamble) = self.preambles.take(&self.chat_id) {
             prepend_preamble(&preamble, blocks);
             self.taken = Some(preamble);
         }
     }
 
-    /// 取走公告（请求发出前广播）。
-    pub(crate) fn take_announcement(&mut self) -> Option<PromptAnnouncement> {
-        self.announce.take()
+    /// 取走接纳事件（请求发出前按序广播）：先 `user_prompt`，再外部公告。
+    pub(crate) fn take_events(&mut self) -> Vec<PromptAnnouncement> {
+        let mut events = Vec::with_capacity(2);
+        if let Some(user) = self.user.take() {
+            events.push(PromptAnnouncement {
+                kind: super::event_log::USER_PROMPT_KIND.to_string(),
+                payload: json!({
+                    "promptId": user.prompt_id,
+                    "blocks": self.original.take().unwrap_or_default(),
+                    "origin": user.origin,
+                }),
+            });
+        }
+        events.extend(self.announce.take());
+        events
     }
 
     /// prompt 已交给 agent：前言正式用掉。
@@ -156,7 +201,7 @@ mod tests {
         let store = Arc::new(Preambles::default());
         store.set("c", Some("persona".into()));
         {
-            let mut admission = Admission::new(store.clone(), "c", None);
+            let mut admission = Admission::new(store.clone(), "c", None, None);
             let mut blocks = vec![json!({"type": "text", "text": "hi"})];
             admission.apply(&mut blocks);
             assert!(blocks[0]["text"].as_str().unwrap().starts_with("persona"));
@@ -170,7 +215,7 @@ mod tests {
     fn committed_admission_consumes_the_preamble() {
         let store = Arc::new(Preambles::default());
         store.set("c", Some("persona".into()));
-        let mut admission = Admission::new(store.clone(), "c", None);
+        let mut admission = Admission::new(store.clone(), "c", None, None);
         let mut blocks = vec![json!({"type": "text", "text": "hi"})];
         admission.apply(&mut blocks);
         admission.commit();
@@ -178,10 +223,45 @@ mod tests {
     }
 
     #[test]
+    fn user_prompt_carries_the_original_blocks_before_the_announcement() {
+        let store = Arc::new(Preambles::default());
+        store.set("c", Some("persona".into()));
+        let announce = PromptAnnouncement {
+            kind: "external_prompt".into(),
+            payload: json!({"promptId": "p"}),
+        };
+        let user = UserPrompt::new(Some("p".into()), "im");
+        let mut admission = Admission::new(store, "c", Some(announce), Some(user));
+        let mut blocks = vec![json!({"type": "text", "text": "hi"})];
+        admission.apply(&mut blocks);
+        let events = admission.take_events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "user_prompt");
+        assert_eq!(
+            events[0].payload,
+            json!({"promptId": "p", "blocks": [{"type": "text", "text": "hi"}], "origin": "im"})
+        );
+        assert_eq!(events[1].kind, "external_prompt");
+        assert!(admission.take_events().is_empty());
+    }
+
+    #[test]
+    fn user_prompt_generates_an_id_when_missing() {
+        let user = UserPrompt::new(Some("  ".into()), "mobile");
+        assert!(!user.prompt_id.is_empty());
+        assert_eq!(UserPrompt::new(Some("x".into()), "mobile").prompt_id, "x");
+        assert_eq!(
+            UserPrompt::new(Some("A-b ".into()), "mobile").prompt_id,
+            "A-b ",
+            "kept verbatim"
+        );
+    }
+
+    #[test]
     fn restore_does_not_override_a_newer_preamble() {
         let store = Arc::new(Preambles::default());
         store.set("c", Some("old".into()));
-        let mut admission = Admission::new(store.clone(), "c", None);
+        let mut admission = Admission::new(store.clone(), "c", None, None);
         admission.apply(&mut vec![json!({"type": "text", "text": "hi"})]);
         store.set("c", Some("new".into()));
         drop(admission);

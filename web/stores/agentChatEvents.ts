@@ -9,6 +9,7 @@ import i18n from "@/i18n";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type {
   AcpChatEvent,
+  AcpContentBlock,
   AcpChatSnapshot,
   AcpPermissionRequest,
   AcpElicitationRequest,
@@ -160,17 +161,34 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "transcript_restore":
       applyRestoredTranscript(chatId, payload);
       return;
-    // Bot 收到的外部消息（IM / 别的对话里 @Bot）：后端代发 prompt 前先广播，界面补一个用户气泡；
+    // Bot 收到的外部消息（IM / 别的对话里 @Bot / 组网投递）：后端代发 prompt 前先广播，界面补一个用户气泡；
     // @Bot 的 promptId 就是委托卡片 id，借此把卡片标成「Bot 已接下」。
+    // 组网投递（origin=remote）同时有 user_prompt：两者按 promptId 去重，谁先到谁画。
     case "external_prompt": {
       const data = payload as { text?: string; origin?: string; promptId?: string } | null;
-      const origin = data?.origin === "chat" ? "chat" : "im";
-      if (typeof data?.text === "string" && data.text) {
-        store.addUserMessage(chatId, data.text, undefined, undefined, origin);
-      }
+      const origin = data?.origin === "chat" ? "chat" : data?.origin === "remote" ? undefined : "im";
       if (origin === "chat" && typeof data?.promptId === "string") {
         useBotAskStore.getState().markAdmitted(data.promptId);
       }
+      if (typeof data?.promptId === "string" && !rememberRemotePrompt(chatId, data.promptId)) return;
+      if (typeof data?.text === "string" && data.text) {
+        store.addUserMessage(chatId, data.text, undefined, undefined, origin);
+      }
+      return;
+    }
+    // 任何入口发出的用户 prompt（docs/112 §3.2）。桌面自己发的已本地插入，
+    // Bot / IM 的由 external_prompt 画气泡；这里只补手机 / 其他设备发来的。
+    case "user_prompt": {
+      const data = payload as { promptId?: string; blocks?: AcpContentBlock[]; origin?: string } | null;
+      const origin = data?.origin ?? "";
+      if (origin !== "mobile" && !origin.startsWith("device:") && !origin.startsWith("bot:")) return;
+      if (typeof data?.promptId !== "string" || !rememberRemotePrompt(chatId, data.promptId)) return;
+      const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+      const text = blocks
+        .map((block) => (block as { type?: string; text?: unknown }).type === "text" ? (block as { text?: unknown }).text : null)
+        .filter((value): value is string => typeof value === "string")
+        .join("\n");
+      if (text || blocks.length > 0) store.addUserMessage(chatId, text, undefined, blocks);
       return;
     }
     case "permission_request":
@@ -180,6 +198,7 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
       store.enqueueElicitation(chatId, payload as AcpElicitationRequest);
       return;
     case "permission_resolved":
+    case "elicitation_resolved":
     case "elicitation_cancelled": {
       const data = payload as { requestKey?: string };
       if (typeof data?.requestKey === "string") {
@@ -224,6 +243,25 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
   }
 }
 
+/** 已渲染过的远端 promptId（按 chat，有界）：同一条 prompt 只画一次气泡。 */
+const remotePromptIds = new Map<string, Set<string>>();
+const REMOTE_PROMPT_WINDOW = 256;
+
+function rememberRemotePrompt(chatId: string, promptId: string): boolean {
+  let seen = remotePromptIds.get(chatId);
+  if (!seen) {
+    seen = new Set();
+    remotePromptIds.set(chatId, seen);
+  }
+  if (seen.has(promptId)) return false;
+  seen.add(promptId);
+  if (seen.size > REMOTE_PROMPT_WINDOW) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) seen.delete(oldest);
+  }
+  return true;
+}
+
 /**
  * 关标签时的完整渲染态回收：消息流条目 + 未 flush 的 chunk 缓冲。
  * 由 tabLifecycle 的 agent-chat onClosed 调用（进程停止另走 agentChatService.stop）。
@@ -233,6 +271,7 @@ export function dropAgentChatState(chatId: string): void {
   flushChat(chatId);
   persistAgentChatTranscript(chatId);
   useAgentChatStore.getState().dropChat(chatId);
+  remotePromptIds.delete(chatId);
   dropAgentChatRemote(chatId);
 }
 

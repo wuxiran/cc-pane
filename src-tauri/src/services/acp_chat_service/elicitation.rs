@@ -323,8 +323,20 @@ impl AcpChatService {
         request_key: String,
         response: Value,
     ) -> AppResult<()> {
+        self.respond_elicitation_by(chat_id, request_key, response, "desktop")
+            .await
+    }
+
+    /// 同 `respond_elicitation`，`by` 标明是哪一端回答的（进 `elicitation_resolved`）。
+    pub async fn respond_elicitation_by(
+        &self,
+        chat_id: &str,
+        request_key: String,
+        response: Value,
+        by: &str,
+    ) -> AppResult<()> {
         if let Some(session) = self.native_session(chat_id).await {
-            return session.respond_elicitation(request_key, response).await;
+            return session.respond_elicitation(request_key, response, by).await;
         }
         let session = self.session(chat_id).await?;
         let session_ref = &session;
@@ -336,7 +348,8 @@ impl AcpChatService {
                 session_ref.respond(&id, Ok(answer)).await?;
                 // Form answers can contain passwords. Retain the decision and
                 // request identity, not a second copy of secret input fields.
-                session_ref.record_event("elicitation_resolved", &json!({"requestKey":recorded_key,"action":action,"answerContentRetained":false}));
+                // 实时也发：手机上回答时桌面的提问卡要收起，反之亦然。
+                session_ref.emit("elicitation_resolved", json!({"requestKey":recorded_key,"action":action,"answerContentRetained":false,"by":by}));
                 Ok(())
             })
             .await

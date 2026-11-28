@@ -19,6 +19,7 @@ pub mod heavy_command;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
+pub mod mesh;
 pub mod orchestrator_settings;
 pub mod performance_settings;
 pub mod plan;
@@ -111,6 +112,7 @@ pub use launch_profile::{
     ResolvedMcpServer, ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
+pub use mesh::{normalize_mesh_url, MeshAddress, MeshAddressSource, MeshPeerRecord};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use quick_command::{

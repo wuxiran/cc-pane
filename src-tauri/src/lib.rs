@@ -402,6 +402,16 @@ use commands::{
     load_terminal_sessions,
     lookup_session_index,
     maximize_window,
+    mesh_clear_outbox,
+    mesh_contacts,
+    mesh_discover,
+    mesh_outbox,
+    mesh_pair_peer,
+    mesh_peers,
+    mesh_remove_peer,
+    mesh_respond_permission,
+    mesh_send,
+    mesh_set_bot_remote,
     migrate_data_dir,
     minimize_window,
     move_project_skill,
@@ -427,6 +437,10 @@ use commands::{
     preview_workspace_migration,
     prompt_acp_chat,
     prompt_pi_rpc_session,
+    provider_export_cancel,
+    provider_export_candidates,
+    provider_export_start,
+    provider_export_status,
     prune_stale_session_outputs,
     prune_terminal_sessions,
     // Local History - 标签
@@ -1872,6 +1886,9 @@ pub fn run() {
         acp_chat_service.clone(),
         app_paths.clone(),
     ));
+    let mesh_peer_repo = Arc::new(cc_panes_core::repository::MeshPeerRepository::new(
+        db.clone(),
+    ));
     let acp_chat_notify = acp_chat_service.clone();
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
@@ -2180,6 +2197,7 @@ pub fn run() {
         .manage(acp_chat_service)
         .manage(automation_service.clone())
         .manage(bot_service.clone())
+        .manage(mesh_peer_repo)
         .manage(terminal_backend_state)
         .manage(keep_awake_service)
         .manage(launch_history_service)
@@ -2197,6 +2215,9 @@ pub fn run() {
         .manage(port_preview_service)
         .manage(workspace_service)
         .manage(settings_service)
+        .manage(Arc::new(cc_panes_core::services::ProviderExportService::new(
+            provider_service.clone(),
+        )))
         .manage(provider_service)
         .manage(Arc::new(cc_panes_core::services::MagpieLiveService::new()))
         .manage(channel_purity_service)
@@ -3007,6 +3028,24 @@ pub fn run() {
                     turn_notify_registry_state.inner().clone(),
                     orch_svc.session_state_machine().subscribe_transitions(),
                 );
+                // Bot 组网（docs/112 §5）：服务按需工作；启动时只对齐一次 mDNS 广播。
+                {
+                    let mesh = Arc::new(services::BotMeshService::new(
+                        app.handle().clone(),
+                        app.state::<Arc<services::BotService>>().inner().clone(),
+                        app.state::<Arc<services::AcpChatService>>().inner().clone(),
+                        app.state::<Arc<cc_panes_core::services::DeviceService>>().inner().clone(),
+                        app.state::<Arc<cc_panes_core::repository::MeshPeerRepository>>()
+                            .inner()
+                            .clone(),
+                        app.state::<Arc<cc_panes_core::services::DeviceTokenService>>()
+                            .inner()
+                            .clone(),
+                        settings_svc.inner().clone(),
+                    ));
+                    app.manage(mesh.clone());
+                    tauri::async_runtime::spawn_blocking(move || mesh.sync_advertisement());
+                }
                 // IM 入站（批次2）：Telegram 长轮询，把消息交给 Bot 联系人。
                 services::im_bridge::spawn_im_inbound(
                     app.handle().clone(),
@@ -3323,6 +3362,20 @@ pub fn run() {
             delete_bot,
             start_bot_chat,
             new_bot_thread,
+            mesh_contacts,
+            provider_export_candidates,
+            provider_export_start,
+            provider_export_cancel,
+            provider_export_status,
+            mesh_peers,
+            mesh_discover,
+            mesh_pair_peer,
+            mesh_remove_peer,
+            mesh_send,
+            mesh_outbox,
+            mesh_clear_outbox,
+            mesh_respond_permission,
+            mesh_set_bot_remote,
             ask_bot,
             cancel_bot_ask,
             ensure_engine_bot,

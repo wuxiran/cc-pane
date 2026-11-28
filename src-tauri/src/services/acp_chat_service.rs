@@ -11,8 +11,10 @@
 
 mod admission;
 mod auth;
+pub(crate) mod bridge;
 pub(crate) mod edits;
 mod elicitation;
+pub(crate) mod event_log;
 mod event_tap;
 mod fork;
 mod handoff;
@@ -38,8 +40,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tracing::{debug, warn};
 
-pub use admission::PromptAnnouncement;
 use admission::{Admission, Preambles};
+pub use admission::{PromptAnnouncement, UserPrompt};
 pub use event_tap::ChatEventStream;
 use event_tap::EventTap;
 
@@ -489,7 +491,9 @@ impl AcpChatSession {
             kind: kind.to_string(),
             payload,
         };
-        self.event_tap.send(&event);
+        if !self.event_tap.send(&event) {
+            return;
+        }
         if !crate::webview_reliability::webview_emits_allowed() {
             return;
         }
@@ -594,8 +598,13 @@ impl AcpChatService {
         self.preambles.set(chat_id, preamble);
     }
 
-    fn admission(&self, chat_id: &str, announce: Option<PromptAnnouncement>) -> Admission {
-        Admission::new(self.preambles.clone(), chat_id, announce)
+    fn admission(
+        &self,
+        chat_id: &str,
+        announce: Option<PromptAnnouncement>,
+        user: UserPrompt,
+    ) -> Admission {
+        Admission::new(self.preambles.clone(), chat_id, announce, Some(user))
     }
 
     async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1014,7 +1023,8 @@ impl AcpChatService {
             snapshot.config_options = response
                 .get("configOptions")
                 .filter(|v| v.is_array())
-                .cloned();
+                .cloned()
+                .map(normalize_config_options);
             snapshot.phase = AcpChatPhase::Ready;
         }
         self.write_chat_meta(&acp_session_id, &spec.engine_id, cwd, None);
@@ -1037,7 +1047,18 @@ impl AcpChatService {
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
     pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
-        let admission = self.admission(chat_id, None);
+        self.prompt_from(chat_id, blocks, UserPrompt::desktop())
+            .await
+    }
+
+    /// 同 `prompt`，但带上 prompt 的身份与来源（进 `user_prompt` 事件）。
+    pub async fn prompt_from(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        user: UserPrompt,
+    ) -> AppResult<()> {
+        let admission = self.admission(chat_id, None, user);
         if let Some(session) = self.native_session(chat_id).await {
             if let (Some(id), Some(text)) = (
                 session.snapshot().await.acp_session_id,
@@ -1089,7 +1110,8 @@ impl AcpChatService {
         chat_id: &str,
         blocks: Vec<Value>,
     ) -> AppResult<String> {
-        self.prompt_and_wait_announced(chat_id, blocks, None).await
+        self.prompt_and_wait_from(chat_id, blocks, None, UserPrompt::desktop())
+            .await
     }
 
     /// 同 `prompt_and_wait`，但「检查就绪 → 占回合 → 广播公告」是一个原子动作：
@@ -1101,7 +1123,19 @@ impl AcpChatService {
         blocks: Vec<Value>,
         announce: Option<PromptAnnouncement>,
     ) -> AppResult<String> {
-        let admission = self.admission(chat_id, announce);
+        self.prompt_and_wait_from(chat_id, blocks, announce, UserPrompt::desktop())
+            .await
+    }
+
+    /// 同 `prompt_and_wait_announced`，并指明 prompt 身份与来源（Bot / IM 外部提交）。
+    pub async fn prompt_and_wait_from(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+        announce: Option<PromptAnnouncement>,
+        user: UserPrompt,
+    ) -> AppResult<String> {
+        let admission = self.admission(chat_id, announce, user);
         if let Some(session) = self.native_session(chat_id).await {
             return tokio::spawn(async move {
                 session
@@ -1272,9 +1306,7 @@ impl AcpChatService {
                     // 没回全表：至少把我们设的值写进去，保证选择器不回弹。
                     if let Some(Value::Array(options)) = snapshot.config_options.as_mut() {
                         for option in options.iter_mut() {
-                            if option.get("configId").and_then(Value::as_str)
-                                == Some(config_id.as_str())
-                            {
+                            if config_option_id(option) == Some(config_id.as_str()) {
                                 option["currentValue"] = value.clone();
                             }
                         }
@@ -1314,9 +1346,22 @@ impl AcpChatService {
         request_key: String,
         option_id: Option<String>,
     ) -> AppResult<()> {
+        self.respond_permission_by(chat_id, request_key, option_id, "desktop")
+            .await
+    }
+
+    /// 同 `respond_permission`，`by` 标明是哪一端处理的（进 `permission_resolved`）。
+    pub async fn respond_permission_by(
+        &self,
+        chat_id: &str,
+        request_key: String,
+        option_id: Option<String>,
+        by: &str,
+    ) -> AppResult<()> {
         if let Some(session) = self.native_session(chat_id).await {
-            return session.respond_permission(request_key, option_id).await;
+            return session.respond_permission(request_key, option_id, by).await;
         }
+        let chosen = option_id.clone();
         let session = self.session(chat_id).await?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
@@ -1334,9 +1379,10 @@ impl AcpChatService {
                 };
                 session_ref.respond(&id, Ok(outcome.clone())).await?;
                 // 实时也发：在 IM 里批准时桌面卡片要消失，反之 IM 按钮要撤下。
+                let option_id = if cancelling { None } else { chosen };
                 session_ref.emit(
                     "permission_resolved",
-                    json!({"requestKey":recorded_key,"result":outcome}),
+                    json!({"requestKey":recorded_key,"optionId":option_id,"by":by,"result":outcome}),
                 );
                 Ok(())
             })
@@ -2084,7 +2130,41 @@ fn remember_tool_kind(session: &Arc<AcpChatSession>, params: &Value) {
 
 /// Replace `configOptions` wholesale and mirror the `mode` / `model` categories into
 /// the legacy `modes` / `models` fields so both surfaces agree on the current value.
+/// 配置项的 id：ACP 规范字段是 `configId`，但 claude-agent-acp 实测发的是 `id`。
+pub fn config_option_id(option: &Value) -> Option<&str> {
+    option
+        .get("configId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .or_else(|| {
+            option
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+        })
+}
+
+/// 只带 `id` 的条目补一个 `configId`（原 `id` 保留），下游（桌面 / 手机）统一读 `configId`。
+pub fn normalize_config_options(mut options: Value) -> Value {
+    if let Value::Array(items) = &mut options {
+        for option in items.iter_mut() {
+            let missing = option
+                .get("configId")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty);
+            if !missing {
+                continue;
+            }
+            if let Some(id) = config_option_id(option).map(str::to_string) {
+                option["configId"] = Value::String(id);
+            }
+        }
+    }
+    options
+}
+
 fn apply_config_options(snapshot: &mut AcpChatSnapshot, options: Value) {
+    let options = normalize_config_options(options);
     if let Some(items) = options.as_array() {
         for option in items {
             let category = option.get("category").and_then(Value::as_str);
@@ -2269,6 +2349,26 @@ fn http_to_stdio_fallback(server: &Value, ctl_path: Option<&str>) -> Option<Valu
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn config_options_accept_id_as_config_id() {
+        let options = super::normalize_config_options(serde_json::json!([
+            {"id": "model", "category": "model", "currentValue": "opus"},
+            {"configId": "effort", "id": "ignored", "currentValue": "high"},
+            {"configId": "", "id": "mode"},
+            {"name": "no id"}
+        ]));
+        assert_eq!(options[0]["configId"], "model");
+        assert_eq!(options[0]["id"], "model", "original id is kept");
+        assert_eq!(options[1]["configId"], "effort");
+        assert_eq!(options[2]["configId"], "mode");
+        assert!(options[3].get("configId").is_none());
+        assert_eq!(super::config_option_id(&options[1]), Some("effort"));
+        assert_eq!(
+            super::config_option_id(&serde_json::json!({"id": "x"})),
+            Some("x")
+        );
+    }
+
     use super::*;
 
     fn kinds(list: &[&str]) -> Vec<String> {

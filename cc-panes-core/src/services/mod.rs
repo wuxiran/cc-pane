@@ -72,6 +72,7 @@ mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
 mod project_skill_service;
+pub mod provider_export_service;
 mod provider_resolver;
 mod provider_secret_service;
 mod provider_service;
@@ -152,7 +153,7 @@ pub use device_service::{
     DeviceService, DeviceTokenStore, KeyringDeviceTokenStore, MemoryDeviceTokenStore,
 };
 pub use device_token_service::{
-    DeviceAccessEntry, DeviceTokenRecord, DeviceTokenService, PairingOutcome,
+    DeviceAccessEntry, DeviceTokenRecord, DeviceTokenService, PairingOutcome, PairingRejection,
     DEFAULT_DEVICE_TOKEN_TTL_DAYS,
 };
 pub use drama_service::DramaService;
@@ -199,6 +200,10 @@ pub use project_service::ProjectService;
 pub use project_skill_service::{
     ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService,
     WorkspaceProjectSkill, PROJECT_SKILL_ROOTS,
+};
+pub use provider_export_service::{
+    ExportCandidate, ExportPayload, ExportRejection, ExportStatus, ExportTicket,
+    ProviderExportService,
 };
 pub use provider_resolver::{
     adapt_plan_for_runtime, managed_provider_conflict_env_keys, resolve_provider_plan,

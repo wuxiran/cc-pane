@@ -549,6 +549,9 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         )),
         default_cwd: cwd_str.clone(),
         output_mode: backend_state.output_mode,
+        acp_host: Arc::new(routes::acp::AcpHost::from_data_dir(
+            app_paths.data_dir().to_path_buf(),
+        )),
     };
 
     let app = routes::build_router(state);

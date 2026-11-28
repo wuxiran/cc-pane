@@ -257,6 +257,7 @@ async fn pairing_requires_allow_devices_and_a_valid_code() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(error_code(response).await, "DEVICES_NOT_ALLOWED");
 
     let mut settings = state.settings_service.get_settings();
     settings.web_access.allow_devices = true;
@@ -272,6 +273,7 @@ async fn pairing_requires_allow_devices_and_a_valid_code() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(error_code(response).await, "PAIR_CODE_INVALID");
 
     let response = app
         .clone()
@@ -284,13 +286,93 @@ async fn pairing_requires_allow_devices_and_a_valid_code() {
         .expect("body");
     let json: serde_json::Value = serde_json::from_slice(&body).expect("json");
     let token = json["token"].as_str().expect("token").to_string();
+    let instance_id = json["instanceId"].as_str().expect("instanceId").to_string();
+    assert_eq!(tokens.instance_id().as_deref(), Some(instance_id.as_str()));
+
+    // 用过的码再兑换：已作废 → PAIR_CODE_EXPIRED
+    let response = app
+        .clone()
+        .oneshot(pair_request(&code, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(error_code(response).await, "PAIR_CODE_EXPIRED");
 
     // 配对得到的令牌可直接从局域网访问（allow_devices 放行设备令牌）
     let response = app
+        .clone()
         .oneshot(request("/api/device/info", Some(&token), [192, 168, 1, 20]))
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let info: serde_json::Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(info["instanceId"], instance_id.as_str());
+
+    // 局域网对端不在白名单：PEER_NOT_ALLOWED
+    let mut settings = state.settings_service.get_settings();
+    settings.web_access.ip_whitelist = vec!["192.168.1.99".to_string()];
+    state
+        .settings_service
+        .update_settings(settings)
+        .expect("whitelist");
+    let (code, _) = tokens.create_pairing_code().expect("code");
+    let response = app
+        .oneshot(pair_request(&code, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(error_code(response).await, "PEER_NOT_ALLOWED");
+}
+
+async fn error_code(response: axum::response::Response) -> String {
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json error body");
+    json["code"].as_str().expect("code").to_string()
+}
+
+/// 终端 WS：无效 / 已吊销的设备令牌在握手阶段就是 HTTP 401（升级前），
+/// 客户端据此与断网区分。
+#[tokio::test]
+async fn terminal_websocket_rejects_bad_or_revoked_device_token_with_401() {
+    let (state, tokens) = headless_state("dev-ws-401");
+    let (record, token) = tokens.create("phone").expect("token");
+    let app = super::super::build_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await;
+    });
+    let status = |url: String| async move {
+        match tokio_tungstenite::connect_async(url).await {
+            Err(tokio_tungstenite::tungstenite::Error::Http(response)) => response.status(),
+            Err(other) => panic!("unexpected {other:?}"),
+            Ok(_) => StatusCode::SWITCHING_PROTOCOLS,
+        }
+    };
+    assert_eq!(
+        status(format!("ws://{addr}/ws/s1?token=ccp_dev_bogus")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    tokens.revoke(&record.id).expect("revoke");
+    assert_eq!(
+        status(format!("ws://{addr}/ws/s1?token={token}")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status(format!("ws://{addr}/ws/acp/c1?token={token}")).await,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]

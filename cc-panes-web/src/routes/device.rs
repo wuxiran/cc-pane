@@ -30,6 +30,15 @@ pub struct DeviceInfo {
     pub default_cwd: String,
     /// 是否以 headless/require-token 方式运行
     pub headless: bool,
+    /// 本机实例的稳定 id：同一台电脑经局域网 / Tailscale 等不同地址访问时据此归并。
+    /// 旧服务端没有这个字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+}
+
+/// 本机实例 id（设备令牌服务不可用时缺省）。
+fn instance_id(state: &AppState) -> Option<String> {
+    state.web_auth.device_tokens()?.instance_id()
 }
 
 pub async fn get_device_info(State(state): State<AppState>) -> Json<DeviceInfo> {
@@ -43,6 +52,7 @@ pub async fn get_device_info(State(state): State<AppState>) -> Json<DeviceInfo> 
         home_dir: dirs::home_dir().map(|path| path.to_string_lossy().to_string()),
         default_cwd: state.default_cwd.clone(),
         headless: state.web_auth.require_auth(),
+        instance_id: instance_id(&state),
     })
 }
 
@@ -66,6 +76,16 @@ pub struct PairRequest {
     pub name: String,
 }
 
+type PairError = (StatusCode, Json<serde_json::Value>);
+
+/// 配对失败一律回 `{code,message}`（状态码沿用：403 / 401 / 503 / 500）。
+fn pair_error(status: StatusCode, code: &str, message: impl Into<String>) -> PairError {
+    (
+        status,
+        Json(serde_json::json!({"code": code, "message": message.into()})),
+    )
+}
+
 /// 用一次性配对码换设备令牌（免鉴权路由；配对码本身是凭据）。
 ///
 /// 只有本机打开了「允许其他设备连接」或以 headless 运行时才受理；对端地址仍受
@@ -74,44 +94,62 @@ pub async fn pair_device(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(request): Json<PairRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, PairError> {
     let settings = state.settings_service.get_settings().web_access;
     let headless = state.web_auth.require_auth();
     if !settings.allow_devices && !headless {
-        return Err((
+        return Err(pair_error(
             StatusCode::FORBIDDEN,
-            "This computer does not accept device connections".to_string(),
+            "DEVICES_NOT_ALLOWED",
+            "This computer does not accept device connections",
         ));
     }
     if !crate::web_auth::device_peer_allowed(peer.ip(), &settings, headless) {
-        return Err((
+        return Err(pair_error(
             StatusCode::FORBIDDEN,
-            "Remote access is not allowed by Web access settings".to_string(),
+            "PEER_NOT_ALLOWED",
+            "Remote access is not allowed by Web access settings",
         ));
     }
     let Some(tokens) = state.web_auth.device_tokens().cloned() else {
-        return Err((
+        return Err(pair_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Device tokens are not available".to_string(),
+            "DEVICE_TOKENS_UNAVAILABLE",
+            "Device tokens are not available",
         ));
     };
+    let internal =
+        |error: String| pair_error(StatusCode::INTERNAL_SERVER_ERROR, "PAIR_FAILED", error);
     let outcome = tokio::task::spawn_blocking(move || {
         tokens.redeem_pairing_code(&request.code, &request.name)
     })
     .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    .map_err(|error| internal(error.to_string()))?
+    .map_err(|error| internal(error.to_string()))?;
     match outcome {
         cc_panes_core::services::PairingOutcome::Paired { token, .. } => {
-            Ok(Json(serde_json::json!({
+            let mut body = serde_json::json!({
                 "token": token,
                 "hostname": sysinfo::System::host_name(),
                 "appVersion": APP_VERSION,
-            })))
+            });
+            if let Some(id) = instance_id(&state) {
+                body["instanceId"] = serde_json::Value::String(id);
+            }
+            Ok(Json(body))
         }
-        cc_panes_core::services::PairingOutcome::Rejected => Err((
-            StatusCode::UNAUTHORIZED,
-            "Pairing code is wrong or has expired".to_string(),
-        )),
+        cc_panes_core::services::PairingOutcome::Rejected(reason) => {
+            use cc_panes_core::services::PairingRejection;
+            let message = match reason {
+                PairingRejection::Invalid => "Pairing code is wrong",
+                PairingRejection::Expired => {
+                    "Pairing code has expired or no pairing is in progress"
+                }
+                PairingRejection::TooManyAttempts => {
+                    "Too many wrong attempts; generate a new pairing code"
+                }
+            };
+            Err(pair_error(StatusCode::UNAUTHORIZED, reason.code(), message))
+        }
     }
 }

@@ -485,10 +485,11 @@ async fn handle_callback(ctx: &Arc<Context>, callback: &Value) {
             } else {
                 match ctx
                     .acp
-                    .respond_permission(
+                    .respond_permission_by(
                         &entry.chat_id,
                         entry.request_key.clone(),
                         Some(entry.option_id.clone()),
+                        "im",
                     )
                     .await
                 {

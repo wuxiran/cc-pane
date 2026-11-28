@@ -56,7 +56,7 @@ strip-ansi-escapes = "0.2"
 trash = "5"
 portable-pty = "0.8"
 parking_lot = "0.12"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tokio = { version = "1", features = [
     "rt-multi-thread",
@@ -95,6 +95,8 @@ tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"
 cron = "0.17.0"
+# Bot 组网局域网发现（docs/112 §5.1）：纯 Rust，无系统库依赖
+mdns-sd = { version = "0.22", default-features = false, features = ["logging"] }
 tempfile = "3"
 
 [dev-dependencies]
