@@ -4,7 +4,7 @@ import { Boxes, Cable } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { SegmentedTabs } from "@/components/ui/segmented";
-import { hasAnyMcp, mcpIsolationGap, mcpProfileHints, runtimeMcpNote } from "@/lib/cliInjectionRules";
+import { hasAnyMcp, hubDeliverySupported, mcpIsolationGap, mcpProfileHints, runtimeMcpNote } from "@/lib/cliInjectionRules";
 import { useInjectionProfile } from "@/stores/useCliInjectionProfilesStore";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
@@ -16,6 +16,7 @@ import { SECTION_IDS, isSharedMcpServerSelected } from "./launchProfileHelpers";
 import { PendingAdditions } from "./LaunchProfileAddPicker";
 import { pendingAdditions } from "./launchProfileAddModel";
 import LaunchProfileMcpAdd from "./LaunchProfileMcpAdd";
+import { hubFallbackReasons, McpDeliveryNote, McpDeliveryTabs } from "./LaunchProfileMcpDelivery";
 
 /** WSL 只在 Windows 宿主上存在 */
 const isWindowsHost = () => typeof navigator !== "undefined" && /Win/i.test(navigator.platform);
@@ -58,6 +59,7 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
     const note = runtimeMcpNote(profile, runtime);
     return note ? [{ runtime, note }] : [];
   });
+  const delivery = draft.mcpPolicy.delivery ?? "direct";
   // 刚新增 / 勾选、还没保存的共享 MCP：预览按已保存配置算，先在卡里标出来
   const sharedServers = useSharedMcpStore((state) => state.servers);
   const pending = effectiveStale
@@ -66,6 +68,9 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
       effective,
     )
     : [];
+  const hubReasons = hubFallbackReasons(profile, availableRemoteRuntimes, sharedServers);
+  const setDelivery = (next: typeof delivery) =>
+    setDraft((current) => ({ ...current, mcpPolicy: { ...current.mcpPolicy, delivery: next } }));
 
   if (!mcpSupported) {
     return (
@@ -94,15 +99,21 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
       hint={mcpDisabled ? t("mcpDisabledHint") : draft.mcpPolicy.mode === "custom" ? t("mcpCustomHint") : t("mcpDefaultHint")}
       icon={<Cable size={14} />}
       headerControl={
-        <SegmentedTabs
-          size="sm"
-          value={draft.mcpPolicy.mode}
-          onValueChange={(mode) => setMcpMode(mode)}
-          items={(["default", "custom", "disabled"] as const).map((mode) => ({
-            value: mode,
-            label: t(`mcpMode.${mode}`),
-          }))}
-        />
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <SegmentedTabs
+            size="sm"
+            value={draft.mcpPolicy.mode}
+            onValueChange={(mode) => setMcpMode(mode)}
+            items={(["default", "custom", "disabled"] as const).map((mode) => ({
+              value: mode,
+              label: t(`mcpMode.${mode}`),
+            }))}
+          />
+          {/* 投递方式与模式正交：模式管给哪些，投递管怎么给（docs/113） */}
+          {!mcpDisabled && (
+            <McpDeliveryTabs value={delivery} onChange={setDelivery} hubSupported={hubDeliverySupported(profile, null)} />
+          )}
+        </span>
       }
       headerActions={
         <>
@@ -142,6 +153,8 @@ export default function LaunchProfileMcpCard({ draft, setDraft, activeTool, setM
           hint={t("sharedMcpServiceDesc")}
         />
       )}
+
+      {!mcpDisabled && <McpDeliveryNote value={delivery} reasons={hubReasons} />}
 
       {!mcpDisabled && <EffectiveList items={effective} stale={effectiveStale} testId="mcp-effective" />}
       {!mcpDisabled && <PendingAdditions names={pending} testId="mcp-pending" />}

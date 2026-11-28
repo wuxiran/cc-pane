@@ -14,6 +14,7 @@ import { ConfirmDialog } from "@/components/sidebar/WorkspaceDialogs";
 import { worktreeService, type WorktreeInfo } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
+import { requestWorktreeSetup } from "@/lib/worktreeSetup";
 import { handleError, handleErrorSilent } from "@/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -63,7 +64,8 @@ export default function WorktreeManager({
     setAdding(true);
     try {
       const branch = newBranch.trim() || undefined;
-      await worktreeService.add(projectPath, newName.trim(), branch);
+      const created = await worktreeService.add(projectPath, newName.trim(), branch);
+      void requestWorktreeSetup(created);
       onWorktreesChanged?.();
       await loadWorktrees();
       setNewName("");

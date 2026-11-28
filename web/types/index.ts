@@ -238,6 +238,11 @@ export type {
   TodoStats,
 } from "./todo";
 export type {
+  GhAvailability,
+  GithubIssue,
+  GithubIssueImportResult,
+} from "./github";
+export type {
   Memory,
   MemoryScope,
   MemoryCategory,
@@ -404,3 +409,12 @@ export type {
   SkillImportResult, SkillInstallResult, SkillLibraryContent, SkillProbe, SkillProbeCandidate,
   SkillProvenance, SkillRemoveResult, SkillSourceKind, SkillUpdateResult,
 } from "./skillLibrary";
+export type { KeepAwakeReport, KeepAwakeSideStatus } from "./keepAwake";
+export type {
+  Workflow,
+  WorkflowStage,
+  WorkflowStageStatus,
+  WorkflowStatus,
+  WorkflowTask,
+  WorkflowTaskStatus,
+} from "./workflow";

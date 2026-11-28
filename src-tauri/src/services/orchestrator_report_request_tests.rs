@@ -73,6 +73,7 @@ fn explicit_completion_request(fixture: &ReportRequestFixture) -> McpReportToLea
         worker_id: fixture.worker_id.clone(),
         status: Some("completed".into()),
         summary: Some("Codex 执行完成,改动 3 文件,详见 PTY".into()),
+        result: None,
     }
 }
 
@@ -291,6 +292,7 @@ async fn r10_failed_delivery_retries_and_later_result_versions_have_distinct_lif
             worker_id: fixture.worker_id.clone(),
             status: None,
             summary: Some("retry failed outcome report".into()),
+            result: None,
         },
     )
     .await;
@@ -485,4 +487,52 @@ fn r10_same_revision_drained_batch_restores_earliest_body_and_ttl() {
     );
     assert_eq!(expired.dropped.len(), 1);
     assert_eq!(expired.dropped[0].reason, "expired");
+}
+
+#[tokio::test]
+async fn structured_result_is_validated_stored_and_reported() {
+    let fixture = report_request_fixture();
+    fixture
+        .runtime
+        .task_binding_service
+        .update_patch(
+            &fixture.worker_id,
+            serde_json::json!({"metadata": {"resultSchema": {
+                "type": "object", "required": ["pr"], "properties": {"pr": {"type": "integer"}}
+            }}}),
+        )
+        .unwrap();
+    let rejected = worker_report_requests::report(
+        fixture.runtime.clone(),
+        McpReportToLeaderParams {
+            worker_id: fixture.worker_id.clone(),
+            status: Some("completed".into()),
+            summary: Some("done".into()),
+            result: Some(serde_json::json!({"pr": "seven"})),
+        },
+    )
+    .await;
+    assert!(!rejected.sent);
+    assert!(fixture.backend.submits().is_empty(), "invalid result must not be reported");
+
+    let accepted = worker_report_requests::report(
+        fixture.runtime.clone(),
+        McpReportToLeaderParams {
+            worker_id: fixture.worker_id.clone(),
+            status: Some("completed".into()),
+            summary: Some("done".into()),
+            result: Some(serde_json::json!({"pr": 7})),
+        },
+    )
+    .await;
+    assert!(accepted.sent);
+    let stored = fixture
+        .runtime
+        .task_binding_service
+        .get(&fixture.worker_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.metadata.unwrap()["result"], serde_json::json!({"pr": 7}));
+    let submits = fixture.backend.submits();
+    assert!(submits[0].1.contains(r#"result={"pr":7}"#), "{submits:?}");
 }

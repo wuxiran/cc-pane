@@ -46,6 +46,7 @@ function createLaunchProfile(overrides: Partial<LaunchProfile> = {}): LaunchProf
       disabledServerIds: [],
       includeCcpanesMcp: true,
       includeSharedMcp: true,
+      delivery: "direct",
     },
     skillPolicy: {
       mode: "core",

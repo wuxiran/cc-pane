@@ -248,6 +248,8 @@ export interface Provider {
   source?: ProviderOrigin | null;
   /** 原生 CLI 配置覆盖片段：CLI id（codex / claude）→ 原文（Codex TOML / Claude JSON）。 */
   nativeOverrides?: NativeOverrides;
+  /** 只读本地数据的提醒开关；缺省 = 全开。不带它保存时后端沿用已存的值。 */
+  alerts?: import("./providerAlerts").ProviderAlerts | null;
 }
 
 /** 供应商的默认账号（`defaultAccountId` 失效时退回第一个）。 */

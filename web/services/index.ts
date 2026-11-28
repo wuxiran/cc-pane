@@ -37,6 +37,7 @@ export type {
   TerminalPathKind,
 } from "./terminalPathLinkService";
 export { usageStatsService } from "./usageStatsService";
+export { magpieService } from "./magpieService";
 export { historyService } from "./historyService";
 export { claudeService } from "./claudeService";
 export { codexService } from "./codexService";
@@ -44,6 +45,7 @@ export { opencodeService } from "./opencodeService";
 export { localHistoryService } from "./localHistoryService";
 export { projectCliHooksService } from "./projectCliHooksService";
 export { journalService } from "./journalService";
+export { keepAwakeService } from "./keepAwakeService";
 export { gitService } from "./gitService";
 export { worktreeService } from "./worktreeService";
 export * as wallpaperService from "./wallpaperService";
@@ -57,6 +59,7 @@ export { launchProfileService } from "./launchProfileService";
 export { nativeConfigService } from "./nativeConfigService";
 export { quickCommandService } from "./quickCommandService";
 export { todoService } from "./todoService";
+export { githubService, isGhReady } from "./githubService";
 export { specService } from "./specService";
 export { memoryService } from "./memoryService";
 export { skillService } from "./skillService";
@@ -92,7 +95,7 @@ export type {
   GitRepoInfo,
   GitRepoState,
 } from "./gitService";
-export type { WorktreeInfo } from "./worktreeService";
+export type { WorktreeInfo, WorktreeSetupPlan } from "./worktreeService";
 export type { PlanEntry } from "./planService";
 export { filesystemService } from "./filesystemService";
 export { sshFileService } from "./sshFileService";

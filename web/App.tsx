@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
+import { useGithubMergeConfirm } from "@/hooks/useGithubMergeConfirm";
 import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
 import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
@@ -37,6 +38,7 @@ import { useQuickTerminalSessionSync } from "@/hooks/useQuickTerminalSessionSync
 import { usePipeEventListener } from "@/hooks/usePipeEventListener";
 import { useChatScreenshotAttachments } from "@/hooks/useChatScreenshotAttachments";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
+import WorktreeSetupDialog from "@/components/worktree/WorktreeSetupDialog";
 import { useDensityStore } from "@/stores/useDensityStore";
 import { startPerformanceSampling } from "@/services/performanceService";
 import { loadCliInjectionProfiles } from "@/stores/useCliInjectionProfilesStore";
@@ -105,6 +107,9 @@ function MainApp() {
   // 监听 Orchestrator 编排事件（自我对话 Claude 启动新任务）
   useOrchestratorListener();
 
+  // gh_pr_merge 前的用户确认（不确认就拒绝合并）
+  useGithubMergeConfirm();
+
   // 接收 MCP 会话驱动的 AI 面板更新与关闭事件。
   useAiPanelListener();
 
@@ -155,6 +160,8 @@ function MainApp() {
       {/* 全局唯一启动器弹窗（产物走 pendingLaunch，由上面的 useOpenTerminal 消费） */}
       <LauncherDialog />
       <AutomationsDialog />
+      {/* worktree 建好后执行 .ccpanes/worktree.json 的 setup 前的确认（docs/116） */}
+      <WorktreeSetupDialog />
     </>
   );
 }

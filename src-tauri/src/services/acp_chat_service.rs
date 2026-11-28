@@ -1397,6 +1397,30 @@ impl AcpChatService {
         Some(session.snapshot().await)
     }
 
+    /// 正在生成回复的对话数（保持唤醒的 ACP 活动源）。
+    pub async fn generating_count(&self) -> usize {
+        let acp: Vec<_> = self.sessions.read().await.values().cloned().collect();
+        let native: Vec<_> = self
+            .native_sessions
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect();
+        let mut count = 0;
+        for session in &acp {
+            if session.snapshot.read().await.phase == AcpChatPhase::Generating {
+                count += 1;
+            }
+        }
+        for session in &native {
+            if session.snapshot().await.phase == AcpChatPhase::Generating {
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Stop the adapter process and forget the chat. Used by tab close and by
     /// explicit conversation restarts.
     pub async fn stop(&self, chat_id: &str) -> AppResult<()> {

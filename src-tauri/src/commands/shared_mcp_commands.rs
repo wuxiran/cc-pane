@@ -3,7 +3,8 @@ use crate::utils::AppResult;
 use cc_panes_core::models::shared_mcp::{
     SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerInfo,
 };
-use cc_panes_core::services::SharedMcpService;
+use cc_panes_core::services::mcp_hub::{HubServerStatus, HUB_PATH};
+use cc_panes_core::services::{McpHubService, SharedMcpService};
 use std::sync::Arc;
 use tauri::State;
 
@@ -19,6 +20,29 @@ pub fn get_shared_mcp_status(
     service: State<'_, Arc<SharedMcpService>>,
 ) -> AppResult<Vec<SharedMcpServerInfo>> {
     Ok(service.get_all_status())
+}
+
+/// 资源库 Hub 卡片（docs/113）：端点地址（不含令牌）+ 每台共享服务器在 hub 里的情况。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpHubStatus {
+    /// orchestrator 未运行时为 None——此时 hub 投递的会话回退直连。
+    pub endpoint: Option<String>,
+    pub servers: Vec<HubServerStatus>,
+}
+
+#[tauri::command]
+pub async fn get_mcp_hub_status(
+    hub: State<'_, Arc<McpHubService>>,
+    orchestrator: State<'_, Arc<crate::services::OrchestratorService>>,
+) -> AppResult<McpHubStatus> {
+    let endpoint = orchestrator
+        .port()
+        .map(|port| format!("http://127.0.0.1:{port}{HUB_PATH}"));
+    Ok(McpHubStatus {
+        endpoint,
+        servers: hub.status().await,
+    })
 }
 
 #[tauri::command]

@@ -22,6 +22,8 @@
   "restoringTerminalHint": "正在启动保存的终端会话...",
   "restoreLogTitle": "恢复日志",
   "restoreLogPending": "恢复链路初始化中...",
+  "restoreLogExpand": "展开恢复日志",
+  "restoreLogCollapse": "收起恢复日志",
   "restoreFailed": "恢复失败",
   "restoreFailedHint": "查看终端输出获取详情",
   "coldRestoreTitle": "需要恢复旧会话",
@@ -70,6 +72,7 @@
       "daemon-snapshot_blocked": "守护进程不支持安全认领，已停止自动恢复",
       "daemon-snapshot_blocked__reconciliation-failed": "无法核实守护进程的会话归属，已停止自动恢复",
       "daemon-snapshot_cold-restore-ready": "旧会话已不在守护进程中，可直接新建恢复",
+      "daemon-snapshot_no-live-sessions": "守护进程里没有存活会话，直接新建",
       "in-process-session_reattach-ready": "本进程内的会话可直接挂回（{{sessionId}}）",
       "cold-restore_kill_begin": "正在结束旧终端（{{sessionId}}）...",
       "cold-restore_kill_end": "旧终端已结束（{{sessionId}}）",
@@ -106,7 +109,7 @@
       "init_listeners_end": "终端事件监听已就绪",
       "init_saved-session-lookup_begin": "正在查找上次保存的会话...",
       "init_saved-session-lookup_end__found": "找到还活着的旧会话 {{sessionId}}，将直接接管",
-      "init_saved-session-lookup_end__missing": "上次保存的会话已不在，需要新建",
+      "init_saved-session-lookup_end__missing": "上次的终端进程已不在，将新开终端",
       "init_saved-session-lookup_end": "上次保存的会话查找完成",
       "init_output-replay_begin": "正在回放上次的终端输出...",
       "init_output-replay_end": "已回放上次的终端输出：{{count}} 行",
@@ -121,7 +124,7 @@
       "init_create_cancelled": "本次恢复已取消",
       "init_create_cancelled-after-create": "会话创建后发现重复，已撤销（{{sessionId}}）",
       "init_failed": "终端恢复失败：{{error}}",
-      "activation_effect": "标签切到前台，检查是否需要补做恢复",
+      "activation_effect": "标签切到前台，开始补做恢复",
       "activation_create_begin": "切回前台后开始创建会话...",
       "activation_restore-barrier_begin": "等待其他终端先完成恢复...",
       "activation_restore-barrier_end": "等待结束，开始本终端的恢复",
@@ -135,7 +138,9 @@
       "background_backend-create_end": "后台会话已创建（{{sessionId}}）",
       "background_create_cancelled-after-create": "后台会话创建后发现重复，已撤销（{{sessionId}}）",
       "background_restore_ready": "后台恢复完成，切到该标签即可使用",
-      "background_restore_failed": "后台恢复失败：{{error}}"
+      "background_restore_failed": "后台恢复失败：{{error}}",
+      "dead-resume_relaunch": "原对话已不存在，已撤销续接记录并自动新建会话",
+      "dead-resume_stopped": "自动新建后仍然失败，已停止重试"
     }
   },
   "terminalLeaseReadOnly": "只读：写权限由另一个 CC-Panes 实例持有",
@@ -577,6 +582,10 @@
   "resizeLayoutListHeight": "调整布局列表高度",
   "codexResumeCaptureExhausted": "Codex 会话 id 捕获失败：本次会话的新 resume id 未能记录，下次恢复可能回到更早的对话。",
   "resumeLaunchFailed": "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
+  "resumeTargetMissing": "会话恢复失败：{{cli}} 的原对话已不存在，已撤销续接记录。重启该标签将新建会话。",
+  "resumeTargetMissingRelaunched": "{{cli}} 的原对话已不存在，已在原标签新建会话。",
+  "resumeTargetMissingLoop": "原对话已不存在，自动新建后仍然失败，已停止重试。可以重试启动或移除这个终端。",
+  "coldReplayNotResumedHeader": "以下是上次会话的旧输出：原对话未续接，将新建会话",
   "nativeCliMissing": "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
   "launchFailure": {
     "nativeCliMissingTitle": "{{distro}} 内没有原生 Linux 版 {{cli}}，上次启动失败",
@@ -760,5 +769,12 @@
   "unpinLayout": "取消固定",
   "pinnedLayoutsToRight": "固定区移到右侧",
   "pinnedLayoutsToLeft": "固定区移到左侧",
-  "agentChatDropToAttach": "松开添加到对话"
+  "agentChatDropToAttach": "松开添加到对话",
+  "portPreview": {
+    "title": "端口预览",
+    "open": "在内置浏览器打开",
+    "close": "关闭隧道",
+    "failed": "本机预览失败：{{error}}",
+    "notSsh": "只有 SSH 会话需要端口预览"
+  }
 }

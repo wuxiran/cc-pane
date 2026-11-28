@@ -4,7 +4,7 @@ import type {
   SharedMcpServerConfig,
   SharedMcpServerInfo,
 } from "@/types";
-import type { AgentMcpServer, McpMarketResult } from "@/types/shared-mcp";
+import type { AgentMcpServer, McpHubStatus, McpMarketResult } from "@/types/shared-mcp";
 
 export const sharedMcpService = {
   getConfig(): Promise<SharedMcpConfig> {
@@ -80,6 +80,11 @@ export const sharedMcpService = {
     return invokeOrApi<void>("import_agent_mcp_server", { name }, () =>
       apiNoContent(`/api/shared-mcp/agent-servers/${encodeURIComponent(name)}/import`, { method: "POST" }),
     );
+  },
+
+  /** ccpanes-hub 状态（docs/113）。hub 挂在桌面端 orchestrator 上，Web 壳没有，返回 null。 */
+  getHubStatus(): Promise<McpHubStatus | null> {
+    return invokeOrApi<McpHubStatus | null>("get_mcp_hub_status", undefined, async () => null);
   },
 
   /** 发现市场。Web 壳没有这条后端路由，返回空列表。 */

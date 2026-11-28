@@ -22,6 +22,8 @@ import {
 import type { LaunchEffort } from "@/types";
 import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
 import type { TerminalViewMode } from "./AgentChatView";
+import MagpieRouteIndicator from "./MagpieRouteIndicator";
+import ProviderAlertIndicator from "./ProviderAlertIndicator";
 import RateLimitIndicator from "./RateLimitIndicator";
 import SessionCostIndicator from "./SessionCostIndicator";
 import TaskQueuePopover from "./TaskQueuePopover";
@@ -168,7 +170,11 @@ export default function TerminalStatusBar({
             <ContextUsageIndicator terminalContext={terminalContext} enabled={enabled} />
           )}
           <SessionCostIndicator terminalContext={terminalContext} enabled={enabled} />
+          <ProviderAlertIndicator terminalContext={terminalContext} />
           <RateLimitIndicator terminalContext={terminalContext} />
+          {isTauriRuntime() ? (
+            <MagpieRouteIndicator terminalContext={terminalContext} enabled={enabled} />
+          ) : null}
           {taskQueueEnabled && isTauriRuntime() && terminalContext.sessionId && cliLabel ? (
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}

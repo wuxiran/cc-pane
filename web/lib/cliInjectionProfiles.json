@@ -5,6 +5,7 @@
       "ctlProxy": true,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -37,6 +38,7 @@
       "ctlProxy": true,
       "isolation": "full",
       "launchIdentity": true,
+      "hub": true,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -73,6 +75,7 @@
       "ctlProxy": true,
       "isolation": "full",
       "launchIdentity": true,
+      "hub": true,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -107,6 +110,7 @@
       "ctlProxy": false,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -140,6 +144,7 @@
       "ctlProxy": false,
       "isolation": "none",
       "launchIdentity": false,
+      "hub": false,
       "remoteHeaders": false,
       "shared": false,
       "transports": [],
@@ -169,6 +174,7 @@
       "ctlProxy": true,
       "isolation": "full",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -202,6 +208,7 @@
       "ctlProxy": false,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -234,6 +241,7 @@
       "ctlProxy": true,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -267,6 +275,7 @@
       "ctlProxy": true,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -300,6 +309,7 @@
       "ctlProxy": false,
       "isolation": "none",
       "launchIdentity": false,
+      "hub": false,
       "remoteHeaders": false,
       "shared": false,
       "transports": [],
@@ -329,6 +339,7 @@
       "ctlProxy": false,
       "isolation": "none",
       "launchIdentity": false,
+      "hub": false,
       "remoteHeaders": false,
       "shared": false,
       "transports": [],
@@ -358,6 +369,7 @@
       "ctlProxy": false,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -390,6 +402,7 @@
       "ctlProxy": false,
       "isolation": "full",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [
@@ -422,6 +435,7 @@
       "ctlProxy": false,
       "isolation": "declareOnly",
       "launchIdentity": true,
+      "hub": false,
       "remoteHeaders": true,
       "shared": true,
       "transports": [

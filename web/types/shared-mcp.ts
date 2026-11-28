@@ -105,3 +105,20 @@ export interface SharedMcpConfig {
   healthCheckIntervalSecs: number;
   maxRestarts: number;
 }
+
+/** ccpanes-hub 里的一台共享服务器（docs/113，get_mcp_hub_status） */
+export interface McpHubServerStatus {
+  name: string;
+  running: boolean;
+  /** hub 能否代转；sse 远程 MCP 为 false，照旧直连 */
+  routable: boolean;
+  /** 缓存里的工具数；还没被检索过时为 null */
+  toolCount: number | null;
+}
+
+/** 资源库 Hub 卡片的数据 */
+export interface McpHubStatus {
+  /** orchestrator 未运行时为 null（hub 投递的会话回退直连） */
+  endpoint: string | null;
+  servers: McpHubServerStatus[];
+}

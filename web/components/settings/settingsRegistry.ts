@@ -330,6 +330,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     { id: "heavy-gate", titleKey: "performance.heavyGateGroup", descriptionKey: "performance.heavyGateEnabledHint", targetSectionId: "performance-heavy-gate" },
     { id: "heavy-ledger", titleKey: "performance.heavyLedgerGroup", descriptionKey: "performance.heavyLedgerEnabledHint", targetSectionId: "performance-heavy-ledger" },
     { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "performance-session-policy" },
+    { id: "keep-awake", titleKey: "performance.keepAwake", descriptionKey: "performance.keepAwakeHint", targetSectionId: "performance-session-policy" },
     { id: "session-cpu-weight", titleKey: "performance.sessionCpuWeight", descriptionKey: "performance.sessionCpuWeightHint", targetSectionId: "performance-session-policy" },
     { id: "wsl-quota", titleKey: "performance.wslQuotaGroup", descriptionKey: "performance.wslQuotaEnabledHint", targetSectionId: "performance-wsl-quota" },
     { id: "parking", titleKey: "performance.parkingGroup", descriptionKey: "performance.parkedTerminalLimitHint", targetSectionId: "performance-parking" },

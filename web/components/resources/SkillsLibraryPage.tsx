@@ -1,5 +1,5 @@
 // 资源库 · 技能（照 magpie 技能页）：安装卡 → 资源库中 → 内置 / 工作空间 / CLI 自带 → Agent 中已有 → 发现。
-// 每行末尾的开关决定开给哪些启动档；注入方式不变，按会话内联，不写 ~/.claude 等目录。
+// 每行末尾的开关决定开给哪些启动档；按会话原生挂载（挂不了才内联），不写 ~/.claude 等目录。
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Compass, FolderOpen } from "lucide-react";

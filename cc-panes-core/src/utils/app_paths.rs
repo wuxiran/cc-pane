@@ -164,6 +164,11 @@ impl AppPaths {
         self.mcp_dir().join("shared-mcp.json")
     }
 
+    /// worktree setup「始终允许」记录（docs/116）：机器 + 用户级，永不进仓库。
+    pub fn worktree_setup_approvals_path(&self) -> PathBuf {
+        self.data_dir.join("worktree-setup-approvals.json")
+    }
+
     /// skills 目标目录。
     pub fn skills_dir(&self) -> PathBuf {
         self.data_dir.join("skills")

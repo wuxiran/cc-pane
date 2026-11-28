@@ -17,6 +17,7 @@ mod task_binding_repo;
 mod task_queue_repository;
 mod todo_repo;
 mod usage_stats_repo;
+mod workflow_repo;
 
 pub use ai_panel_repo::AiPanelRepository;
 pub use db::Database;
@@ -37,3 +38,4 @@ pub use task_binding_repo::TaskBindingRepository;
 pub use task_queue_repository::TaskQueueRepository;
 pub use todo_repo::TodoRepository;
 pub use usage_stats_repo::UsageStatsRepository;
+pub use workflow_repo::WorkflowRepository;

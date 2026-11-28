@@ -17,6 +17,7 @@ use cc_panes_core::models::{
     TerminalSessionProvenance, WslLaunchInfo,
 };
 use cc_panes_core::models::{ResourcePolicyStatus, SessionResourcePolicy};
+use cc_panes_core::services::keep_awake::{KeepAwakeService, KeepAwakeStatus};
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{
     ProviderSecretStore, SessionStatusInfo, SettingsService, SshCredentialService,
@@ -89,6 +90,7 @@ impl DaemonConfig {
                 session_visibility: RwLock::new(()),
                 restore_creation_locks: parking_lot::Mutex::new(HashMap::new()),
                 settings_reload: parking_lot::Mutex::new(SettingsReloadGate::default()),
+                keep_awake: parking_lot::Mutex::new(None),
             }),
         }
     }
@@ -97,6 +99,19 @@ impl DaemonConfig {
     /// 主程序推来的密钥才会被启动解析读到。
     pub fn set_provider_secret_store(&self, store: Arc<ProviderSecretStore>) {
         *self.inner.provider_secrets.lock() = Some(store);
+    }
+
+    /// 注册保持唤醒服务，供 `/api/daemon/status` 报告当前是否持锁。
+    pub fn set_keep_awake(&self, service: Arc<KeepAwakeService>) {
+        *self.inner.keep_awake.lock() = Some(service);
+    }
+
+    fn keep_awake_status(&self) -> Option<KeepAwakeStatus> {
+        self.inner
+            .keep_awake
+            .lock()
+            .as_ref()
+            .map(|service| service.status())
     }
 
     /// 注册设置服务，使 create_session 前能限频重读 config.toml（见 `reload_settings_if_due`）。
@@ -168,6 +183,7 @@ impl DaemonConfig {
             session_count,
             desktop_client_count: self.desktop_client_count(),
             claims_supported: true,
+            keep_awake: self.keep_awake_status(),
         }
     }
 
@@ -373,6 +389,8 @@ struct DaemonState {
         parking_lot::Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
     /// create_session 前的设置重读闸（服务句柄 + 上次重读时刻）。
     settings_reload: parking_lot::Mutex<SettingsReloadGate>,
+    /// 保持唤醒服务（启动时注册）；None = 未启用（测试 / 嵌入场景）。
+    keep_awake: parking_lot::Mutex<Option<Arc<KeepAwakeService>>>,
 }
 
 #[derive(Default)]
@@ -433,6 +451,9 @@ pub struct DaemonStatus {
     /// 旧 daemon 没有这个字段，客户端 deserialize 成 None → 视为不支持，
     /// 据此禁用自动接管（评审 #11：404 只保证"不报错"，不等于有互斥）。
     pub claims_supported: bool,
+    /// 保持唤醒状态；旧 daemon 无此字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_awake: Option<KeepAwakeStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

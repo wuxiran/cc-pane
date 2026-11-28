@@ -40,17 +40,23 @@ mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
+pub mod github_cli;
 pub mod heavy_command_normalize;
 pub mod heavy_job_gate;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
+pub mod json_schema_lite;
+pub mod keep_awake;
 mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
+pub mod library_skill_sets;
 pub mod library_space_service;
 pub mod login_account;
+pub mod magpie_live;
 pub mod mcp_config_service;
+pub mod mcp_hub;
 mod memory_service;
 pub mod native_config;
 pub mod opencode_session_service;
@@ -59,6 +65,7 @@ pub(crate) mod pi_session_service;
 pub mod pipe_event_service;
 pub mod plan_archive_service;
 pub mod plan_service;
+pub mod port_preview_service;
 mod port_scanner;
 mod process_monitor_service;
 mod project_cli_hooks_service;
@@ -81,6 +88,7 @@ mod session_index_parser;
 mod session_index_roots;
 mod session_index_service;
 pub mod session_provenance_persist;
+pub mod session_relocation;
 mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
@@ -113,11 +121,14 @@ mod uninstall_cleanup_service;
 pub mod usage_stats_service;
 mod user_skill_service;
 mod wallpaper_service;
+pub mod workflow_engine;
+mod workflow_service;
 mod workspace_health;
 mod workspace_projects_manifest;
 mod workspace_service;
 mod workspace_skill_service;
 mod worktree_service;
+pub mod worktree_setup;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
@@ -155,6 +166,7 @@ pub use external_skill_registry::{
 };
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
+pub use github_cli::GithubCliService;
 pub use history_service::HistoryService;
 pub use history_watch_manager::{HistoryWatchManager, HistoryWatchStats};
 pub use journal_service::{JournalIndex, JournalService, SessionSummary};
@@ -165,10 +177,12 @@ pub use login_account::{
     CreateLoginAccountRequest, DeleteAccountOutcome, LoginAccountRoot, LoginAccountService,
     LoginAccountStatus, LoginAccountView, LoginCommand, LoginState,
 };
+pub use magpie_live::{MagpieCatalog, MagpieLiveService, MagpieQuotaReport, MagpieRouteStatus};
 pub use mcp_config_service::{
     effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
     McpServerConfig,
 };
+pub use mcp_hub::McpHubService;
 pub use memory_service::MemoryService;
 pub use pi_rpc_service::{
     PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,
@@ -177,6 +191,7 @@ pub use pi_rpc_service::{
 pub use pipe_event_service::{PipeEventRequest, PipeEventService};
 pub use plan_archive_service::PlanArchiveService;
 pub use plan_service::PlanService;
+pub use port_preview_service::{PortPreviewService, PortPreviewTunnel};
 pub use port_scanner::{ListeningSocket, PortScanner};
 pub use process_monitor_service::ProcessMonitorService;
 pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksService};
@@ -227,7 +242,7 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_probe::RemoteCcPanes;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::{ResourceTreeOptions, SystemStatsService};
-pub use task_binding_service::TaskBindingService;
+pub use task_binding_service::{TaskBindingService, TerminalObserver};
 pub use task_dispatch_service::{
     dispatch_permission_yolo_mode, resolve_dispatch_cwd, TaskDispatchService,
 };
@@ -260,9 +275,14 @@ pub use user_skill_service::{
     USER_SKILL_METADATA_FILE,
 };
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
+pub use workflow_service::{
+    claim_recovery, observe_binding, AdvanceOutcome, ClaimRecovery, DispatchJob, WorkflowService,
+    WORKFLOW_TASK_METADATA_KEY,
+};
 pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use workspace_skill_service::{
     WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
 };
 pub use worktree_service::{WorktreeInfo, WorktreeService};
+pub use worktree_setup::{WorktreeSetupPlan, WorktreeSetupService};

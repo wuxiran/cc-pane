@@ -9,8 +9,12 @@
 //! - 项目路径白名单校验
 //! - 请求频率限制
 
+#[path = "orchestrator_service/create_worktree.rs"]
+mod create_worktree;
 #[path = "orchestrator_service/dispatch_retry.rs"]
 mod dispatch_retry;
+#[path = "orchestrator_service/github_tools.rs"]
+mod github_tools;
 #[path = "orchestrator_service/mesh_tools.rs"]
 mod mesh_tools;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
@@ -25,7 +29,14 @@ mod report_delivery_cache;
 mod ssh_machine_tools;
 #[path = "orchestrator_service/worker_report_requests.rs"]
 mod worker_report_requests;
+use create_worktree::McpCreateWorktreeParams;
+use github_tools::{
+    McpGhCiLogsParams, McpGhCiRerunParams, McpGhIssueListParams, McpGhIssueViewParams,
+    McpGhPrCreateParams, McpGhPrMergeParams, McpGhProjectParams,
+};
 use mesh_tools::{McpListContactsParams, McpMessageContactParams};
+#[path = "orchestrator_service/workflow_tools.rs"]
+mod workflow_tools;
 use open_terminal_tab::McpOpenTerminalTabParams;
 use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCache};
 use ssh_machine_tools::McpCheckSshMachineParams;
@@ -343,6 +354,25 @@ fn record_resolved_provider(envelope: &mut TaskDispatchEnvelope, launched: &Laun
 
 fn dispatch_binding_metadata(envelope: &TaskDispatchEnvelope) -> serde_json::Value {
     serde_json::json!({ "dispatchEnvelope": envelope })
+}
+
+/// Dispatch metadata plus caller extras (resultSchema, workflow receipt). Without
+/// extras this is exactly [`dispatch_binding_metadata`].
+fn dispatch_binding_metadata_with(
+    envelope: &TaskDispatchEnvelope,
+    result_schema: Option<&serde_json::Value>,
+    extra: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut metadata = dispatch_binding_metadata(envelope);
+    if let Some(schema) = result_schema {
+        metadata["resultSchema"] = schema.clone();
+    }
+    if let Some(serde_json::Value::Object(extra)) = extra {
+        for (key, value) in extra {
+            metadata[key.as_str()] = value.clone();
+        }
+    }
+    metadata
 }
 
 fn pipe_workspace_id(workspace_name: Option<&str>, project_path: Option<&str>) -> String {
@@ -2573,6 +2603,8 @@ impl OrchestratorService {
                             ))
                         });
                     heavy_jobs.spawn_reaper();
+                    let workflow_driver =
+                        workflow_tools::spawn_workflow_driver(state.clone(), cancel_rx.clone());
                     let app = build_router(state, heavy_jobs);
 
                     tokio::spawn(run_pending_report_level_scan(level_scan_state));
@@ -2587,6 +2619,9 @@ impl OrchestratorService {
                     let serve_result = axum::serve(listener, app)
                         .with_graceful_shutdown(wait_for_orchestrator_shutdown(cancel_rx.clone()))
                         .await;
+                    if let Some(driver) = workflow_driver {
+                        driver.abort();
+                    }
                     let cancelled = *cancel_rx.borrow();
                     if let Err(error) =
                         cc_panes_core::utils::orchestrator_manifest_lifecycle::retire(
@@ -2663,6 +2698,22 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
     let mcp_full_state = state.clone();
     let mcp_full_service = StreamableHttpService::new(
         move || Ok(McpToolHandler::new(mcp_full_state.clone())),
+        Arc::new(LocalSessionManager::default()),
+        Default::default(),
+    );
+
+    // docs/113：共享 MCP 聚合入口。与资源库 Hub 卡片共用 app 管理的那一份（缓存一致）。
+    let hub = state
+        .app_handle
+        .try_state::<Arc<cc_panes_core::services::McpHubService>>()
+        .map(|hub| hub.inner().clone())
+        .unwrap_or_else(|| {
+            Arc::new(cc_panes_core::services::McpHubService::new(
+                state.shared_mcp_service.clone(),
+            ))
+        });
+    let mcp_hub_service = StreamableHttpService::new(
+        move || Ok(super::mcp_hub_handler::McpHubHandler::new(hub.clone())),
         Arc::new(LocalSessionManager::default()),
         Default::default(),
     );
@@ -2745,6 +2796,7 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
         )
         .nest_service("/mcp", mcp_service)
         .nest_service("/mcp-full", mcp_full_service)
+        .nest_service(cc_panes_core::services::mcp_hub::HUB_PATH, mcp_hub_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -2889,6 +2941,14 @@ struct McpLaunchTaskParams {
     #[serde(skip)]
     #[schemars(skip)]
     allow_resume_with_prompt: bool,
+    /// 可选：结构化结果的 JSON Schema；worker 完成时经 update_task_binding.result 交回
+    #[serde(default, rename = "resultSchema")]
+    #[schemars(schema_with = "notification_metadata_schema")]
+    result_schema: Option<serde_json::Value>,
+    /// Internal only: extra metadata merged into the dispatched binding (workflow receipt).
+    #[serde(skip)]
+    #[schemars(skip)]
+    binding_metadata: Option<serde_json::Value>,
 }
 
 /// Single-tool Cursor Bridge surface (docs/96). Action enum, not six MCP tools.
@@ -3823,6 +3883,9 @@ struct McpUpdateTaskBindingParams {
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
+    /// 结构化结果（JSON）；派发时给了 resultSchema 则先校验，不通过不写入
+    #[serde(default)]
+    result: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3847,6 +3910,9 @@ struct McpReportToLeaderParams {
     status: Option<String>,
     /// 可覆盖上报摘要；默认使用 worker.completion_summary
     summary: Option<String>,
+    /// 结构化结果（JSON）；有 resultSchema 时先校验，通过后存入并随汇报附上
+    #[serde(default)]
+    result: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -5683,7 +5749,11 @@ impl McpToolHandler {
             .update(
                 &binding.id,
                 UpdateTaskBindingRequest {
-                    metadata: Some(dispatch_binding_metadata(&plan.envelope)),
+                    metadata: Some(dispatch_binding_metadata_with(
+                        &plan.envelope,
+                        launch.result_schema.as_ref(),
+                        launch.binding_metadata.as_ref(),
+                    )),
                     ..Default::default()
                 },
             )
@@ -5694,7 +5764,7 @@ impl McpToolHandler {
         &self,
         binding_id: &str,
         session_id: &str,
-        envelope: &TaskDispatchEnvelope,
+        metadata: serde_json::Value,
     ) -> std::result::Result<TaskBinding, String> {
         let existing = self
             .state
@@ -5710,7 +5780,7 @@ impl McpToolHandler {
                 UpdateTaskBindingRequest {
                     session_id: Some(session_id.to_string()),
                     status,
-                    metadata: Some(dispatch_binding_metadata(envelope)),
+                    metadata: Some(metadata),
                     ..Default::default()
                 },
             )
@@ -6277,6 +6347,8 @@ impl McpToolHandler {
             dispatch_task_id: None,
             adapter_options: Some(adapter_options),
             allow_resume_with_prompt,
+            result_schema: None,
+            binding_metadata: None,
         };
         let raw = self.launch_task(Parameters(launch), extensions).await;
         self.attach_cursor_bridge_launch(&scope.service, &plan, &raw)
@@ -6514,7 +6586,14 @@ async fn ensure_browser_webview(
     })
 }
 
-#[tool_router]
+impl McpToolHandler {
+    /// 全部工具 = 主路由 + 各子模块路由（子模块只在这里追加一项）。
+    fn tool_router() -> ToolRouter<Self> {
+        Self::base_tool_router() + Self::workflow_tool_router()
+    }
+}
+
+#[tool_router(router = base_tool_router)]
 impl McpToolHandler {
     /// 派任务给任意已注册 CLI：新建会话（prompt）、恢复（resumeId）或分叉（forkSessionId），总是建 TaskBinding 便于跟踪；
     /// 传 parentBindingId / parentSessionId 则成为子任务，worker 可 report_to_leader。
@@ -6536,6 +6615,9 @@ impl McpToolHandler {
     ) -> String {
         let parent_binding_id = launch.parent_binding_id.take();
         let parent_session_id = launch.parent_session_id.take();
+        if let Err(error) = workflow_tools::check_result_schema(&launch) {
+            return format!("错误: {error}");
+        }
         let prompt_len = launch
             .prompt
             .as_ref()
@@ -6564,6 +6646,7 @@ impl McpToolHandler {
             Err(error) => return format!("错误: {}", error),
         };
         let binding_id = binding.id;
+        workflow_tools::append_result_instruction(&mut launch, &binding_id);
         let has_parent = plan.envelope.parent_binding_id.is_some();
         let dispatch_correlation_id = plan.envelope.task_id.clone();
         let parent_binding_id = plan.envelope.parent_binding_id.clone();
@@ -6609,6 +6692,8 @@ impl McpToolHandler {
 
         // Reuse the established launcher so session restoration, history backfill,
         // frontend placement, and launch status remain identical to launch_task.
+        let extra_schema = launch.result_schema.take();
+        let extra_metadata = launch.binding_metadata.take();
         let launch_output = self.launch_task(Parameters(launch), extensions).await;
         let launch_response = match serde_json::from_str::<LaunchTaskResponse>(&launch_output) {
             Ok(response) => response,
@@ -6660,7 +6745,15 @@ impl McpToolHandler {
         // 之后默认供应商换了，重派 / 恢复仍要回到原来那家的原账号。
         record_resolved_provider(&mut plan.envelope, &launch_response);
         let persistence_warning = self
-            .mark_dispatch_binding_running(&binding_id, &launch_response.session_id, &plan.envelope)
+            .mark_dispatch_binding_running(
+                &binding_id,
+                &launch_response.session_id,
+                dispatch_binding_metadata_with(
+                    &plan.envelope,
+                    extra_schema.as_ref(),
+                    extra_metadata.as_ref(),
+                ),
+            )
             .err();
         if let Some(error) = persistence_warning.as_deref() {
             warn!(binding_id, err = %error, "mcp::dispatch_task session launched but TaskBinding finalization failed");
@@ -8103,6 +8196,17 @@ impl McpToolHandler {
         self.open_terminal_tab_impl(params, extensions).await
     }
 
+    /// 建 git worktree（可选登记进工作空间）。仓库有 .ccpanes/worktree.json 时：
+    /// copyFiles 照做；setup 仅在已「始终允许」时于新终端标签执行，否则跳过并在 setup.note 说明。
+    #[tool]
+    async fn create_worktree(
+        &self,
+        Parameters(params): Parameters<McpCreateWorktreeParams>,
+        extensions: Extensions,
+    ) -> String {
+        self.create_worktree_impl(params, extensions).await
+    }
+
     /// 列出「设备」视图里保存的 SSH 机器（id、名称、地址、用户、标签、默认目录；不含凭据）。
     /// 在某台机器上开终端：open_terminal_tab 传 machineId。
     #[tool]
@@ -8138,6 +8242,48 @@ impl McpToolHandler {
         extensions: Extensions,
     ) -> String {
         self.message_contact_impl(params, extensions).await
+    }
+
+    /// 当前分支的 PR：状态、review 结论、CI checks 摘要。pr=null 表示没有 PR。
+    #[tool]
+    async fn gh_pr_status(&self, Parameters(params): Parameters<McpGhProjectParams>) -> String {
+        self.gh_pr_status_impl(params).await
+    }
+
+    /// 为当前分支开 PR（需已推送）。base 默认仓库默认分支。
+    #[tool]
+    async fn gh_pr_create(&self, Parameters(params): Parameters<McpGhPrCreateParams>) -> String {
+        self.gh_pr_create_impl(params).await
+    }
+
+    /// 合并当前分支的 PR。不可逆：会弹窗请用户确认，用户不确认则拒绝。
+    #[tool]
+    async fn gh_pr_merge(&self, Parameters(params): Parameters<McpGhPrMergeParams>) -> String {
+        self.gh_pr_merge_impl(params).await
+    }
+
+    /// 失败 CI run 的失败 job 与日志尾部（已截断）。
+    #[tool]
+    async fn gh_ci_failed_logs(&self, Parameters(params): Parameters<McpGhCiLogsParams>) -> String {
+        self.gh_ci_failed_logs_impl(params).await
+    }
+
+    /// 重跑 CI run。
+    #[tool]
+    async fn gh_ci_rerun(&self, Parameters(params): Parameters<McpGhCiRerunParams>) -> String {
+        self.gh_ci_rerun_impl(params).await
+    }
+
+    /// 列出仓库 Issue（默认 open，最多 30 条）。
+    #[tool]
+    async fn gh_issue_list(&self, Parameters(params): Parameters<McpGhIssueListParams>) -> String {
+        self.gh_issue_list_impl(params).await
+    }
+
+    /// 查看 Issue 正文与最近评论（已截断）。
+    #[tool]
+    async fn gh_issue_view(&self, Parameters(params): Parameters<McpGhIssueViewParams>) -> String {
+        self.gh_issue_view_impl(params).await
     }
 
     /// 在 CC-Panes 中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
@@ -9143,6 +9289,15 @@ impl McpToolHandler {
         };
         info!(id = %params.id, "mcp::update_task_binding");
         let task_id = params.id.clone();
+        let metadata = match workflow_tools::merge_validated_result(
+            &self.state.task_binding_service,
+            &task_id,
+            params.metadata,
+            params.result,
+        ) {
+            Ok(metadata) => metadata,
+            Err(error) => return format!("错误: {error}"),
+        };
 
         let req = UpdateTaskBindingRequest {
             title: params.title,
@@ -9163,7 +9318,7 @@ impl McpToolHandler {
             exit_code: params.exit_code,
             sort_order: None,
             worker_kind: None,
-            metadata: params.metadata,
+            metadata,
         };
 
         match worker_report_requests::update_binding_and_notify(
@@ -14913,10 +15068,7 @@ async fn send_worker_report_to_dsh_leader(
         .filter(|summary| !summary.trim().is_empty())
         .map(|summary| sanitize_pty_line(summary, 500))
         .unwrap_or_else(|| "(no summary)".to_string());
-    let line = format!(
-        "[worker-report] id={} status={} summary={}",
-        worker.id, worker.status, summary
-    );
+    let line = workflow_tools::worker_report_line(worker, &summary);
 
     emit(PipeEventPhase::Flowing, "worker report flowing", None);
     match crate::commands::dsh_workspace_sync::prompt_session(instance.port, dsh_session_id, &line)
@@ -15261,10 +15413,7 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
         .filter(|summary| !summary.trim().is_empty())
         .map(|summary| sanitize_pty_line(summary, 500))
         .unwrap_or_else(|| "(no summary)".to_string());
-    let line = format!(
-        "[worker-report] id={} status={} summary={}",
-        worker.id, worker.status, summary
-    );
+    let line = workflow_tools::worker_report_line(&worker, &summary);
 
     emit_report_pipe_event(
         &state,

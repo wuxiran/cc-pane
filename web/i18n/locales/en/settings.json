@@ -132,6 +132,8 @@
     "heavyLedgerClearHint": "Delete every recorded heavy command.",
     "heavyLedgerCleared": "Ledger cleared",
     "heavyLedgerClearUnavailable": "Clearing the ledger is not supported by this version",
+    "keepAwake": "Keep awake while agents work",
+    "keepAwakeHint": "Prevents idle system sleep while any session or chat is working; the display still turns off. Released about 60 seconds after everything goes idle. Closing the lid or choosing Sleep still sleeps.",
     "sessionPolicyGroup": "Session resource policy",
     "sessionCpuWeight": "Session CPU weight",
     "sessionCpuWeightNeutral": "{{value}} (neutral, unset)",
@@ -1411,6 +1413,21 @@
     "cancel": "Cancel",
     "failed": "Failed: {{error}}",
     "actionFailed": "Failed: {{error}}"
+  },
+  "mcpHubCard": {
+    "title": "MCP Hub",
+    "badge": "ccpanes-hub",
+    "intro": "One entry point: launch profiles set to Hub delivery give sessions a single ccpanes-hub entry, which reaches the servers below on demand via search_tools / call_tool.",
+    "endpoint": "Endpoint {{endpoint}}",
+    "endpointDown": "Orchestrator isn't running; Hub sessions fall back to direct for now.",
+    "servers": "{{count}} servers behind it",
+    "tools": "{{count}} tools cached",
+    "toolsPending": "tool lists load on first search",
+    "direct": "Bypass the hub (SSE): {{names}}",
+    "stopped": "Not running: {{names}}",
+    "profiles": "Profiles using Hub: {{names}}",
+    "noProfiles": "No launch profile uses Hub delivery yet (switch it in a profile's MCP card).",
+    "fallsBack": "{{name}} (falls back to direct for its CLI)"
   },
   "resourceLibrary": {
     "components": "Components",

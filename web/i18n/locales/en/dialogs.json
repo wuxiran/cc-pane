@@ -329,6 +329,31 @@
   "noFileHistory": "No file history records",
   "autoTrackChanges": "File changes in the project will be recorded automatically",
   "diffEarliestToCurrent": "Earliest version -> Current file",
+  "sessionRelocation": {
+    "title": "Migrate session history",
+    "description": "After a project folder is moved or renamed, Claude Code and Codex sessions stay filed under the old path and can't be resumed. This moves them to the new path.",
+    "oldPath": "Old path (where the sessions were recorded)",
+    "newPath": "New path (current project folder)",
+    "pickOld": "Choose the old project folder",
+    "pickNew": "Choose the new project folder",
+    "safetyHint": "Preview first. Only path fields under the old path are rewritten; message content is left alone. Sessions that already exist under the new path, or were written in the last minute, are skipped. Originals are backed up to ~/.cc-panes/backups/session-relocation/. Close the CLIs of this project before migrating.",
+    "preview": "Preview",
+    "execute": "Migrate",
+    "previewTitle": "Will migrate",
+    "doneTitle": "Migrated",
+    "claudeSessions": "Claude Code sessions",
+    "codexSessions": "Codex sessions",
+    "launchHistoryRows": "CC-Panes launch history",
+    "taskBindingRows": "CC-Panes task bindings",
+    "skipped": "Skipped {{count}}",
+    "reason": {
+      "exists": "already exists under the new path",
+      "active": "written in the last minute",
+      "invalid": "not valid JSONL"
+    },
+    "backup": "Backup: {{path}}",
+    "done": "Migrated {{count}} sessions"
+  },
   "projectMigration": {
     "title": "Project To WSL",
     "workspace": "Workspace: {{name}}",
@@ -407,5 +432,29 @@
     "cancel": "Cancel",
     "resume": "Resume Session",
     "unregistered": "Can't open session link: {{path}} isn't a registered project"
+  },
+  "githubImportTitle": "Import from GitHub issues",
+  "githubImportDesc": "Read through the local gh CLI. Each selected issue becomes a task in this project; issues already imported stay linked to their task.",
+  "githubImportSearchPlaceholder": "Search issues, e.g. is:open label:bug",
+  "githubImportSearch": "Search",
+  "githubImportReload": "Reload",
+  "githubImportEmpty": "No matching issues",
+  "githubImportImported": "Imported",
+  "githubImportImporting": "Importing…",
+  "githubImportAction_one": "Import {{count}} issue",
+  "githubImportAction_other": "Import {{count}} issues",
+  "githubImportDone": "Created {{created}} task(s), {{existing}} already imported",
+  "githubImportPartialFailed": "Created {{created}} task(s); {{failed}} issue(s) failed to import",
+  "githubImportFailed": "Import failed: {{error}}",
+  "githubMergeConfirmTitle": "Merge pull request?",
+  "githubMergeConfirmDesc": "An agent wants to merge PR #{{number}} \"{{title}}\" ({{head}} → {{base}}, {{method}}). Merging cannot be undone.\n\n{{url}}",
+  "githubMergeConfirmAction": "Merge",
+  "worktreeSetup": {
+    "title": "Run worktree setup commands?",
+    "description": "This repository's .ccpanes/worktree.json asks to run the following commands in the new worktree. They will run in a new terminal tab.",
+    "copied": "Copied from the main tree: {{files}}",
+    "skip": "Skip",
+    "runOnce": "Run once",
+    "alwaysAllow": "Always allow"
   }
 }

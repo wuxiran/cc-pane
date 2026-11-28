@@ -198,6 +198,7 @@ fn full_context(sandbox: &Sandbox, cli_id: &str, use_proxy: bool) -> CliAdapterC
             json!({ "command": SHARED_BRIDGE_CMD, "args": [], "env": {} }),
         )]),
         shared_mcp_remote,
+        hub_covered_mcp_servers: Vec::new(),
         allowed_mcp_server_ids,
         disable_unlisted_mcp_servers: true,
         skill_mount_paths: vec![sandbox.skill_mount.clone()],

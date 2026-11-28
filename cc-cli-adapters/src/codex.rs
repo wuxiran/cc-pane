@@ -443,7 +443,10 @@ impl CodexAdapter {
         // 工作空间层 + 项目覆盖层（docs/98）先于 shared 写入：同名时 shared 的 URL 后写覆盖。
         let mut workspace_injected = 0usize;
         for (name, config) in ctx.allowed_workspace_mcp_servers() {
-            if name == "ccpanes" || ctx.shared_mcp_urls.contains_key(name) {
+            if name == "ccpanes"
+                || ctx.shared_mcp_urls.contains_key(name)
+                || ctx.hub_covered_mcp_servers.contains(name)
+            {
                 continue;
             }
             if Self::push_mcp_json_override(args, name, config) {
@@ -474,6 +477,15 @@ impl CodexAdapter {
                         headers
                     ));
                 }
+            }
+        }
+
+        if !ctx.hub_covered_mcp_servers.is_empty() {
+            for name in Self::hub_covered_names_to_disable(
+                &ctx.hub_covered_mcp_servers,
+                &Self::configured_mcp_server_names(ctx),
+            ) {
+                Self::push_mcp_enabled_override(args, &name, false);
             }
         }
 
@@ -562,6 +574,20 @@ impl CodexAdapter {
             .and_then(toml::Value::as_table)
             .map(|servers| servers.keys().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// hub 覆盖的服务器里，用户 config.toml 自己也配了的那些要显式禁用，否则同一组工具
+    /// 会和 `ccpanes-hub` 并排加载两次（docs/113）。只禁真实存在的段：对不存在的名字写
+    /// `enabled=false` 会凭空造出一个缺 command/url 的表，Codex 启动时报错。
+    fn hub_covered_names_to_disable(
+        covered: &[String],
+        configured: &BTreeSet<String>,
+    ) -> Vec<String> {
+        covered
+            .iter()
+            .filter(|name| configured.contains(*name))
+            .cloned()
+            .collect()
     }
 
     fn configured_mcp_server_names(ctx: &CliAdapterContext) -> BTreeSet<String> {
@@ -1770,6 +1796,7 @@ impl CliToolAdapter for CodexAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::Full,
                 launch_identity: true,
+                hub: true,
             },
             skills: SkillsInjection {
                 mount: SkillMount::ProjectFile,
@@ -2084,6 +2111,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -3428,5 +3456,16 @@ bearer_token_env_var = "USER_TOKEN"
         let result = CodexAdapter::new().build_command(&ctx).unwrap();
         assert!(result.args.windows(2).any(|p| p == ["fork", "parent-id"]));
         assert!(!result.args.iter().any(|p| p == "resume"));
+    }
+
+    #[test]
+    fn hub_covered_names_only_disable_sections_the_user_config_has() {
+        let configured = BTreeSet::from(["fetch".to_string(), "mine".to_string()]);
+        let covered = vec!["fetch".to_string(), "chrome".to_string()];
+        assert_eq!(
+            CodexAdapter::hub_covered_names_to_disable(&covered, &configured),
+            vec!["fetch".to_string()]
+        );
+        assert!(CodexAdapter::hub_covered_names_to_disable(&[], &configured).is_empty());
     }
 }

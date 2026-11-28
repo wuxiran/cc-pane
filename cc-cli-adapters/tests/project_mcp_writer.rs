@@ -63,6 +63,7 @@ fn ctx(project: &Path, data: &Path) -> CliAdapterContext {
                 },
             ),
         ]),
+        hub_covered_mcp_servers: Vec::new(),
         allowed_mcp_server_ids: Vec::new(),
         disable_unlisted_mcp_servers: false,
         skill_mount_paths: Vec::new(),

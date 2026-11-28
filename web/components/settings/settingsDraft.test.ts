@@ -10,6 +10,7 @@ function fixture() {
   const draft = structuredClone(defaults);
   draft.terminal.fontSize = 27;
   draft.terminal.lowerSessionPriority = false;
+  draft.terminal.keepAwakeWhileWorking = false;
   draft.terminal.sessionCpuWeight = 2;
   draft.performance.buildJobs = 7;
   return { defaults, draft };
@@ -21,6 +22,7 @@ describe("settings section reset ownership", () => {
     const next = resetSettingsSection(draft, defaults, "performance");
     expect(next.performance).toEqual(defaults.performance);
     expect(next.terminal.lowerSessionPriority).toBe(defaults.terminal.lowerSessionPriority);
+    expect(next.terminal.keepAwakeWhileWorking).toBe(true);
     expect(next.terminal.sessionCpuWeight).toBe(defaults.terminal.sessionCpuWeight);
     expect(next.terminal.fontSize).toBe(27);
     expect(draft.terminal.sessionCpuWeight).toBe(2);
@@ -30,6 +32,7 @@ describe("settings section reset ownership", () => {
     const next = resetSettingsSection(draft, defaults, "terminal");
     expect(next.terminal.fontSize).toBe(defaults.terminal.fontSize);
     expect(next.terminal.lowerSessionPriority).toBe(false);
+    expect(next.terminal.keepAwakeWhileWorking).toBe(false);
     expect(next.terminal.sessionCpuWeight).toBe(2);
     expect(next.performance.buildJobs).toBe(7);
   });

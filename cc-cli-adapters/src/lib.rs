@@ -1306,6 +1306,9 @@ pub struct CliAdapterContext {
     pub shared_mcp_stdio: BTreeMap<String, serde_json::Value>,
     /// `shared_mcp_urls` 里哪些是远程 MCP，以及它们的传输方式和请求头
     pub shared_mcp_remote: BTreeMap<String, RemoteMcpSpec>,
+    /// 改由 `ccpanes-hub` 代理的共享服务器名（docs/113，启动档 Hub 投递）。非空时 adapter
+    /// 不再加载用户全局配置里同名的那份，否则同一组工具会和 hub 并排出现两次。
+    pub hub_covered_mcp_servers: Vec<String>,
     /// 运行配置允许保留的 MCP server id。
     /// Codex 需要这个列表来禁用用户 config.toml 中未被本次运行配置选中的 MCP。
     #[allow(dead_code)]
@@ -1367,6 +1370,9 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "delete_task_binding",
     "report_to_leader",
     "send_to_worker",
+    "create_workflow",
+    "approve_stage",
+    "get_workflow_status",
     "create_todo",
     "update_todo",
     "query_todos",
@@ -1401,6 +1407,13 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "open_terminal_tab",
     "list_ssh_machines",
     "check_ssh_machine",
+    "gh_pr_status",
+    "gh_pr_create",
+    "gh_pr_merge",
+    "gh_ci_failed_logs",
+    "gh_ci_rerun",
+    "gh_issue_list",
+    "gh_issue_view",
     "list_contacts",
     "message_contact",
     "open_browser_tab",
@@ -1465,6 +1478,7 @@ pub(crate) mod tests_support {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -2693,6 +2707,7 @@ mod registry_tests {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

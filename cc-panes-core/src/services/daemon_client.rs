@@ -59,6 +59,9 @@ pub struct TerminalDaemonStatus {
     /// 只保证"调用不报错"，完全没有互斥，把它当已授权会让两个实例同时写同一 PTY。
     #[serde(default)]
     pub claims_supported: Option<bool>,
+    /// daemon 侧保持唤醒状态。`None` = 旧 daemon 无此字段。
+    #[serde(default)]
+    pub keep_awake: Option<crate::services::keep_awake::KeepAwakeStatus>,
 }
 
 #[derive(Debug, Clone)]

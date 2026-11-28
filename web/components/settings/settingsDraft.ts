@@ -81,7 +81,11 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
 
 // These controls live on Performance while their persisted keys remain under
 // terminal for compatibility. Reset by UI ownership, not storage object alone.
-const PERFORMANCE_TERMINAL_KEYS = ["lowerSessionPriority", "sessionCpuWeight"] as const;
+const PERFORMANCE_TERMINAL_KEYS = [
+  "lowerSessionPriority",
+  "keepAwakeWhileWorking",
+  "sessionCpuWeight",
+] as const;
 
 export function resetSettingsSection(
   draft: SettingsDraft,

@@ -8,7 +8,7 @@ function profile(overrides: Partial<LaunchProfile>): LaunchProfile {
     id: "p1",
     name: "工作",
     targetTools: [],
-    mcpPolicy: { mode: "default", enabledServerIds: [], disabledServerIds: [], includeCcpanesMcp: true, includeSharedMcp: true },
+    mcpPolicy: { mode: "default", enabledServerIds: [], disabledServerIds: [], includeCcpanesMcp: true, includeSharedMcp: true, delivery: "direct" },
     skillPolicy: {
       mode: "core",
       enabledSkillIds: [],

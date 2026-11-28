@@ -82,6 +82,13 @@ interface DialogState {
   openSessionCleaner: (projectPath: string) => void;
   closeSessionCleaner: () => void;
 
+  // 项目改路径后迁移历史会话
+  sessionRelocationOpen: boolean;
+  sessionRelocationOldPath: string;
+  sessionRelocationNewPath: string;
+  openSessionRelocation: (paths: { oldPath: string; newPath: string }) => void;
+  closeSessionRelocation: () => void;
+
   // Todo
   todoOpen: boolean;
   todoScope: string;
@@ -195,6 +202,13 @@ export const useDialogStore = create<DialogState>((set) => ({
   sessionCleanerProjectPath: "",
   openSessionCleaner: (projectPath) => set({ sessionCleanerOpen: true, sessionCleanerProjectPath: projectPath }),
   closeSessionCleaner: () => set({ sessionCleanerOpen: false }),
+
+  sessionRelocationOpen: false,
+  sessionRelocationOldPath: "",
+  sessionRelocationNewPath: "",
+  openSessionRelocation: ({ oldPath, newPath }) =>
+    set({ sessionRelocationOpen: true, sessionRelocationOldPath: oldPath, sessionRelocationNewPath: newPath }),
+  closeSessionRelocation: () => set({ sessionRelocationOpen: false }),
 
   // Todo
   todoOpen: false,

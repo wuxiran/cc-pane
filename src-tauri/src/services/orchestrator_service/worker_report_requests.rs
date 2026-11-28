@@ -27,8 +27,17 @@ pub(super) fn update_binding_and_notify(
 
 pub(super) async fn report(
     runtime: ReportRuntime,
-    params: McpReportToLeaderParams,
+    mut params: McpReportToLeaderParams,
 ) -> LeaderReportResult {
+    if let Some(result) = params.result.take() {
+        if let Err(error) = super::workflow_tools::store_validated_result(
+            &runtime.task_binding_service,
+            &params.worker_id,
+            result,
+        ) {
+            return LeaderReportResult::skipped(format!("invalid result: {error}"));
+        }
+    }
     let mut worker = match runtime.task_binding_service.get(&params.worker_id) {
         Ok(Some(binding)) => binding,
         Ok(None) => return LeaderReportResult::skipped("worker not found"),

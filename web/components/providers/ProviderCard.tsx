@@ -9,6 +9,7 @@ import { PROVIDER_TYPE_META, isSystemProvider, providerHasSecret, type Provider 
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
 import { Badge } from "@/components/ui/badge";
 import PurityBadge from "./PurityBadge";
+import MagpieQuotaCard from "./MagpieQuotaCard";
 
 /** 列表上的密钥存放标记：有密钥在文件里（钥匙串不可用时的回退）就标「未进钥匙串」。 */
 function secretStorageBadge(provider: Provider): "keychain" | "file" | null {
@@ -239,6 +240,8 @@ export default function ProviderCard({
           </div>
 
           <AccountSummary provider={provider} />
+
+          <MagpieQuotaCard provider={provider} />
 
           {/* Website URL */}
           {website && (
