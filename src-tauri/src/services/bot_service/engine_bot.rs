@@ -48,6 +48,7 @@ impl BotService {
             created_at: 0,
             updated_at: 0,
             auto_created: true,
+            pet_id: None,
         };
         self.save(draft).await
     }

@@ -78,7 +78,7 @@ async function renderRoot() {
   if (mode === "ccchan") {
     const { CCChanApp } = await import("./ccchan/CCChanApp");
     const { default: ErrorBoundary } = await import("@/components/ErrorBoundary");
-    // Lightweight fallback sized for the 120x120 transparent ccchan window —
+    // Lightweight fallback for the small transparent ccchan window —
     // the default ErrorBoundary UI (icon + button + p-8) would be clipped here.
     const ccchanFallback = (
       <div

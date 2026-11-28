@@ -32,8 +32,6 @@ describe("useCCChanStore", () => {
     useCCChanStore.setState({
       settings: DEFAULT_CCCHAN_SETTINGS,
       pets: [FALLBACK_PET],
-      expanded: false,
-      chatSessionId: null,
       loading: false,
       loaded: false,
     });
@@ -44,18 +42,19 @@ describe("useCCChanStore", () => {
       const state = useCCChanStore.getState();
       expect(state.settings).toEqual(DEFAULT_CCCHAN_SETTINGS);
       expect(state.pets).toEqual([FALLBACK_PET]);
-      expect(state.expanded).toBe(false);
       expect(state.loaded).toBe(false);
     });
   });
 
   describe("load", () => {
     it("应该加载设置与宠物并标记 loaded", async () => {
+      // 旧版本设置：带已删除的 aiEngine / soundEnabled / wanderEnabled。
       const settings = {
-        aiEngine: "codex" as const,
+        aiEngine: "codex",
         defaultPetId: "cat",
         autoStart: true,
         soundEnabled: false,
+        wanderEnabled: true,
         windowVisible: true,
         windowX: 10,
         windowY: 20,
@@ -69,8 +68,17 @@ describe("useCCChanStore", () => {
       await useCCChanStore.getState().load();
 
       const state = useCCChanStore.getState();
-      // 旧配置缺新字段时由 normalize 补默认值
-      expect(state.settings).toEqual({ ...settings, wanderEnabled: false, petSize: 120 });
+      // 旧字段被丢弃，缺的新字段由 normalize 补默认值
+      expect(state.settings).toEqual({
+        defaultPetId: "cat",
+        autoStart: true,
+        windowVisible: true,
+        windowX: 10,
+        windowY: 20,
+        windowPosPhysical: false,
+        petSize: 120,
+        activeBotId: null,
+      });
       expect(state.pets).toEqual(pets);
       expect(state.loaded).toBe(true);
       expect(state.loading).toBe(false);
@@ -120,8 +128,7 @@ describe("useCCChanStore", () => {
       mockTauriInvoke({ save_ccchan_settings: undefined });
       const settings = {
         ...DEFAULT_CCCHAN_SETTINGS,
-        aiEngine: "codex" as const,
-        soundEnabled: false,
+        activeBotId: "bot-1",
       };
 
       await useCCChanStore.getState().saveSettings(settings);
@@ -134,20 +141,20 @@ describe("useCCChanStore", () => {
   });
 
   describe("新字段默认值与规范化", () => {
-    it("默认漫游关闭、petSize 为 120", () => {
-      expect(DEFAULT_CCCHAN_SETTINGS.wanderEnabled).toBe(false);
+    it("默认 petSize 为 120、未选 Bot", () => {
       expect(DEFAULT_CCCHAN_SETTINGS.petSize).toBe(120);
+      expect(DEFAULT_CCCHAN_SETTINGS.activeBotId).toBeNull();
     });
 
     it("applySettings 应只更新内存并 clamp petSize", () => {
       useCCChanStore.getState().applySettings({
         ...DEFAULT_CCCHAN_SETTINGS,
-        wanderEnabled: true,
+        activeBotId: "  ",
         petSize: 999,
       });
 
       const state = useCCChanStore.getState();
-      expect(state.settings.wanderEnabled).toBe(true);
+      expect(state.settings.activeBotId).toBeNull();
       expect(state.settings.petSize).toBe(240);
       expect(mockInvoke).not.toHaveBeenCalled();
     });
@@ -175,80 +182,21 @@ describe("useCCChanStore", () => {
     });
   });
 
-  describe("同步 setter", () => {
-    it("setExpanded 应更新 expanded", () => {
-      useCCChanStore.getState().setExpanded(true);
-      expect(useCCChanStore.getState().expanded).toBe(true);
-    });
-
-    it("setChatSessionId 应更新 chatSessionId", () => {
-      useCCChanStore.getState().setChatSessionId("sess-1");
-      expect(useCCChanStore.getState().chatSessionId).toBe("sess-1");
-    });
-
+  describe("setter", () => {
     it("setWindowVisible 应仅更新 settings.windowVisible", () => {
       useCCChanStore.getState().setWindowVisible(true);
       const state = useCCChanStore.getState();
       expect(state.settings.windowVisible).toBe(true);
-      expect(state.settings.aiEngine).toBe(DEFAULT_CCCHAN_SETTINGS.aiEngine);
+      expect(state.settings.defaultPetId).toBe(DEFAULT_CCCHAN_SETTINGS.defaultPetId);
     });
 
-    it("setPosition 应更新窗口坐标", () => {
-      useCCChanStore.getState().setPosition(100, 200);
-      const state = useCCChanStore.getState();
-      expect(state.settings.windowX).toBe(100);
-      expect(state.settings.windowY).toBe(200);
-    });
-
-    it("setDefaultPetId 应更新默认宠物", () => {
-      useCCChanStore.getState().setDefaultPetId("cat");
-      expect(useCCChanStore.getState().settings.defaultPetId).toBe("cat");
-    });
-  });
-
-  describe("switchPet", async () => {
-    it("应该切换到下一个宠物", async () => {
-      useCCChanStore.setState({
-        pets: [createPet("a"), createPet("b"), createPet("c")],
-        settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "a" },
+    it("setActiveBotId 应落盘当前 Bot", async () => {
+      mockTauriInvoke({ save_ccchan_settings: undefined });
+      await useCCChanStore.getState().setActiveBotId("b2");
+      expect(mockInvoke).toHaveBeenCalledWith("save_ccchan_settings", {
+        settings: { ...DEFAULT_CCCHAN_SETTINGS, activeBotId: "b2" },
       });
-
-      await useCCChanStore.getState().switchPet();
-
-      expect(useCCChanStore.getState().settings.defaultPetId).toBe("b");
-    });
-
-    it("在最后一个宠物时应回绕到第一个", async () => {
-      useCCChanStore.setState({
-        pets: [createPet("a"), createPet("b")],
-        settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "b" },
-      });
-
-      await useCCChanStore.getState().switchPet();
-
-      expect(useCCChanStore.getState().settings.defaultPetId).toBe("a");
-    });
-
-    it("当前宠物不在列表时应从索引 0 的下一个开始", async () => {
-      useCCChanStore.setState({
-        pets: [createPet("a"), createPet("b")],
-        settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "unknown" },
-      });
-
-      await useCCChanStore.getState().switchPet();
-
-      expect(useCCChanStore.getState().settings.defaultPetId).toBe("b");
-    });
-
-    it("宠物列表为空时不应改变设置", async () => {
-      useCCChanStore.setState({
-        pets: [],
-        settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "homie" },
-      });
-
-      await useCCChanStore.getState().switchPet();
-
-      expect(useCCChanStore.getState().settings.defaultPetId).toBe("homie");
+      expect(useCCChanStore.getState().settings.activeBotId).toBe("b2");
     });
   });
 });

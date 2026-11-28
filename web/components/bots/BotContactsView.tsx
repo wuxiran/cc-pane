@@ -17,10 +17,10 @@ import { nativeConfirm } from "@/services/nativeDialog";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import { emptyBot, type Bot, type BotSummary } from "@/types/bot";
+import { CREATE_BOT_DOM_EVENT, emptyBot, type Bot, type BotSummary } from "@/types/bot";
 import BotAvatar from "./BotAvatar";
 import BotEditorDialog from "./BotEditorDialog";
-import { openBotChat } from "./openBotChat";
+import { consumeBotCreateRequest, openBotChat } from "./openBotChat";
 
 /** 自动 Bot 没有人设：副标题给「引擎 · 目录名」，区分同引擎不同 cwd 的几个。 */
 function autoBotDetail(bot: BotSummary): string {
@@ -59,6 +59,16 @@ export default function BotContactsView() {
       unlisten?.();
     };
   }, [reload]);
+
+  // 桌宠「新建 Bot」：主窗口切到联系人后派发此事件。
+  useEffect(() => {
+    const create = () => {
+      if (consumeBotCreateRequest()) setEditing(emptyBot(""));
+    };
+    create();
+    window.addEventListener(CREATE_BOT_DOM_EVENT, create);
+    return () => window.removeEventListener(CREATE_BOT_DOM_EVENT, create);
+  }, []);
 
   const newThread = async (bot: BotSummary) => {
     try {

@@ -24,7 +24,10 @@ vi.mock("@/stores/agentChatEvents", () => ({
   dropAgentChatState: vi.fn(),
   ensureAgentChatListener: vi.fn(),
 }));
-vi.mock("./openBotChat", () => ({ openBotChat: (...args: unknown[]) => openBotChat(...args) }));
+vi.mock("./openBotChat", () => ({
+  openBotChat: (...args: unknown[]) => openBotChat(...args),
+  consumeBotCreateRequest: () => false,
+}));
 vi.mock("./BotEditorDialog", () => ({ default: () => null }));
 
 import BotContactsView from "./BotContactsView";

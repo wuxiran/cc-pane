@@ -1,535 +1,258 @@
+// 桌宠窗口：Bot 形象 + 会话状态指示器。
+//
+// - 形象：当前 Bot 选的皮肤；没有 Bot 时是内置默认 cc酱。
+// - 动画：全部终端会话 + 当前 Bot 对话聚合出的状态（petStatus.ts）。
+// - 左键：跳到最紧急的会话；没有就在头顶弹出单行提问气泡（发给当前 Bot）。
+// - 悬停：控件条（会话列表 / 提问 / 切换 Bot / 收起）；右键：原生菜单。
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
-
-import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { AppToaster } from "@/components/ui/toast";
-import { TOASTER_OFFSET_CCCHAN, toastErr } from "@/lib/feedback";
+import { botService } from "@/services/botService";
 import { useCCChanStore } from "@/stores/useCCChanStore";
-import { useTerminalStatusStore } from "@/stores";
-import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
-import { getErrorMessage } from "@/utils";
-import { devDebugLog } from "@/utils/devLogger";
-import { aggregateStatus } from "./statusAggregator";
-import { ChatPanel, type ChatMessage } from "./ChatPanel";
-import { ContextMenu, type CCChanContextMenuPosition } from "./ContextMenu";
-import { SessionDots } from "./SessionDots";
-import { SpritePet } from "./SpritePet";
-import { getCCChanLayout } from "./ccchanLayout";
-import { usePetPointerGesture } from "./usePetPointerGesture";
-import { useCCChanWindowMode } from "./useCCChanWindowMode";
-import { usePetWander } from "./usePetWander";
+import type { Bot, BotSummary } from "@/types/bot";
 import { listenCCChan } from "./listen";
-import type { CCChanEvent, CCChanPetState, CCChanSettings, PetMeta } from "./types";
-
-const BUBBLE_INITIAL_MS = 12_000;
-const BUBBLE_REPEAT_MIN_MS = 42_000;
-const BUBBLE_REPEAT_MAX_MS = 95_000;
-const BUBBLE_DURATION_MS = 5_400;
-
-function getEventPetState(event: CCChanEvent): CCChanPetState {
-  if (event.kind === "task-complete") return "happy";
-  if (event.kind === "task-failed") return "sad";
-  return "waiting";
-}
-
-type BubbleSource = "event" | "idle" | "manual";
-
-interface BubbleMessage {
-  id: number;
-  source: BubbleSource;
-  text: string;
-}
+import { PetBubble } from "./PetBubble";
+import { contextMenu, botMenu, popupMenu, sessionMenu, type PetMenuActions } from "./petMenus";
+import { fitSprite, usePetBounds } from "./petBounds";
+import { getPetLayout, hitRegions, type HitRect } from "./petLayout";
+import { aggregatePetStatus, botPetStatus, pickClickTarget, PET_STATUS_PRIORITY } from "./petStatus";
+import { PetToolbar } from "./PetToolbar";
+import { SpritePet } from "./SpritePet";
+import { useBotPet } from "./useBotPet";
+import { usePetBubble } from "./usePetBubble";
+import { usePetPointerGesture } from "./usePetPointerGesture";
+import { usePetSessions } from "./usePetSessions";
+import { useHitRegions, usePetHover, usePetWindowChrome } from "./usePetWindow";
+import type { CCChanEvent, CCChanSettings, PetMeta } from "./types";
 
 interface CCChanSayEvent {
   text: string;
   durationMs?: number;
 }
 
+const EVENT_BUBBLE_MS = 3_600;
 
-
-const IDLE_BUBBLE_KEYS = ["bubbles.idle.nearby", "bubbles.idle.stuck", "bubbles.idle.openChat", "bubbles.idle.background", "bubbles.idle.output"] as const;
-const WORKING_BUBBLE_KEYS = ["bubbles.working.running", "bubbles.working.working", "bubbles.working.status"] as const;
-const WAITING_BUBBLE_KEYS = ["bubbles.waiting.input", "bubbles.waiting.jump", "bubbles.waiting.reminder"] as const;
-type BubbleKey = (typeof IDLE_BUBBLE_KEYS | typeof WORKING_BUBBLE_KEYS | typeof WAITING_BUBBLE_KEYS)[number];
-
-function randomDelay(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-function pickOne<T>(items: readonly T[]): T {
-  return items[Math.floor(Math.random() * items.length)] ?? items[0]!;
-}
-
-function pickIdleBubbleKey(state: CCChanPetState, activeSessions: number): BubbleKey {
-  if (state === "waiting") return pickOne(WAITING_BUBBLE_KEYS);
-  if (state === "working" || activeSessions > 0) return pickOne(WORKING_BUBBLE_KEYS);
-  return pickOne(IDLE_BUBBLE_KEYS);
-}
-
-function debugCCChan(event: string, payload: Record<string, unknown> = {}): void {
-  devDebugLog("ccchan-debug", event, payload);
-}
-
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("input, textarea, [contenteditable='true'], [contenteditable='']"));
+/** 只换形象：把列表视图还原成 Bot 记录（运行态字段不回写）。 */
+export function botWithPet(summary: BotSummary, petId: string): Bot {
+  const { chatId: _chatId, effectiveCwd: _cwd, phase: _phase, ...bot } = summary;
+  return { ...bot, petId };
 }
 
 export function CCChanApp() {
   const { t } = useTranslation("ccchan");
-  const translate = useRef(t);
-  translate.current = t;
   const settings = useCCChanStore((state) => state.settings);
   const pets = useCCChanStore((state) => state.pets);
-  const expanded = useCCChanStore((state) => state.expanded);
-  const chatSessionId = useCCChanStore((state) => state.chatSessionId);
   const loadCCChan = useCCChanStore((state) => state.load);
-  const setExpanded = useCCChanStore((state) => state.setExpanded);
-  const setChatSessionId = useCCChanStore((state) => state.setChatSessionId);
-  const setWindowVisible = useCCChanStore((state) => state.setWindowVisible);
-  const switchPet = useCCChanStore((state) => state.switchPet);
+  const saveSettings = useCCChanStore((state) => state.saveSettings);
   const applySettings = useCCChanStore((state) => state.applySettings);
-  const initTerminalStatus = useTerminalStatusStore((state) => state.init);
-  const cleanupTerminalStatus = useTerminalStatusStore((state) => state.cleanup);
-  const statusMap = useTerminalStatusStore((state) => state.statusMap);
 
-  const [eventState, setEventState] = useState<CCChanPetState | null>(null);
-  const [eggState, setEggState] = useState<CCChanPetState | null>(null);
-  const [bubble, setBubble] = useState<BubbleMessage | null>(null);
-  const [chatMounted, setChatMounted] = useState(expanded);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [menuPosition, setMenuPosition] = useState<CCChanContextMenuPosition | null>(null);
-  const bubbleRef = useRef<BubbleMessage | null>(null);
-  const bubbleIdRef = useRef(0);
-  const petStateRef = useRef<CCChanPetState>("idle");
-  const activeSessionCountRef = useRef(0);
-  const expandedRef = useRef(expanded);
-  const manualBubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const selectedPet = useMemo(
-    () => pets.find((pet) => pet.id === settings.defaultPetId) ?? pets[0],
-    [pets, settings.defaultPetId],
+  const { entries, directory } = usePetSessions();
+  const { bots, activeBot, botState } = useBotPet(settings.activeBotId);
+  const botName = activeBot?.name ?? t("brand");
+  const { bubble, openInput, dismiss, notify, submit, cancel } = usePetBubble(
+    activeBot?.id ?? null,
+    t("bubble.cancelled"),
   );
+  const hover = usePetHover();
+  const [collapsed, setCollapsed] = useState(false);
+  const [bubbleRect, setBubbleRect] = useState<HitRect | null>(null);
 
-  const layout = useMemo(() => getCCChanLayout(settings.petSize), [settings.petSize]);
-  const petSize = layout.petSize;
+  const pet = useMemo<PetMeta | undefined>(() => {
+    const byId = (id: string | null | undefined) => (id ? pets.find((item) => item.id === id) : undefined);
+    return byId(activeBot?.petId) ?? byId(settings.defaultPetId) ?? pets[0];
+  }, [activeBot?.petId, pets, settings.defaultPetId]);
 
-  const aggregateState = useMemo(() => {
-    const statuses = Array.from(statusMap.values()).map((info) => info.status as TerminalStatusType);
-    return aggregateStatus(statuses);
-  }, [statusMap]);
+  const layout = useMemo(() => getPetLayout(settings.petSize), [settings.petSize]);
+  const bounds = usePetBounds(pet ?? pets[0]);
+  const visible = fitSprite(bounds, layout.petSize).visible;
 
-  const petState = eventState ?? eggState ?? aggregateState;
-  const bubbleVisible = Boolean(bubble) && !expanded && !menuPosition;
-  const activeSessionCount = statusMap.size;
+  const botStatus = botPetStatus(botState);
+  const status = aggregatePetStatus([botStatus, ...entries.map((entry) => entry.status)]);
+  const urgentCount = entries.filter((entry) => PET_STATUS_PRIORITY[entry.status] >= PET_STATUS_PRIORITY.ready).length;
+  const toolbarVisible = hover.hovered && !collapsed;
 
-  useEffect(() => {
-    bubbleRef.current = bubble;
-  }, [bubble]);
-
-  useEffect(() => {
-    petStateRef.current = petState;
-    activeSessionCountRef.current = activeSessionCount;
-  }, [activeSessionCount, petState]);
-
-  useEffect(() => {
-    expandedRef.current = expanded;
-  }, [expanded]);
-
-  const showBubble = useCallback((text: string, source: BubbleSource) => {
-    const id = bubbleIdRef.current + 1;
-    bubbleIdRef.current = id;
-    setBubble({ id, source, text });
-    return id;
-  }, []);
-
-  const clearBubble = useCallback((id?: number) => {
-    setBubble((current) => {
-      if (!current) return null;
-      if (id !== undefined && current.id !== id) return current;
-      return null;
-    });
-  }, []);
-
-  const showManualBubble = useCallback((payload: CCChanSayEvent | null | undefined) => {
-    const text = payload?.text?.trim();
-    if (!text) {
-      debugCCChan("bubble.manual.skip.empty", {});
-      return;
-    }
-    const durationMs = Math.min(
-      30_000,
-      Math.max(1_200, payload?.durationMs ?? BUBBLE_DURATION_MS),
-    );
-    debugCCChan("bubble.manual.show", {
-      textLength: text.length,
-      durationMs,
-    });
-    const bubbleId = showBubble(text, "manual");
-    if (manualBubbleTimerRef.current) clearTimeout(manualBubbleTimerRef.current);
-    manualBubbleTimerRef.current = setTimeout(() => {
-      clearBubble(bubbleId);
-      manualBubbleTimerRef.current = null;
-    }, durationMs);
-  }, [clearBubble, showBubble]);
-
-  const openChat = useCallback(async () => {
-    if (expandedRef.current) {
-      debugCCChan("chat.open.skip.already-expanded", {});
-      return;
-    }
-    debugCCChan("chat.open.begin", {
-      hadMenu: Boolean(menuPosition),
-      hadBubble: Boolean(bubbleRef.current),
-    });
-    expandedRef.current = true;
-    clearBubble();
-    setMenuPosition(null);
-    setChatMounted(true);
-    setExpanded(true);
-  }, [clearBubble, menuPosition, setExpanded]);
-
-  const pointer = usePetPointerGesture(() => void openChat().catch((error) => toastErr(getErrorMessage(error))), openMenu);
-
-  const mode = expanded ? "chat" : menuPosition ? "menu" : bubbleVisible ? "bubble" : "collapsed";
-  const viewport = useCCChanWindowMode(mode, petSize, pointer.interacting);
-
-  usePetWander(settings.wanderEnabled, Boolean(eventState || expanded || menuPosition || bubbleVisible || pointer.interacting), petSize, setEggState);
+  usePetWindowChrome(Boolean(pet));
+  useHitRegions(hitRegions(layout, visible, { toolbar: toolbarVisible, bubble: bubble ? bubbleRect : null }));
 
   useEffect(() => {
-    if (expanded || menuPosition || eventState) return;
-
-    let cancelled = false;
-    let showTimer: ReturnType<typeof setTimeout> | null = null;
-    let hideTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function clearTimers() {
-      if (showTimer) clearTimeout(showTimer);
-      if (hideTimer) clearTimeout(hideTimer);
-      showTimer = null;
-      hideTimer = null;
-    }
-
-    function scheduleNext(delayMs = randomDelay(BUBBLE_REPEAT_MIN_MS, BUBBLE_REPEAT_MAX_MS)) {
-      if (cancelled) return;
-      showTimer = setTimeout(() => {
-        if (cancelled || expanded || menuPosition || eventState || bubbleRef.current) {
-          scheduleNext();
-          return;
-        }
-
-        const id = showBubble(
-          t(pickIdleBubbleKey(petStateRef.current, activeSessionCountRef.current)),
-          "idle",
-        );
-        hideTimer = setTimeout(() => {
-          clearBubble(id);
-          scheduleNext();
-        }, BUBBLE_DURATION_MS);
-      }, delayMs);
-    }
-
-    scheduleNext(BUBBLE_INITIAL_MS);
-    return () => {
-      cancelled = true;
-      clearTimers();
-    };
-  }, [
-    clearBubble,
-    eventState,
-    expanded,
-    menuPosition,
-    showBubble,
-    t,
-  ]);
-
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent = "html, body, #root { background: transparent !important; margin: 0; padding: 0; overflow: hidden; }";
-    document.head.appendChild(style);
-    return () => style.remove();
-  }, []);
-
-  // 首帧提交后通知后端 show（后端新建窗口时先隐藏，避免闪出不透明底色；3s 超时兜底）。
-  // 用 setTimeout 而非 rAF：窗口尚未 show 时 WKWebView/WebView2 可能暂停 rAF，会白等到兜底超时。
-  const hasPet = Boolean(selectedPet);
-  const readySentRef = useRef(false);
-  useEffect(() => {
-    if (!hasPet || readySentRef.current) return;
-    const timer = setTimeout(() => {
-      readySentRef.current = true;
-      invoke("ccchan_window_ready").catch((error) => console.warn("[ccchan] window ready:", error));
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [hasPet]);
+    if (!hover.hovered) setCollapsed(false);
+  }, [hover.hovered]);
 
   useEffect(() => {
     void loadCCChan();
-    void initTerminalStatus().catch(() => {});
-    invoke<TerminalStatusInfo[]>("get_all_terminal_status")
-      .then((statuses) => {
-        if (!Array.isArray(statuses)) return;
-        useTerminalStatusStore.setState(() => {
-          const next = new Map(statuses.map((status) => [status.sessionId, status]));
-          return { statusMap: next };
-        });
-      })
-      .catch(() => {});
-    return cleanupTerminalStatus;
-  }, [cleanupTerminalStatus, initTerminalStatus, loadCCChan]);
+  }, [loadCCChan]);
 
+  useEffect(() => listenCCChan<CCChanSettings>("ccchan:settings-updated", ({ payload }) => applySettings(payload)), [applySettings]);
+  useEffect(() => listenCCChan<PetMeta[]>("ccchan:pets-updated", ({ payload }) => useCCChanStore.getState().applyPets(payload)), []);
+
+  // 会话事件：用标签名而不是会话 id 提示一句。目录走 ref，避免目录每次刷新都重订阅漏事件。
+  const directoryRef = useRef(directory);
+  directoryRef.current = directory;
+  useEffect(() => listenCCChan<CCChanEvent>("ccchan-event", ({ payload }) => {
+    const title = directoryRef.current.get(payload.sessionId)?.title || payload.sessionId.slice(0, 8);
+    const key = payload.kind === "task-complete" ? "events.completed" : payload.kind === "task-failed" ? "events.failed" : "events.waiting";
+    notify(t(key, { title }), EVENT_BUBBLE_MS);
+  }), [notify, t]);
+
+  // MCP ccchan_say：后端先存再 emit，窗口新建时 onReady 再补取一次。
   useEffect(() => {
-    if (!IS_MAC) return;
-
-    const preventNativeCallout = (event: Event) => {
-      if (isEditableTarget(event.target)) return;
-      event.preventDefault();
-    };
-
-    window.addEventListener("contextmenu", preventNativeCallout, true);
-    window.addEventListener("selectstart", preventNativeCallout, true);
-    return () => {
-      window.removeEventListener("contextmenu", preventNativeCallout, true);
-      window.removeEventListener("selectstart", preventNativeCallout, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const unlisten = listenCCChan<CCChanEvent>("ccchan-event", (event) => {
-      const payload = event.payload;
-      const nextState = getEventPetState(payload);
-      const title = payload.title ?? payload.sessionId;
-      setEventState(nextState);
-      const bubbleId = showBubble(
-        payload.kind === "task-complete"
-          ? translate.current("events.completed", { title })
-          : payload.kind === "task-failed"
-            ? translate.current("events.failed", { title })
-            : translate.current("events.waiting", { title }),
-        "event",
-      );
-      // 只弹气泡不弹 toast：小窗口里 toast 会被截断，且与气泡信息重复。
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        setEventState(null);
-        clearBubble(bubbleId);
-      }, 3600);
-    });
-    return () => { if (timer) clearTimeout(timer); unlisten(); };
-    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
-    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearBubble, showBubble]);
-
-  useEffect(() => {
-    const handleDomSay = (event: Event) => showManualBubble((event as CustomEvent<CCChanSayEvent>).detail);
-    window.addEventListener("ccchan-say-dom", handleDomSay);
     let disposed = false;
     const receive = () => {
       void invoke<CCChanSayEvent | null>("take_ccchan_say").then((payload) => {
-        if (!disposed) showManualBubble(payload);
+        const text = payload?.text?.trim();
+        if (disposed || !text) return;
+        notify(text, Math.min(30_000, Math.max(1_200, payload?.durationMs ?? 5_400)));
       }).catch((error) => console.warn("[ccchan] receive message:", error));
     };
     const unlisten = listenCCChan("ccchan-say", receive, receive);
     return () => {
       disposed = true;
-      window.removeEventListener("ccchan-say-dom", handleDomSay);
-      if (manualBubbleTimerRef.current) clearTimeout(manualBubbleTimerRef.current);
       unlisten();
     };
-  }, [showManualBubble]);
+  }, [notify]);
 
-  // 主窗口保存 ccchan settings 后经 emitTo("ccchan", ...) 推送到这里，
-  // 无需重启宠物窗口即可生效（漫游开关、尺寸、默认角色等）。
-  useEffect(() => listenCCChan<CCChanSettings>("ccchan:settings-updated", ({ payload }) => applySettings(payload)), [applySettings]);
+  // 失焦（点了别处）收起回复 / 提示气泡；输入框自己处理失焦。
+  useEffect(() => {
+    const onBlur = () => {
+      if (bubble && bubble.kind !== "input" && bubble.kind !== "pending") dismiss();
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [bubble, dismiss]);
 
-  useEffect(() => listenCCChan<PetMeta[]>("ccchan:pets-updated", ({ payload }) => useCCChanStore.getState().applyPets(payload)), []);
+  const openBotInMain = useCallback(() => {
+    if (activeBot) void emitTo("main", "ccchan:open-bot-chat", { botId: activeBot.id });
+  }, [activeBot]);
 
-  async function closeChat() {
-    expandedRef.current = false;
-    setExpanded(false);
-  }
+  const startAsk = useCallback(() => {
+    if (!activeBot) {
+      notify(t("bubble.noBot"), 4_000);
+      void emitTo("main", "ccchan:open-bots", { create: true });
+      return;
+    }
+    // 输入需要键盘焦点：宠物窗口平时不抢焦点。
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().setFocus())
+      .catch(() => {});
+    openInput();
+  }, [activeBot, notify, openInput, t]);
 
-  function openMenu() {
-    if (menuPosition) return;
-    debugCCChan("menu.open.begin", {
-      expanded,
-      hadBubble: Boolean(bubbleRef.current),
-    });
-    clearBubble();
-    const openedForMenu = !expanded;
-    // Keep the menu away from the transparent ccchan window edge. Drawing it
-    // beside the mascot avoids the hard WebView clipping line.
-    const preferredX = petSize + 8;
-    const preferredY = 16;
-    const x = Math.max(
-      layout.menuPad,
-      Math.min(preferredX, layout.menuW - layout.menuPanelW - layout.menuPad),
-    );
-    const y = Math.max(
-      layout.menuPad,
-      Math.min(preferredY, layout.menuH - layout.menuPanelH - layout.menuPad),
-    );
-    debugCCChan("menu.open.position", {
-      openedForMenu,
-      immediateX: openedForMenu ? layout.menuPad : x,
-      immediateY: openedForMenu ? layout.menuPad : y,
-      finalX: x,
-      finalY: y,
-    });
-    setMenuPosition({ x, y });
-  }
+  const actions: PetMenuActions = useMemo(() => ({
+    focusSession: (sessionId) => void emitTo("main", "ccchan:focus-session", { sessionId }),
+    selectBot: (botId) => void saveSettings({ ...settings, activeBotId: botId }),
+    createBot: () => void emitTo("main", "ccchan:open-bots", { create: true }),
+    selectPet: (petId) => {
+      if (activeBot) {
+        void botService.save(botWithPet(activeBot, petId))
+          .catch((error: unknown) => console.warn("[ccchan] save bot pet:", error));
+      } else {
+        void saveSettings({ ...settings, defaultPetId: petId });
+      }
+    },
+    openSettings: () => void emitTo("main", "ccchan:open-settings"),
+    hide: () => {
+      void invoke("hide_ccchan")
+        .then(() => useCCChanStore.getState().setWindowVisible(false))
+        .catch((error) => console.warn("[ccchan] hide:", error));
+    },
+  }), [activeBot, saveSettings, settings]);
 
-  function handleContextMenu(event: MouseEvent<HTMLElement>) {
-    debugCCChan("pet.contextmenu", {
-      button: event.button,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    });
-    event.preventDefault();
-    event.stopPropagation();
-    openMenu();
-  }
+  const handleClick = useCallback(() => {
+    const target = pickClickTarget(entries, botStatus);
+    if (target.kind === "session") actions.focusSession(target.sessionId);
+    else startAsk();
+  }, [actions, botStatus, entries, startAsk]);
 
-  function closeMenu() { setMenuPosition(null); }
+  const openContextMenu = useCallback(() => {
+    void popupMenu(contextMenu({
+      bots, activeBotId: activeBot?.id ?? null, pets, currentPetId: pet?.id ?? "", entries, t, actions,
+    }));
+  }, [actions, activeBot?.id, bots, entries, pet?.id, pets, t]);
 
-  async function hideWindow() {
-    debugCCChan("window.hide.begin", {});
-    await invoke("hide_ccchan");
-    setWindowVisible(false);
-    debugCCChan("window.hide.end", {});
-  }
+  const pointer = usePetPointerGesture(handleClick);
 
-  if (!selectedPet) return null;
+  if (!pet) return null;
+
+  const needsApproval = bubble?.kind === "pending" && botState.pendingRequests > 0;
 
   return (
     <div
       className="ccchan-window relative select-none"
-      style={{
-        width: "100vw",
-        height: "100vh",
-        background: "transparent",
+      style={{ width: "100vw", height: "100vh", background: "transparent" }}
+      onPointerLeave={hover.onPointerLeave}
+      onContextMenu={(event: MouseEvent) => {
+        event.preventDefault();
+        if ((event.target as HTMLElement).closest("[data-pet-hit]")) openContextMenu();
       }}
-      onContextMenu={handleContextMenu}
     >
-      {bubbleVisible && bubble && (
-        <div
-          className="pointer-events-none absolute left-3 top-2 z-20 rounded-lg border-2 px-3 py-2 text-[length:var(--text-row)] font-semibold leading-[19px] shadow-xl"
-          style={{
-            width: Math.min(layout.bubbleTextW, (viewport?.width ?? layout.bubbleW) - 24),
-            maxHeight: layout.bubblePetTop - 16,
-            overflow: "hidden",
-            overflowWrap: "anywhere",
-            background: "#ffffff",
-            borderColor: "#38bdf8",
-            color: "#0f172a",
-            boxShadow: "0 14px 32px rgba(15, 23, 42, 0.28), 0 0 0 3px rgba(255, 255, 255, 0.72)",
+      {bubble && (
+        <PetBubble
+          bubble={bubble}
+          botName={botName}
+          needsApproval={needsApproval}
+          windowWidth={layout.width}
+          bottom={layout.bubbleBottom}
+          onSubmit={submit}
+          onDismiss={dismiss}
+          onCancel={cancel}
+          onOpenMain={() => {
+            openBotInMain();
+            if (bubble.kind !== "pending") dismiss();
           }}
-        >
-          <div
-            className="absolute -bottom-2 left-[54px] h-3.5 w-3.5 rotate-45 border-b-2 border-r-2"
-            style={{
-              background: "#ffffff",
-              borderColor: "#38bdf8",
+          onRect={setBubbleRect}
+        />
+      )}
+
+      {toolbarVisible && (
+        <div data-pet-hit="" onPointerEnter={hover.onPointerEnter}>
+          <PetToolbar
+            top={layout.toolbarY}
+            botName={botName}
+            urgentCount={urgentCount}
+            onSessions={() => void popupMenu(sessionMenu(entries, t, actions))}
+            onAsk={startAsk}
+            onSwitchBot={() => void popupMenu(botMenu(bots, activeBot?.id ?? null, t, actions))}
+            onCollapse={() => {
+              setCollapsed(true);
+              dismiss();
             }}
           />
-          <span className="relative z-10">{bubble.text}</span>
         </div>
       )}
 
       <div
+        data-pet-hit=""
         className="absolute"
-        style={{
-          width: petSize,
-          height: petSize,
-          left: bubbleVisible ? layout.bubblePetLeft : 0,
-          top: bubbleVisible ? layout.bubblePetTop : 0,
-        }}
+        style={{ left: layout.petX, top: layout.petY, width: layout.petSize, height: layout.petSize }}
+        onPointerEnter={hover.onPointerEnter}
       >
-        <div className="pointer-events-auto absolute left-1/2 top-1 z-10 -translate-x-1/2">
-          <SessionDots />
-        </div>
-        <button
-          type="button"
-          className="absolute right-1 top-8 z-20 flex h-8 w-8 items-center justify-center rounded-full border shadow-lg transition-transform hover:scale-105 active:scale-95"
-          style={{
-            background: "#ffffff",
-            borderColor: "#bfdbfe",
-            color: "#2563eb",
-          }}
-          title={t("openConversation")}
-          onClick={(event) => {
-            event.stopPropagation();
-            debugCCChan("chat-button.click", {});
-            void openChat().catch(() => {});
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            debugCCChan("chat-button.contextmenu", {});
-            openMenu();
-          }}
-        >
-          <MessageCircle size={16} />
-        </button>
+        {urgentCount > 0 && !toolbarVisible && (
+          <span
+            data-testid="pet-urgent-badge"
+            className="pointer-events-none absolute z-10 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[length:var(--text-micro)] font-semibold"
+            style={{
+              left: visible.x + visible.width - 8,
+              top: Math.max(0, visible.y - 4),
+              background: "var(--app-status-warning)",
+              color: "var(--primary-foreground)",
+            }}
+          >
+            {urgentCount > 9 ? "9+" : urgentCount}
+          </span>
+        )}
         <SpritePet
-          pet={selectedPet}
-          state={petState}
-          size={petSize}
-          title={t("openChat")}
-          onContextMenu={handleContextMenu}
-          onClick={(event) => { event.stopPropagation(); pointer.onClick(); }}
+          pet={pet}
+          status={status}
+          size={layout.petSize}
+          title={`${botName} · ${t(`status.${status}`)}`}
+          onClick={(event) => event.stopPropagation()}
           onPointerDown={pointer.onPointerDown}
           onPointerMove={pointer.onPointerMove}
           onPointerUp={pointer.onPointerUp}
           onPointerCancel={pointer.onPointerCancel}
         />
       </div>
-
-      <div
-        inert={!expanded}
-        aria-hidden={!expanded}
-        className="absolute transition-all duration-200"
-        style={{
-          left: layout.chatPanelLeft,
-          top: layout.chatPanelTop,
-          opacity: expanded ? 1 : 0,
-          transform: expanded ? "translateY(0)" : "translateY(-6px)",
-          pointerEvents: expanded ? "auto" : "none",
-        }}
-      >
-        {chatMounted && (
-          <ChatPanel
-            settings={settings}
-            sessionId={chatSessionId}
-            messages={chatMessages}
-            onMessagesChange={setChatMessages}
-            onSessionIdChange={setChatSessionId}
-            onClose={() => void closeChat().catch(() => {})}
-            width={Math.min(layout.chatPanelW, (viewport?.width ?? layout.chatW) - 28)}
-            height={Math.min(layout.chatPanelH, (viewport?.height ?? layout.chatH) - layout.chatPanelTop - 24)}
-          />
-        )}
-      </div>
-
-      {menuPosition && (
-        <ContextMenu
-          position={menuPosition}
-          onHide={() => void hideWindow().catch(() => {})}
-          onOpenChat={() => void openChat().catch(() => {})}
-          onSwitchPet={() => void switchPet().catch((error) => toastErr(getErrorMessage(error)))}
-          onOpenSettings={() => void emitTo("main", "ccchan:open-settings")}
-          onExit={() => void hideWindow().catch((error) => toastErr(getErrorMessage(error)))}
-          onClose={closeMenu}
-        />
-      )}
-
-      <AppToaster offset={TOASTER_OFFSET_CCCHAN.bottom} />
     </div>
   );
 }
