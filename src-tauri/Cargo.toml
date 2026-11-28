@@ -79,7 +79,11 @@ base64 = "0.22"
 arboard = { version = "3", features = ["wayland-data-control"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-log = { version = "2", features = ["tracing"] }
+# 不开 `tracing` feature：开了之后前端每条日志在 `log` 命令里既 emit 一个 tracing
+# event（经 tracing→log 桥落成 `[webview] msg location=.. kv={}`），又写一条 log
+# record（`[webview:<location>] msg`），cc-panes.log 里每条前端日志都是两遍。
+# 保留的 log record 已带 level / target（含 location）/ file / line / key_values。
+tauri-plugin-log = "2"
 tauri-plugin-updater = ">=2.10"
 # 启用 system-proxy feature，通过 Cargo feature unification
 # 让 tauri-plugin-updater 内部的 reqwest 获得读取 Windows/macOS 系统代理配置的能力
