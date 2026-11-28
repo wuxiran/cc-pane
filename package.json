@@ -1,6 +1,6 @@
 {
   "name": "cc-panes",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "description": "The desktop command center for parallel AI coding",
   "type": "module",
   "license": "MIT",

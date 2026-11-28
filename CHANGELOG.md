@@ -4,6 +4,55 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.13.5 - 2026-11-28
+
+Main threads: staged workflows and GitHub delivery tools for orchestration; MCP Hub as a single entry point for shared MCP; library skills now load natively on demand; agents keep the machine awake while working; deeper Magpie integration; session restore no longer loops on a conversation that doesn't exist; the desktop pet became a session-status indicator, and Agent Chat can delegate to a Bot with @.
+
+### Added
+
+- **Staged workflows**: a task can declare an ordered list of stages. Each stage dispatches one or more subtasks, and parallel subtasks join before the next stage starts.
+  - A stage can require approval; it waits until you click "Approve" in the orchestration panel.
+  - Progress is persisted and resumes after an app or daemon restart; finished stages are never re-run.
+  - Dispatching the same subtask twice never starts a second session.
+  - Dispatch can ask a worker for a structured result validated against a JSON Schema, which later stages can reference.
+  - New MCP tools `create_workflow` / `approve_stage` / `get_workflow_status`.
+- **GitHub delivery tools**: through your local `gh` CLI (your existing login; CC-Panes stores no token) agents can check the PR and CI for the current branch, open a PR, read the tail of failed CI logs and re-run them, and query issues.
+  - Merging a PR always needs your confirmation in a dialog; the merge is pinned to the head commit, so a push after you confirm makes it fail.
+  - Project todos can be imported from GitHub issues, without duplicates.
+  - Entries are hidden when `gh` is missing or not logged in.
+- **MCP Hub**: the launch profile's MCP card gains "Delivery: Direct / Hub". With Hub, a session mounts a single `ccpanes-hub` entry and the agent uses every shared MCP on demand through `search_tools` / `call_tool`.
+  - The top of the library's MCP page shows the Hub: endpoint status, how many servers and tools it aggregates, and which profiles use it.
+  - Claude Code already loads MCP tools on demand, so for it the Hub is mainly a single entry point; CLIs without native deferred loading, such as Codex, save noticeable startup context.
+  - WSL, SSH, CLIs other than Claude/Codex, and SSE servers fall back to direct delivery automatically.
+- **Keep awake while agents work**: while a session is working, idle system sleep is blocked (the display can still turn off), and released 60 seconds after everything goes idle — also when the window is closed and sessions keep running in the background. Can be turned off under Settings → Performance; a small coffee icon shows in the status bar while held.
+- **Magpie live routing**: when a provider points at the Magpie gateway, the status bar shows which account and model the session actually used and how many times it switched this turn (hover for each attempt and fallback reason); provider cards show Magpie quotas; the launch profile's model dropdown lists Magpie routing groups live. Read-only, local only.
+- **Worktree setup**: put a `.ccpanes/worktree.json` in the repo (setup commands, untracked files to copy from the main tree, sparse checkout). After a worktree is created you choose "Skip / Run once / Always allow", and commands run in a new terminal tab.
+- **Preview remote ports locally**: clicking a `localhost:PORT` link in an SSH terminal sets up an SSH port forward and opens it in the built-in browser; the tunnel is cleaned up when the session ends.
+- **Relocate session history**: after a project directory is moved or renamed, "Relocate session history…" in the project's context menu previews the counts, then moves Claude and Codex session history plus CC-Panes' own launch records; everything is backed up first.
+- **Agent Chat @Bot delegation**: @-mention a Bot or an engine in the input to delegate that message to the Bot; the reply shows in a card above the input without interrupting the current conversation. @-mentioning an engine creates a default Bot automatically.
+- **Desktop pet as a session-status indicator**: aggregates all sessions as "needs you > blocked > done but unseen > running"; left-click jumps to the most urgent one. Bots can have a desktop look, and one-off questions show their reply in a bubble.
+- **Upgrade button in the activity bar** when an update is available.
+- **Provider alerts**: the status bar shows an amber hint when an API-key account's cache hit rate is low, and a red one when a relay is detected injecting content into prompts. Can be turned off in provider settings.
+- **Reclaim write access on a read-only terminal**: when another instance holds the write lease, reclaim it from the read-only banner, the tab menu, or the terminal context menu.
+
+### Improved
+
+- **Library skills mount natively**: library skills selected in a launch profile are now mounted as native skills like the built-in ones — the CLI reads only names and descriptions and loads the body when needed — instead of being inlined into the startup prompt (20 skills: ~44KB → 0). CLIs without a native skill channel, WSL and SSH still inline as before.
+- **Restore log no longer covers the terminal**: it is now a single progress line at the bottom right with a solid background; click to see the full log. Failures still open it expanded.
+- **Fewer idle steps in session restore**: with no live sessions in the daemon, restore goes straight to a new session instead of matching every local record; "tab moved to foreground" is only logged when a deferred restore is actually needed.
+- **Pin button** moved to the top-right of the window.
+
+### Fixed
+
+- **No more re-resuming a conversation that doesn't exist**: when Claude reports "No conversation found", the tab drops the stale conversation id and starts a new session automatically, instead of retrying the same dead id on every restart; the failed output is no longer replayed as "Session restored" on the next launch.
+- **Projects on cloud or network drives no longer hang startup**: when the remote is unreachable, the pre-launch hooks sync waits at most 3 seconds, then skips and starts the session.
+- Desktop pet window is transparent from the first frame; Homie sprite rows corrected.
+
+### Removed
+
+- **Mini mode** (including the Ctrl+M shortcut). Old shortcut bindings are ignored on load.
+- The desktop pet's built-in chat process (it now delegates to a Bot).
+
 ## 0.13.4 - 2026-11-26
 
 A small release: fixes for reaching LAN devices on macOS and for reading provider secrets, plus a redesigned task orchestration panel.
