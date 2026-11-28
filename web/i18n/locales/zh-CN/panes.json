@@ -138,7 +138,9 @@
       "background_backend-create_end": "后台会话已创建（{{sessionId}}）",
       "background_create_cancelled-after-create": "后台会话创建后发现重复，已撤销（{{sessionId}}）",
       "background_restore_ready": "后台恢复完成，切到该标签即可使用",
-      "background_restore_failed": "后台恢复失败：{{error}}"
+      "background_restore_failed": "后台恢复失败：{{error}}",
+      "dead-resume_relaunch": "原对话已不存在，已撤销续接记录并自动新建会话",
+      "dead-resume_stopped": "自动新建后仍然失败，已停止重试"
     }
   },
   "terminalLeaseReadOnly": "只读：写权限由另一个 CC-Panes 实例持有",
@@ -581,6 +583,8 @@
   "codexResumeCaptureExhausted": "Codex 会话 id 捕获失败：本次会话的新 resume id 未能记录，下次恢复可能回到更早的对话。",
   "resumeLaunchFailed": "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
   "resumeTargetMissing": "会话恢复失败：{{cli}} 的原对话已不存在，已撤销续接记录。重启该标签将新建会话。",
+  "resumeTargetMissingRelaunched": "{{cli}} 的原对话已不存在，已在原标签新建会话。",
+  "resumeTargetMissingLoop": "原对话已不存在，自动新建后仍然失败，已停止重试。可以重试启动或移除这个终端。",
   "coldReplayNotResumedHeader": "以下是上次会话的旧输出：原对话未续接，将新建会话",
   "nativeCliMissing": "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
   "launchFailure": {

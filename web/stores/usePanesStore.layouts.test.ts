@@ -929,8 +929,11 @@ describe("usePanesStore layouts", () => {
     };
     window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
 
-    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-other-id")).toBe(false);
-    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-old")).toBe(true);
+    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-other-id")).toBeNull();
+    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-old")).toEqual({
+      tabId: "dead-tab",
+      terminalPaneId: "dead-tab-leaf",
+    });
     await waitForMicrotasks();
     window.removeEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
 

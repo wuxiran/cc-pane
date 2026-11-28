@@ -11,7 +11,7 @@ export type ResumeRetireActions = Pick<PanesState, "retireDeadResumeId">;
 export function createResumeRetireActions({ set }: Pick<PanesStoreAccess, "set">): ResumeRetireActions {
   return {
     retireDeadResumeId: (ptySessionId, deadResumeId) => {
-      let retired = false;
+      let retired: { tabId: string; terminalPaneId: string | null } | null = null;
       set((state) => {
         eachLayoutTree(state, (_layout, tree) => {
           if (retired) return;
@@ -25,13 +25,13 @@ export function createResumeRetireActions({ set }: Pick<PanesStoreAccess, "set">
                   leaf.resumeId = undefined;
                   leaf.resumeIdSource = undefined;
                   syncTabTerminalState(tab);
-                  retired = true;
+                  retired = { tabId: tab.id, terminalPaneId: leaf.id };
                   return;
                 }
               } else if (tab.sessionId === ptySessionId && tab.resumeId === deadResumeId) {
                 tab.resumeId = undefined;
                 tab.resumeIdSource = undefined;
-                retired = true;
+                retired = { tabId: tab.id, terminalPaneId: null };
                 return;
               }
             }

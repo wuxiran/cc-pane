@@ -2,15 +2,15 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toastWarn } from "@/lib/feedback";
 import { listenWebviewIfTauri } from "@/services/runtime";
-import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
 import { isResumeTargetMissing, useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
 
 vi.mock("@/lib/feedback", () => ({ toastWarn: vi.fn(), toastErr: vi.fn() }));
 const markTerminalLaunchFailed = vi.hoisted(() => vi.fn());
-const retireDeadResumeId = vi.hoisted(() => vi.fn());
 vi.mock("@/stores/usePanesStore", () => ({
-  usePanesStore: { getState: () => ({ markTerminalLaunchFailed, retireDeadResumeId }) },
+  usePanesStore: { getState: () => ({ markTerminalLaunchFailed }) },
 }));
+const recoverFromDeadResume = vi.hoisted(() => vi.fn());
+vi.mock("./deadResumeRecovery", () => ({ recoverFromDeadResume }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts ?? {})}`,
@@ -121,13 +121,7 @@ describe("useLaunchWarnings", () => {
   // `--resume` 同一个死 id，报 "No conversation found" 后退出，失败输出再被冷重放——永久循环。
   describe("resumeLaunchFailed：resume 目标已不存在", () => {
     const deadId = "4b27b0d6-9fbf-40df-b000-9daa1cb9842e";
-    beforeEach(() => {
-      useResumeBindingStore.setState({ bindings: {}, tombstones: {} });
-    });
-
-    it("撤掉 leaf 与绑定镜像里的死 id，并立墓碑挡住迟到绑定", async () => {
-      const { toastErr } = await import("@/lib/feedback");
-      useResumeBindingStore.getState().recordBinding("pty-dead", deadId, "issued");
+    const fire = async (matchedPattern: string) => {
       const { handler } = await mount();
       handler({
         payload: {
@@ -136,45 +130,30 @@ describe("useLaunchWarnings", () => {
           resumeId: deadId,
           cliTool: "claude",
           exitCode: 1,
-          matchedPattern: "no conversation found",
+          matchedPattern,
         },
       });
+    };
 
-      expect(retireDeadResumeId).toHaveBeenCalledWith("pty-dead", deadId);
-      expect(useResumeBindingStore.getState().getBinding("pty-dead")).toBeUndefined();
-      expect(useResumeBindingStore.getState().recordBinding("pty-dead", deadId, "issued")).toBe(false);
-      expect(vi.mocked(toastErr).mock.calls[0][0]).toContain("resumeTargetMissing");
+    it("目标缺失时交给自愈流程，自动新建后给一条提示", async () => {
+      recoverFromDeadResume.mockReturnValue("relaunched");
+      await fire("no conversation found");
+      expect(recoverFromDeadResume).toHaveBeenCalledWith("pty-dead", deadId);
+      expect(vi.mocked(toastWarn).mock.calls[0][0]).toContain("resumeTargetMissingRelaunched");
     });
 
-    it("绑定已换成新 id 时只撤 leaf 上的死 id，不删新绑定", async () => {
-      useResumeBindingStore.getState().recordBinding("pty-dead", "resume-newer", "manual");
-      const { handler } = await mount();
-      handler({
-        payload: {
-          kind: "resumeLaunchFailed",
-          sessionId: "pty-dead",
-          resumeId: deadId,
-          cliTool: "claude",
-          matchedPattern: "no conversation found",
-        },
-      });
-      expect(retireDeadResumeId).toHaveBeenCalledWith("pty-dead", deadId);
-      expect(useResumeBindingStore.getState().getBinding("pty-dead")?.resumeId).toBe("resume-newer");
+    it("自愈已停下（错误面板接管）时不再弹提示", async () => {
+      const { toastErr } = await import("@/lib/feedback");
+      recoverFromDeadResume.mockReturnValue("stopped");
+      await fire("no conversation found");
+      expect(toastWarn).not.toHaveBeenCalled();
+      expect(toastErr).not.toHaveBeenCalled();
     });
 
     it("宽特征（error 等）不撤 resume id，只提示", async () => {
       const { toastErr } = await import("@/lib/feedback");
-      const { handler } = await mount();
-      handler({
-        payload: {
-          kind: "resumeLaunchFailed",
-          sessionId: "pty-x",
-          resumeId: deadId,
-          cliTool: "claude",
-          matchedPattern: "error",
-        },
-      });
-      expect(retireDeadResumeId).not.toHaveBeenCalled();
+      await fire("error");
+      expect(recoverFromDeadResume).not.toHaveBeenCalled();
       expect(vi.mocked(toastErr).mock.calls[0][0]).toContain("resumeLaunchFailed");
     });
 

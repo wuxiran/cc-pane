@@ -138,7 +138,9 @@
       "background_backend-create_end": "Background session created ({{sessionId}})",
       "background_create_cancelled-after-create": "The background session turned out to be a duplicate and was rolled back ({{sessionId}})",
       "background_restore_ready": "Background restore done, switch to this tab to use it",
-      "background_restore_failed": "Background restore failed: {{error}}"
+      "background_restore_failed": "Background restore failed: {{error}}",
+      "dead-resume_relaunch": "The original conversation no longer exists; dropped its resume record and started a new session",
+      "dead-resume_stopped": "The automatic fresh start failed again; stopped retrying"
     }
   },
   "terminalLeaseReadOnly": "Read-only: another CC-Panes instance owns the write lease",
@@ -581,6 +583,8 @@
   "codexResumeCaptureExhausted": "Codex session id capture failed: the new resume id for this run was not recorded, so the next resume may fall back to an earlier conversation.",
   "resumeLaunchFailed": "Session resume failed: the resume target may be invalid ({{cli}}). The original conversation could not be continued; relaunch or start a new session from that tab.",
   "resumeTargetMissing": "Session resume failed: the original {{cli}} conversation no longer exists, so its resume record was dropped. Relaunching this tab starts a new session.",
+  "resumeTargetMissingRelaunched": "The original {{cli}} conversation no longer exists, so a new session was started in the same tab.",
+  "resumeTargetMissingLoop": "The original conversation no longer exists and the automatic fresh start failed too, so retries stopped. Retry the launch or remove this terminal.",
   "coldReplayNotResumedHeader": "Previous session output below: the conversation was not resumed, a new session will start",
   "nativeCliMissing": "No native Linux {{cli}} in WSL distro {{distro}}; launch failed. Run inside the distro: {{fix}}",
   "launchFailure": {

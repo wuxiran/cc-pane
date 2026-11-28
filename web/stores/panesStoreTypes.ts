@@ -370,9 +370,13 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
   /**
    * resume 目标已不存在（CLI 报 "No conversation found" 等）：撤掉该 PTY 所在 leaf
    * 上**仍等于** `deadResumeId` 的 resume id，下次启动/重启即干净新建，而不是每次
-   * 重启都 `--resume` 同一个死 id。leaf 已换成别的 id 时不动。返回是否撤销。
+   * 重启都 `--resume` 同一个死 id。leaf 已换成别的 id 时不动。返回被撤销的位置
+   * （旧式无分屏树的标签 terminalPaneId 为 null），未撤销返回 null。
    */
-  retireDeadResumeId: (ptySessionId: string, deadResumeId: string) => boolean;
+  retireDeadResumeId: (
+    ptySessionId: string,
+    deadResumeId: string,
+  ) => { tabId: string; terminalPaneId: string | null } | null;
   setTabResumeBinding: (
     tabId: string,
     resumeId: string | undefined,
