@@ -18,7 +18,7 @@ import { classifyTerminalLaunchPath } from "@/utils";
 import AgentChatView, { type TerminalViewMode } from "./AgentChatView";
 import LeaseReadOnlyBanner from "./LeaseReadOnlyBanner";
 import SplitView from "./SplitView";
-import { BlockedRestorePanel, LaunchErrorPanel, RestoreLogSurface } from "./TerminalLeafPanels";
+import { BlockedRestorePanel, LaunchErrorPanel, RestoreProgressChip } from "./TerminalLeafPanels";
 import TerminalView from "./TerminalView";
 import type { TerminalViewHandle } from "./TerminalView";
 import TerminalStatusBar from "./TerminalStatusBar";
@@ -280,21 +280,7 @@ export default memo(function TerminalTabContent({
             </div>
           ) : null}
           {!restoreBlocked && !launchError && showRestorePlaceholder ? (
-            <div
-              className="absolute left-3 top-3 z-[1] flex w-[calc(100%-1.5rem)] max-w-3xl items-start"
-              style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
-            >
-              <div
-                className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg"
-                style={{
-                  background: "var(--app-hover)",
-                  border: "1px solid var(--app-border)",
-                  boxShadow: "var(--sh-md)",
-                }}
-              >
-                <RestoreLogSurface entries={leafRestoreLogs} />
-              </div>
-            </div>
+            <RestoreProgressChip entries={leafRestoreLogs} />
           ) : null}
           {leaf.sessionId && leaf.leaseReadOnly ? (
             <LeaseReadOnlyBanner sessionId={leaf.sessionId} />

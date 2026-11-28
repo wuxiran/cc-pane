@@ -22,6 +22,8 @@
   "restoringTerminalHint": "正在启动保存的终端会话...",
   "restoreLogTitle": "恢复日志",
   "restoreLogPending": "恢复链路初始化中...",
+  "restoreLogExpand": "展开恢复日志",
+  "restoreLogCollapse": "收起恢复日志",
   "restoreFailed": "恢复失败",
   "restoreFailedHint": "查看终端输出获取详情",
   "coldRestoreTitle": "需要恢复旧会话",
