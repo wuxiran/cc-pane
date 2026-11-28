@@ -1,32 +1,43 @@
 import SwiftUI
 
-/// 输入区：多行输入 + 发送 / 停止；快照广告模式、模型时显示切换菜单。
+/// 输入区：圆角输入卡（多行输入 + 发送 / 停止），下方一排配置胶囊（模式 / 模型 / 其它 select 配置）。
 struct ChatComposer: View {
     let session: AcpChatSession
     @Binding var draft: String
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if session.readOnly {
                 Label("远程只读：可查看对话，不能发送或审批", systemImage: "lock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                menus
+            VStack(alignment: .leading, spacing: 6) {
                 TextField(placeholder, text: $draft, axis: .vertical)
+                    .font(.callout)
                     .lineLimit(1...6)
                     .focused($focused)
                     .disabled(session.readOnly)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
-                actionButton
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                HStack(alignment: .center, spacing: 6) {
+                    chips
+                    Spacer(minLength: 0)
+                    actionButton
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(DK.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(focused ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.08))
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.bottom, 8)
     }
 
     private var placeholder: String {
@@ -42,62 +53,84 @@ struct ChatComposer: View {
             Button {
                 Task { await session.cancelTurn() }
             } label: {
-                Image(systemName: "stop.circle.fill").font(.system(size: 30))
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.red, in: Circle())
             }
-            .tint(.red)
             .disabled(session.readOnly)
             .accessibilityLabel("停止本轮")
         } else {
+            let enabled = session.canSend && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             Button {
                 let text = draft
                 draft = ""
                 Task { await session.send(text) }
             } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(enabled ? Color.white : Color.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(enabled ? Color.accentColor : DK.inset, in: Circle())
             }
-            .disabled(!session.canSend || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!enabled)
             .accessibilityLabel("发送")
         }
     }
 
-    @ViewBuilder private var menus: some View {
+    /// 模式 / 模型 / 配置项各一个胶囊菜单；横向可滚，避免窄屏溢出。
+    @ViewBuilder private var chips: some View {
         let snapshot = session.state.snapshot
         let modes = snapshot?.modes ?? []
         let models = snapshot?.models ?? []
         let configs = snapshot?.configOptions ?? []
-        if !modes.isEmpty || !models.isEmpty || !configs.isEmpty {
-            Menu {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
                 if !modes.isEmpty {
-                    Picker("模式", selection: selection(snapshot?.currentModeId) { id in Task { await session.setMode(id) } }) {
-                        ForEach(modes) { Text($0.name).tag($0.id) }
+                    chip(symbol: "dial.medium", choices: modes, current: snapshot?.currentModeId, title: "模式") { id in
+                        Task { await session.setMode(id) }
                     }
-                    .pickerStyle(.inline)
                 }
                 if !models.isEmpty {
-                    Picker("模型", selection: selection(snapshot?.currentModelId) { id in Task { await session.setModel(id) } }) {
-                        ForEach(models) { Text($0.name).tag($0.id) }
+                    chip(symbol: "cpu", choices: models, current: snapshot?.currentModelId, title: "模型") { id in
+                        Task { await session.setModel(id) }
                     }
-                    .pickerStyle(.menu)
                 }
                 ForEach(configs) { option in
-                    Picker(option.name, selection: selection(option.currentValue) { value in
+                    chip(symbol: "slider.horizontal.3", choices: option.choices, current: option.currentValue,
+                         title: option.name) { value in
                         Task { await session.setConfigOption(option.configId, value: value) }
-                    }) {
-                        ForEach(option.choices) { Text($0.name).tag($0.id) }
                     }
-                    .pickerStyle(.menu)
                 }
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 20))
-                    .frame(width: 32, height: 36)
             }
-            .disabled(session.readOnly)
-            .accessibilityLabel("模式、模型与配置")
         }
+        // 不能 scrollClipDisabled：配置项多时（claude 4 个）胶囊会画到发送按钮下面、溢出输入卡。
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
+                             startPoint: .leading, endPoint: .trailing))
+        .disabled(session.readOnly || session.state.phase.isTerminal)
     }
 
-    private func selection(_ current: String?, apply: @escaping (String) -> Void) -> Binding<String> {
-        Binding(get: { current ?? "" }, set: { if $0 != current { apply($0) } })
+    private func chip(symbol: String, choices: [AcpChoice], current: String?, title: String,
+                      apply: @escaping (String) -> Void) -> some View {
+        Menu {
+            Picker(title, selection: Binding(get: { current ?? "" }, set: { if $0 != current { apply($0) } })) {
+                ForEach(choices) { Text($0.name).tag($0.id) }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol).imageScale(.small)
+                Text(choices.first { $0.id == current }?.name ?? title).lineLimit(1)
+                    .frame(maxWidth: 120)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(DK.inset, in: Capsule())
+        }
+        .tint(.primary)
+        .accessibilityLabel("\(title)：\(choices.first { $0.id == current }?.name ?? "未选择")")
     }
 }

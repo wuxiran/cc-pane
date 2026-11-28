@@ -8,35 +8,48 @@ struct PermissionCard: View {
     let onRespond: (String?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                Text("需要你的授权").font(.subheadline.weight(.semibold))
-                if let kind = request.toolKind { TagBadge(text: AcpToolCall.kindLabel(kind)) }
-                Spacer()
-                if queued > 0 { Text("还有 \(queued) 项").font(.caption2).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(.orange, in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("需要你的授权").font(.subheadline.weight(.bold))
+                    Text([request.toolKind.map(AcpToolCall.kindLabel), queued > 0 ? "还有 \(queued) 项排队" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
-            Text(request.title).font(.subheadline)
-            if let detail = request.detail {
-                Text(detail)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(request.title).font(.callout.weight(.medium))
+                if let detail = request.detail {
+                    Text(detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(DK.inset, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
             }
             if let error = request.error {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Label(error, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
             }
             options
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.orange.opacity(0.4)))
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.orange.opacity(0.55), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     @ViewBuilder private var options: some View {
         if readOnly {
-            Text("远程只读模式，请在电脑端处理").font(.caption).foregroundStyle(.secondary)
+            Label("远程只读模式，请在电脑端处理", systemImage: "lock").font(.caption).foregroundStyle(.secondary)
         } else if request.options.isEmpty {
             Button("取消请求", role: .cancel) { onRespond(nil) }
         } else {
@@ -47,15 +60,28 @@ struct PermissionCard: View {
                     Button {
                         onRespond(option.optionId)
                     } label: {
-                        Text(option.name).frame(maxWidth: .infinity)
+                        Text(option.name)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .foregroundStyle(style(option).fg)
+                            .background(style(option).bg, in: Capsule())
                     }
-                    .buttonStyle(.bordered)
-                    .tint(option.isAllow ? (option.kind == "allow_once" ? .accentColor : .green) : .red)
+                    .buttonStyle(PressableCardStyle())
                     .disabled(request.responding)
                 }
             }
+            .opacity(request.responding ? 0.5 : 1)
             .overlay { if request.responding { ProgressView() } }
         }
+    }
+
+    /// 单次允许 = 实心强调色（主操作）；始终允许 = 绿色浅底；拒绝 = 红色浅底。
+    private func style(_ option: PermissionOption) -> (fg: Color, bg: Color) {
+        if !option.isAllow { return (.red, Color.red.opacity(0.14)) }
+        if option.kind == "allow_once" { return (.white, Color.accentColor) }
+        return (.green, Color.green.opacity(0.16))
     }
 }
 
@@ -69,7 +95,9 @@ struct QuestionCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("agent 提问", systemImage: "questionmark.bubble.fill").font(.subheadline.weight(.semibold))
+                Label("agent 提问", systemImage: "questionmark.bubble.fill")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
                 Spacer()
                 Button { onRespond(.from(["action": "cancel"])) } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
@@ -100,8 +128,10 @@ struct QuestionCardView: View {
             }
             .disabled(request.responding || readOnly)
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private func binding(_ id: String) -> Binding<JSONValue?> {

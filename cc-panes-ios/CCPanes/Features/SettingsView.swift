@@ -1,53 +1,195 @@
 import SwiftUI
 
-/// 设置：「电脑」地址簿（添加 / 改名 / 删除 / 切换 / 在线状态）+ 当前连接信息。
-struct SettingsView: View {
+/// 电脑面板（右上角电脑按钮）：全部电脑的实时状态 / 线路 / 保持连接开关，配对新电脑，进入设置。
+struct ComputersSheet: View {
+    let hub: ConnectionHub
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var path: [ComputersRoute]
     @State private var pairing = false
+    @State private var detent: PresentationDetent
+
+    init(hub: ConnectionHub, initialPage: ComputerSheetPage) {
+        self.hub = hub
+        _path = State(initialValue: initialPage == .settings ? [.settings] : initialPage == .localModels ? [.localModels] : [])
+        _detent = State(initialValue: initialPage == .computers ? .medium : .large)
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Form {
+                Section {
+                    ForEach(model.computers) { computer in row(computer) }
+                    Button { pairing = true } label: { Label("配对新电脑", systemImage: "plus.circle") }
+                } header: {
+                    Text("电脑")
+                } footer: {
+                    Text("开着「保持连接」的电脑同时在线，对话 / 终端 / 工作区汇总显示。点进去可改名、管理地址、重新配对。")
+                }
+                Section {
+                    NavigationLink(value: ComputersRoute.localModels) {
+                        LabeledContent {
+                            Text(localSummary)
+                        } label: {
+                            Label("本机模型", systemImage: "iphone.gen3")
+                        }
+                    }
+                } header: {
+                    Text("本机 iPhone")
+                } footer: {
+                    Text("手机直连模型 API 的对话不经过电脑。供应商可从已配对的电脑导入，或手动添加。")
+                }
+                Section {
+                    NavigationLink(value: ComputersRoute.settings) { Label("设置", systemImage: "gearshape") }
+                }
+            }
+            .navigationTitle("电脑")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .navigationDestination(for: ComputersRoute.self) { route in
+                switch route {
+                case .settings: SettingsView(hub: hub)
+                case .localModels:
+                    LocalProvidersView(targets: hub.importTargets,
+                                       startImport: UserDefaults.standard.string(forKey: "localImportCode") != nil)
+                case .computer(let id): ComputerDetailView(computerId: id, hub: hub)
+                }
+            }
+            .refreshable { await hub.refreshAll() }
+        }
+        .presentationDetents([.medium, .large], selection: $detent)
+        .onChange(of: path) { _, path in if !path.isEmpty { detent = .large } }
+        .sheet(isPresented: $pairing) { PairSheet() }
+    }
+
+    private var localSummary: String {
+        let env = LocalEnvironment.shared
+        let count = env.providers.providers.count
+        return count == 0 ? "未设置" : "\(count) 个供应商"
+    }
+
+    private func row(_ computer: Computer) -> some View {
+        let link = hub.link(computer.id)
+        return HStack(spacing: 12) {
+            Button {
+                path.append(.computer(computer.id))
+            } label: {
+                ComputerStatusRow(name: hub.name(computer.id), computer: computer, link: link)
+            }
+            .buttonStyle(.borderless)
+            .tint(.primary)
+            Toggle("保持连接", isOn: Binding(
+                get: { computer.isEnabled },
+                set: { model.setKeepConnected(computer.id, $0) }))
+                .labelsHidden()
+                .accessibilityLabel("保持连接 \(hub.name(computer.id))")
+        }
+        .swipeActions {
+            Button("删除", role: .destructive) { model.remove(computer.id) }
+        }
+    }
+}
+
+enum ComputersRoute: Hashable {
+    case settings
+    case localModels
+    case computer(String)
+}
+
+/// 电脑行：状态点 + 名称 + 「线路 · 状态 · host:port」。
+struct ComputerStatusRow: View {
+    let name: String
+    let computer: Computer
+    let link: ComputerLink?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            LinkStatusDot(status: computer.isEnabled ? link?.status : nil)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(name).lineLimit(1)
+                    if computer.isPaired {
+                        Image(systemName: "key.fill").font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityLabel("已配对")
+                    }
+                }
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var subtitle: String {
+        let address = ComputerNaming.hostPort(link?.api?.baseURL.absoluteString ?? ComputerNaming.primaryAddress(computer)) ?? "-"
+        guard computer.isEnabled else { return "已暂停 · " + address }
+        guard let link else { return address }
+        var parts: [String] = []
+        if link.status.isOnline {
+            if let route = HomeStatus.routeLabel(link.via) { parts.append(route) }
+            if link.chatsUnsupported { parts.append("版本较旧") }
+            if link.hostDown { parts.append("CC-Panes 未运行") }
+        } else {
+            parts.append(link.status.label)
+        }
+        parts.append(address)
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct LinkStatusDot: View {
+    let status: ComputerLink.Status?
+
+    var body: some View {
+        Group {
+            if status == .connecting {
+                ProgressView().controlSize(.mini)
+            } else {
+                Circle().fill(color)
+            }
+        }
+        .frame(width: 10, height: 10)
+        .accessibilityLabel(status?.label ?? "已暂停")
+    }
+
+    private var color: Color {
+        switch status {
+        case .online: .green
+        case .offline, .failed: .red
+        case .unauthorized, .needsLogin: .orange
+        default: .gray
+        }
+    }
+}
+
+/// 设置：外观 + 版本。电脑相关全在电脑面板。
+struct SettingsView: View {
+    var hub: ConnectionHub?
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.dark.rawValue
 
     var body: some View {
         Form {
-            Section {
-                ForEach(model.computers) { computer in
-                    NavigationLink {
-                        ComputerDetailView(computerId: computer.id)
-                    } label: {
-                        ComputerRow(computer: computer, reachability: model.reachability[computer.id] ?? .unknown,
-                                    isCurrent: computer.id == model.currentId)
-                    }
-                    .swipeActions {
-                        Button("删除", role: .destructive) { model.remove(computer.id) }
-                        if computer.id != model.currentId {
-                            Button("切换") { Task { await model.switchTo(computer.id) } }.tint(.blue)
-                        }
-                    }
+            Section("外观") {
+                Picker("主题", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                Button {
-                    pairing = true
+            }
+            Section("本机模型") {
+                NavigationLink {
+                    LocalProvidersView(targets: hub?.importTargets ?? [])
                 } label: {
-                    Label("配对新电脑", systemImage: "plus.circle")
+                    Label("本机模型（Provider）", systemImage: "iphone.gen3")
                 }
-            } header: {
-                Text("电脑")
-            } footer: {
-                Text("左滑可切换或删除；点进去可改名、管理地址（局域网 / Tailscale）。")
-            }
-            Section("当前连接") {
-                LabeledContent("地址", value: model.api?.baseURL.absoluteString ?? "-")
-                LabeledContent("鉴权", value: model.api?.token != nil ? "设备令牌" : (model.auth?.username ?? "-"))
-                LabeledContent("写权限", value: model.canWrite ? "允许" : "只读")
-            }
-            Section {
-                Button("断开连接", role: .destructive) { model.disconnect() }
             }
             Section {
                 LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")
             }
         }
         .navigationTitle("设置")
-        .task { await model.refreshReachability() }
-        .refreshable { await model.refreshReachability() }
-        .sheet(isPresented: $pairing) { PairSheet() }
     }
 }
 
@@ -123,6 +265,7 @@ struct ComputerDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let computerId: String
+    let hub: ConnectionHub
     @State private var name = ""
     @State private var newAddress = ""
     @State private var addError: String?
@@ -133,9 +276,10 @@ struct ComputerDetailView: View {
         if let computer = model.computers.first(where: { $0.id == computerId }) {
             Form {
                 Section("名称") {
-                    TextField("电脑名称", text: $name)
+                    TextField(hub.name(computerId), text: $name)
                         .onSubmit { model.rename(computerId, to: name) }
                 }
+                connectionSection(computer)
                 Section {
                     ForEach(AddressBook.ordered(computer.addresses), id: \.self) { address in
                         LabeledContent(address) { Text(AddressBook.kind(of: address).label) }
@@ -161,8 +305,10 @@ struct ComputerDetailView: View {
                     Text("连接时并发探测全部地址：局域网优先（领跑 0.5 秒），Tailscale 等兜底。")
                 }
                 Section {
-                    if computer.id != model.currentId {
-                        Button("切换到这台电脑") { Task { await model.switchTo(computerId) } }
+                    Toggle("保持连接", isOn: Binding(get: { computer.isEnabled },
+                                                   set: { model.setKeepConnected(computerId, $0) }))
+                    if computer.isEnabled {
+                        Button("重新连接") { Task { await hub.reconnect(computerId) } }
                     }
                     Button(computer.isPaired ? "重新配对" : "用配对码配对") { repair = true }
                     Button("删除这台电脑", role: .destructive) { confirmDelete = true }
@@ -170,9 +316,9 @@ struct ComputerDetailView: View {
                     if computer.isPaired { Text("删除会同时移除钥匙串中的设备令牌。电脑端可在「其他设备」里吊销。") }
                 }
             }
-            .navigationTitle(computer.name)
-            .onAppear { name = computer.name }
-            .onDisappear { model.rename(computerId, to: name) }
+            .navigationTitle(hub.name(computerId))
+            .onAppear { name = ComputerNaming.isAutoName(computer) ? "" : computer.name }
+            .onDisappear { if !name.isEmpty { model.rename(computerId, to: name) } }
             .sheet(isPresented: $repair) {
                 PairSheet(initialAddress: computer.lastAddress ?? AddressBook.ordered(computer.addresses).first ?? "")
             }
@@ -184,6 +330,32 @@ struct ComputerDetailView: View {
             }
         } else {
             ContentUnavailableView("电脑已删除", systemImage: "desktopcomputer.trianglebadge.exclamationmark")
+        }
+    }
+}
+
+extension ComputerDetailView {
+    /// 连接信息（原设置页「当前连接」，现在每台电脑各一份）。
+    @ViewBuilder func connectionSection(_ computer: Computer) -> some View {
+        let link = hub.link(computerId)
+        Section("连接") {
+            LabeledContent("状态", value: computer.isEnabled ? (link?.status.label ?? "-") : "已暂停")
+            if let link, link.status.isOnline {
+                LabeledContent("线路", value: HomeStatus.routeLabel(link.via) ?? "-")
+                LabeledContent("地址", value: link.api?.baseURL.absoluteString ?? "-")
+                LabeledContent("鉴权", value: link.api?.token != nil ? "设备令牌" : (link.auth?.username ?? "-"))
+                LabeledContent("写权限", value: link.canWrite ? "允许" : "只读")
+                if let info = link.info {
+                    if let host = info.hostname { LabeledContent("机器名", value: host) }
+                    if let version = info.appVersion {
+                        LabeledContent("CC-Panes", value: version + (ComputerNaming.isDev(info) ? "（开发版）" : ""))
+                    }
+                }
+                if link.chatsUnsupported {
+                    Label("这台电脑的 CC-Panes 版本较旧：没有对话 / Bot，终端与工作区可用", systemImage: "arrow.up.circle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
@@ -208,6 +380,9 @@ struct PairSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
             .onAppear { address = initialAddress }
+            .onChange(of: model.pairingBusy) { was, busy in
+                if was, !busy, model.pairError == nil { dismiss() }
+            }
         }
     }
 }

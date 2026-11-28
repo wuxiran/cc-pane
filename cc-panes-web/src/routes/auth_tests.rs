@@ -424,6 +424,9 @@ mod security;
 #[path = "device_auth_tests.rs"]
 mod device_auth;
 
+#[path = "provider_export_tests.rs"]
+mod provider_export;
+
 #[path = "web_sessions_tests.rs"]
 mod web_sessions;
 

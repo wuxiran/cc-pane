@@ -7,6 +7,7 @@ pub(crate) mod acp_bridge_ws;
 mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
+pub mod bot_mesh;
 pub mod bot_service;
 pub mod browser_cookie_import;
 mod browser_service;
@@ -27,6 +28,7 @@ mod orchestrator_token;
 pub mod performance_recorder;
 mod pi_rpc_event_bridge;
 pub(crate) mod process_guard;
+pub mod provider_export_routes;
 pub mod rest_launch_history;
 mod resume_binding_service;
 pub(crate) mod screenshot_events;
@@ -35,7 +37,7 @@ mod screenshot_service;
 mod session_prompt_service;
 mod skill_market_catalog;
 mod skill_market_service;
-mod tailscale_service;
+pub(crate) mod tailscale_service;
 mod task_queue_worker;
 mod terminal_backend_state;
 mod terminal_daemon_bridge_reliability;
@@ -59,6 +61,7 @@ pub use acp_chat_service::{
     PermissionBinding, PromptAnnouncement, UserPrompt, AUTO_APPROVE_ALL,
 };
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
+pub use bot_mesh::BotMeshService;
 pub use bot_service::{Bot, BotService, BotSummary};
 pub use browser_service::{
     BrowserBounds, BrowserDomSnapshot, BrowserElement, BrowserHostState, BrowserOpenTabEvent,

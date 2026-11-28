@@ -35,6 +35,7 @@ struct Migration {
 /// V24 = Claude/Codex 本地会话索引与增量扫描状态
 /// V29 = launch_history 清理重复 launch id 并增加 project_id 唯一索引
 /// V45 = session_index.title（CLI 自带标题）+ session_learned_roots（hook 学到的转录根目录）
+/// V47 = mesh_peers（Bot 组网对端地址候选，docs/112 §5）
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1214,6 +1215,25 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE terminal_sessions ADD COLUMN provider_account_id TEXT;
         ",
     },
+    // V47：Bot 组网（docs/112 §5）——已配对对端的地址候选 / 实例 id / 最近在线。
+    // 对端本体仍在 devices.json + keyring（DeviceService），这里按 device_id 挂附加信息。
+    Migration {
+        version: 47,
+        description: "bot mesh: peer address candidates and last-seen",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS mesh_peers (
+                device_id TEXT PRIMARY KEY,
+                instance_id TEXT,
+                hostname TEXT,
+                addresses_json TEXT NOT NULL DEFAULT '[]',
+                preferred_url TEXT,
+                last_seen_at TEXT,
+                last_error TEXT,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_mesh_peers_instance ON mesh_peers(instance_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -2011,7 +2031,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44, 45, 46]);
+        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 47]);
     }
 
     #[test]

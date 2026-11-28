@@ -140,6 +140,8 @@ struct AcpChatState: Sendable, Equatable {
         case "terminal_output": applyTerminalOutput(payload)
         case "notification": applyNotification(payload)
         case "protocol_noise": return // 适配器杂音，桌面同样不进消息流
+        // Bot 外部来源（IM / 组网）的投递公告；同一条消息另有 user_prompt（同 promptId）负责上屏。
+        case "external_prompt": return
         default: pushOnce("[ACP] 未处理的事件类型: \(kind)")
         }
     }

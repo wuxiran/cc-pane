@@ -93,7 +93,8 @@ struct AcpConfigOption: Sendable, Equatable, Identifiable {
     var id: String { configId }
 
     init?(_ raw: JSONValue) {
-        guard let id = raw["configId"]?.string, !id.isEmpty,
+        // ACP 线上字段是 `id`（claude-agent-acp 实测）；`configId` 兼容早期 mock / 桌面口径。
+        guard let id = raw["id"]?.string ?? raw["configId"]?.string, !id.isEmpty,
               (raw["type"]?.string ?? "select") == "select" else { return nil }
         let choices = (raw["options"]?.array ?? []).compactMap { o -> AcpChoice? in
             guard let value = o["value"]?.string else { return nil }

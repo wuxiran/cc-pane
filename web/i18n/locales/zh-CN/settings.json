@@ -1851,5 +1851,23 @@
     "notice": "这里的功能默认全部关闭，打开后相关入口才会出现。它们只作用于你配置的 API key 供应商，不会碰 Claude、Codex 等订阅登录账号。",
     "channelPurity": "中转纯度检测",
     "channelPurityDesc": "在供应商卡片、首页 Agent 列表和 CLI 标签右键菜单里显示纯度标记，可以检测中转有没有偷塞提示词、套壳或拿别的型号冒充。检测会真实调用模型，产生少量费用，只在你手动点时才跑。"
+  },
+  "providerExport": {
+    "title": "导出到手机",
+    "exportButton": "导出到手机",
+    "description": "把选中的供应商（含 API Key）一次性交给已配对的 CC-Panes iOS，用于在手机上直接对话。导出码 5 分钟内有效、只能使用一次。",
+    "loadFailed": "读取供应商失败：{{error}}",
+    "startFailed": "生成导出码失败：{{error}}",
+    "redeemed": "已导出 {{count}} 个供应商到「{{device}}」",
+    "cancelled": "导出码已作废（错误次数过多或已过期）",
+    "expired": "导出码已过期",
+    "codeHint": "{{count}} 个供应商 · 剩余 {{minutes}}:{{seconds}}",
+    "phoneSteps": "在手机「设置 → 本机模型 → 从电脑导入」输入此码（手机需已与本机配对）",
+    "reasonNoKey": "没有 API Key",
+    "reasonUnsupported": "该类型不支持在手机直连",
+    "empty": "还没有供应商",
+    "done": "完成",
+    "regenerate": "重新生成",
+    "generate": "生成导出码（{{count}}）"
   }
 }

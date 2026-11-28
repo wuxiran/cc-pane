@@ -94,12 +94,22 @@ final class AcpChatSession {
             if status == 503 { link = .hostUnavailable }
             if status == 403 { readOnly = true }
             if status == 401 { link = .failed(APIError.tokenRejected.localizedDescription) }
+            // 404 = 电脑端已没有这个对话的事件环（app 重启 / 已回收）：重连永远不会成功，停在可读的失败态。
+            if status == 404 {
+                generation += 1
+                teardown()
+                link = .failed("对话已不存在（电脑端可能已重启）")
+                return
+            }
             scheduleRetry(slow: status == 503 || status == 401)
         case .synchronized:
             pending.append(frame)
             flushNow()
             link = .live
             retryAttempt = 0
+            #if DEBUG
+            AcpDebugHooks.onLive(self)
+            #endif
         default:
             pending.append(frame)
             scheduleFlush()
@@ -124,8 +134,25 @@ final class AcpChatSession {
         var next = state
         for frame in pending { next.apply(frame) }
         pending.removeAll()
+        #if DEBUG
+        let known = Set(state.pendingPermissions.map(\.requestKey))
+        let fresh = next.pendingPermissions.map(\.requestKey).filter { !known.contains($0) }
+        #endif
         state = next
+        #if DEBUG
+        for key in fresh { AcpDebugHooks.onPermission(self, requestKey: key) }
+        AcpDebugHooks.dump(self)
+        #endif
     }
+
+    #if DEBUG
+    /// 联调：模拟 WS 断线（与真实断线同一条重连 + afterSeq 续传路径）。
+    func debugSimulateDrop() {
+        guard link == .live else { return }
+        log.info("debug: simulate drop at lastSeq=\(self.state.lastSeq, privacy: .public)")
+        receive(.closed(status: nil), generation: generation)
+    }
+    #endif
 
     private func scheduleRetry(slow: Bool) {
         generation += 1

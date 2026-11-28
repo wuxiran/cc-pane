@@ -9,17 +9,26 @@ final class MirrorModel {
     private(set) var state = MirrorState()
     private(set) var loaded = false
     private(set) var error: String?
-    /// sessionId → 最近一行非空输出（懒加载、按 id 缓存，不随轮询重拉）。
+    /// sessionId → 最近一段有意义的输出（降噪后，见 `meaningfulPreview`）。卡片可见时按需刷新（节流）。
     private(set) var previews: [String: String] = [:]
+    /// 每轮轮询 +1：可见卡片据此触发预览刷新。
+    private(set) var tick = 0
 
     private let api: APIClient
     private var localLaunches: [String: LocalLaunch] = [:]
     private var names: [String: LaunchRecord] = [:]
-    private var previewsRequested = Set<String>()
+    private var previewFetchedAt: [String: Date] = [:]
+    /// 调试：`-mockMirror YES` 用内置样例布局（无电脑 / 截图用），不访问镜像接口。
+    private let mock: Bool
+    /// 最近一轮拉取是否失败（连接健康度信号；已有画面时 `error` 不会被置上）。
+    private(set) var lastRefreshFailed = false
     /// 已查过 launch-history 的孤儿 id（查不到名字也不再反复拉）。
     private var namesLookedUp = Set<String>()
 
-    init(api: APIClient) { self.api = api }
+    init(api: APIClient, mock: Bool = UserDefaults.standard.bool(forKey: "mockMirror")) {
+        self.api = api
+        self.mock = mock
+    }
 
     /// 页面存活期间轮询；任务取消即停。
     func poll() async {
@@ -30,6 +39,13 @@ final class MirrorModel {
     }
 
     func refresh() async {
+        defer { tick += 1 }
+        if mock {
+            state = buildMirrorState(snapshot: MirrorFixture.snapshot(), running: MirrorFixture.sessions(),
+                                     localLaunches: localLaunches, names: names, now: .now)
+            loaded = true
+            return
+        }
         let api = self.api
         async let snapshotResult = Self.fetchCurrentSnapshot(api)
         async let sessionsResult = Self.capture { try await api.sessions() }
@@ -39,7 +55,9 @@ final class MirrorModel {
             state = buildMirrorState(snapshot: value, running: (try? sessions.get()) ?? [],
                                      localLaunches: localLaunches, names: names, now: .now)
             error = nil
+            lastRefreshFailed = false
         case .failure(let failure):
+            lastRefreshFailed = true
             // 已有数据时保留旧画面，只在首次加载失败时显示错误（同 Flutter）
             if !loaded || state.isEmpty { error = failure.localizedDescription }
         }
@@ -47,13 +65,18 @@ final class MirrorModel {
         await refreshNamesIfNeeded()
     }
 
-    /// 卡片出现时调用：首次取最近输出作预览。
+    /// 卡片可见时调用：取最近输出、降噪后作预览；同一会话 15s 内不重复拉。
     func loadPreview(for sessionId: String) async {
-        guard previewsRequested.insert(sessionId).inserted else { return }
-        guard let lines = try? await api.sessionOutput(sessionId, lines: 2) else { return }
-        if let line = lines.reversed().map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) {
-            previews[sessionId] = line
+        if let last = previewFetchedAt[sessionId], Date.now.timeIntervalSince(last) < 15 { return }
+        previewFetchedAt[sessionId] = .now
+        let lines: [String]
+        if mock {
+            lines = MirrorFixture.output(sessionId)
+        } else {
+            guard let fetched = try? await api.sessionOutput(sessionId, lines: 24) else { return }
+            lines = fetched
         }
+        previews[sessionId] = meaningfulPreview(lines)
     }
 
     /// 手机在项目里启动会话；成功返回 sessionId。

@@ -17,6 +17,7 @@ struct DeviceInfo: Decodable, Sendable, Equatable {
     var uptimeSecs: Int?
     var defaultCwd: String?
     var headless: Bool?
+    var instanceId: String?
 }
 
 enum PairingError: LocalizedError, Equatable {

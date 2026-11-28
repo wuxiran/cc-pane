@@ -57,7 +57,26 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  CCPanesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - CCPanesUITests
+    dependencies:
+      - target: CCPanes
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CCPanes
 schemes:
+  CCPanesUIShots:
+    build:
+      targets:
+        CCPanes: all
+        CCPanesUITests: [test]
+    test:
+      targets:
+        - CCPanesUITests
   CCPanes:
     build:
       targets:

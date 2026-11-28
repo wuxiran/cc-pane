@@ -67,7 +67,7 @@ struct SessionCard: Equatable, Sendable {
 func collectPanels(_ node: PaneNode?) -> [(id: String, activeTabId: String?, tabs: [LayoutTab])] {
     switch node {
     case .panel(let id, let activeTabId, let tabs): [(id, activeTabId, tabs)]
-    case .split(let children): children.flatMap(collectPanels)
+    case .split(let children, _, _): children.flatMap(collectPanels)
     case nil: []
     }
 }

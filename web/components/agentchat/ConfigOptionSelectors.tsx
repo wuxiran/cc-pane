@@ -7,7 +7,7 @@
 import { Brain, Cpu, Gauge, SlidersHorizontal, Settings2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { AcpConfigOption } from "@/types/agentChat";
+import { normalizeAcpConfigOptions, type AcpConfigOption } from "@/types/agentChat";
 import { HeaderSelect } from "./ChatItems";
 
 const CATEGORY_ICON: Record<string, ReactNode> = {
@@ -22,7 +22,7 @@ export function selectableConfigOptions(
   options: AcpConfigOption[] | undefined,
   hiddenCategories: ReadonlySet<string>,
 ): AcpConfigOption[] {
-  return (options ?? []).filter(
+  return (normalizeAcpConfigOptions(options) ?? []).filter(
     (option) =>
       typeof option.configId === "string"
       && option.configId

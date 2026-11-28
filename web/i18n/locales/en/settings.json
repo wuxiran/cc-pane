@@ -1851,5 +1851,23 @@
     "notice": "Everything here is off by default; entry points appear only after you turn a feature on. They apply only to API-key providers you configured and never touch subscription sign-ins such as Claude or Codex.",
     "channelPurity": "Channel purity checks",
     "channelPurityDesc": "Shows a purity badge on provider cards, the home Agent list and the CLI tab menu, to check whether a relay adds hidden prompts, wraps identities or substitutes models. A check calls the models for real and costs a little; it only runs when you start it."
+  },
+  "providerExport": {
+    "title": "Export to phone",
+    "exportButton": "Export to phone",
+    "description": "Hand the selected providers (including API keys) to a paired CC-Panes iOS app once, so you can chat directly on the phone. The code is valid for 5 minutes and can be used only once.",
+    "loadFailed": "Failed to load providers: {{error}}",
+    "startFailed": "Failed to create export code: {{error}}",
+    "redeemed": "Exported {{count}} provider(s) to \"{{device}}\"",
+    "cancelled": "Export code was cancelled (too many wrong attempts or expired)",
+    "expired": "Export code expired",
+    "codeHint": "{{count}} provider(s) · {{minutes}}:{{seconds}} left",
+    "phoneSteps": "On the phone open Settings → On-device models → Import from computer and enter this code (the phone must be paired with this computer)",
+    "reasonNoKey": "No API key",
+    "reasonUnsupported": "This type cannot be used directly from the phone",
+    "empty": "No providers yet",
+    "done": "Done",
+    "regenerate": "Regenerate",
+    "generate": "Create export code ({{count}})"
   }
 }

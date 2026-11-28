@@ -39,6 +39,15 @@ struct ConnectView: View {
                 case .direct: directSection
                 }
                 statusSection
+                Section {
+                    Button {
+                        model.localOnly = true
+                    } label: {
+                        Label("先在本机使用（直连模型 API，不连电脑）", systemImage: "iphone.gen3")
+                    }
+                } footer: {
+                    Text("在「电脑 → 本机模型」里填 API Key 或从电脑导入后，就能在手机上直接对话。")
+                }
             }
             .toolbar(.hidden, for: .navigationBar) // 品牌头已含标题
             .frame(maxWidth: 560)

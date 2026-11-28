@@ -79,8 +79,9 @@ struct ReadableContentWidth: ViewModifier {
     @State private var margin: CGFloat = 0
 
     func body(content: Content) -> some View {
+        // margin 为 0（手机宽度）时不设 contentMargins：否则会覆盖 insetGrouped 自带的左右缩进
         content
-            .contentMargins(.horizontal, margin, for: .scrollContent)
+            .contentMargins(.horizontal, margin > 0 ? margin : nil, for: .scrollContent)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 max(0, (proxy.size.width - maxWidth) / 2)
             } action: { margin = $0 }

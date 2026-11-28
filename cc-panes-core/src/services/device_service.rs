@@ -179,6 +179,15 @@ impl DeviceService {
             .collect()
     }
 
+    /// 设备清单本身（不碰 keyring，可在异步线程上调用；`list()` 会逐台读令牌）。
+    pub fn devices(&self) -> Vec<Device> {
+        self.config
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .devices
+            .clone()
+    }
+
     pub fn get(&self, id: &str) -> Option<Device> {
         self.config
             .lock()

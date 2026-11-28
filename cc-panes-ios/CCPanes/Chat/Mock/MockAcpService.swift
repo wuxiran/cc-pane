@@ -120,6 +120,16 @@ actor MockAcpService: AcpService {
         append(chatId, kind: "state", payload: stateOf(chatId, phase: "exited"))
     }
 
+    /// 通讯录 mock：Bot 首条消息按需拉起 `bot-{id}` 对话（同 BotService::ensure_started），再走普通剧本。
+    func ensureBotChat(chatId: String, botId: String, engineId: String, cwd: String, title: String) {
+        guard chats[chatId] == nil else { return }
+        chats[chatId] = Chat(summary: AcpChatSummary(
+            chatId: chatId, engineId: engineId, cwd: cwd, title: title, acpSessionId: "acp-\(chatId)",
+            status: "ready", lastSeq: 0, origin: "bot", updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+            pendingPermissions: 0, botId: botId), started: true, instant: true)
+        append(chatId, kind: "state", payload: stateOf(chatId, phase: "ready"))
+    }
+
     // MARK: - Stream
 
     func openStream(chatId: String, afterSeq: Int) async -> AsyncStream<AcpFrame> {

@@ -91,6 +91,8 @@ tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"
 cron = "0.17.0"
+# Bot 组网局域网发现（docs/112 §5.1）：纯 Rust，无系统库依赖
+mdns-sd = { version = "0.22", default-features = false, features = ["logging"] }
 tempfile = "3"
 
 [dev-dependencies]

@@ -1023,7 +1023,8 @@ impl AcpChatService {
             snapshot.config_options = response
                 .get("configOptions")
                 .filter(|v| v.is_array())
-                .cloned();
+                .cloned()
+                .map(normalize_config_options);
             snapshot.phase = AcpChatPhase::Ready;
         }
         self.write_chat_meta(&acp_session_id, &spec.engine_id, cwd, None);
@@ -1305,9 +1306,7 @@ impl AcpChatService {
                     // 没回全表：至少把我们设的值写进去，保证选择器不回弹。
                     if let Some(Value::Array(options)) = snapshot.config_options.as_mut() {
                         for option in options.iter_mut() {
-                            if option.get("configId").and_then(Value::as_str)
-                                == Some(config_id.as_str())
-                            {
+                            if config_option_id(option) == Some(config_id.as_str()) {
                                 option["currentValue"] = value.clone();
                             }
                         }
@@ -2107,7 +2106,41 @@ fn remember_tool_kind(session: &Arc<AcpChatSession>, params: &Value) {
 
 /// Replace `configOptions` wholesale and mirror the `mode` / `model` categories into
 /// the legacy `modes` / `models` fields so both surfaces agree on the current value.
+/// 配置项的 id：ACP 规范字段是 `configId`，但 claude-agent-acp 实测发的是 `id`。
+pub fn config_option_id(option: &Value) -> Option<&str> {
+    option
+        .get("configId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .or_else(|| {
+            option
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+        })
+}
+
+/// 只带 `id` 的条目补一个 `configId`（原 `id` 保留），下游（桌面 / 手机）统一读 `configId`。
+pub fn normalize_config_options(mut options: Value) -> Value {
+    if let Value::Array(items) = &mut options {
+        for option in items.iter_mut() {
+            let missing = option
+                .get("configId")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty);
+            if !missing {
+                continue;
+            }
+            if let Some(id) = config_option_id(option).map(str::to_string) {
+                option["configId"] = Value::String(id);
+            }
+        }
+    }
+    options
+}
+
 fn apply_config_options(snapshot: &mut AcpChatSnapshot, options: Value) {
+    let options = normalize_config_options(options);
     if let Some(items) = options.as_array() {
         for option in items {
             let category = option.get("category").and_then(Value::as_str);
@@ -2292,6 +2325,26 @@ fn http_to_stdio_fallback(server: &Value, ctl_path: Option<&str>) -> Option<Valu
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn config_options_accept_id_as_config_id() {
+        let options = super::normalize_config_options(serde_json::json!([
+            {"id": "model", "category": "model", "currentValue": "opus"},
+            {"configId": "effort", "id": "ignored", "currentValue": "high"},
+            {"configId": "", "id": "mode"},
+            {"name": "no id"}
+        ]));
+        assert_eq!(options[0]["configId"], "model");
+        assert_eq!(options[0]["id"], "model", "original id is kept");
+        assert_eq!(options[1]["configId"], "effort");
+        assert_eq!(options[2]["configId"], "mode");
+        assert!(options[3].get("configId").is_none());
+        assert_eq!(super::config_option_id(&options[1]), Some("effort"));
+        assert_eq!(
+            super::config_option_id(&serde_json::json!({"id": "x"})),
+            Some("x")
+        );
+    }
+
     use super::*;
 
     fn kinds(list: &[&str]) -> Vec<String> {

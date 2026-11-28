@@ -86,6 +86,22 @@ final class AcpContractTests: XCTestCase {
         XCTAssertEqual(options[0].choices, [AcpChoice(id: "low", name: "low"), AcpChoice(id: "high", name: "高")])
     }
 
+    /// claude-agent-acp 线上形状：`id`（不是 configId），legacy `modes` 在时隐藏 mode 类别。
+    func testConfigOptionsAcceptAcpWireId() {
+        let snapshot = AcpChatSnapshot(.from([
+            "modes": ["currentModeId": "default", "availableModes": [["id": "default", "name": "Manual"]]],
+            "configOptions": [
+                ["id": "mode", "category": "mode", "type": "select", "currentValue": "default", "options": [["value": "default"]]],
+                ["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "haiku",
+                 "options": [["value": "sonnet"], ["value": "haiku", "name": "Haiku"]]],
+                ["id": "agent", "name": "Agent", "type": "select", "currentValue": "default", "options": [["value": "default"]]],
+            ],
+        ]))
+        let options = snapshot.configOptions
+        XCTAssertEqual(options.map(\.configId), ["model", "agent"])
+        XCTAssertEqual(options[0].currentValue, "haiku")
+    }
+
     func testPromptBodyCarriesPromptId() {
         let body = AcpClient.promptBody(text: "hi", promptId: "ios-1")
         XCTAssertEqual(body["promptId"]?.string, "ios-1")

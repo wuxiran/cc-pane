@@ -17,9 +17,19 @@ export interface Bot {
   cwd?: string | null;
   autoApproveKinds: string[];
   acpSessionId?: string;
+  /** 对已配对的其他设备可见、可收远程消息（Bot 组网，docs/112 §5）。缺省 = true。 */
+  remoteShared?: boolean;
+  /** 远程消息开启的回合用哪一档权限。缺省 = ask_origin。 */
+  remotePolicy?: RemotePolicy;
+  /** allowlist 档自动放行的 ACP ToolKind。 */
+  remoteAllowKinds?: string[];
   createdAt: number;
   updatedAt: number;
 }
+
+/** 远程权限四档（Rust `bot_mesh::RemotePolicy`）。`full` = 最高权限，危险。 */
+export type RemotePolicy = "deny" | "ask_origin" | "allowlist" | "full";
+export const REMOTE_POLICIES: RemotePolicy[] = ["deny", "ask_origin", "allowlist", "full"];
 
 export interface BotSummary extends Bot {
   chatId: string;
@@ -48,6 +58,9 @@ export function emptyBot(engineId: string): Bot {
     engineId,
     cwd: null,
     autoApproveKinds: [],
+    remoteShared: true,
+    remotePolicy: "ask_origin",
+    remoteAllowKinds: [],
     createdAt: 0,
     updatedAt: 0,
   };

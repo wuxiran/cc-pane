@@ -15,7 +15,7 @@ import type {
   AgentChatAttachment,
   AgentChatItem,
 } from "@/types/agentChat";
-import { parentToolCallIdOf } from "@/types/agentChat";
+import { normalizeAcpSnapshot, parentToolCallIdOf } from "@/types/agentChat";
 import { createElicitationActions, type ElicitationActions, type ElicitationState } from "./agentChatElicitation";
 import { seedForkTranscript } from "./agentChatForkTranscript";
 import { dropAgentChatDraft } from "./useAgentChatDraftStore";
@@ -199,7 +199,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           chat.transcriptSessionId = snapshot.acpSessionId;
           chat.transcriptStart = chat.items.length;
         }
-        chat.snapshot = snapshot;
+        chat.snapshot = normalizeAcpSnapshot(snapshot);
         // 失败/异常退出要成为消息流的一部分，不然用户只看到输入框变灰。
         if (snapshot.error && snapshot.error !== previousError) {
           pushItem(chat, { type: "notice", id: nextItemId(), at: Date.now(), text: snapshot.error });

@@ -127,6 +127,19 @@ describe("external prompt event (bot via IM)", () => {
   });
 });
 
+describe("bot mesh delivery (docs/112 §5)", () => {
+  it("draws a remote message once whether external_prompt or user_prompt arrives first", () => {
+    const blocks = [{ type: "text", text: "from studio" }];
+    emit("external_prompt", { text: "from studio", origin: "remote", promptId: "mesh-1" });
+    emit("user_prompt", { promptId: "mesh-1", blocks, origin: "device:studio" });
+    emit("user_prompt", { promptId: "mesh-2", blocks: [{ type: "text", text: "bot to bot" }], origin: "bot:b2" });
+    emit("external_prompt", { text: "bot to bot", origin: "remote", promptId: "mesh-2" });
+    expect(messages()).toEqual(["question-a", "answer-a", "from studio", "bot to bot"]);
+    const items = useAgentChatStore.getState().chats[CHAT].items;
+    expect(items[items.length - 1]).not.toMatchObject({ origin: "im" });
+  });
+});
+
 describe("user_prompt event (docs/112 §3.2)", () => {
   it("renders prompts from the phone once and skips desktop / IM origins", () => {
     const blocks = [{ type: "text", text: "from iPhone" }];

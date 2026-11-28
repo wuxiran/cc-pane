@@ -19,6 +19,7 @@ struct ChatScreen: View {
             .navigationTitle(route.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            .toolbar(.hidden, for: .tabBar)
             .onAppear { session.attach() }
             .onDisappear { session.detach() }
             .onChange(of: scenePhase) { _, phase in
@@ -43,17 +44,18 @@ struct ChatScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     if session.state.items.isEmpty { emptyState }
-                    ForEach(session.state.items) { item in
-                        ChatItemView(item: item, terminals: session.state.terminals).id(item.id)
+                    ForEach(ChatRowGroup.build(session.state.items)) { group in
+                        ChatGroupView(group: group, terminals: session.state.terminals).id(group.id)
                     }
                     if session.isGenerating { GeneratingIndicator() }
                     Color.clear.frame(height: 1).id(Self.bottomId)
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, DK.gutter)
                 .padding(.vertical, 12)
             }
+            .background(DK.canvas)
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: session.state.items.last) { _, _ in
@@ -72,6 +74,9 @@ struct ChatScreen: View {
         case .hostUnavailable:
             ContentUnavailableView("电脑端未运行", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
                                    description: Text("打开电脑上的 CC-Panes 后会自动重连"))
+        case .failed(let message):
+            ContentUnavailableView("无法打开对话", systemImage: "exclamationmark.bubble",
+                                   description: Text(message))
         case .connecting, .reconnecting:
             ProgressView("正在连接对话…").frame(maxWidth: .infinity).padding(.top, 80)
         default:
@@ -86,7 +91,7 @@ struct ChatScreen: View {
             ChatComposer(session: session, draft: $draft)
         }
         .padding(.top, 6)
-        .background(.bar)
+        .background(DK.canvas)
         .animation(.snappy, value: session.state.dockedCard)
     }
 
@@ -116,8 +121,8 @@ struct ChatScreen: View {
         ToolbarItem(placement: .principal) {
             VStack(spacing: 0) {
                 Text(route.title).font(.headline).lineLimit(1)
-                HStack(spacing: 4) {
-                    Image(systemName: AcpEngineStyle.symbol(route.engineId))
+                HStack(spacing: 5) {
+                    Circle().fill(linkColor).frame(width: 6, height: 6)
                     Text(subtitle)
                 }
                 .font(.caption2)
@@ -157,6 +162,21 @@ struct ChatScreen: View {
         }
     }
 
+    private var linkColor: Color {
+        switch session.link {
+        case .live:
+            switch session.state.phase {
+            case .generating: .blue
+            case .ready: .green
+            case .starting: .orange
+            default: .gray
+            }
+        case .connecting, .reconnecting: .orange
+        case .failed: .red
+        default: .gray
+        }
+    }
+
     private var errorBinding: Binding<Bool> {
         Binding(get: { session.actionError != nil }, set: { if !$0 { session.clearActionError() } })
     }
@@ -167,10 +187,13 @@ struct GeneratingIndicator: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.35)) { context in
             let step = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
-            HStack(spacing: 4) {
-                ForEach(0..<3) { i in
-                    Circle().fill(.secondary).frame(width: 6, height: 6).opacity(i == step ? 1 : 0.35)
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    ForEach(0..<3) { i in
+                        Circle().fill(Color.accentColor).frame(width: 6, height: 6).opacity(i == step ? 1 : 0.3)
+                    }
                 }
+                Text("生成中").font(.caption).foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
         }
@@ -183,4 +206,6 @@ struct ChatRoute: Hashable {
     let chatId: String
     let title: String
     let engineId: String
+    /// 对话所在电脑（ConnectionHub 的 link id）；Bot 详情页内嵌时可为空。
+    var computerId: String = ""
 }

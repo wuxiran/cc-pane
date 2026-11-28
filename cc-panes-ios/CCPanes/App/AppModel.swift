@@ -35,16 +35,57 @@ final class AppModel {
     @ObservationIgnored let store: ComputerBookStore
     @ObservationIgnored let vault: TokenVault
     @ObservationIgnored private let probe: AddressProbe.Probe
+    /// 所有「保持连接」电脑的常驻连接（首页数据源）。`currentId` 只剩「连接页默认选中」的意义。
+    let hub: ConnectionHub
 
     init(store: ComputerBookStore = ComputerBookStore(), vault: TokenVault = .live,
          probe: @escaping AddressProbe.Probe = AddressProbe.healthProbe) {
         self.store = store
         self.vault = vault
         self.probe = probe
+        hub = ConnectionHub(vault: vault, probe: probe)
         let loaded = store.load()
         computers = loaded.computers
         currentId = loaded.currentId
         serverURL = loaded.computers.first { $0.id == loaded.currentId }?.addresses.first ?? "http://127.0.0.1:18080"
+        hub.onInfo = { [weak self] id, url, info in self?.recordInfo(id, url: url, info: info) }
+        hub.sync(computers)
+    }
+
+    /// 地址簿非空即进首页（多电脑同时在线）；直连时服务端要求登录则留在连接页完成登录。
+    var showsHome: Bool { (!computers.isEmpty || localOnly) && state != .needsLogin }
+
+    /// 不连电脑、只用本机模型（docs/112 §6）：连接页「先在本机使用」打开；调试 `-localMock YES` 时默认打开。
+    var localOnly: Bool = UserDefaults.standard.bool(forKey: "ccpanes.localOnly")
+        || UserDefaults.standard.bool(forKey: "localMock") {
+        didSet { UserDefaults.standard.set(localOnly, forKey: "ccpanes.localOnly") }
+    }
+
+    func setKeepConnected(_ id: String, _ on: Bool) {
+        guard var computer = computers.first(where: { $0.id == id }) else { return }
+        computer.keepConnected = on
+        replace(computer)
+    }
+
+    /// 调试：`-directAddress a,b` 把多个地址各记成一台电脑（免登录服务端），由 hub 同时连接。
+    func addDirect(_ addresses: [String]) {
+        for raw in addresses {
+            guard let url = AddressBook.normalize(raw) else { continue }
+            var computer = upsert(address: url.absoluteString, name: url.host() ?? "电脑", token: nil)
+            if computer.keepConnected == false {
+                computer.keepConnected = true
+                replace(computer)
+            }
+        }
+        // 调试：`-directOnly YES` 只保持这几台连接（地址簿里其他电脑暂停），截图 / 联调用
+        if UserDefaults.standard.bool(forKey: "directOnly") {
+            let keep = Set(addresses.compactMap { AddressBook.normalize($0)?.absoluteString })
+            for var computer in computers where !computer.addresses.contains(where: keep.contains) && computer.isEnabled {
+                computer.keepConnected = false
+                replace(computer)
+            }
+        }
+        if state != .connected { state = .connected }
     }
 
     var canWrite: Bool { auth?.canWrite ?? false }
@@ -98,7 +139,7 @@ final class AppModel {
             auth = status
             touch(computerId, address: url.absoluteString)
             state = status.authenticated ? .connected : .needsLogin
-            if token != nil { Task { await refreshName(computerId, client: client) } }
+            if status.authenticated { await hub.reconnect(computerId) }
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -111,6 +152,7 @@ final class AppModel {
             let status = try await api.authStatus()
             auth = status
             state = status.authenticated ? .connected : .failed("登录失败")
+            if status.authenticated, let id = currentId { await hub.reconnect(id) }
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -246,16 +288,32 @@ final class AppModel {
         replace(computer)
     }
 
-    private func refreshName(_ id: String, client: APIClient) async {
-        guard let info = try? await client.deviceInfo(), let host = info.hostname, !host.isEmpty,
-              var computer = computers.first(where: { $0.id == id }),
-              computer.name == URL(string: computer.addresses.first ?? "")?.host() else { return }
-        // 只替换「用地址充当的默认名」，不覆盖用户改过的名字。
-        computer.name = host
-        replace(computer)
+    /// hub 连上一台电脑：记下机器名 / 实例 id / 开发版标记 / 线路，按 instanceId 去重。
+    private func recordInfo(_ id: String, url: URL, info: DeviceInfo?) {
+        reachability[id] = .online
+        guard var computer = computers.first(where: { $0.id == id }) else { return }
+        computer.lastSeen = Date()
+        computer.lastAddress = url.absoluteString
+        if let info {
+            if let host = info.hostname, !host.isEmpty { computer.hostname = host }
+            if let instance = info.instanceId, !instance.isEmpty { computer.instanceId = instance }
+            computer.isDevInstance = ComputerNaming.isDev(info)
+        }
+        if let i = computers.firstIndex(where: { $0.id == id }) { computers[i] = computer }
+        let merged = ComputerDedupe.merge(computers)
+        if !merged.removed.isEmpty {
+            let liveAccounts = Set(merged.computers.compactMap(\.tokenAccount))
+            for removedId in merged.removed where !liveAccounts.contains(removedId) { vault.remove(removedId) }
+            computers = merged.computers
+            if let current = currentId, merged.removed.contains(current) { currentId = computers.first?.id }
+        }
+        persist()
     }
 
-    private func persist() { store.save(computers, currentId: currentId) }
+    private func persist() {
+        store.save(computers, currentId: currentId)
+        hub.sync(computers)
+    }
 
     nonisolated static func normalize(_ raw: String) -> URL? { AddressBook.normalize(raw) }
 }

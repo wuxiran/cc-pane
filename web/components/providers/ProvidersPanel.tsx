@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard, Download } from "lucide-react";
+import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard, Download, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -15,6 +15,8 @@ import {
 import ProviderCard, { type SystemProbeInfo } from "./ProviderCard";
 import { useChannelPurityStore } from "@/stores/useChannelPurityStore";
 import ProviderFormPanel from "./ProviderFormPanel";
+import ProviderExportDialog from "./ProviderExportDialog";
+import { isTauriRuntime } from "@/services/runtime";
 import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import UnsavedChangesDialog from "./UnsavedChangesDialog";
@@ -92,6 +94,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, initialVie
   const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
   const [childDirty, setChildDirty] = useState(false);
   const [importingCcSwitch, setImportingCcSwitch] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const discardGuard = useUnsavedChangesGuard(childDirty, () => {
     setChildDirty(false);
     onDirtyChange?.(false);
@@ -410,15 +413,29 @@ export default function ProvidersPanel({ compact, view: fixedTopView, initialVie
       onBack={!fixedTopView && activeTopView === "providers" ? () => handleTopViewChange("profiles") : undefined}
       showToolSelect={activeTopView !== "profiles" || Boolean(compact)}
       actions={activeTopView === "providers" ? (
-        <Button
-          variant="outline"
-          size={compact ? "xs" : "sm"}
-          disabled={importingCcSwitch}
-          onClick={() => void handleImportCcSwitch()}
-        >
-          <Download size={14} />
-          {t("importFromCcSwitch")}
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size={compact ? "xs" : "sm"}
+            disabled={importingCcSwitch}
+            onClick={() => void handleImportCcSwitch()}
+          >
+            <Download size={14} />
+            {t("importFromCcSwitch")}
+          </Button>
+          {/* 导出码只活在桌面进程里：浏览器 / 远程网页不显示（docs/112 §6） */}
+          {isTauriRuntime() && (
+            <Button
+              variant="outline"
+              size={compact ? "xs" : "sm"}
+              data-testid="provider-export-open"
+              onClick={() => setExportOpen(true)}
+            >
+              <Smartphone size={14} />
+              {t("providerExport.exportButton")}
+            </Button>
+          )}
+        </>
       ) : undefined}
     />
   );
@@ -491,6 +508,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, initialVie
       </div>
     </div>
     {unsavedDialog}
+    <ProviderExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </>
   );
 }

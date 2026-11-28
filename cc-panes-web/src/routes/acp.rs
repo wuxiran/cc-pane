@@ -133,7 +133,7 @@ pub fn is_allowed_path(rest: &str) -> bool {
 }
 
 /// 这次请求代表哪一端：设备令牌 → `device:<设备名>`，其余（Cookie 会话 / 本机）→ `mobile`。
-fn request_origin(state: &AppState, device: Option<&DeviceTokenAuth>) -> String {
+pub(crate) fn request_origin(state: &AppState, device: Option<&DeviceTokenAuth>) -> String {
     device
         .and_then(|DeviceTokenAuth(token)| state.web_auth.device_tokens()?.verify(token))
         .map(|record| {
@@ -171,21 +171,44 @@ pub async fn proxy_rest(
     if !is_allowed_path(&rest) {
         return error(StatusCode::NOT_FOUND, "NOT_FOUND", "Unknown ACP route");
     }
+    let origin = request_origin(&state, device.as_ref().map(|Extension(auth)| auth));
+    forward(
+        &state,
+        method,
+        &format!("/acp/{rest}"),
+        query,
+        &origin,
+        &headers,
+        body,
+    )
+    .await
+}
+
+/// 把一次请求原样转给 orchestrator（`upstream_path` 以 `/` 开头）。Bot 组网的
+/// `/api/bots*`、`/api/contacts*` 也走这里（docs/112 §5）。
+pub(crate) async fn forward(
+    state: &AppState,
+    method: Method,
+    upstream_path: &str,
+    query: Option<String>,
+    origin: &str,
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Response {
     let Some((base, token)) = state.acp_host.endpoint() else {
         return host_unavailable("CC-Panes desktop app is not running");
     };
-    let mut url = format!("{base}/acp/{rest}");
+    let mut url = format!("{base}{upstream_path}");
     if let Some(query) = query.filter(|query| !query.is_empty()) {
         url.push('?');
         url.push_str(&query);
     }
-    let origin = request_origin(&state, device.as_ref().map(|Extension(auth)| auth));
     let mut request = state
         .acp_host
         .client
         .request(method, url)
         .bearer_auth(token)
-        .header(ORIGIN_HEADER, origin_header_value(&origin));
+        .header(ORIGIN_HEADER, origin_header_value(origin));
     if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
         request = request.header(header::CONTENT_TYPE, content_type);
     }
@@ -208,6 +231,7 @@ pub async fn proxy_rest(
     if status == StatusCode::UNAUTHORIZED {
         return host_unavailable("CC-Panes desktop app rejected the bridge credentials");
     }
+    // 旧版桌面 app 没有该路由（axum 默认 404 空体）：按 app 不支持处理。
     let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
     let bytes = match upstream.bytes().await {
         Ok(bytes) => bytes,

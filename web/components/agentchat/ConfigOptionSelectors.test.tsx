@@ -37,6 +37,13 @@ describe("selectableConfigOptions", () => {
     ]);
     expect(selectableConfigOptions(undefined, new Set())).toEqual([]);
   });
+
+  it("接受只带 id 的配置项（claude-agent-acp 实测形状）", () => {
+    const claudeShape = [
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "m1", options: [{ value: "m1" }] },
+    ] as unknown as AcpConfigOption[];
+    expect(selectableConfigOptions(claudeShape, new Set()).map((o) => o.configId)).toEqual(["model"]);
+  });
 });
 
 describe("ConfigOptionSelectors", () => {

@@ -953,7 +953,93 @@
     "delete": "Delete",
     "deleteConfirm": "Delete bot \"{{name}}\"? The conversation stays on the agent side, but the bot itself cannot be restored.",
     "busy": "Replying…",
-    "tab": "Contacts"
+    "tab": "Contacts",
+    "mesh": {
+      "peersTitle": "Other computers",
+      "pairedPeers": "Paired computers",
+      "noPeers": "No paired computers yet.",
+      "lastSeen": "last seen {{at}}",
+      "remove": "Remove",
+      "removeConfirm": "Remove \"{{name}}\"? Its bots disappear from contacts and the token is deleted.",
+      "discovered": "CC-Panes nearby / on your tailnet",
+      "scan": "Rescan",
+      "scanning": "Scanning…",
+      "discoveryState": "Tailscale: {{tailscale}} · LAN: {{mdns}}",
+      "mdnsOk": "ok",
+      "notAdvertising": "not advertising (turn on Web access and allow other devices)",
+      "tailscale": {
+        "running": "connected",
+        "notInstalled": "not installed",
+        "stopped": "not connected",
+        "error": "unavailable"
+      },
+      "source": {
+        "lan": "LAN",
+        "tailscale": "Tailscale",
+        "manual": "manual"
+      },
+      "pairTitle": "Connect with a pairing code",
+      "pairHint": "On the other computer open Settings → Web access → Other devices to get a 6-digit code. Click a discovered computer above to fill its address.",
+      "pairName": "Display name (optional)",
+      "pairUrl": "Address",
+      "pairCode": "6-digit code",
+      "pair": "Pair",
+      "paired": "Paired",
+      "localGroup": "This computer",
+      "otherComputers": "Other computers",
+      "noSharedBots": "No shared bots on this computer",
+      "deviceStatus": {
+        "online": "online",
+        "offline": "offline",
+        "unauthorized": "token rejected, pair again",
+        "unsupported": "too old for bot mesh",
+        "error": "error"
+      },
+      "remotePolicyMenu": "Remote access…",
+      "policyTitle": "Remote access for \"{{name}}\"",
+      "policySaved": "Remote access saved",
+      "shared": "Let other devices find and message it",
+      "sharedHint": "Paired computers and phones see it in contacts and can message it.",
+      "policy": "Remote access",
+      "level": {
+        "deny": "Deny all actions",
+        "ask_origin": "Ask the sender",
+        "allowlist": "Allowlist",
+        "full": "Full access (dangerous)"
+      },
+      "levelHint": {
+        "deny": "Remote messages can chat, but file edits, commands and other tools are rejected automatically.",
+        "ask_origin": "Every action is sent back to the sender (phone / originating computer) for approval; you can also approve here. Default.",
+        "allowlist": "Checked action types are approved automatically; the rest ask the sender.",
+        "full": "Turns started by remote messages approve every action without asking. Paired devices only."
+      },
+      "kind": {
+        "read": "Read",
+        "search": "Search",
+        "fetch": "Network",
+        "edit": "Edit files",
+        "execute": "Run commands",
+        "other": "Other"
+      },
+      "fullWarning": "Full access hands this computer's execution rights to every paired device: their messages can make the bot edit files and run any command without asking. Use only between fully trusted devices; actions are still recorded in the run journal.",
+      "fullConfirm": "Give \"{{name}}\" full remote access? Messages from paired devices will be able to run any action without asking.",
+      "fullBadge": "Remote access: full",
+      "fullShort": "FULL",
+      "remoteHint": "Messages are relayed to the bot on that computer. Its remote access: {{policy}}.",
+      "message": "Message",
+      "messagePlaceholder": "Write something… ⌘/Ctrl+Enter to send",
+      "send": "Send",
+      "status": {
+        "queued": "Queued",
+        "running": "Replying…",
+        "waiting_permission": "Waiting for approval",
+        "done": "Replied",
+        "failed": "Failed"
+      },
+      "hops": "hop {{hops}}",
+      "needsApproval": "Remote bot wants to run: {{title}}",
+      "waitingBanner": "{{bot}} on {{device}} is waiting for your approval"
+    }
   },
   "sessionsTitle": "Sessions",
   "sessionFilterAll": "All",

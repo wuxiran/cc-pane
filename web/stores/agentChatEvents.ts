@@ -161,10 +161,12 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
       applyRestoredTranscript(chatId, payload);
       return;
     // Bot 经 IM 收到的消息：后端代发 prompt 前先广播，界面补一个用户气泡。
+    // 组网投递（origin=remote）同时有 user_prompt：两者按 promptId 去重，谁先到谁画。
     case "external_prompt": {
-      const data = payload as { text?: string; origin?: string } | null;
+      const data = payload as { text?: string; origin?: string; promptId?: string } | null;
+      if (typeof data?.promptId === "string" && !rememberRemotePrompt(chatId, data.promptId)) return;
       if (typeof data?.text === "string" && data.text) {
-        store.addUserMessage(chatId, data.text, undefined, undefined, "im");
+        store.addUserMessage(chatId, data.text, undefined, undefined, data.origin === "im" ? "im" : undefined);
       }
       return;
     }
@@ -173,7 +175,7 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "user_prompt": {
       const data = payload as { promptId?: string; blocks?: AcpContentBlock[]; origin?: string } | null;
       const origin = data?.origin ?? "";
-      if (origin !== "mobile" && !origin.startsWith("device:")) return;
+      if (origin !== "mobile" && !origin.startsWith("device:") && !origin.startsWith("bot:")) return;
       if (typeof data?.promptId !== "string" || !rememberRemotePrompt(chatId, data.promptId)) return;
       const blocks = Array.isArray(data.blocks) ? data.blocks : [];
       const text = blocks

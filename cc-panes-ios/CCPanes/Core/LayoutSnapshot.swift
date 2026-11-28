@@ -63,16 +63,19 @@ struct LayoutEntry: Decodable, Sendable {
 }
 
 /// 分屏树节点：Panel（含标签页）| Split（递归子面板）。判别字段 type，缺省当 Panel。
+/// Split 的 `horizontal` = 左右分割（web `direction: "horizontal"`），`sizes` 为各子面板占比（缺省等分）。
 indirect enum PaneNode: Decodable, Sendable {
     case panel(id: String, activeTabId: String?, tabs: [LayoutTab])
-    case split([PaneNode])
+    case split([PaneNode], horizontal: Bool = true, sizes: [Double] = [])
 
-    private enum CodingKeys: String, CodingKey { case type, id, activeTabId, tabs, children }
+    private enum CodingKeys: String, CodingKey { case type, id, activeTabId, tabs, children, direction, sizes }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if (try? c.decodeIfPresent(String.self, forKey: .type)) == "split" {
-            self = .split((try? c.decodeIfPresent(LossyArray<PaneNode>.self, forKey: .children))??.items ?? [])
+            self = .split((try? c.decodeIfPresent(LossyArray<PaneNode>.self, forKey: .children))??.items ?? [],
+                          horizontal: (try? c.decodeIfPresent(String.self, forKey: .direction)) != "vertical",
+                          sizes: ((try? c.decodeIfPresent([Double].self, forKey: .sizes)) ?? nil) ?? [])
             return
         }
         self = .panel(

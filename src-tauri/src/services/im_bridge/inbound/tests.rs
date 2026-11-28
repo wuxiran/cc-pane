@@ -14,6 +14,9 @@ fn bot(id: &str, name: &str) -> Bot {
         cwd: None,
         auto_approve_kinds: vec![],
         acp_session_id: None,
+        remote_shared: true,
+        remote_policy: Default::default(),
+        remote_allow_kinds: vec![],
         created_at: 0,
         updated_at: 0,
     }

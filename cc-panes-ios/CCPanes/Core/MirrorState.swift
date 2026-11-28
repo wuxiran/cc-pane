@@ -16,8 +16,12 @@ struct MirrorCard: Identifiable, Equatable, Sendable {
     var paneOrdinal: Int?
     var isActiveLeaf = false
     var orphanReason: String?
+    var projectPath: String?
 
     var id: String { sessionId }
+    var phase: SessionPhase { SessionPhase(info) }
+    /// 去掉 CLI 后缀的标题。
+    var displayTitle: String { cleanSessionTitle(title) }
 }
 
 struct MirrorGroup: Identifiable, Equatable, Sendable {
@@ -26,13 +30,25 @@ struct MirrorGroup: Identifiable, Equatable, Sendable {
     var cards: [MirrorCard]
     var layoutId: String?
     var isCurrentLayout = false
+    /// 布局分屏几何（仅布局组）。
+    var shape: LayoutShape?
+    /// 多电脑聚合时所属电脑（空 = 单电脑；参与 id 以免不同电脑的「手机远程会话」组撞 id）。
+    var computerId = ""
+    var computerName: String?
+
+    var counts: PhaseCounts { PhaseCounts(cards.map(\.phase)) }
+    /// 某 pane 内最紧急的相位（缩略图着色）；pane 内无活会话为 nil。
+    func phase(ofPane ordinal: Int) -> SessionPhase? {
+        cards.filter { $0.paneOrdinal == ordinal }.map(\.phase).max()
+    }
 
     var id: String {
-        switch kind {
+        let base = switch kind {
         case .layout: "layout:" + (layoutId ?? title)
         case .mobileRemote: "mobile"
         case .orphan: "orphan"
         }
+        return computerId.isEmpty ? base : computerId + "|" + base
     }
 }
 
@@ -62,6 +78,8 @@ struct MirrorState: Equatable, Sendable {
 
     var isEmpty: Bool { groups.isEmpty }
     var sessionCount: Int { groups.reduce(0) { $0 + $1.cards.count } }
+    /// 等待输入的会话数（「终端」tab 角标）。
+    var waitingCount: Int { groups.reduce(0) { $0 + $1.cards.filter { $0.phase == .waiting }.count } }
 }
 
 /// 合成镜像状态（纯函数）。
@@ -97,7 +115,8 @@ func buildMirrorState(
                 state.mobileProjectCounts[normalizeProjectPath(meta.projectPath), default: 0] += 1
             }
             mobile.append(MirrorCard(sessionId: info.sessionId, title: meta.displayTitle, info: info,
-                                     projectName: pathBasename(meta.projectPath), cliTool: meta.cliTool))
+                                     projectName: pathBasename(meta.projectPath), cliTool: meta.cliTool,
+                                     projectPath: meta.projectPath))
         } else if isLiveOrphan(info, now: now) {
             orphans.append(orphanCard(info, record: names[info.sessionId]))
         }
@@ -119,6 +138,7 @@ private func layoutGroups(
     onCard: (SessionCard) -> Void
 ) -> [MirrorGroup] {
     guard let snapshot else { return [] }
+    let shapes = Dictionary(snapshot.layouts.map { ($0.id, $0.rootPane) }, uniquingKeysWith: { a, _ in a })
     var groups: [MirrorGroup] = []
     var indexById: [String: Int] = [:]
     for card in collectSessionCards(snapshot) {
@@ -126,13 +146,15 @@ private func layoutGroups(
         onCard(card)
         let mirror = MirrorCard(sessionId: card.sessionId, title: card.title, info: info,
                                 projectName: card.projectName, cliTool: card.cliTool,
-                                paneOrdinal: card.paneOrdinal, isActiveLeaf: card.isActiveLeaf)
+                                paneOrdinal: card.paneOrdinal, isActiveLeaf: card.isActiveLeaf,
+                                projectPath: card.projectPath)
         if let i = indexById[card.layoutId] {
             groups[i].cards.append(mirror)
         } else {
             indexById[card.layoutId] = groups.count
             groups.append(MirrorGroup(kind: .layout, title: card.layoutName, cards: [mirror],
-                                      layoutId: card.layoutId, isCurrentLayout: card.isCurrentLayout))
+                                      layoutId: card.layoutId, isCurrentLayout: card.isCurrentLayout,
+                                      shape: layoutShape(shapes[card.layoutId] ?? nil)))
         }
     }
     // 稳定排序：当前布局在前，其余保持插入顺序
@@ -153,5 +175,6 @@ private func orphanCard(_ info: SessionInfo, record: LaunchRecord?) -> MirrorCar
                       title: nonEmpty(project) ?? String(info.sessionId.prefix(8)),
                       info: info,
                       cliTool: record?.cliTool,
-                      orphanReason: "未在电脑布局中")
+                      orphanReason: "未在电脑布局中",
+                      projectPath: record?.projectPath)
 }
