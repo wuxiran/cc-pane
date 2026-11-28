@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CCChanPetState, PetMeta } from "./types";
+import type { PetMeta } from "./types";
+import { resolvePetAnimation, type PetStatus } from "./petStatus";
 import { startVisibleInterval } from "@/utils/visibleInterval";
 
-const FALLBACK_ANIMATION = { row: 0, frames: 1, fps: 1 };
-
-export function getPetAnimation(pet: PetMeta, state: CCChanPetState) {
-  return pet.animations[state] ?? pet.animations.idle ?? FALLBACK_ANIMATION;
+export function getPetAnimation(pet: PetMeta, status: PetStatus) {
+  return resolvePetAnimation(pet, status);
 }
 
-export function usePetAnimationFrame(pet: PetMeta, state: CCChanPetState): number {
-  const animation = useMemo(() => getPetAnimation(pet, state), [pet, state]);
+export function usePetAnimationFrame(pet: PetMeta, status: PetStatus): number {
+  const animation = useMemo(() => getPetAnimation(pet, status), [pet, status]);
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -22,7 +21,6 @@ export function usePetAnimationFrame(pet: PetMeta, state: CCChanPetState): numbe
       stopTimer?.();
       stopTimer = undefined;
       setFrame(0);
-      // 单帧精灵没有可推进的帧，不必起定时器。
       if (frameCount === 1 || motion?.matches) return;
       stopTimer = startVisibleInterval(
         () => setFrame((current) => (current + 1) % frameCount),
@@ -35,6 +33,6 @@ export function usePetAnimationFrame(pet: PetMeta, state: CCChanPetState): numbe
       stopTimer?.();
       motion?.removeEventListener?.("change", restart);
     };
-  }, [animation.frames, animation.fps, animation.row, animation.colOffset, pet.id, state]);
+  }, [animation.frames, animation.fps, animation.row, animation.colOffset, pet.id, status]);
   return frame;
 }

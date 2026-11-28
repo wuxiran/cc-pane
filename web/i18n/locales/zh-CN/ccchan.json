@@ -1,76 +1,43 @@
 {
   "brand": "cc酱",
   "fallbackLoadFailed": "cc酱加载失败，请重开窗口",
-  "openConversation": "打开 cc酱对话",
-  "openChat": "打开 cc酱 chat",
-  "contextMenu": {
-    "title": "cc酱",
-    "openChat": "打开对话",
-    "hide": "隐藏",
-    "switchPet": "切换角色",
-    "settings": "设置",
-    "exit": "退出"
+  "toolbar": {
+    "sessions": "会话列表",
+    "ask": "问 {{name}}",
+    "switchBot": "切换 Bot",
+    "collapse": "收起控件"
   },
-  "bubbles": {
-    "idle": {
-      "nearby": "我在旁边，有事点我。",
-      "stuck": "有卡住的会话就喊我。",
-      "openChat": "点我可以打开 chat。",
-      "background": "我会安静盯着后台。",
-      "output": "需要我看输出时叫我。"
-    },
-    "working": {
-      "running": "后台还在跑，我盯着。",
-      "working": "有任务在工作中。",
-      "status": "我在看这些会话的状态。"
-    },
-    "waiting": {
-      "input": "有会话像是在等输入。",
-      "jump": "右上角的小点可以跳过去。",
-      "reminder": "需要回复的 tab 我会提醒。"
-    }
+  "bubble": {
+    "placeholder": "问 {{name}}…（回车发送，Esc 取消）",
+    "sending": "{{name}} 正在回复…",
+    "cancel": "取消",
+    "cancelled": "已取消",
+    "viewFull": "在主窗口查看完整",
+    "approval": "{{name}} 需要你审批",
+    "openMain": "去主窗口处理",
+    "empty": "（没有文字回复）",
+    "noBot": "还没有 Bot，先去建一个吧"
   },
   "events": {
     "completed": "{{title}} 完成",
     "failed": "{{title}} 失败",
     "waiting": "{{title}} 等待输入"
   },
-  "chat": {
-    "activityRefreshing": "正在刷新 {{engine}} CLI 会话...",
-    "activityChecking": "正在确认 chat 会话...",
-    "activityStarting": "启动中...",
-    "activityWaiting": "等待回复...",
-    "sessionInvalid": "上次 chat 会话已失效，正在重新连接。",
-    "sessionStarting": "正在启动 {{engine}} CLI...",
-    "sessionConnected": "{{engine}} CLI 已连接。",
-    "sessionStartFailed": "启动失败：{{error}}",
-    "cliReturnedError": "{{engine}} CLI 返回错误。",
-    "cliExited": "{{engine}} CLI 已退出。点“重启 CLI”重新连接。",
-    "cliExitedWithCode": "{{engine}} CLI 已退出（exit {{exitCode}}）。点“重启 CLI”重新连接。",
-    "sendFailed": "{{error}}。点“重启 CLI”重新连接。",
-    "refreshSession": "刷新会话",
-    "stopCurrent": "停止当前 chat",
-    "close": "关闭 chat",
-    "empty": "输入消息开始和 cc酱对话。",
-    "placeholderPaused": "CLI 已退出，点重启 CLI...",
-    "placeholderChecking": "确认 chat 会话...",
-    "placeholderInput": "输入消息...",
-    "placeholderStarting": "chat 启动中...",
-    "send": "发送"
+  "menu": {
+    "sessions": "会话",
+    "noSessions": "没有进行中的会话",
+    "switchBot": "切换 Bot",
+    "noBots": "还没有 Bot",
+    "createBot": "新建 Bot…",
+    "changePet": "换形象",
+    "settings": "设置",
+    "hide": "隐藏桌宠"
   },
-  "sessionDot": {
-    "focus": "聚焦会话 {{sessionId}}",
-    "title": "{{sessionId}} · {{status}}{{tool}}"
-  },
-  "sessionStatus": {
-    "initializing": "初始化中",
+  "status": {
     "idle": "空闲",
-    "thinking": "思考中",
-    "toolRunning": "工具运行中",
-    "compacting": "压缩中",
-    "waitingInput": "等待输入",
-    "error": "错误",
-    "exited": "已退出",
-    "active": "活跃"
+    "running": "运行中",
+    "needsInput": "等你输入",
+    "ready": "完成未看",
+    "blocked": "出错"
   }
 }

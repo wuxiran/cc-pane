@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import {
   CCCHAN_PET_SIZE_DEFAULT,
   CCCHAN_PET_SIZE_MAX,
@@ -12,6 +11,8 @@ import {
   useCCChanStore,
 } from "@/stores/useCCChanStore";
 import { invokeIfTauri } from "@/services/runtime";
+import { botService } from "@/services/botService";
+import type { BotSummary } from "@/types/bot";
 import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
 import {
   SettingsRangeControl,
@@ -26,10 +27,8 @@ interface CCChanSettingsProps {
   onChange: (value: CCChanSettingsValue) => void;
 }
 
-const ENGINE_OPTIONS = [
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-] as const;
+/** Select 不接受空字符串值：「自动」用哨兵值表示未指定 Bot。 */
+const AUTO_BOT = "__auto__";
 
 const PET_DESCRIPTION_KEYS = {
   homie: "ccchanPetDescriptionHomie",
@@ -47,6 +46,24 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
     ? PET_DESCRIPTION_KEYS[selectedPet.id as keyof typeof PET_DESCRIPTION_KEYS]
     : undefined;
   const [petsDir, setPetsDir] = useState<string | null>(null);
+  const [bots, setBots] = useState<BotSummary[]>([]);
+
+  useEffect(() => {
+    let disposed = false;
+    const reload = () => {
+      botService.list().then((list) => { if (!disposed) setBots(list); }).catch(() => {});
+    };
+    reload();
+    let unlisten: (() => void) | undefined;
+    void botService.listenChanged(reload).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     void load();
@@ -67,33 +84,24 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
     <>
       <SettingsSection sectionId="ccchan-companion">
         <SettingsRow
-          title={<span id="ccchan-engine-label">{t("ccchanEngine")}</span>}
+          title={t("ccchanActiveBot")}
+          description={bots.length === 0 ? t("ccchanActiveBotEmpty") : t("ccchanActiveBotHint")}
+          htmlFor="ccchan-active-bot"
           control={(
-            <div
-              className="inline-flex h-8 overflow-hidden rounded-md border border-[var(--app-border)]"
-              role="group"
-              aria-labelledby="ccchan-engine-label"
+            <Select
+              value={value.activeBotId && bots.some((bot) => bot.id === value.activeBotId) ? value.activeBotId : AUTO_BOT}
+              onValueChange={(next) => update("activeBotId", next === AUTO_BOT ? null : next)}
             >
-              {ENGINE_OPTIONS.map((option) => {
-                const active = value.aiEngine === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={active}
-                    className={cn(
-                      "min-w-16 px-3 text-[length:var(--text-row)] font-medium transition-colors duration-[var(--dur-fast)]",
-                      active
-                        ? "bg-[var(--app-accent)] text-[var(--primary-foreground)]"
-                        : "bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
-                    )}
-                    onClick={() => update("aiEngine", option.value)}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
+              <SelectTrigger id="ccchan-active-bot" aria-label={t("ccchanActiveBot")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTO_BOT}>{t("ccchanActiveBotAuto")}</SelectItem>
+                {bots.map((bot) => (
+                  <SelectItem key={bot.id} value={bot.id}>{bot.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         />
         <SettingsRow
@@ -123,23 +131,10 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           onCheckedChange={(checked) => update("autoStart", checked)}
         />
         <SettingsSwitchRow
-          id="ccchan-sound-enabled"
-          title={t("ccchanSoundEnabled")}
-          checked={value.soundEnabled}
-          onCheckedChange={(checked) => update("soundEnabled", checked)}
-        />
-        <SettingsSwitchRow
           id="ccchan-window-visible"
           title={t("ccchanWindowVisible")}
           checked={value.windowVisible}
           onCheckedChange={(checked) => update("windowVisible", checked)}
-        />
-        <SettingsSwitchRow
-          id="ccchan-wander-enabled"
-          title={t("ccchanWanderEnabled")}
-          description={t("ccchanWanderHint")}
-          checked={value.wanderEnabled}
-          onCheckedChange={(checked) => update("wanderEnabled", checked)}
         />
       </SettingsSection>
 
@@ -205,14 +200,14 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => onChange({ ...value, windowX: null, windowY: null })}
+              onClick={() => onChange({ ...value, windowX: null, windowY: null, windowPosPhysical: true })}
             >
               {t("ccchanResetPosition")}
             </Button>
           )}
         >
           <SettingsValue>
-            x: {value.windowX ?? "-"} · y: {value.windowY ?? "-"} · {value.petSize}x{value.petSize}
+            x: {value.windowX ?? "-"} · y: {value.windowY ?? "-"} · {value.petSize}px
           </SettingsValue>
         </SettingsRow>
       </SettingsSection>
