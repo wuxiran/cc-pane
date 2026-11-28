@@ -654,5 +654,13 @@
   "magpieLive": {
     "groups": "Magpie routing groups (live)",
     "models": "Magpie models (live)"
+  },
+  "alerts": {
+    "title": "Alerts",
+    "cacheLow": "Low cache hit rate",
+    "cacheLowDesc": "After 100k prompt tokens in a session, warn in the status bar when less than 30% came from cache: the relay may not pass caching through and bills at full price.",
+    "injection": "Prompt injection",
+    "injectionDesc": "Warn in the status bar when this provider's last purity check found injection.",
+    "note": "Reads local session logs and existing check results only, sends no requests. Applies to API key accounts; subscription logins are never flagged."
   }
 }

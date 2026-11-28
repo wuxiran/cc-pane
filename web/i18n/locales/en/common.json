@@ -210,5 +210,10 @@
   "magpieRoute.tries": "Tries",
   "magpieRoute.inFlight": "Turn in progress",
   "magpieRoute.done": "Turn finished · {{status}}",
-  "magpieRoute.ttft": "first token {{ms}} ms"
+  "magpieRoute.ttft": "first token {{ms}} ms",
+  "providerAlert.cacheLowTitle": "Low cache hit rate",
+  "providerAlert.cacheLowBody": "Only {{ratio}}% of this session's prompt tokens came from cache. \"{{name}}\" may not pass caching through, so every turn bills at full price.",
+  "providerAlert.injectionTitle": "Relay injects prompts",
+  "providerAlert.injectionBody": "The purity check of \"{{name}}\" on {{date}} found prompt injection. Click for details or to recheck.",
+  "providerAlert.settingsHint": "Turn this off under Providers → Edit → Alerts."
 }

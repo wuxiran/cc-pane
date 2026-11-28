@@ -248,6 +248,22 @@ export interface Provider {
   source?: ProviderOrigin | null;
   /** 原生 CLI 配置覆盖片段：CLI id（codex / claude）→ 原文（Codex TOML / Claude JSON）。 */
   nativeOverrides?: NativeOverrides;
+  /** 只读本地数据的提醒开关；缺省 = 全开。不带它保存时后端沿用已存的值。 */
+  alerts?: ProviderAlerts | null;
+}
+
+/** 供应商级提醒：只看本地会话日志和已有的纯度检测结果，不发请求；订阅登录账号永远不提醒。 */
+export interface ProviderAlerts {
+  /** 会话缓存命中率明显偏低时提醒。 */
+  cacheLow: boolean;
+  /** 上次纯度检测发现提示词注入时提醒。 */
+  injection: boolean;
+}
+
+export const DEFAULT_PROVIDER_ALERTS: ProviderAlerts = { cacheLow: true, injection: true };
+
+export function providerAlerts(provider: Provider): ProviderAlerts {
+  return { ...DEFAULT_PROVIDER_ALERTS, ...(provider.alerts ?? {}) };
 }
 
 /** 供应商的默认账号（`defaultAccountId` 失效时退回第一个）。 */

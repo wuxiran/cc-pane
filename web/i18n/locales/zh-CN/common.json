@@ -210,5 +210,10 @@
   "magpieRoute.tries": "尝试顺序",
   "magpieRoute.inFlight": "这一轮还在进行",
   "magpieRoute.done": "这一轮已结束 · {{status}}",
-  "magpieRoute.ttft": "首字 {{ms}} ms"
+  "magpieRoute.ttft": "首字 {{ms}} ms",
+  "providerAlert.cacheLowTitle": "缓存命中率偏低",
+  "providerAlert.cacheLowBody": "这个会话只有 {{ratio}}% 的提示 token 来自缓存。「{{name}}」可能没有转发缓存，每轮都按全价计费。",
+  "providerAlert.injectionTitle": "中转有提示词注入",
+  "providerAlert.injectionBody": "「{{name}}」在 {{date}} 的纯度检测中发现提示词注入。点击查看详情或重新检测。",
+  "providerAlert.settingsHint": "可在 供应商 → 编辑 → 提醒 里关掉。"
 }

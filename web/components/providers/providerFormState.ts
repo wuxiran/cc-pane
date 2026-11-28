@@ -2,7 +2,7 @@
  * ProviderFormPanel 的纯表单数据层：表单形状、空值、Provider ⇄ 表单摊平/回填、
  * `{"env": {...}}` JSON 互转。无 React 依赖，便于单测与复用。
  */
-import type { Provider, ProviderModel, ProviderPreset, ProviderType } from "@/types/provider";
+import { DEFAULT_PROVIDER_ALERTS, providerAlerts, type Provider, type ProviderAlerts, type ProviderModel, type ProviderPreset, type ProviderType } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import type { NativeOverrides } from "@/types/native-config";
 import { accountDraftsFrom, envDraftsFrom, type AccountDraft, type EnvDraft } from "./accounts/drafts";
@@ -29,6 +29,8 @@ export interface FormState {
   defaultAccountId: string | null;
   /** 原生 CLI 配置覆盖片段（CLI id → 原文）。 */
   nativeOverrides: NativeOverrides;
+  /** 缓存低 / 提示词注入提醒，默认全开。 */
+  alerts: ProviderAlerts;
 }
 
 export const emptyForm: FormState = {
@@ -48,6 +50,7 @@ export const emptyForm: FormState = {
   accounts: [],
   defaultAccountId: null,
   nativeOverrides: {},
+  alerts: DEFAULT_PROVIDER_ALERTS,
 };
 
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
@@ -111,6 +114,7 @@ export function formFromProvider(seed: Provider, asCopy = false): FormState {
     accounts: asCopy ? [] : accountDraftsFrom(seed),
     defaultAccountId: asCopy ? null : seed.defaultAccountId ?? null,
     nativeOverrides: { ...(seed.nativeOverrides ?? {}) },
+    alerts: providerAlerts(seed),
   };
 }
 

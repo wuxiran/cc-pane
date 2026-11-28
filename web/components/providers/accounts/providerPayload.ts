@@ -106,6 +106,7 @@ export function buildProviderPayload(
     env: envPayload(form.env),
     nativeOverrides: form.nativeOverrides,
     ...(source ? { source } : {}),
+    alerts: form.alerts,
   };
   if (!manageAccounts) return provider;
   return {
