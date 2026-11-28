@@ -31,7 +31,11 @@
     "createBot": "New bot…",
     "changePet": "Change look",
     "settings": "Settings",
-    "hide": "Hide pet"
+    "hide": "Hide pet",
+    "switchToPet": "Switch to desktop pet",
+    "switchToOrb": "Switch to task orb",
+    "resetPosition": "Reset position",
+    "hideOrb": "Hide task orb"
   },
   "status": {
     "idle": "Idle",
@@ -39,5 +43,30 @@
     "needsInput": "Needs input",
     "ready": "Done, unseen",
     "blocked": "Error"
+  },
+  "orb": {
+    "label": "Task orb: hover to list sessions, click to jump to the first, drag to move",
+    "waiting": "waiting",
+    "title": "Switch task",
+    "summary": "{{count}} sessions · {{need}} waiting on you",
+    "sort": "Sort",
+    "sortRecent": "Recent input",
+    "sortAttention": "Needs me",
+    "hoverSwitch": "Switch on hover",
+    "current": "Current",
+    "noCurrent": "No active session in the main window",
+    "sectionPinned": "Pinned",
+    "sectionRecent": "Auto · recent input first",
+    "sectionAttention": "Auto · needs me first",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "empty": "No other sessions",
+    "age": {
+      "never": "No input yet",
+      "justNow": "Typed just now",
+      "seconds": "Typed {{count}}s ago",
+      "minutes": "Typed {{count}}m ago",
+      "hours": "Typed {{count}}h ago"
+    }
   }
 }

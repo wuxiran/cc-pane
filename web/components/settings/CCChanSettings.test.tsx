@@ -25,6 +25,9 @@ function createValue(overrides: Partial<CCChanSettingsValue> = {}): CCChanSettin
     windowPosPhysical: true,
     petSize: 120,
     activeBotId: null,
+    appearance: "pet",
+    orbSort: "recent",
+    orbHoverSwitch: true,
     ...overrides,
   };
 }
@@ -190,4 +193,20 @@ describe("CCChanSettings", () => {
     await i18n.changeLanguage("zh-CN");
     expect(screen.getByText("来自《绝区零》叶瞬光（小师姐）的校园风小宠物，抱着笔记本和铅笔陪你工作、等待、复盘和冲刺。")).toBeInTheDocument();
   });
+
+  it("switches between desktop pet and task orb and shows orb options only for the orb", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<CCChanSettings value={createValue()} onChange={onChange} />);
+    expect(screen.queryByText("悬停即切换")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "任务球" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ appearance: "orb" }));
+
+    rerender(<CCChanSettings value={createValue({ appearance: "orb" })} onChange={onChange} />);
+    await user.click(screen.getByRole("tab", { name: "需要我优先" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ orbSort: "attention" }));
+    await user.click(screen.getByRole("switch", { name: "悬停即切换" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ orbHoverSwitch: false }));
+  });
 });
+

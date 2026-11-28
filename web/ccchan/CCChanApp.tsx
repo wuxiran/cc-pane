@@ -19,6 +19,7 @@ import { getPetLayout, hitRegions, type HitRect } from "./petLayout";
 import { aggregatePetStatus, botPetStatus, pickClickTarget, PET_STATUS_PRIORITY } from "./petStatus";
 import { PetToolbar } from "./PetToolbar";
 import { SpritePet } from "./SpritePet";
+import { TaskOrbApp } from "./TaskOrbApp";
 import { useBotPet } from "./useBotPet";
 import { usePetBubble } from "./usePetBubble";
 import { usePetPointerGesture } from "./usePetPointerGesture";
@@ -39,13 +40,27 @@ export function botWithPet(summary: BotSummary, petId: string): Bot {
   return { ...bot, petId };
 }
 
+/** ccchan 窗口入口：加载设置并按外观渲染桌宠或任务球。 */
 export function CCChanApp() {
+  const appearance = useCCChanStore((state) => state.settings.appearance);
+  const loadCCChan = useCCChanStore((state) => state.load);
+  const applySettings = useCCChanStore((state) => state.applySettings);
+
+  useEffect(() => {
+    void loadCCChan();
+  }, [loadCCChan]);
+
+  useEffect(() => listenCCChan<CCChanSettings>("ccchan:settings-updated", ({ payload }) => applySettings(payload)), [applySettings]);
+  useEffect(() => listenCCChan<PetMeta[]>("ccchan:pets-updated", ({ payload }) => useCCChanStore.getState().applyPets(payload)), []);
+
+  return appearance === "orb" ? <TaskOrbApp /> : <PetApp />;
+}
+
+function PetApp() {
   const { t } = useTranslation("ccchan");
   const settings = useCCChanStore((state) => state.settings);
   const pets = useCCChanStore((state) => state.pets);
-  const loadCCChan = useCCChanStore((state) => state.load);
   const saveSettings = useCCChanStore((state) => state.saveSettings);
-  const applySettings = useCCChanStore((state) => state.applySettings);
 
   const { entries, directory } = usePetSessions();
   const { bots, activeBot, botState } = useBotPet(settings.activeBotId);
@@ -78,13 +93,6 @@ export function CCChanApp() {
   useEffect(() => {
     if (!hover.hovered) setCollapsed(false);
   }, [hover.hovered]);
-
-  useEffect(() => {
-    void loadCCChan();
-  }, [loadCCChan]);
-
-  useEffect(() => listenCCChan<CCChanSettings>("ccchan:settings-updated", ({ payload }) => applySettings(payload)), [applySettings]);
-  useEffect(() => listenCCChan<PetMeta[]>("ccchan:pets-updated", ({ payload }) => useCCChanStore.getState().applyPets(payload)), []);
 
   // 会话事件：用标签名而不是会话 id 提示一句。目录走 ref，避免目录每次刷新都重订阅漏事件。
   const directoryRef = useRef(directory);
@@ -151,6 +159,7 @@ export function CCChanApp() {
       }
     },
     openSettings: () => void emitTo("main", "ccchan:open-settings"),
+    setAppearance: (appearance) => void saveSettings({ ...settings, appearance }),
     hide: () => {
       void invoke("hide_ccchan")
         .then(() => useCCChanStore.getState().setWindowVisible(false))

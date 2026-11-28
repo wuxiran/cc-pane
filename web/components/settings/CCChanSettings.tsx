@@ -13,7 +13,12 @@ import {
 import { invokeIfTauri } from "@/services/runtime";
 import { botService } from "@/services/botService";
 import type { BotSummary } from "@/types/bot";
-import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
+import { SegmentedTabs } from "@/components/ui/segmented";
+import type {
+  CCChanAppearance,
+  CCChanOrbSort,
+  CCChanSettings as CCChanSettingsValue,
+} from "@/ccchan/types";
 import {
   SettingsRangeControl,
   SettingsRow,
@@ -80,8 +85,56 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
     ? t(selectedPetDescriptionKey)
     : selectedPet?.description ?? t("ccchanCurrentPet");
 
+  const isOrb = value.appearance === "orb";
+
   return (
     <>
+      <SettingsSection sectionId="ccchan-form">
+        <SettingsRow
+          title={t("ccchanAppearance")}
+          description={isOrb ? t("ccchanAppearanceOrbHint") : t("ccchanAppearancePetHint")}
+          control={(
+            <SegmentedTabs<CCChanAppearance>
+              size="sm"
+              aria-label={t("ccchanAppearance")}
+              value={value.appearance}
+              onValueChange={(next) => update("appearance", next)}
+              items={[
+                { value: "pet", label: t("ccchanAppearancePet") },
+                { value: "orb", label: t("ccchanAppearanceOrb") },
+              ]}
+            />
+          )}
+        />
+        {isOrb ? (
+          <>
+            <SettingsRow
+              title={t("ccchanOrbSort")}
+              description={t("ccchanOrbSortHint")}
+              control={(
+                <SegmentedTabs<CCChanOrbSort>
+                  size="sm"
+                  aria-label={t("ccchanOrbSort")}
+                  value={value.orbSort}
+                  onValueChange={(next) => update("orbSort", next)}
+                  items={[
+                    { value: "recent", label: t("ccchanOrbSortRecent") },
+                    { value: "attention", label: t("ccchanOrbSortAttention") },
+                  ]}
+                />
+              )}
+            />
+            <SettingsSwitchRow
+              id="ccchan-orb-hover-switch"
+              title={t("ccchanOrbHoverSwitch")}
+              description={t("ccchanOrbHoverSwitchHint")}
+              checked={value.orbHoverSwitch}
+              onCheckedChange={(checked) => update("orbHoverSwitch", checked)}
+            />
+          </>
+        ) : null}
+      </SettingsSection>
+
       <SettingsSection sectionId="ccchan-companion">
         <SettingsRow
           title={t("ccchanActiveBot")}

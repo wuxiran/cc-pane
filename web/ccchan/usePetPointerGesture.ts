@@ -9,7 +9,7 @@ const DRAG_THRESHOLD = 4;
  * （WindowEvent::Moved 停稳后统一处理），前端不再自己算窗口坐标。
  * 原生拖拽开始后 pointerup 可能被系统吞掉，所以一旦进入拖拽就直接结束手势。
  */
-export function usePetPointerGesture(onClick: () => void) {
+export function usePetPointerGesture(onClick: () => void, onDragStart?: () => void) {
   const gesture = useRef<{ id: number; x: number; y: number } | null>(null);
 
   return {
@@ -23,6 +23,7 @@ export function usePetPointerGesture(onClick: () => void) {
       if (!current || current.id !== event.pointerId) return;
       if (Math.hypot(event.screenX - current.x, event.screenY - current.y) < DRAG_THRESHOLD) return;
       gesture.current = null;
+      onDragStart?.();
       void getCurrentWindow()
         .startDragging()
         .catch((error: unknown) => console.warn("[ccchan] start dragging failed:", error));

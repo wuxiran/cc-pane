@@ -78,6 +78,9 @@ describe("useCCChanStore", () => {
         windowPosPhysical: false,
         petSize: 120,
         activeBotId: null,
+        appearance: "pet",
+        orbSort: "recent",
+        orbHoverSwitch: true,
       });
       expect(state.pets).toEqual(pets);
       expect(state.loaded).toBe(true);
@@ -216,4 +219,13 @@ it("preserves other settings when receiving a partial update", () => {
   useCCChanStore.setState({ settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "doro.codex-pet", windowX: 100 } });
   useCCChanStore.getState().applySettings({ petSize: 200 });
   expect(useCCChanStore.getState().settings).toMatchObject({ petSize: 200, defaultPetId: "doro.codex-pet", windowX: 100 });
+});
+it("defaults legacy settings without appearance to the pet and normalizes orb fields", async () => {
+  const { normalizeCCChanSettings } = await import("./useCCChanStore");
+  const legacy = normalizeCCChanSettings({ defaultPetId: "homie", petSize: 120 } as never);
+  expect(legacy).toMatchObject({ appearance: "pet", orbSort: "recent", orbHoverSwitch: true });
+  const bogus = normalizeCCChanSettings({ appearance: "ball", orbSort: "x", orbHoverSwitch: "no" } as never);
+  expect(bogus).toMatchObject({ appearance: "pet", orbSort: "recent", orbHoverSwitch: true });
+  const orb = normalizeCCChanSettings({ appearance: "orb", orbSort: "attention", orbHoverSwitch: false });
+  expect(orb).toMatchObject({ appearance: "orb", orbSort: "attention", orbHoverSwitch: false });
 });
