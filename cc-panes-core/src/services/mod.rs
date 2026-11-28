@@ -51,6 +51,7 @@ mod launch_profile_service;
 mod layout_snapshot_service;
 pub mod library_space_service;
 pub mod login_account;
+pub mod magpie_live;
 pub mod mcp_config_service;
 mod memory_service;
 pub mod native_config;
@@ -165,6 +166,7 @@ pub use login_account::{
     CreateLoginAccountRequest, DeleteAccountOutcome, LoginAccountRoot, LoginAccountService,
     LoginAccountStatus, LoginAccountView, LoginCommand, LoginState,
 };
+pub use magpie_live::{MagpieCatalog, MagpieLiveService, MagpieQuotaReport, MagpieRouteStatus};
 pub use mcp_config_service::{
     effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
     McpServerConfig,
