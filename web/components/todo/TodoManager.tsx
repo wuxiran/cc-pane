@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { usePanesStore, useTodoStore } from "@/stores";
+import { selectGhReady, useGithubStore, usePanesStore, useTodoStore } from "@/stores";
+import { Download } from "lucide-react";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import GithubIssueImportDialog from "./GithubIssueImportDialog";
 import { focusTab } from "@/hooks/useFocusTab";
 import { asTabId } from "@/types/ids";
 import { clampSidebarWidth, loadSidebarWidth, saveSidebarWidth } from "@/lib/sidebarWidth";
@@ -129,6 +132,14 @@ export default function TodoManager({
   const { editForm, isDirty, setEditForm, resetForm, captureSave, markSaved, completeCreation } = useTodoDraft(selectedTodo);
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [listWidth, setListWidth] = useState(loadSidebarWidth);
+  const [issueImportOpen, setIssueImportOpen] = useState(false);
+  // 「从 GitHub Issue 导入」只在项目视图且本机 gh 已安装+登录时出现，否则入口直接隐藏。
+  const isProjectView = scope === "project" && Boolean(scopeRef);
+  const ghReady = useGithubStore(selectGhReady);
+  const loadGithub = useGithubStore((s) => s.load);
+  useEffect(() => {
+    if (enabled && isProjectView) void loadGithub();
+  }, [enabled, isProjectView, loadGithub]);
 
   // 初始化：设置上下文并加载
   useEffect(() => {
@@ -345,7 +356,7 @@ export default function TodoManager({
     });
   }, []);
 
-  const sidebar = (
+  const sidebarPanel = (
     <TodoTaskListPanel
       width={listWidth}
       todos={todos}
@@ -391,7 +402,32 @@ export default function TodoManager({
       onReorder={(ids) => reorder(ids)}
       dispatchSessionByTodoId={dispatchSessionByTodoId}
       onOpenDispatchSession={handleOpenDispatchSession}
+      headerActions={isProjectView && ghReady ? (
+        <IconTooltipButton
+          label={t("githubImportTitle")}
+          className="h-8 w-8"
+          onClick={() => setIssueImportOpen(true)}
+        >
+          <Download size={15} />
+        </IconTooltipButton>
+      ) : undefined}
     />
+  );
+
+  const issueImportDialog = isProjectView && ghReady ? (
+    <GithubIssueImportDialog
+      open={issueImportOpen}
+      onOpenChange={setIssueImportOpen}
+      projectPath={scopeRef}
+      onImported={() => void loadList()}
+    />
+  ) : null;
+  // 对话框走 portal，随侧栏一起挂载，children 渲染路径同样可用。
+  const sidebar = (
+    <>
+      {sidebarPanel}
+      {issueImportDialog}
+    </>
   );
 
   const content = showEditor ? (

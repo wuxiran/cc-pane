@@ -11,6 +11,8 @@
 
 #[path = "orchestrator_service/dispatch_retry.rs"]
 mod dispatch_retry;
+#[path = "orchestrator_service/github_tools.rs"]
+mod github_tools;
 #[path = "orchestrator_service/open_terminal_tab.rs"]
 mod open_terminal_tab;
 #[path = "orchestrator_service/pending_approval.rs"]
@@ -23,6 +25,10 @@ mod report_delivery_cache;
 mod ssh_machine_tools;
 #[path = "orchestrator_service/worker_report_requests.rs"]
 mod worker_report_requests;
+use github_tools::{
+    McpGhCiLogsParams, McpGhCiRerunParams, McpGhIssueListParams, McpGhIssueViewParams,
+    McpGhPrCreateParams, McpGhPrMergeParams, McpGhProjectParams,
+};
 use open_terminal_tab::McpOpenTerminalTabParams;
 use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCache};
 use ssh_machine_tools::McpCheckSshMachineParams;
@@ -8086,6 +8092,48 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpCheckSshMachineParams>,
     ) -> String {
         self.check_ssh_machine_impl(params).await
+    }
+
+    /// 当前分支的 PR：状态、review 结论、CI checks 摘要。pr=null 表示没有 PR。
+    #[tool]
+    async fn gh_pr_status(&self, Parameters(params): Parameters<McpGhProjectParams>) -> String {
+        self.gh_pr_status_impl(params).await
+    }
+
+    /// 为当前分支开 PR（需已推送）。base 默认仓库默认分支。
+    #[tool]
+    async fn gh_pr_create(&self, Parameters(params): Parameters<McpGhPrCreateParams>) -> String {
+        self.gh_pr_create_impl(params).await
+    }
+
+    /// 合并当前分支的 PR。不可逆：会弹窗请用户确认，用户不确认则拒绝。
+    #[tool]
+    async fn gh_pr_merge(&self, Parameters(params): Parameters<McpGhPrMergeParams>) -> String {
+        self.gh_pr_merge_impl(params).await
+    }
+
+    /// 失败 CI run 的失败 job 与日志尾部（已截断）。
+    #[tool]
+    async fn gh_ci_failed_logs(&self, Parameters(params): Parameters<McpGhCiLogsParams>) -> String {
+        self.gh_ci_failed_logs_impl(params).await
+    }
+
+    /// 重跑 CI run。
+    #[tool]
+    async fn gh_ci_rerun(&self, Parameters(params): Parameters<McpGhCiRerunParams>) -> String {
+        self.gh_ci_rerun_impl(params).await
+    }
+
+    /// 列出仓库 Issue（默认 open，最多 30 条）。
+    #[tool]
+    async fn gh_issue_list(&self, Parameters(params): Parameters<McpGhIssueListParams>) -> String {
+        self.gh_issue_list_impl(params).await
+    }
+
+    /// 查看 Issue 正文与最近评论（已截断）。
+    #[tool]
+    async fn gh_issue_view(&self, Parameters(params): Parameters<McpGhIssueViewParams>) -> String {
+        self.gh_issue_view_impl(params).await
     }
 
     /// 在 CC-Panes 中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。

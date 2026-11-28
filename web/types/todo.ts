@@ -50,6 +50,9 @@ export interface TodoItem {
   createdAt: string; // RFC3339
   updatedAt: string;
   subtasks: TodoSubtask[];
+  /** 从 GitHub Issue 导入时的 issue 链接（去重键） */
+  issueUrl?: string;
+  issueNumber?: number;
 }
 
 /** Todo 子任务 */
@@ -98,6 +101,8 @@ export interface CreateTodoRequest {
   reminderAt?: string;
   recurrence?: string;
   todoType?: string;
+  issueUrl?: string;
+  issueNumber?: number;
 }
 
 /** 更新 Todo 请求 */

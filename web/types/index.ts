@@ -238,6 +238,11 @@ export type {
   TodoStats,
 } from "./todo";
 export type {
+  GhAvailability,
+  GithubIssue,
+  GithubIssueImportResult,
+} from "./github";
+export type {
   Memory,
   MemoryScope,
   MemoryCategory,

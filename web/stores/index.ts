@@ -42,6 +42,7 @@ export { useExplorerSectionsStore } from "./useExplorerSectionsStore";
 export { useShortcutsStore } from "./useShortcutsStore";
 export { useDialogStore } from "./useDialogStore";
 export { useTodoStore, BUILTIN_TODO_TYPES } from "./useTodoStore";
+export { useGithubStore, selectGhReady } from "./useGithubStore";
 export { useSpecStore } from "./useSpecStore";
 export { useMemoryStore } from "./useMemoryStore";
 export { useSkillStore } from "./useSkillStore";

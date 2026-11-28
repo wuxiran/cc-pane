@@ -292,6 +292,9 @@ use commands::{
     git_push,
     git_stash,
     git_stash_pop,
+    github_cli_status,
+    github_import_issues,
+    github_list_issues,
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     hide_quick_terminal,
@@ -2001,6 +2004,17 @@ pub fn run() {
         MemoryService::new_memory().expect("MemoryService fallback failed")
     }));
 
+    // GitHub 能力统一走本机 gh（复用用户登录，不存 token）。启动后台探测一次，只写日志。
+    let github_cli_service = Arc::new(cc_panes_core::services::GithubCliService::system());
+    {
+        let github_cli_service = github_cli_service.clone();
+        let _ = std::thread::Builder::new()
+            .name("gh-probe".into())
+            .spawn(move || {
+                github_cli_service.probe();
+            });
+    }
+
     let ssh_machine_service = Arc::new(SshMachineService::with_connection_service(
         app_paths.data_dir().join("ssh-machines.json"),
         ssh_credential_service.clone(),
@@ -2185,6 +2199,7 @@ pub fn run() {
         .manage(filesystem_service)
         .manage(memory_service)
         .manage(ssh_machine_service)
+        .manage(github_cli_service)
         .manage(ssh_file_service)
         .manage(device_service)
         .manage(remote_session_router)
@@ -3631,6 +3646,10 @@ pub fn run() {
             toggle_todo_my_day,
             check_todo_reminders,
             list_todo_activities,
+            // GitHub（本机 gh CLI）
+            github_cli_status,
+            github_list_issues,
+            github_import_issues,
             add_todo_subtask,
             update_todo_subtask,
             delete_todo_subtask,

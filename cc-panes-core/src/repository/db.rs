@@ -35,6 +35,7 @@ struct Migration {
 /// V24 = Claude/Codex 本地会话索引与增量扫描状态
 /// V29 = launch_history 清理重复 launch id 并增加 project_id 唯一索引
 /// V45 = session_index.title（CLI 自带标题）+ session_learned_roots（hook 学到的转录根目录）
+/// V47 = todos 添加 issue_url / issue_number（GitHub Issue 导入去重）
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1214,6 +1215,38 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE terminal_sessions ADD COLUMN provider_account_id TEXT;
         ",
     },
+    // V47：从 GitHub Issue 导入 Todo（docs/1xx-github-delivery）。issue_url 是去重键，
+    // 部分唯一索引只约束已关联 issue 的行，普通任务不受影响。
+    Migration {
+        version: 47,
+        description: "todos: link imported GitHub issues (url + number)",
+        // 先补建表（与 v1+v3+v4 同结构，真实库里是 no-op）：只种了版本号的库没有这张表，ALTER 会失败。
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS todos (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'todo',
+                priority TEXT NOT NULL DEFAULT 'medium',
+                scope TEXT NOT NULL DEFAULT 'global',
+                scope_ref TEXT,
+                tags TEXT DEFAULT '[]',
+                due_date TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                my_day INTEGER DEFAULT 0,
+                my_day_date TEXT,
+                reminder_at TEXT,
+                recurrence TEXT,
+                todo_type TEXT DEFAULT ''
+            );
+            ALTER TABLE todos ADD COLUMN issue_url TEXT;
+            ALTER TABLE todos ADD COLUMN issue_number INTEGER;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_issue_url
+                ON todos(issue_url) WHERE issue_url IS NOT NULL;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -2011,7 +2044,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43, 44, 45, 46]);
+        assert_eq!(applied, [41, 42, 43, 44, 45, 46, 47]);
     }
 
     #[test]
@@ -2056,6 +2089,42 @@ mod tests {
             MIGRATIONS.last().unwrap().version
         );
         Database::run_migrations(&conn).expect("v46 migration remains idempotent");
+    }
+
+    #[test]
+    fn migration_47_links_issues_and_keeps_existing_todos() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        // 回到 v46：撤掉 v47 的记录、索引和列，模拟已发布版本的库。
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 47", [])
+            .unwrap();
+        conn.execute_batch(
+            "DROP INDEX idx_todos_issue_url;
+             ALTER TABLE todos DROP COLUMN issue_url;
+             ALTER TABLE todos DROP COLUMN issue_number;
+             INSERT INTO todos (id, title, status, priority, scope, tags, sort_order, created_at, updated_at)
+             VALUES ('legacy', 'Legacy', 'todo', 'medium', 'global', '[]', 0, '2026-01-01', '2026-01-01');",
+        )
+        .unwrap();
+
+        Database::run_migrations(&conn).expect("v47 migration");
+
+        let (url, number): (Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT issue_url, issue_number FROM todos WHERE id = 'legacy'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((url, number), (None, None));
+        let insert = "INSERT INTO todos (id, title, status, priority, scope, tags, sort_order, created_at, updated_at, issue_url)
+             VALUES (?1, 't', 'todo', 'medium', 'project', '[]', 0, 'x', 'x', 'https://github.com/o/r/issues/1')";
+        conn.execute(insert, ["a"]).unwrap();
+        assert!(
+            conn.execute(insert, ["b"]).is_err(),
+            "issue_url must be unique"
+        );
+        Database::run_migrations(&conn).expect("v47 migration remains idempotent");
     }
 
     #[test]
