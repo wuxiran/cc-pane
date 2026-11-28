@@ -19,6 +19,9 @@ export async function prepareLocalSessionCwd(
   const name = branch.replace(/[^\p{L}\p{N}_.-]+/gu, "-").replace(/^-+|-+$/g, "") || "cc-worktree";
   const created = await worktreeService.add(worktree.repoPath?.trim() || cwd, name, branch, baseRef, true);
   // setup 与会话启动并行：不等确认、不等命令跑完（docs/116）。
-  void import("@/lib/worktreeSetup").then(({ requestWorktreeSetup }) => requestWorktreeSetup(created));
+  // 不 await 的懒加载必须自带 catch：否则模块加载失败（含测试环境拆除后才触发的加载）会成为未处理的 rejection。
+  void import("@/lib/worktreeSetup")
+    .then(({ requestWorktreeSetup }) => requestWorktreeSetup(created))
+    .catch((error: unknown) => console.warn("[localLaunch] worktree setup request failed:", error));
   return created;
 }

@@ -7174,8 +7174,14 @@ mod tests {
             Duration::from_secs(1)
         ));
         // 宽特征只在很快退出时算失败启动；聊了一阵后退出的画面仍要重放。
-        assert!(should_suppress_cold_replay(Some("error"), Duration::from_secs(3)));
-        assert!(!should_suppress_cold_replay(Some("error"), Duration::from_secs(60)));
+        assert!(should_suppress_cold_replay(
+            Some("error"),
+            Duration::from_secs(3)
+        ));
+        assert!(!should_suppress_cold_replay(
+            Some("error"),
+            Duration::from_secs(60)
+        ));
         assert!(!should_suppress_cold_replay(None, Duration::from_secs(1)));
     }
 
