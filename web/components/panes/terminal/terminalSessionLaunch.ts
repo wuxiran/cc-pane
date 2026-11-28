@@ -27,7 +27,7 @@ import {
 import { syncTerminalGeometry } from "../terminalSessionGeometry";
 import { withTerminalReplayPresentation } from "../terminalReplayPresentation";
 import { runTerminalReplay } from "../terminalReplaySemaphore";
-import { findLiveSavedSessionId } from "../terminalViewHelpers";
+import { resolveLiveSavedSession } from "../terminalViewHelpers";
 import { takeRecoveryFloor } from "../terminalViewOwnership";
 import type { RestoreLaunchState } from "../terminalRestoreQueue";
 import type { TerminalLayoutScheduler } from "../terminalLayoutScheduler";
@@ -108,17 +108,16 @@ export async function launchOrAttachTerminalSession({
       await ensureListeners();
       if (props.restoring) logRestoreEvent("init.listeners.end");
 
-      if (props.restoring) {
-        logRestoreEvent("init.saved-session-lookup.begin", {
-          savedSessionId: props.savedSessionId ?? null,
-        });
-      }
-      const liveSavedSessionId = props.sessionId
+      // 同步查询（认领轮快照 / 状态缓存），只记一条结果及依据，不再记 begin。
+      const liveLookup = props.sessionId
         ? null
-        : await findLiveSavedSessionId(props.restoring ? props.savedSessionId : undefined);
+        : resolveLiveSavedSession(props.restoring ? props.savedSessionId : undefined);
+      const liveSavedSessionId = liveLookup?.liveSessionId ?? null;
       if (props.restoring) {
         logRestoreEvent("init.saved-session-lookup.end", {
-          liveSavedSessionId: liveSavedSessionId ?? null,
+          savedSessionId: props.savedSessionId ?? null,
+          liveSavedSessionId,
+          source: liveLookup?.source ?? null,
         });
       }
 

@@ -14,6 +14,7 @@ import type {
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { writeTerminalRestoreLog as writeRestoreLog } from "@/stores/useTerminalRestoreLogStore";
+import { recordAdoptionSnapshot } from "@/lib/adoptionSnapshotReuse";
 import { verifyIdentity, type IdentityLeafFacts } from "./terminalIdentityVerification";
 export { runBackgroundLayoutRestore } from "./backgroundLayoutRestore";
 
@@ -151,6 +152,8 @@ export async function reconcileTerminalSessions(
   }
 
   useTerminalStatusStore.getState().replaceLiveStatuses(snapshot.sessions);
+  // 记下快照，供各标签「旧会话还活着吗」复用（世代/时效校验见 adoptionSnapshotReuse）。
+  recordAdoptionSnapshot(snapshot);
   const liveIds = new Set(
     snapshot.sessions
       .filter((status) => status.status !== "exited")
