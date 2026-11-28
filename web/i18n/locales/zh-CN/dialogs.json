@@ -329,6 +329,31 @@
   "noFileHistory": "暂无文件历史记录",
   "autoTrackChanges": "项目中的文件变更将自动记录",
   "diffEarliestToCurrent": "最早版本 -> 当前文件",
+  "sessionRelocation": {
+    "title": "迁移历史会话",
+    "description": "项目目录移动或改名后，Claude Code 与 Codex 的会话还记在旧路径下，resume 时找不到。这里把它们迁到新路径。",
+    "oldPath": "旧路径（会话记录时的项目目录）",
+    "newPath": "新路径（项目现在的目录）",
+    "pickOld": "选择旧的项目目录",
+    "pickNew": "选择新的项目目录",
+    "safetyHint": "请先预览。只改写位于旧路径下的路径字段，消息内容不动；新路径下已有同名会话、或一分钟内刚写过的会话会跳过。原件先备份到 ~/.cc-panes/backups/session-relocation/。迁移前请关掉这个项目里正在运行的 CLI。",
+    "preview": "预览",
+    "execute": "迁移",
+    "previewTitle": "将迁移",
+    "doneTitle": "已迁移",
+    "claudeSessions": "Claude Code 会话",
+    "codexSessions": "Codex 会话",
+    "launchHistoryRows": "CC-Panes 启动记录",
+    "taskBindingRows": "CC-Panes 任务绑定",
+    "skipped": "跳过 {{count}} 个",
+    "reason": {
+      "exists": "新路径下已有同名会话",
+      "active": "一分钟内刚写过",
+      "invalid": "不是合法的 JSONL"
+    },
+    "backup": "备份：{{path}}",
+    "done": "已迁移 {{count}} 个会话"
+  },
   "projectMigration": {
     "title": "迁移项目到 WSL",
     "workspace": "工作空间：{{name}}",
