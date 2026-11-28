@@ -6,8 +6,23 @@ use crate::repository::Database;
 use std::fs;
 use std::time::Duration;
 
-const OLD: &str = "/work/old-name";
-const NEW: &str = "/work/new_name";
+/// 测试路径在 Windows 上加盘符：`/work/x` 在原生 Windows 上不是绝对路径（会被
+/// `clean_path` 正确拒绝）。正斜杠在 Windows 绝对路径里同样合法，JSON 里也不用转义。
+macro_rules! abs {
+    ($s:literal) => {
+        if cfg!(windows) {
+            concat!("C:", $s)
+        } else {
+            $s
+        }
+    };
+}
+
+const OLD: &str = abs!("/work/old-name");
+const NEW: &str = abs!("/work/new_name");
+const OLD_SIBLING: &str = abs!("/work/old-name-2");
+const OLD_UNDERSCORE: &str = abs!("/work/old_name");
+const ELSEWHERE: &str = abs!("/elsewhere");
 
 struct Env {
     tmp: tempfile::TempDir,
@@ -110,7 +125,7 @@ fn dry_run_counts_without_touching_anything() {
     env.claude_session(OLD, "c1", OLD);
     env.claude_session(OLD, "c2", OLD);
     env.codex_session("x1", OLD);
-    env.codex_session("x2", "/work/old-name-2");
+    env.codex_session("x2", OLD_SIBLING);
     let before = snapshot(env.tmp.path());
 
     let report = relocate_sessions(&env.roots, None, &env.request(true)).unwrap();
@@ -189,7 +204,7 @@ fn claude_sessions_move_with_cwd_rewritten_and_conflicts_skipped() {
 fn codex_rewrites_only_metadata_cwd_and_keeps_mtime() {
     let env = Env::new();
     let file = env.codex_session("x1", &format!("{OLD}/pkg"));
-    let other = env.codex_session("x2", "/elsewhere");
+    let other = env.codex_session("x2", ELSEWHERE);
     let other_bytes = fs::read(&other).unwrap();
     let old_mtime = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
     set_mtime(&file, old_mtime);
@@ -241,10 +256,10 @@ fn records_only_rewrite_matching_prefixes() {
     conn.execute_batch(&format!(
         "INSERT INTO launch_history (project_id, project_name, project_path, launched_at, launch_cwd)
            VALUES ('p', 'n', '{OLD}', 't', '{OLD}/sub'),
-                  ('q', 'n', '/work/old-name-2', 't', NULL),
-                  ('r', 'n', '/elsewhere', 't', '{OLD}');
+                  ('q', 'n', '{OLD_SIBLING}', 't', NULL),
+                  ('r', 'n', '{ELSEWHERE}', 't', '{OLD}');
          INSERT INTO task_bindings (id, title, project_path, created_at, updated_at)
-           VALUES ('b1', 't', '{OLD}', 't', 't'), ('b2', 't', '/work/old_name', 't', 't');"
+           VALUES ('b1', 't', '{OLD}', 't', 't'), ('b2', 't', '{OLD_UNDERSCORE}', 't', 't');"
     ))
     .unwrap();
 
@@ -280,8 +295,8 @@ fn records_only_rewrite_matching_prefixes() {
         rows,
         vec![
             ("p".into(), NEW.into(), Some(format!("{NEW}/sub"))),
-            ("q".into(), "/work/old-name-2".into(), None),
-            ("r".into(), "/elsewhere".into(), Some(NEW.into())),
+            ("q".into(), OLD_SIBLING.into(), None),
+            ("r".into(), ELSEWHERE.into(), Some(NEW.into())),
         ]
     );
     let bindings: Vec<String> = conn
@@ -291,10 +306,7 @@ fn records_only_rewrite_matching_prefixes() {
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    assert_eq!(
-        bindings,
-        vec![NEW.to_string(), "/work/old_name".to_string()]
-    );
+    assert_eq!(bindings, vec![NEW.to_string(), OLD_UNDERSCORE.to_string()]);
     let backup = PathBuf::from(report.backup_dir.unwrap());
     assert!(fs::read_to_string(backup.join("records.json"))
         .unwrap()
