@@ -3,6 +3,36 @@ import { toastErr, toastWarn } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { listenWebviewIfTauri } from "@/services/runtime";
 import { usePanesStore } from "@/stores/usePanesStore";
+import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
+
+/**
+ * 能证明「resume 目标本身已不存在」的错误特征（后端 `wait_resume_diag` 的
+ * matched_pattern）。只认这两条明确语义——`error` / `not found in` 之类的宽特征
+ * 也可能是网络或配置错误，那种情况下原对话还在，撤掉 resume id 会让下次重启
+ * 丢失对话，宁可再失败一次。
+ */
+const RESUME_TARGET_MISSING_PATTERNS = new Set(["no conversation found", "session not found"]);
+
+export function isResumeTargetMissing(matchedPattern?: string): boolean {
+  return Boolean(matchedPattern && RESUME_TARGET_MISSING_PATTERNS.has(matchedPattern.toLowerCase()));
+}
+
+/**
+ * resume 目标已不存在：撤掉 leaf 与绑定镜像里的这个死 id（绑定镜像同时立墓碑，
+ * 挡住本次运行内迟到的同 id 绑定）。不撤的话每次重启都 `--resume` 同一个死 id、
+ * 报同一句 "No conversation found"，且失败输出被落盘、下次冷重放，永久循环。
+ */
+function retireDeadResumeTarget(payload: LaunchWarningPayload): boolean {
+  if (!payload.sessionId || !payload.resumeId) return false;
+  if (!isResumeTargetMissing(payload.matchedPattern)) return false;
+  const binding = useResumeBindingStore.getState().getBinding(payload.sessionId);
+  // 绑定已换成别的 id（/clear 后的新会话等）就不动：clearBinding 会连新 id 一起删。
+  if (!binding || binding.resumeId === payload.resumeId) {
+    useResumeBindingStore.getState().clearBinding(payload.sessionId, payload.resumeId);
+  }
+  usePanesStore.getState().retireDeadResumeId(payload.sessionId, payload.resumeId);
+  return true;
+}
 
 /**
  * 后端 `terminal-launch-warning` 事件的载荷（见 cc-panes-core constants::events）。
@@ -92,6 +122,15 @@ export function useLaunchWarnings(): void {
                 }),
               );
             } else if (payload.kind === "resumeLaunchFailed") {
+              if (retireDeadResumeTarget(payload)) {
+                toastErr(
+                  t("resumeTargetMissing", {
+                    ns: "panes",
+                    cli: payload.cliTool ?? "",
+                  }),
+                );
+                return;
+              }
               toastErr(
                 t("resumeLaunchFailed", {
                   ns: "panes",

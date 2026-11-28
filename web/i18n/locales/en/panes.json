@@ -106,7 +106,7 @@
       "init_listeners_end": "Terminal event listeners ready",
       "init_saved-session-lookup_begin": "Looking for the session saved last time...",
       "init_saved-session-lookup_end__found": "Found the old session {{sessionId}} still alive, adopting it directly",
-      "init_saved-session-lookup_end__missing": "The saved session is gone, a new one is needed",
+      "init_saved-session-lookup_end__missing": "The previous terminal process is gone, a new terminal will be started",
       "init_saved-session-lookup_end": "Saved session lookup finished",
       "init_output-replay_begin": "Replaying the previous terminal output...",
       "init_output-replay_end": "Previous terminal output replayed: {{count}} line(s)",
@@ -577,6 +577,8 @@
   "resizeLayoutListHeight": "Resize layout list height",
   "codexResumeCaptureExhausted": "Codex session id capture failed: the new resume id for this run was not recorded, so the next resume may fall back to an earlier conversation.",
   "resumeLaunchFailed": "Session resume failed: the resume target may be invalid ({{cli}}). The original conversation could not be continued; relaunch or start a new session from that tab.",
+  "resumeTargetMissing": "Session resume failed: the original {{cli}} conversation no longer exists, so its resume record was dropped. Relaunching this tab starts a new session.",
+  "coldReplayNotResumedHeader": "Previous session output below: the conversation was not resumed, a new session will start",
   "nativeCliMissing": "No native Linux {{cli}} in WSL distro {{distro}}; launch failed. Run inside the distro: {{fix}}",
   "launchFailure": {
     "nativeCliMissingTitle": "No native Linux {{cli}} in {{distro}}; the last launch failed",

@@ -2,12 +2,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toastWarn } from "@/lib/feedback";
 import { listenWebviewIfTauri } from "@/services/runtime";
-import { useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
+import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
+import { isResumeTargetMissing, useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
 
 vi.mock("@/lib/feedback", () => ({ toastWarn: vi.fn(), toastErr: vi.fn() }));
 const markTerminalLaunchFailed = vi.hoisted(() => vi.fn());
+const retireDeadResumeId = vi.hoisted(() => vi.fn());
 vi.mock("@/stores/usePanesStore", () => ({
-  usePanesStore: { getState: () => ({ markTerminalLaunchFailed }) },
+  usePanesStore: { getState: () => ({ markTerminalLaunchFailed, retireDeadResumeId }) },
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -113,6 +115,76 @@ describe("useLaunchWarnings", () => {
     expect(msg).toContain("nativeCliMissing");
     expect(msg).toContain("npm i -g @anthropic-ai/claude-code");
     expect(toastWarn).not.toHaveBeenCalled();
+  });
+
+  // 实测（dev 日志）：Claude 发号后用户没说话就关了，会话档案从未落盘；之后每次重启都
+  // `--resume` 同一个死 id，报 "No conversation found" 后退出，失败输出再被冷重放——永久循环。
+  describe("resumeLaunchFailed：resume 目标已不存在", () => {
+    const deadId = "4b27b0d6-9fbf-40df-b000-9daa1cb9842e";
+    beforeEach(() => {
+      useResumeBindingStore.setState({ bindings: {}, tombstones: {} });
+    });
+
+    it("撤掉 leaf 与绑定镜像里的死 id，并立墓碑挡住迟到绑定", async () => {
+      const { toastErr } = await import("@/lib/feedback");
+      useResumeBindingStore.getState().recordBinding("pty-dead", deadId, "issued");
+      const { handler } = await mount();
+      handler({
+        payload: {
+          kind: "resumeLaunchFailed",
+          sessionId: "pty-dead",
+          resumeId: deadId,
+          cliTool: "claude",
+          exitCode: 1,
+          matchedPattern: "no conversation found",
+        },
+      });
+
+      expect(retireDeadResumeId).toHaveBeenCalledWith("pty-dead", deadId);
+      expect(useResumeBindingStore.getState().getBinding("pty-dead")).toBeUndefined();
+      expect(useResumeBindingStore.getState().recordBinding("pty-dead", deadId, "issued")).toBe(false);
+      expect(vi.mocked(toastErr).mock.calls[0][0]).toContain("resumeTargetMissing");
+    });
+
+    it("绑定已换成新 id 时只撤 leaf 上的死 id，不删新绑定", async () => {
+      useResumeBindingStore.getState().recordBinding("pty-dead", "resume-newer", "manual");
+      const { handler } = await mount();
+      handler({
+        payload: {
+          kind: "resumeLaunchFailed",
+          sessionId: "pty-dead",
+          resumeId: deadId,
+          cliTool: "claude",
+          matchedPattern: "no conversation found",
+        },
+      });
+      expect(retireDeadResumeId).toHaveBeenCalledWith("pty-dead", deadId);
+      expect(useResumeBindingStore.getState().getBinding("pty-dead")?.resumeId).toBe("resume-newer");
+    });
+
+    it("宽特征（error 等）不撤 resume id，只提示", async () => {
+      const { toastErr } = await import("@/lib/feedback");
+      const { handler } = await mount();
+      handler({
+        payload: {
+          kind: "resumeLaunchFailed",
+          sessionId: "pty-x",
+          resumeId: deadId,
+          cliTool: "claude",
+          matchedPattern: "error",
+        },
+      });
+      expect(retireDeadResumeId).not.toHaveBeenCalled();
+      expect(vi.mocked(toastErr).mock.calls[0][0]).toContain("resumeLaunchFailed");
+    });
+
+    it("isResumeTargetMissing 只认明确的目标缺失特征", () => {
+      expect(isResumeTargetMissing("no conversation found")).toBe(true);
+      expect(isResumeTargetMissing("session not found")).toBe(true);
+      expect(isResumeTargetMissing("not found in")).toBe(false);
+      expect(isResumeTargetMissing("error")).toBe(false);
+      expect(isResumeTargetMissing(undefined)).toBe(false);
+    });
   });
 
   it("其他 kind 不触发 toast", async () => {

@@ -1,5 +1,9 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { pickCreateSessionResumeId, replayColdRestoreOutput } from "./terminalResume";
+import {
+  isColdReplayNotResumed,
+  pickCreateSessionResumeId,
+  replayColdRestoreOutput,
+} from "./terminalResume";
 import { stripSgrBackgroundColors } from "./terminalBufferMode";
 import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
@@ -48,6 +52,7 @@ describe("replayColdRestoreOutput", () => {
   const collectReplay = async (
     lines: string[],
     render?: (data: string) => string,
+    notResumed?: boolean,
   ): Promise<string[]> => {
     vi.spyOn(sessionRestoreService, "loadOutput").mockResolvedValue(lines);
     const written: string[] = [];
@@ -57,6 +62,7 @@ describe("replayColdRestoreOutput", () => {
       () => {},
       () => {},
       render,
+      notResumed,
     );
     return written;
   };
@@ -74,5 +80,35 @@ describe("replayColdRestoreOutput", () => {
   it("defaults to identity so opaque mode replays lines untouched", async () => {
     const written = await collectReplay(["\x1b[41m FAIL \x1b[49m detail"]);
     expect(written).toContain("\x1b[41m FAIL \x1b[49m detail");
+  });
+
+  // 不续接原对话时重放的只是旧画面：不能再写 "Session restored" 让人误以为接上了。
+  it("labels the replay as stale output when the conversation will not be resumed", async () => {
+    const written = await collectReplay(["No conversation found with session ID: dead"], undefined, true);
+    expect(written[0]).not.toContain("Session restored");
+    expect(written[0]).toContain("以下是上次会话的旧输出");
+  });
+
+  it("keeps the restored header when the conversation is resumed", async () => {
+    const written = await collectReplay(["hello"]);
+    expect(written[0]).toContain("Session restored");
+  });
+});
+
+describe("isColdReplayNotResumed", () => {
+  it("is true for an agent CLI tab without any resume id", () => {
+    expect(isColdReplayNotResumed({ cliTool: "claude", savedSessionId: "pty-1" })).toBe(true);
+    expect(isColdReplayNotResumed({ launchClaude: true })).toBe(true);
+  });
+
+  it("is false when a resume id will be used", () => {
+    expect(isColdReplayNotResumed({ cliTool: "claude", resumeId: "r-1" })).toBe(false);
+    useResumeBindingStore.getState().recordBinding("pty-2", "r-2", "issued");
+    expect(isColdReplayNotResumed({ cliTool: "codex", savedSessionId: "pty-2" })).toBe(false);
+  });
+
+  it("is false for plain shell tabs", () => {
+    expect(isColdReplayNotResumed({ cliTool: "none" })).toBe(false);
+    expect(isColdReplayNotResumed({})).toBe(false);
   });
 });

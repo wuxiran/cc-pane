@@ -22,6 +22,7 @@ export type {
 import { createLayoutActions } from "./panes/layoutActions";
 import { createPaneQueryActions } from "./panes/paneQueryActions";
 import { createSessionBindingActions } from "./panes/sessionBindingActions";
+import { createResumeRetireActions } from "./panes/resumeRetireActions";
 import { createSplitActions } from "./panes/splitActions";
 import { createPaneOpsActions } from "./panes/paneOpsActions";
 import { createTabBasicActions } from "./panes/tabBasicActions";
@@ -83,6 +84,7 @@ export const usePanesStore = create<PanesState>()(
     ...createTerminalLeafActions({ set, get }),
     ...createLaunchProfileSnapshotActions({ set, get }),
     ...createSessionBindingActions({ set, get }),
+    ...createResumeRetireActions({ set }),
 
     ...createWorkspaceToolTabActions({ set, get }),
     ...createBrowserTabActions(set),

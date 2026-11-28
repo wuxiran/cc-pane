@@ -106,7 +106,7 @@
       "init_listeners_end": "终端事件监听已就绪",
       "init_saved-session-lookup_begin": "正在查找上次保存的会话...",
       "init_saved-session-lookup_end__found": "找到还活着的旧会话 {{sessionId}}，将直接接管",
-      "init_saved-session-lookup_end__missing": "上次保存的会话已不在，需要新建",
+      "init_saved-session-lookup_end__missing": "上次的终端进程已不在，将新开终端",
       "init_saved-session-lookup_end": "上次保存的会话查找完成",
       "init_output-replay_begin": "正在回放上次的终端输出...",
       "init_output-replay_end": "已回放上次的终端输出：{{count}} 行",
@@ -577,6 +577,8 @@
   "resizeLayoutListHeight": "调整布局列表高度",
   "codexResumeCaptureExhausted": "Codex 会话 id 捕获失败：本次会话的新 resume id 未能记录，下次恢复可能回到更早的对话。",
   "resumeLaunchFailed": "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
+  "resumeTargetMissing": "会话恢复失败：{{cli}} 的原对话已不存在，已撤销续接记录。重启该标签将新建会话。",
+  "coldReplayNotResumedHeader": "以下是上次会话的旧输出：原对话未续接，将新建会话",
   "nativeCliMissing": "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
   "launchFailure": {
     "nativeCliMissingTitle": "{{distro}} 内没有原生 Linux 版 {{cli}}，上次启动失败",

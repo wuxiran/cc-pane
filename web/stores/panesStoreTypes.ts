@@ -367,6 +367,12 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
     ptySessionId: string,
     failure: import("@/types").TerminalLaunchFailure,
   ) => boolean;
+  /**
+   * resume 目标已不存在（CLI 报 "No conversation found" 等）：撤掉该 PTY 所在 leaf
+   * 上**仍等于** `deadResumeId` 的 resume id，下次启动/重启即干净新建，而不是每次
+   * 重启都 `--resume` 同一个死 id。leaf 已换成别的 id 时不动。返回是否撤销。
+   */
+  retireDeadResumeId: (ptySessionId: string, deadResumeId: string) => boolean;
   setTabResumeBinding: (
     tabId: string,
     resumeId: string | undefined,

@@ -10,6 +10,7 @@ import type { TerminalSlotHolder } from "@/lib/terminalSlot";
 import type { HibernatedTerminalState } from "../terminalHibernation";
 import {
   clearColdReplayOutputOnFailure,
+  isColdReplayNotResumed,
   pickCreateSessionResumeId,
   replayColdRestoreOutput,
 } from "../terminalResume";
@@ -127,7 +128,10 @@ export async function launchOrAttachTerminalSession({
       if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
         // 重放信号量：30 标签冷恢复串行喂 xterm，前台视图插队。
         await runTerminalReplay(term, () => withTerminalReplayPresentation(term, async () => {
-          await replayColdRestoreOutput(term, props.savedSessionId!, logRestoreEvent, debugLog, renderCheckpointData);
+          await replayColdRestoreOutput(
+            term, props.savedSessionId!, logRestoreEvent, debugLog, renderCheckpointData,
+            isColdReplayNotResumed(props),
+          );
           // writeln queues parsing; keep the static frame until the final write callback.
           // 回调丢失时不能永远盖着静态帧。
           await Promise.race([
