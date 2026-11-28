@@ -16,6 +16,7 @@ pub mod heavy_command_sampler;
 mod heavy_job_policy_queue;
 pub mod heavy_job_routes;
 pub mod im_bridge;
+pub mod keep_awake_runtime;
 mod launch_backfill_service;
 mod mcp_market;
 pub(crate) mod notification_preferences;

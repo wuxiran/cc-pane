@@ -133,6 +133,8 @@
     "heavyLedgerCleared": "台账已清空",
     "heavyLedgerClearUnavailable": "当前版本不支持清空台账",
     "sessionPolicyGroup": "会话资源策略",
+    "keepAwake": "agent 工作时保持唤醒",
+    "keepAwakeHint": "有会话或对话在工作时阻止系统空闲休眠，显示器照常熄屏；全部空闲约 60 秒后释放。合盖或手动睡眠不受影响。",
     "sessionCpuWeight": "会话 CPU 权重",
     "sessionCpuWeightNeutral": "{{value}}（中性，不设）",
     "sessionCpuWeightHint": "1–9，5 为中性即不设置。越低越让路给界面与其它窗格；只在失控时兜底，不是给正常工作设天花板。对新启动的会话生效。",

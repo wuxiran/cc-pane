@@ -141,6 +141,7 @@
   "rateLimit.sourceAt": "Reported by Codex in this session's log at {{time}}. Limits are per account; usage from other sessions or devices shows up after this session's next request.",
   "statusbar.ccchanShow": "Show cc-chan",
   "statusbar.ccchanHide": "Hide cc-chan",
+  "statusbar.keepAwake": "Agents working; system sleep is prevented",
   "statusbar.more": "More tools",
   "statusbar.customize": "Customize status bar (checked items stay visible)",
   "statusbar.item.webLock": "Web Lock",

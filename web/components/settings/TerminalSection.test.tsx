@@ -40,6 +40,7 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     snapshotApplyKillEnabled: false,
     autoAdoptDaemonSessions: false,
     lowerSessionPriority: true,
+    keepAwakeWhileWorking: true,
     sessionCpuWeight: null,
 
     splitShortcutPassthrough: false,

@@ -45,6 +45,7 @@ pub mod heavy_job_gate;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
+pub mod keep_awake;
 mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;

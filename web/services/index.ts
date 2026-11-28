@@ -44,6 +44,7 @@ export { opencodeService } from "./opencodeService";
 export { localHistoryService } from "./localHistoryService";
 export { projectCliHooksService } from "./projectCliHooksService";
 export { journalService } from "./journalService";
+export { keepAwakeService } from "./keepAwakeService";
 export { gitService } from "./gitService";
 export { worktreeService } from "./worktreeService";
 export * as wallpaperService from "./wallpaperService";

@@ -158,6 +158,8 @@ export interface TerminalSettings {
   autoAdoptDaemonSessions: boolean;
   /** 降低会话子进程调度优先级，让 UI 抢得过窗格里的编译任务。默认开启，新会话生效 */
   lowerSessionPriority: boolean;
+  /** agent 工作时阻止系统空闲休眠（显示器照常熄屏），全部空闲约 60 秒后释放。默认开启 */
+  keepAwakeWhileWorking: boolean;
   /** 会话 CPU 相对权重（1..=9，中性 5）。null 表示不设 */
   sessionCpuWeight: number | null;
   /** 分屏快捷键（Ctrl+\ / Ctrl+-）在终端聚焦时放行给终端（如 SIGQUIT）。默认 false = 分屏优先 */
