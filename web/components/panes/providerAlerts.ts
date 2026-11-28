@@ -6,7 +6,8 @@ import type { PurityReport } from "@/services";
 import { useProvidersStore } from "@/stores";
 import { useChannelPurityStore } from "@/stores/useChannelPurityStore";
 import { useSessionCostStore } from "@/stores/useSessionCostStore";
-import { providerAlerts, providerDefaultAccount, type Provider, type ProviderAccount } from "@/types/provider";
+import { providerDefaultAccount, type Provider, type ProviderAccount } from "@/types/provider";
+import { providerAlerts } from "@/types/providerAlerts";
 import type { SessionCostSnapshot } from "@/types/sessionCost";
 
 /** 累计提示 token（输入 + 缓存读 + 缓存写）到这个量才判断：开头一两轮本来就是写缓存、读得少。 */

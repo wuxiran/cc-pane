@@ -2,7 +2,8 @@
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { ProviderAlerts, ProviderType } from "@/types/provider";
+import type { ProviderType } from "@/types/provider";
+import type { ProviderAlerts } from "@/types/providerAlerts";
 
 /** Claude（Anthropic 接口）和 Codex（OpenAI 接口）的会话才有用量和检测数据。 */
 export function providerTypeHasAlerts(type: ProviderType): boolean {

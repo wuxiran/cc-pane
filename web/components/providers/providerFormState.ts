@@ -2,7 +2,8 @@
  * ProviderFormPanel 的纯表单数据层：表单形状、空值、Provider ⇄ 表单摊平/回填、
  * `{"env": {...}}` JSON 互转。无 React 依赖，便于单测与复用。
  */
-import { DEFAULT_PROVIDER_ALERTS, providerAlerts, type Provider, type ProviderAlerts, type ProviderModel, type ProviderPreset, type ProviderType } from "@/types/provider";
+import type { Provider, ProviderModel, ProviderPreset, ProviderType } from "@/types/provider";
+import { DEFAULT_PROVIDER_ALERTS, providerAlerts, type ProviderAlerts } from "@/types/providerAlerts";
 import type { KnownCliTool } from "@/types/terminal";
 import type { NativeOverrides } from "@/types/native-config";
 import { accountDraftsFrom, envDraftsFrom, type AccountDraft, type EnvDraft } from "./accounts/drafts";
