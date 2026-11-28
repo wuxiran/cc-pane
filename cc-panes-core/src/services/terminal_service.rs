@@ -3,10 +3,11 @@ use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, CreateSessionRequest, JobMemoryWarning, LaunchProfile, LaunchProfileMcpMode,
-    LaunchProfileSkillMode, LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus,
-    SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
-    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    LaunchProfileSkillMode, LaunchProviderSelection, McpDelivery, PolicyOutcome,
+    ResourcePolicyStatus, SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome,
+    TerminalBufferMode, TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry,
+    TerminalOutput, TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot,
+    WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -281,6 +282,20 @@ fn workspace_skill_session_prompt(
     }
     prompt.push_str("</ccpanes-workspace-skills>");
     Some(prompt)
+}
+
+/// 本次启动是否把共享 MCP 收成一条 `ccpanes-hub`（docs/113）。启动档选了 hub 投递、MCP 没全关，
+/// 且 CLI 描述声明能用 hub、运行时是本机（`InjectionProfile::hub_delivery_supported`）；
+/// 任一不满足就回退直连——与前端 `hubDeliverySupported` 同口径。
+fn launch_uses_mcp_hub(
+    profile: Option<&LaunchProfile>,
+    injection_profile: &cc_cli_adapters::InjectionProfile,
+    runtime_kind: &str,
+) -> bool {
+    profile.is_some_and(|profile| {
+        profile.mcp_policy.delivery == McpDelivery::Hub
+            && profile.mcp_policy.mode != LaunchProfileMcpMode::Disabled
+    }) && injection_profile.hub_delivery_supported(runtime_kind)
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -1440,6 +1455,23 @@ struct DeadBufferEntry {
     last_output_at: u64,
 }
 
+/// resume 会话退出时，这次的输出是否不该落盘成冷重放用的 `.output`。
+///
+/// - 明确的「目标不存在」（Claude `No conversation found` 等）：整段输出就是报错，
+///   一律不重放。
+/// - 其他错误特征只在很快退出时才算失败启动：用户正常对话过一阵、输出里恰好有
+///   "error" 再退出，那份画面仍值得重放。
+pub(crate) fn should_suppress_cold_replay(
+    matched_pattern: Option<&str>,
+    elapsed: std::time::Duration,
+) -> bool {
+    match matched_pattern {
+        Some("no conversation found" | "session not found") => true,
+        Some(_) => elapsed < std::time::Duration::from_secs(15),
+        None => false,
+    }
+}
+
 /// 终端服务 - 管理多个 PTY 会话
 pub struct TerminalService {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
@@ -1450,6 +1482,9 @@ pub struct TerminalService {
     cancelled_launches: Mutex<HashMap<String, Instant>>,
     /// 已退出会话的缓冲区，保留 5 分钟供事后读取
     dead_buffers: Arc<Mutex<HashMap<String, DeadBufferEntry>>>,
+    /// resume 失败退出的会话：输出不落盘成冷重放用的 `.output`（见
+    /// `should_suppress_cold_replay`）。与 dead_buffers 同口径 5 分钟过期。
+    cold_replay_suppressed: Arc<Mutex<HashMap<String, Instant>>>,
     settings_service: Arc<SettingsService>,
     provider_service: Arc<ProviderService>,
     notifier: parking_lot::RwLock<Option<Arc<dyn SessionNotifier>>>,
@@ -2030,6 +2065,7 @@ impl TerminalService {
             active_launches: Mutex::new(HashSet::new()),
             cancelled_launches: Mutex::new(HashMap::new()),
             dead_buffers: Arc::new(Mutex::new(HashMap::new())),
+            cold_replay_suppressed: Arc::new(Mutex::new(HashMap::new())),
             settings_service,
             provider_service,
             notifier: parking_lot::RwLock::new(None),
@@ -2144,6 +2180,32 @@ impl TerminalService {
             .read()
             .clone()
             .or_else(super::sidecar_resource::process_resource_dir)
+    }
+
+    /// 资源库技能原生挂载（docs/109 第 2 批 D）。不可挂载（规则见
+    /// `library_skill_sets::library_skills_mountable`）或物化失败时返回 `None`，
+    /// 调用方据此把技能内联进提示词。
+    fn library_skill_mount(
+        &self,
+        cli_tool: CliTool,
+        runtime_kind: &str,
+        profile: Option<&LaunchProfile>,
+    ) -> Option<crate::services::library_skill_sets::LibrarySkillMount> {
+        use crate::services::library_skill_sets::{library_mount_dir, library_skills_mountable};
+        let injection = self.cli_registry.get(cli_tool.as_id())?.injection_profile();
+        if !library_skills_mountable(&injection, runtime_kind) {
+            return None;
+        }
+        let selected = self
+            .launch_profile_service
+            .read()
+            .as_ref()
+            .map(|svc| svc.session_library_skills(profile))
+            .unwrap_or_default();
+        if selected.is_empty() {
+            return None;
+        }
+        library_mount_dir(&self.app_paths.skills_dir(), &selected)
     }
 
     fn portable_bundled_skill_prompt(
@@ -2483,6 +2545,7 @@ impl TerminalService {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
@@ -3168,11 +3231,18 @@ impl TerminalService {
                 );
             }
         }
-        let profile_skill_prompt = self
-            .launch_profile_service
-            .read()
+        let library_skill_mount =
+            self.library_skill_mount(cli_tool, runtime_kind, resolved_profile.as_ref());
+        let mounted_library_ids = library_skill_mount
             .as_ref()
-            .and_then(|svc| svc.session_skill_prompt_for_profile(resolved_profile.as_ref()));
+            .map(|mount| mount.mounted_ids.clone())
+            .unwrap_or_default();
+        let profile_skill_prompt = self.launch_profile_service.read().as_ref().and_then(|svc| {
+            svc.session_skill_prompt_for_profile_with_mounted(
+                resolved_profile.as_ref(),
+                &mounted_library_ids,
+            )
+        });
         let portable_bundled_skill_prompt = self.portable_bundled_skill_prompt(
             cli_tool,
             runtime_kind,
@@ -3875,6 +3945,38 @@ impl TerminalService {
                     }
                 }
 
+                // docs/113：启动档选了 hub 投递且这次组合支持时，把共享 MCP 收成一条 ccpanes-hub
+                let hub_injection = launch_uses_mcp_hub(
+                    resolved_profile.as_ref(),
+                    &injection_profile,
+                    runtime_kind,
+                )
+                .then(|| {
+                    let info = orchestrator_info_for_launch.as_ref()?;
+                    crate::services::mcp_hub::apply_hub_injection(
+                        &effective_shared_mcp_urls,
+                        &shared_mcp_config,
+                        info.port,
+                        &info.token,
+                    )
+                })
+                .flatten();
+                let (shared_mcp_urls, hub_covered_mcp_servers) = match hub_injection {
+                    Some(hub) => {
+                        info!(
+                            session_id = %session_id,
+                            covered = ?hub.covered,
+                            "create_session: shared MCP served through ccpanes-hub"
+                        );
+                        (hub.urls, hub.covered)
+                    }
+                    None => (effective_shared_mcp_urls, Vec::new()),
+                };
+                let mut shared_mcp_stdio = shared_mcp_stdio;
+                let mut shared_mcp_remote = shared_mcp_remote;
+                shared_mcp_stdio.retain(|name, _| shared_mcp_urls.contains_key(name));
+                shared_mcp_remote.retain(|name, _| shared_mcp_urls.contains_key(name));
+
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
@@ -3900,16 +4002,23 @@ impl TerminalService {
                         .map(|i| i.token.clone()),
                     launch_id: launch_id.map(|s| s.to_string()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
-                    shared_mcp_urls: effective_shared_mcp_urls,
+                    shared_mcp_urls,
                     shared_mcp_stdio,
                     shared_mcp_remote,
+                    hub_covered_mcp_servers,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
-                    skill_mount_paths: skill_mount_paths_for_profile(
-                        resolved_profile.as_ref(),
-                        &self.app_paths.builtin_skills_dir(),
-                        workspace_skill_mount_root.as_deref(),
-                    ),
+                    skill_mount_paths: {
+                        let mut paths = skill_mount_paths_for_profile(
+                            resolved_profile.as_ref(),
+                            &self.app_paths.builtin_skills_dir(),
+                            workspace_skill_mount_root.as_deref(),
+                        );
+                        if let Some(mount) = &library_skill_mount {
+                            paths.push(mount.dir.to_string_lossy().into_owned());
+                        }
+                        paths
+                    },
                     workspace_mcp_servers: workspace_mcp_servers.clone(),
                 };
 
@@ -4901,6 +5010,7 @@ impl TerminalService {
         let wait_notifier = notifier;
         let sessions_for_wait = Arc::clone(&self.sessions);
         let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
+        let cold_replay_suppressed_for_wait = Arc::clone(&self.cold_replay_suppressed);
         let input_mutexes_for_wait = Arc::clone(&self.input_mutexes);
         let wait_paste_ready = paste_ready;
         let wait_output_flow = output_flow;
@@ -4989,6 +5099,19 @@ impl TerminalService {
                         tail = ?include_tail.then_some(tail),
                         "resume session exited shortly after launch (heuristic; manual quit also triggers this)"
                     );
+                    // 失败画面不进冷重放（必须在下方 terminal-exit 之前登记：daemon 收到
+                    // exit 就同步落盘 .output）。否则下次重启会把这句报错当「Session
+                    // restored」原样重放，而它根本不是对话内容。
+                    if should_suppress_cold_replay(matched_pattern, elapsed) {
+                        if let Ok(mut suppressed) = cold_replay_suppressed_for_wait.lock() {
+                            suppressed.insert(sid.clone(), Instant::now());
+                        }
+                        info!(
+                            session_id = %sid,
+                            matched_pattern = ?matched_pattern,
+                            "resume failure output excluded from cold replay"
+                        );
+                    }
                     // resume 失败可见化（docs/86 A4）：此前只有上面这条后端 WARN，
                     // 前端零提示，表现为「标签一闪即空」。判据比 WARN 更窄——
                     // 必须命中错误特征，手动退出（exit 0 无错误输出）不误报。
@@ -5307,6 +5430,9 @@ impl TerminalService {
         // 主动清理过期 dead_buffers（>5 分钟），防止内存泄漏
         if let Ok(mut dead) = self.dead_buffers.lock() {
             dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+        }
+        if let Ok(mut suppressed) = self.cold_replay_suppressed.lock() {
+            suppressed.retain(|_, at| at.elapsed().as_secs() < 300);
         }
 
         let sessions = self
@@ -5965,7 +6091,16 @@ impl TerminalService {
         }
     }
 
+    /// 该会话是否因 resume 失败而不得落盘成冷重放 `.output`。
+    pub fn is_cold_replay_suppressed(&self, session_id: &str) -> bool {
+        self.cold_replay_suppressed
+            .lock()
+            .map(|suppressed| suppressed.contains_key(session_id))
+            .unwrap_or(false)
+    }
+
     /// Enumerate caches without cloning every terminal's history into one allocation.
+    /// 不含 resume 失败的会话（不落盘冷重放）。
     pub fn session_output_ids(&self) -> Vec<String> {
         let mut ids: std::collections::HashSet<String> = self
             .sessions
@@ -5975,6 +6110,7 @@ impl TerminalService {
         if let Ok(dead) = self.dead_buffers.lock() {
             ids.extend(dead.keys().cloned());
         }
+        ids.retain(|id| !self.is_cold_replay_suppressed(id));
         ids.into_iter().collect()
     }
 
@@ -6010,6 +6146,7 @@ impl TerminalService {
             }
         }
 
+        result.retain(|id, _| !self.is_cold_replay_suppressed(id));
         result
     }
 
@@ -7022,6 +7159,69 @@ pub fn get_windows_build_number() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cold_replay_suppression_targets_resume_failures_only() {
+        use std::time::Duration;
+        // 实测：Claude 对话档案从未落盘，`--resume` 报 No conversation found，失败输出被
+        // 落盘、下次以 "Session restored" 重放——循环。目标缺失不分时长一律不落盘。
+        assert!(should_suppress_cold_replay(
+            Some("no conversation found"),
+            Duration::from_secs(90)
+        ));
+        assert!(should_suppress_cold_replay(
+            Some("session not found"),
+            Duration::from_secs(1)
+        ));
+        // 宽特征只在很快退出时算失败启动；聊了一阵后退出的画面仍要重放。
+        assert!(should_suppress_cold_replay(
+            Some("error"),
+            Duration::from_secs(3)
+        ));
+        assert!(!should_suppress_cold_replay(
+            Some("error"),
+            Duration::from_secs(60)
+        ));
+        assert!(!should_suppress_cold_replay(None, Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn suppressed_sessions_are_excluded_from_output_persistence() {
+        let (service, _dir) = terminal_service_for_test();
+        let buffer = |line: &str| {
+            let mut out = OutputBuffer::new(64, 65536);
+            out.push(&format!("{line}\r\n"));
+            Arc::new(Mutex::new(out))
+        };
+        {
+            let mut dead = service.dead_buffers.lock().unwrap();
+            for (id, line) in [("failed", "No conversation found"), ("normal", "hello")] {
+                dead.insert(
+                    id.to_string(),
+                    DeadBufferEntry {
+                        output_buffer: buffer(line),
+                        replay_buffer: Arc::new(Mutex::new(ReplayBuffer::new(1024))),
+                        created_at: Instant::now(),
+                        exit_code: Arc::new(Mutex::new(Some(1))),
+                        pid: None,
+                        last_output_at: 0,
+                    },
+                );
+            }
+        }
+        service
+            .cold_replay_suppressed
+            .lock()
+            .unwrap()
+            .insert("failed".to_string(), Instant::now());
+
+        assert!(service.is_cold_replay_suppressed("failed"));
+        assert!(!service.is_cold_replay_suppressed("normal"));
+        assert_eq!(service.session_output_ids(), vec!["normal".to_string()]);
+        let outputs = service.get_all_session_outputs();
+        assert!(outputs.contains_key("normal"));
+        assert!(!outputs.contains_key("failed"));
+    }
 
     #[test]
     fn create_session_outcome_reports_the_resolved_provider_with_its_account() {
@@ -8633,6 +8833,52 @@ mod tests {
                 false,
             )
             .is_empty());
+    }
+
+    /// docs/113：hub 投递只在启动档选了 hub、MCP 没全关、CLI 描述支持且运行时为本机时生效。
+    #[test]
+    fn mcp_hub_applies_only_for_hub_delivery_on_supported_combinations() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let profiles = LaunchProfileService::new(temp_dir.path().join("launch-profiles.json"));
+        let make = |name: &str, mode, delivery| {
+            profiles
+                .create_profile(crate::models::launch_profile::LaunchProfileDraft {
+                    name: Some(name.to_string()),
+                    alias: None,
+                    description: None,
+                    provider_id: None,
+                    provider_account_id: None,
+                    model_id: None,
+                    adapter_options: HashMap::new(),
+                    target_tools: vec![],
+                    target_runtime: None,
+                    yolo_mode: false,
+                    mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
+                        mode,
+                        delivery,
+                        ..Default::default()
+                    },
+                    skill_policy: Default::default(),
+                    native_overrides: Default::default(),
+                    is_default: false,
+                })
+                .expect("create profile")
+        };
+        let hub = make("hub", LaunchProfileMcpMode::Default, McpDelivery::Hub);
+        let direct = make("direct", LaunchProfileMcpMode::Default, McpDelivery::Direct);
+        let off = make("off", LaunchProfileMcpMode::Disabled, McpDelivery::Hub);
+        let registry = cc_cli_adapters::CliToolRegistry::with_builtin_adapters();
+        let claude = registry.injection_profile("claude");
+        let codex = registry.injection_profile("codex");
+        let gemini = registry.injection_profile("gemini");
+
+        assert!(launch_uses_mcp_hub(Some(&hub), &claude, "local"));
+        assert!(launch_uses_mcp_hub(Some(&hub), &codex, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &claude, "wsl"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &gemini, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&direct), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&off), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(None, &claude, "local"));
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import useOrchestratorSync from "./useOrchestratorSync";
-import { useOrchestratorStore, useWorkspacesStore } from "@/stores";
+import { useOrchestratorStore, useWorkflowStore, useWorkspacesStore } from "@/stores";
 
 type WebviewListener = (event: { payload: unknown }) => void | Promise<void>;
 
@@ -50,6 +50,20 @@ describe("useOrchestratorSync", () => {
     expect(applyChangedEvent).toHaveBeenCalledWith(payload);
   });
 
+  it("workflow-changed 事件重拉工作流列表", async () => {
+    const listeners = mockWebviewListeners();
+    const loadWorkflows = vi.fn().mockResolvedValue(undefined);
+    useWorkflowStore.setState({ load: loadWorkflows });
+    renderHook(() => useOrchestratorSync());
+    await waitFor(() => expect(listeners.has("workflow-changed")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("workflow-changed")?.({ payload: { id: "wf" } });
+    });
+
+    expect(loadWorkflows).toHaveBeenCalledTimes(1);
+  });
+
   it("每 10 秒轮询兜底 loadBindings", async () => {
     mockWebviewListeners();
     vi.useFakeTimers();
@@ -90,7 +104,8 @@ describe("useOrchestratorSync", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(listeners.size).toBe(1);
+      // task-binding-changed + workflow-changed
+      expect(listeners.size).toBe(2);
       const callsBeforeUnmount = loadBindings.mock.calls.length;
 
       unmount();

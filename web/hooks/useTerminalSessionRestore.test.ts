@@ -418,6 +418,21 @@ describe("reconcileTerminalSessions", () => {
     expect(sessionRestoreService.load).not.toHaveBeenCalled();
   });
 
+  // 截图回归：守护进程快照 0 个存活会话时，仍去读 52 条本地会话档案再判 0 候选。
+  it("快照完整但无存活会话时不读本地档案，直接解除阻断交给新建", async () => {
+    vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot({
+      sessions: [{ sessionId: "session-1", status: "exited", lastOutputAt: 1, updatedAt: 1 }],
+    }) as never);
+
+    const report = await reconcileTerminalSessions({ autoAdopt: true });
+
+    expect(sessionRestoreService.load).not.toHaveBeenCalled();
+    expect(report).toEqual({ attached: 0, skipped: 0, blocked: 0 });
+    expect(setTerminalRestoreBlocked).toHaveBeenCalledWith("tab-1", "leaf-1", undefined);
+    expect(attachSessionToAnchor).not.toHaveBeenCalled();
+    expect(sessionRestoreService.prune).toHaveBeenCalledWith(42, expect.any(Number), []);
+  });
+
   it("进程内后端的活 PTY 直接重新挂回，不要求 kill", async () => {
     vi.mocked(terminalService.getDaemonClientInfo).mockResolvedValue({ mode: "in-process" } as never);
     restoreLiveDaemonSessions.mockReturnValue(1);

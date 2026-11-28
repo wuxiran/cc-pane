@@ -1,6 +1,7 @@
 import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { getErrorMessage } from "@/utils";
+import i18n from "@/i18n";
 
 type RestoreLogger = (event: string, extra?: Record<string, unknown>) => void;
 
@@ -35,6 +36,18 @@ export function pickCreateSessionResumeId(props: {
  * 注意这条读路径没有 epoch/世代校验（docs/86 B2）——时效性靠写侧
  * （daemon 退出落盘）与失败清理（下面的 clearColdReplayOutputOnFailure）保证。
  */
+/** agent CLI 标签（非纯 shell）：这类标签的「恢复」语义是续接对话。 */
+export function isColdReplayNotResumed(props: {
+  cliTool?: string;
+  launchClaude?: boolean;
+  resumeId?: string;
+  savedSessionId?: string;
+}): boolean {
+  const cliTool = props.cliTool ?? (props.launchClaude ? "claude" : "none");
+  if (cliTool === "none") return false;
+  return !pickCreateSessionResumeId(props);
+}
+
 export async function replayColdRestoreOutput(
   term: { writeln: (line: string) => void },
   savedSessionId: string,
@@ -46,6 +59,11 @@ export async function replayColdRestoreOutput(
    * 是同一个洞。默认恒等，便于既有调用方与测试不受影响。
    */
   renderCheckpointData: (data: string) => string = (data) => data,
+  /**
+   * 这次不会续接原对话（agent CLI 标签但拿不到 resume id，含 resume 目标已失效被撤销）。
+   * 此时重放的只是旧画面，标题必须说清楚，不能写 "Session restored" 让人以为接上了。
+   */
+  notResumed = false,
 ): Promise<void> {
   try {
     logRestoreEvent("init.output-replay.begin", { savedSessionId });
@@ -53,7 +71,11 @@ export async function replayColdRestoreOutput(
     logRestoreEvent("init.output-replay.end", { lineCount: lines?.length ?? 0 });
     if (lines && lines.length > 0) {
       debugLog("session.restore.replay", { savedSessionId, lineCount: lines.length });
-      term.writeln("\x1b[90m--- Session restored ---\x1b[0m");
+      term.writeln(
+        notResumed
+          ? `\x1b[90m--- ${i18n.t("panes:coldReplayNotResumedHeader")} ---\x1b[0m`
+          : "\x1b[90m--- Session restored ---\x1b[0m",
+      );
       for (const line of lines) {
         term.writeln(renderCheckpointData(line));
       }

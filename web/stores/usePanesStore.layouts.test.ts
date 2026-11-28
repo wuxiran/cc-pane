@@ -917,6 +917,38 @@ describe("usePanesStore layouts", () => {
     expect(afterReplay).toBe(1);
   });
 
+  // resume 目标已不存在时撤掉死 id：只撤仍等于死 id 的那个 leaf，并立刻进快照。
+  it("retireDeadResumeId 只撤仍持有死 id 的 leaf，并触发 resume-id.update", async () => {
+    const dead = makeTerminalTab("dead-tab", "session-dead");
+    const other = makeTerminalTab("other-tab", "session-other");
+    pushLayouts(makeLayout("layout-dead", "死", dead), makeLayout("layout-other", "他", other));
+    const reasons: string[] = [];
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ reason?: string }>).detail;
+      if (detail?.reason) reasons.push(detail.reason);
+    };
+    window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
+
+    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-other-id")).toBeNull();
+    expect(usePanesStore.getState().retireDeadResumeId("session-dead", "resume-old")).toEqual({
+      tabId: "dead-tab",
+      terminalPaneId: "dead-tab-leaf",
+    });
+    await waitForMicrotasks();
+    window.removeEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
+
+    const findTab = (layoutId: string) => {
+      const layout = usePanesStore.getState().layouts.find((l) => l.id === layoutId);
+      if (!layout) throw new Error(`missing layout ${layoutId}`);
+      return panel(layout.rootPane).tabs[0];
+    };
+    const deadTab = findTab("layout-dead");
+    expect(deadTab.resumeId).toBeUndefined();
+    expect((deadTab.terminalRootPane as TerminalPaneLeaf).resumeId).toBeUndefined();
+    expect(findTab("layout-other").resumeId).toBe("resume-old");
+    expect(reasons).toContain("resume-id.update");
+  });
+
   it("merge 对空 layouts、无效 currentLayoutId 和 rehydrated terminal 做兜底", () => {
     const currentState = usePanesStore.getState();
     const merged = usePanesStore.persist.getOptions().merge?.(

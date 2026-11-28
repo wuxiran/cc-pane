@@ -5,6 +5,13 @@ import { toast } from "@/components/ui/toast";
 import { terminalPathLinkService } from "@/services/terminalPathLinkService";
 import { translateError } from "@/utils";
 import { useTerminalPathLinkStore } from "@/stores/useTerminalPathLinkStore";
+import { isTauriRuntime } from "@/services/runtime";
+import {
+  LocalhostPreviewLinkProvider,
+  parseLocalhostPreviewUrl,
+  type LocalhostPreviewLink,
+} from "@/lib/localhostPreviewLink";
+import { openPortPreview } from "@/lib/portPreviewActivation";
 import {
   classifyOsc8TerminalLink,
   TerminalPathLinkProvider,
@@ -98,6 +105,24 @@ export function createTerminalPathLinkIntegration(
       });
   };
   const validate = createTerminalPathLinkValidator(getSessionId);
+  // SSH 会话里的 localhost 链接：经 SSH 本地端口转发在本机预览（docs/116 §B）。仅桌面端。
+  const previewEnabled = () => isSsh() && isTauriRuntime();
+  const previewInFlight = new Set<string>();
+  const preview = (link: LocalhostPreviewLink) => {
+    const sessionId = getSessionId();
+    if (!sessionId || !previewEnabled()) return;
+    const key = `${sessionId}\u0000${link.remoteHost}:${link.port}`;
+    if (previewInFlight.has(key)) return;
+    previewInFlight.add(key);
+    void openPortPreview(sessionId, link)
+      .catch((error) => {
+        toast.error(
+          translate("portPreview.failed", { error: translateError(error) }),
+          { id: TERMINAL_PATH_LINK_ERROR_TOAST_ID },
+        );
+      })
+      .finally(() => previewInFlight.delete(key));
+  };
 
   return {
     linkHandler: {
@@ -109,6 +134,11 @@ export function createTerminalPathLinkIntegration(
           return;
         }
         if (target?.type === "external") {
+          const localLink = previewEnabled() ? parseLocalhostPreviewUrl(target.url) : null;
+          if (localLink) {
+            preview(localLink);
+            return;
+          }
           void terminalPathLinkService.openExternalUrl(target.url).catch((error) => {
             toast.error(
               translate("terminalPathLink.actionFailed", { error: translateError(error) }),
@@ -118,7 +148,10 @@ export function createTerminalPathLinkIntegration(
         }
       },
     },
+    /** 本地会话注册路径链接；SSH 会话（远端路径本机打不开）改注册 localhost 预览链接。 */
     register: (terminal: Terminal): IDisposable =>
-      terminal.registerLinkProvider(new TerminalPathLinkProvider(terminal, activate, options, isEnabled, validate)),
+      isSsh()
+        ? terminal.registerLinkProvider(new LocalhostPreviewLinkProvider(terminal, preview, previewEnabled))
+        : terminal.registerLinkProvider(new TerminalPathLinkProvider(terminal, activate, options, isEnabled, validate)),
   };
 }

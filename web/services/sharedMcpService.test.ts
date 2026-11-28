@@ -36,6 +36,18 @@ describe("sharedMcpService", () => {
     });
   });
 
+  describe("getHubStatus", () => {
+    it("应该调用 get_mcp_hub_status 并返回 hub 状态", async () => {
+      const status = { endpoint: "http://127.0.0.1:1/mcp-hub", servers: [{ name: "fs", running: true, routable: true, toolCount: 3 }] };
+      mockTauriInvoke({ get_mcp_hub_status: status });
+
+      const result = await sharedMcpService.getHubStatus();
+
+      expect(invoke).toHaveBeenCalledWith("get_mcp_hub_status");
+      expect(result).toEqual(status);
+    });
+  });
+
   describe("upsertServer", () => {
     it("应该调用 upsert_shared_mcp_server 并传递名称和配置", async () => {
       const config = { command: "npx", args: ["-y", "mcp-fs"] } as unknown as SharedMcpServerConfig;

@@ -16,6 +16,7 @@ const policy = (over: Partial<LaunchProfile["mcpPolicy"]> = {}): LaunchProfile["
   disabledServerIds: [],
   includeCcpanesMcp: true,
   includeSharedMcp: true,
+  delivery: "direct",
   ...over,
 });
 const draft = (mcpPolicy: LaunchProfile["mcpPolicy"]) => ({ mcpPolicy }) as LaunchProfileDraft;

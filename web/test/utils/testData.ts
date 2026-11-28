@@ -120,6 +120,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       snapshotApplyKillEnabled: false,
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
+      keepAwakeWhileWorking: true,
       sessionCpuWeight: null,
 
       splitShortcutPassthrough: false,

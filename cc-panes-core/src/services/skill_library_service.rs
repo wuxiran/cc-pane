@@ -1,7 +1,8 @@
 //! 资源库「技能」（docs/109 第 2 批）。资源库就是 `<data>/skills/user/<id>/`
 //! （`InstalledUserSkill`），这里补上来源记录、粘贴安装、检查更新、备份和导入。
 //!
-//! 注入方式不变：启动档选中 `user:<id>` 后由 `LaunchProfileService` 内联进会话提示词。
+//! 启动档选中 `user:<id>` 后优先原生挂载（`library_skill_sets`），挂不了才由
+//! `LaunchProfileService` 内联进会话提示词（docs/109 C2）。
 
 mod backup;
 mod check;

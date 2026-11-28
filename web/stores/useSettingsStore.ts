@@ -360,6 +360,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       snapshotApplyKillEnabled: false,
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
+      keepAwakeWhileWorking: true,
       sessionCpuWeight: null,
       splitShortcutPassthrough: false,
       inlineImagesEnabled: false,

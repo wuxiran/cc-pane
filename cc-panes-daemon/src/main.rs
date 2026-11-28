@@ -1,6 +1,7 @@
 mod checkpoint_monitor;
 mod control_notifier;
 mod identity_routes;
+mod keep_awake;
 mod logging;
 mod self_check;
 mod server;
@@ -289,6 +290,8 @@ async fn async_main(worker_threads: usize) -> anyhow::Result<()> {
     // create_session 前限频重读 config.toml：app 改了并行度/性能设置，新会话立即生效。
     config.set_settings_service(settings_service.clone());
     // 孤儿会话回收：无人查看超过 TTL（设置可调，0=禁用）的会话按 FIFO 回收。
+    // agent 工作时阻止系统空闲休眠（会话在 daemon 里跑，关掉桌面窗口也照样生效）。
+    keep_awake::spawn_keep_awake(config.clone(), settings_service.clone());
     session_reaper::spawn_session_reaper(config.clone(), settings_service);
     // 补拍周期扫描（M3b-2）：delta 超阈值的会话经 control 催前端重拍照片。
     checkpoint_monitor::spawn_checkpoint_monitor(

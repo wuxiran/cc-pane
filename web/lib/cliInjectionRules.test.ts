@@ -3,6 +3,8 @@ import { FALLBACK_INJECTION_PROFILES } from "@/services/cliInjectionProfileServi
 import type { LaunchProfileMcpPolicy } from "@/types/launch-profile";
 import {
   hasAnyMcp,
+  hubCanRoute,
+  hubDeliverySupported,
   launchProfileIsolatesMcp,
   mcpIsolationGap,
   mcpProfileHints,
@@ -14,6 +16,19 @@ import {
 const profile = (id: string) => FALLBACK_INJECTION_PROFILES[id];
 
 describe("cliInjectionRules 镜像 Rust 规则", () => {
+  it("hub 投递：与 injection_profile.rs 的 hub_delivery_rule_reads_profile 同一组用例", () => {
+    expect(hubDeliverySupported(profile("claude"), "local")).toBe(true);
+    expect(hubDeliverySupported(profile("codex"), null)).toBe(true);
+    expect(hubDeliverySupported(profile("claude"), "wsl")).toBe(false);
+    expect(hubDeliverySupported(profile("codex"), "ssh")).toBe(false);
+    for (const other of ["gemini", "opencode", "pi", "jcode", "cursor"]) {
+      expect(hubDeliverySupported(profile(other), "local")).toBe(false);
+    }
+    expect(hubCanRoute(null)).toBe(true);
+    expect(hubCanRoute({ transport: "http" })).toBe(true);
+    expect(hubCanRoute({ transport: "sse" })).toBe(false);
+  });
+
   it("远程 MCP：与 injection_profile.rs 的 remote_rule_reads_profile 同一组用例", () => {
     expect(remoteMcpSupported(profile("claude"), "sse", true, "local")).toBe(true);
     expect(remoteMcpSupported(profile("codex"), "http", true, "local")).toBe(true);
@@ -49,6 +64,7 @@ describe("cliInjectionRules 镜像 Rust 规则", () => {
       disabledServerIds: [],
       includeCcpanesMcp: true,
       includeSharedMcp: true,
+      delivery: "direct",
     };
     const narrowed = { ...open, disabledServerIds: ["fetch"] };
     expect(launchProfileIsolatesMcp(open)).toBe(false);

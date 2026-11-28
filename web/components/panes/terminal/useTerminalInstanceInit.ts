@@ -367,7 +367,7 @@ export function useTerminalInstanceInit({
         effectiveCliToolRef,
         debugLog,
       });
-      if (!isSshRef.current) parserDisposableRefs.current.push(pathLinkIntegration.register(term));
+      parserDisposableRefs.current.push(pathLinkIntegration.register(term)); // 本地=路径链接，SSH=端口预览链接
 
       // Use Unicode 11 widths so CJK and emoji render correctly.
       const unicode11 = new Unicode11Addon();

@@ -244,6 +244,7 @@ export function systemDefaultLaunchProfileDraft(
       disabledServerIds: [],
       includeCcpanesMcp: true,
       includeSharedMcp: true,
+      delivery: "direct",
     },
     skillPolicy: {
       mode: "core",

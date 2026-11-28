@@ -389,6 +389,9 @@ impl ClaudeAdapter {
                 } else if ctx.shared_mcp_urls.contains_key(&name) {
                     skipped += 1;
                     info!("[claude] Skipping stdio '{}' (shared HTTP available)", name);
+                } else if ctx.hub_covered_mcp_servers.contains(&name) {
+                    skipped += 1;
+                    info!("[claude] Skipping '{}' (served through ccpanes-hub)", name);
                 } else if !Self::user_server_allowed(ctx, &name) {
                     skipped += 1;
                     info!(
@@ -409,7 +412,8 @@ impl ClaudeAdapter {
         // 工作空间层 + 项目覆盖层（docs/98）：覆盖用户全局同名，低于 shared / ccpanes
         let mut workspace_injected = 0usize;
         for (name, config) in ctx.allowed_workspace_mcp_servers() {
-            if name == "ccpanes" {
+            // hub 覆盖的同名服务器以 hub 为准（与「共享版覆盖工作空间同名」同口径）
+            if name == "ccpanes" || ctx.hub_covered_mcp_servers.contains(name) {
                 continue;
             }
             mcp_servers.insert(name.clone(), config.clone());
@@ -1018,6 +1022,7 @@ impl CliToolAdapter for ClaudeAdapter {
                 remote_headers: true,
                 isolation: McpIsolation::Full,
                 launch_identity: true,
+                hub: true,
             },
             skills: SkillsInjection {
                 mount: SkillMount::PluginDir,
@@ -1552,6 +1557,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -2748,6 +2754,36 @@ mod tests {
         let config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
         assert!(config["mcpServers"].get("fetch").is_none());
+    }
+
+    /// docs/113：共享服务器改走 ccpanes-hub 时，工作空间层同名的那份不能再单独注入，
+    /// 否则同一组工具在 hub 旁边又出现一次。
+    #[test]
+    fn hub_covered_servers_are_not_injected_again_from_workspace_layer() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("/opt/claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("secret-token".to_string());
+        ctx.workspace_mcp_servers = std::collections::BTreeMap::from([
+            ("fetch".to_string(), serde_json::json!({"command": "npx"})),
+            ("own".to_string(), serde_json::json!({"command": "own"})),
+        ]);
+        ctx.shared_mcp_urls.insert(
+            "ccpanes-hub".to_string(),
+            "http://127.0.0.1:9/mcp-hub?token=t&servers=fetch".to_string(),
+        );
+        ctx.hub_covered_mcp_servers = vec!["fetch".to_string()];
+
+        let config_path = adapter.generate_mcp_config(&ctx).expect("config");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let servers = &config["mcpServers"];
+        assert!(servers.get("fetch").is_none());
+        assert_eq!(servers["own"]["command"], "own");
+        assert_eq!(servers["ccpanes-hub"]["type"], "http");
     }
 
     // ============ cc-pane 抽象事件映射测试 ============

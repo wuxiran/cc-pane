@@ -9,6 +9,7 @@ import type { Terminal } from "@xterm/xterm";
 import { terminalService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useTerminalStatusStore } from "@/stores";
+import { liveFromAdoptionSnapshot } from "@/lib/adoptionSnapshotReuse";
 import type { TerminalThemePalette } from "./terminalTheme";
 
 export const IS_MAC =
@@ -108,7 +109,30 @@ export function normalizeTerminalCursorStyle(value?: string | null): TerminalCur
   return value === "underline" || value === "bar" ? value : "block";
 }
 
+export type LiveSavedSessionSource = "adoption-snapshot" | "status-cache";
+
+/**
+ * 旧会话还活着吗：优先复用认领轮的守护进程快照（世代与时效可证明有效时），
+ * 否则回退读状态缓存。返回答案及来源，供恢复日志说明依据。
+ */
+export function resolveLiveSavedSession(savedSessionId?: string): {
+  liveSessionId: string | null;
+  source: LiveSavedSessionSource;
+} {
+  if (savedSessionId) {
+    const fromSnapshot = liveFromAdoptionSnapshot(savedSessionId);
+    if (fromSnapshot !== null) {
+      return { liveSessionId: fromSnapshot ? savedSessionId : null, source: "adoption-snapshot" };
+    }
+  }
+  return { liveSessionId: findLiveSavedSessionIdFromStatusCache(savedSessionId), source: "status-cache" };
+}
+
 export function findLiveSavedSessionId(savedSessionId?: string): string | null {
+  return resolveLiveSavedSession(savedSessionId).liveSessionId;
+}
+
+function findLiveSavedSessionIdFromStatusCache(savedSessionId?: string): string | null {
   if (!savedSessionId) return null;
   // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
   // 不再每个 tab 各发一次 getAllStatus IPC。重启时几十个 tab 同时挂载会并发打几十次

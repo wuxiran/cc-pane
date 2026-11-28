@@ -133,6 +133,8 @@
     "heavyLedgerCleared": "台账已清空",
     "heavyLedgerClearUnavailable": "当前版本不支持清空台账",
     "sessionPolicyGroup": "会话资源策略",
+    "keepAwake": "agent 工作时保持唤醒",
+    "keepAwakeHint": "有会话或对话在工作时阻止系统空闲休眠，显示器照常熄屏；全部空闲约 60 秒后释放。合盖或手动睡眠不受影响。",
     "sessionCpuWeight": "会话 CPU 权重",
     "sessionCpuWeightNeutral": "{{value}}（中性，不设）",
     "sessionCpuWeightHint": "1–9，5 为中性即不设置。越低越让路给界面与其它窗格；只在失控时兜底，不是给正常工作设天花板。对新启动的会话生效。",
@@ -1411,6 +1413,21 @@
     "cancel": "取消",
     "failed": "失败：{{error}}",
     "actionFailed": "操作失败：{{error}}"
+  },
+  "mcpHubCard": {
+    "title": "MCP Hub",
+    "badge": "ccpanes-hub",
+    "intro": "一个统一入口：启动档选「Hub」投递时，会话只拿到 ccpanes-hub 一条，用 search_tools / call_tool 按需使用下面这些服务器。",
+    "endpoint": "端点 {{endpoint}}",
+    "endpointDown": "Orchestrator 未运行，选 Hub 的会话暂时回退直连。",
+    "servers": "聚合 {{count}} 台服务器",
+    "tools": "已缓存 {{count}} 个工具",
+    "toolsPending": "工具清单在首次检索时拉取",
+    "direct": "不经 Hub（SSE）：{{names}}",
+    "stopped": "未运行：{{names}}",
+    "profiles": "Hub 投递的启动档：{{names}}",
+    "noProfiles": "还没有启动档选 Hub 投递（在启动档 MCP 卡片里切换）。",
+    "fallsBack": "{{name}}（此 CLI 回退直连）"
   },
   "resourceLibrary": {
     "components": "组件",

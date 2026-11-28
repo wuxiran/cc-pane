@@ -64,7 +64,7 @@ function dispatchToSession(
   );
 }
 
-function waitForTabSession(tabId: string): Promise<string> {
+export function waitForTabSession(tabId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let unsubscribe: () => void = () => {};
     const timeout = window.setTimeout(() => {

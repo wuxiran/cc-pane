@@ -1,4 +1,4 @@
-use crate::models::provider::{AccountKind, Provider, ProviderAccount};
+use crate::models::provider::{AccountKind, Provider, ProviderAccount, ProviderModel};
 use crate::models::{CliTool, LaunchProviderSelection};
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::LaunchRuntime;
@@ -413,6 +413,8 @@ pub fn resolve_provider_plan(
                 .models
                 .iter()
                 .find(|model| model.id == model_id)
+                .cloned()
+                .or_else(|| live_magpie_model(&provider, model_id))
                 .ok_or_else(|| {
                     provider_model_error(
                         "PROVIDER_MODEL_NOT_FOUND",
@@ -431,9 +433,13 @@ pub fn resolve_provider_plan(
         mode: ProviderMode::Managed,
         selection,
         source,
-        model_id: selected_model.map(|model| model.id.clone()),
-        model_label: selected_model.and_then(|model| model.label.clone()),
-        model_default_effort: selected_model.and_then(|model| model.default_effort.clone()),
+        model_id: selected_model.as_ref().map(|model| model.id.clone()),
+        model_label: selected_model
+            .as_ref()
+            .and_then(|model| model.label.clone()),
+        model_default_effort: selected_model
+            .as_ref()
+            .and_then(|model| model.default_effort.clone()),
         model_source: if selected_model.is_some() {
             model_source
         } else {
@@ -441,6 +447,21 @@ pub fn resolve_provider_plan(
         },
         provider: Some(provider),
         account_id: Some(account_id),
+    })
+}
+
+/// 指向本机 Magpie 网关的供应商：实时目录里选的 `group/<id>` / `<provider>/<model>`
+/// 不必先写进模型表（只在模型表里找不到时才读 Magpie 配置判断）。
+fn live_magpie_model(provider: &Provider, model_id: &str) -> Option<ProviderModel> {
+    crate::services::magpie_live::accepts_live_magpie_model(provider, model_id).then(|| {
+        ProviderModel {
+            id: model_id.trim().to_string(),
+            label: None,
+            default_effort: None,
+            context_window_tokens: None,
+            context_size: None,
+            hidden: false,
+        }
     })
 }
 
@@ -685,7 +706,7 @@ fn provider_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::provider::{ProviderModel, ProviderType, SYSTEM_PROVIDER_ID};
+    use crate::models::provider::{ProviderType, SYSTEM_PROVIDER_ID};
 
     /// 这些测试手写的 Provider 只带旧字段（`api_key` / `base_url` / `config_dir`）。
     /// 生产路径拿到的永远是 `ProviderService::list_providers()` 归一过的结构，所以这里先同样

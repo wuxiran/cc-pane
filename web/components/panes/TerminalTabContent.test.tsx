@@ -194,11 +194,33 @@ describe("TerminalTabContent", () => {
     });
     renderTerminalTabContent(leafTab({ restoring: true }));
 
-    expect(screen.getByRole("log")).toHaveTextContent(
+    expect(screen.getByRole("status")).toHaveTextContent(
       i18n.t("panes:restoreLog.events.queue_queued", { pending: 1, active: 3 }),
     );
     expect(screen.queryByText("排队恢复中")).not.toBeInTheDocument();
     expect(screen.queryByText("等待其他终端完成启动...")).not.toBeInTheDocument();
+  });
+
+  // 截图回归：恢复中的日志面曾整块叠在终端顶部、半透明底色透出冷重放的旧输出。
+  // 未出问题时只给一行阶段标签（停在右下角、不透明底），完整日志点开才显示。
+  it("collapses the in-progress restore log to one opaque status line", () => {
+    const log = useTerminalRestoreLogStore.getState();
+    log.append("tab-1", "leaf-1", "daemon-snapshot.begin", {});
+    log.append("tab-1", "leaf-1", "init.listeners.begin", {});
+    renderTerminalTabContent(leafTab({ restoring: true }));
+
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(i18n.t("panes:restoreLog.events.init_listeners_begin"));
+    expect(status).not.toHaveTextContent(i18n.t("panes:restoreLog.events.daemon-snapshot_begin"));
+    const chip = status.closest("div.absolute") as HTMLElement | null;
+    expect(chip?.className).toContain("bottom-3");
+    expect(chip?.style.background).toBe("var(--app-overlay)");
+
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("panes:restoreLogExpand") }));
+    expect(screen.getByRole("log")).toHaveTextContent(
+      i18n.t("panes:restoreLog.events.daemon-snapshot_begin"),
+    );
   });
 
   it("shows reconcile logs on a blocked restore surface", () => {

@@ -218,6 +218,11 @@ pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<CodexSessio
     ))
 }
 
+/// 默认 `sessions` 目录（`CODEX_HOME` 或 `~/.codex`）+ 各登录账号目录下的 `sessions`。
+pub fn codex_sessions_roots() -> Vec<SessionScanRoot> {
+    session_scan_roots("codex", codex_sessions_root().ok())
+}
+
 pub fn list_all_sessions(limit: usize) -> Result<Vec<CodexSession>, String> {
     let default_root = codex_sessions_root().ok();
     list_all_sessions_in(&session_scan_roots("codex", default_root), limit)

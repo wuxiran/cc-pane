@@ -38,6 +38,7 @@ use commands::{
     add_worktree,
     adopt_terminal_session,
     apply_fork_changes,
+    approve_worktree_setup,
     ask_bot,
     batch_update_todo_status,
     begin_cli_turn_checkpoint,
@@ -85,6 +86,7 @@ use commands::{
     clear_terminal_sessions,
     clear_terminal_task_queue,
     close_layout_switcher_window,
+    close_port_preview,
     close_window,
     compress_history,
     compute_text_diff,
@@ -229,6 +231,10 @@ use commands::{
     get_log_dir,
     get_login_account_command,
     get_login_account_status,
+    get_magpie_catalog,
+    get_magpie_provider_quotas,
+    get_magpie_session_route,
+    get_mcp_hub_status,
     get_mcp_market_icon,
     get_mcp_server,
     get_memory,
@@ -289,6 +295,9 @@ use commands::{
     git_push,
     git_stash,
     git_stash_pop,
+    github_cli_status,
+    github_import_issues,
+    github_list_issues,
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     hide_quick_terminal,
@@ -361,6 +370,7 @@ use commands::{
     list_pi_rpc_sessions,
     // Plan 命令
     list_plans,
+    list_port_previews,
     list_project_quick_commands,
     list_project_skill_roots,
     list_project_skills,
@@ -400,6 +410,7 @@ use commands::{
     open_in_codex,
     open_layout_switcher_window,
     open_path_in_explorer,
+    open_port_preview,
     open_settings_window,
     open_web_access,
     orchestrator_rotation_impact,
@@ -407,6 +418,7 @@ use commands::{
     prepare_chat_fork,
     prepare_claude_relaunch,
     prepare_session_context,
+    prepare_worktree_setup,
     preview_external_providers,
     preview_launch_profile_native_config,
     preview_launch_profile_resolution,
@@ -443,6 +455,7 @@ use commands::{
     register_plan_leader,
     register_plan_worker,
     release_terminal_session,
+    relocate_project_sessions,
     remove_mcp_server,
     remove_project,
     remove_provider,
@@ -643,6 +656,7 @@ use commands::{
     window_material_active,
     write_terminal,
 };
+use commands::{approve_workflow_stage, list_workflows};
 use repository::{
     Database, HistoryRepository, PlanRepository, ProjectRepository, SessionIndexRepository,
     SpecRepository, TaskBindingRepository, TaskQueueRepository, TodoRepository,
@@ -654,15 +668,15 @@ use services::{
     HistoryWatchManager, JournalService, LaunchHistoryService, LaunchProfileService,
     LayoutSnapshotService, McpConfigService, McpMarketService, MemoryService, NotificationService,
     OrchestratorService, PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService,
-    ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
+    PortPreviewService, ProcessMonitorService, ProjectCliHooksService, ProjectContextService,
+    ProjectService, ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillLibraryService,
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
     SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
     TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
     UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    WorktreeService, WorktreeSetupService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1787,6 +1801,12 @@ pub fn run() {
         }
     };
     boot_mark!("database initialized");
+    let session_relocation_service = Arc::new(
+        cc_panes_core::services::session_relocation::SessionRelocationService::new(
+            &app_paths,
+            db.clone(),
+        ),
+    );
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     match project_repo.migrate_project_identities() {
         Ok(report) if report.projects_updated > 0 || report.duplicates_removed > 0 => info!(
@@ -1828,6 +1848,9 @@ pub fn run() {
     ));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let workflow_service = Arc::new(cc_panes_core::services::WorkflowService::new(Arc::new(
+        cc_panes_core::repository::WorkflowRepository::new(db.clone()),
+    )));
     let task_verification_service = Arc::new(services::TaskVerificationService::new(
         app_paths.data_dir().to_path_buf(),
         task_binding_service.clone(),
@@ -1882,6 +1905,9 @@ pub fn run() {
     let project_context_service = Arc::new(ProjectContextService::new());
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
+    let worktree_setup_service = Arc::new(WorktreeSetupService::new(
+        app_paths.worktree_setup_approvals_path(),
+    ));
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     match workspace_service.migrate_project_identities() {
         Ok(report) if report.workspaces_updated > 0 => info!(
@@ -1980,6 +2006,12 @@ pub fn run() {
     terminal_service.set_spec_service(spec_service.clone());
     terminal_service.set_launch_profile_service(launch_profile_service.clone());
     terminal_service.set_workspace_service(workspace_service.clone());
+    // agent 工作时阻止系统空闲休眠（app 侧：ACP 对话 + 非 daemon 模式会话）。
+    let keep_awake_service = services::keep_awake_runtime::start_app_keep_awake(
+        settings_service.clone(),
+        terminal_service.clone(),
+        acp_chat_service.clone(),
+    );
     let terminal_backend_state = Arc::new(TerminalBackendState::from_env_or_in_process(
         terminal_service.clone(),
         app_paths.as_ref(),
@@ -1991,6 +2023,17 @@ pub fn run() {
         error!("MemoryService init failed: {}, using in-memory fallback", e);
         MemoryService::new_memory().expect("MemoryService fallback failed")
     }));
+
+    // GitHub 能力统一走本机 gh（复用用户登录，不存 token）。启动后台探测一次，只写日志。
+    let github_cli_service = Arc::new(cc_panes_core::services::GithubCliService::system());
+    {
+        let github_cli_service = github_cli_service.clone();
+        let _ = std::thread::Builder::new()
+            .name("gh-probe".into())
+            .spawn(move || {
+                github_cli_service.probe();
+            });
+    }
 
     let ssh_machine_service = Arc::new(SshMachineService::with_connection_service(
         app_paths.data_dir().join("ssh-machines.json"),
@@ -2007,6 +2050,9 @@ pub fn run() {
             .join(cc_panes_core::services::device_service::DEVICES_FILE),
         Arc::new(cc_panes_core::services::KeyringDeviceTokenStore::default()),
         ssh_machine_service.clone(),
+        terminal_service.ssh_connection_service(),
+    ));
+    let port_preview_service = Arc::new(PortPreviewService::with_ssh(
         terminal_service.ssh_connection_service(),
     ));
     let remote_session_router = Arc::new(
@@ -2033,6 +2079,9 @@ pub fn run() {
     ));
 
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
+    let mcp_hub_service = Arc::new(cc_panes_core::services::McpHubService::new(
+        shared_mcp_service.clone(),
+    ));
     let dsh_service = Arc::new(DshService::new(&app_paths));
 
     let session_restore_service =
@@ -2132,7 +2181,9 @@ pub fn run() {
         .manage(automation_service.clone())
         .manage(bot_service.clone())
         .manage(terminal_backend_state)
+        .manage(keep_awake_service)
         .manage(launch_history_service)
+        .manage(session_relocation_service)
         .manage(usage_stats_service)
         .manage(session_index_service)
         .manage(history_service)
@@ -2142,9 +2193,12 @@ pub fn run() {
         .manage(project_context_service)
         .manage(journal_service)
         .manage(worktree_service)
+        .manage(worktree_setup_service)
+        .manage(port_preview_service)
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
+        .manage(Arc::new(cc_panes_core::services::MagpieLiveService::new()))
         .manage(channel_purity_service)
         .manage(launch_profile_service)
         .manage(quick_command_service)
@@ -2154,6 +2208,7 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(workflow_service)
         .manage(task_verification_service)
         .manage(fork_review_service)
         .manage(task_queue_service)
@@ -2174,6 +2229,7 @@ pub fn run() {
         .manage(filesystem_service)
         .manage(memory_service)
         .manage(ssh_machine_service)
+        .manage(github_cli_service)
         .manage(ssh_file_service)
         .manage(device_service)
         .manage(remote_session_router)
@@ -2184,6 +2240,7 @@ pub fn run() {
         .manage(start_locks)
         .manage(web_access_lifecycle.clone())
         .manage(shared_mcp_service.clone())
+        .manage(mcp_hub_service)
         .manage(dsh_service.clone())
         .manage(session_restore_service)
         .manage(layout_snapshot_service)
@@ -2617,6 +2674,25 @@ pub fn run() {
                             );
                         },
                     );
+                    // 会话结束回收它的端口预览隧道（docs/116 §B）。
+                    for event_name in [
+                        cc_panes_core::constants::events::TERMINAL_EXIT,
+                        cc_panes_core::constants::events::SESSION_KILLED,
+                    ] {
+                        let preview_service = app.state::<Arc<PortPreviewService>>().inner().clone();
+                        let preview_app = app_handle.clone();
+                        app.listen(event_name, move |event| {
+                            if let Ok(payload) =
+                                serde_json::from_str::<TerminalLifecycleEventPayload>(event.payload())
+                            {
+                                commands::release_port_previews_for_session(
+                                    &preview_app,
+                                    preview_service.clone(),
+                                    payload.session_id,
+                                );
+                            }
+                        });
+                    }
                     let killed_service = tb_svc.inner().clone();
                     app.listen(
                         cc_panes_core::constants::events::SESSION_KILLED,
@@ -3299,6 +3375,7 @@ pub fn run() {
             commands::get_heavy_sampler_stats,
             commands::get_performance_recorder_status,
             commands::mark_performance_incident,
+            commands::get_keep_awake_status,
             get_available_shells,
             get_windows_build_number,
             check_environment,
@@ -3320,6 +3397,9 @@ pub fn run() {
             record_terminal_input,
             query_context_usage,
             query_session_cost,
+            get_magpie_session_route,
+            get_magpie_provider_quotas,
+            get_magpie_catalog,
             query_usage_stats,
             refresh_usage_stats,
             list_session_index,
@@ -3493,6 +3573,12 @@ pub fn run() {
             list_task_verification, run_task_verification,
             fork_chat_worktree,
             remove_worktree,
+            prepare_worktree_setup,
+            approve_worktree_setup,
+            // 远程端口本机预览（docs/116 §B）
+            open_port_preview,
+            list_port_previews,
+            close_port_preview,
             // Workspace 命令
             list_workspaces,
             create_workspace,
@@ -3616,6 +3702,10 @@ pub fn run() {
             toggle_todo_my_day,
             check_todo_reminders,
             list_todo_activities,
+            // GitHub（本机 gh CLI）
+            github_cli_status,
+            github_list_issues,
+            github_import_issues,
             add_todo_subtask,
             update_todo_subtask,
             delete_todo_subtask,
@@ -3662,6 +3752,7 @@ pub fn run() {
             skill_library_remove,
             skill_library_found,
             skill_library_import,
+            relocate_project_sessions,
             // Project Agent Skills（目录型，跨 CLI 根目录）
             list_project_skill_roots,
             list_project_skills,
@@ -3736,6 +3827,9 @@ pub fn run() {
             register_plan_child,
             get_plan_collaboration,
             reconcile_plan_collaboration,
+            // 多阶段工作流（docs/114）
+            list_workflows,
+            approve_workflow_stage,
             // Memory 命令
             search_memory,
             store_memory,
@@ -3817,6 +3911,7 @@ pub fn run() {
             // 共享 MCP 命令
             get_shared_mcp_config,
             get_shared_mcp_status,
+            get_mcp_hub_status,
             upsert_shared_mcp_server,
             remove_shared_mcp_server,
             start_shared_mcp_server,

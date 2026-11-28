@@ -45,6 +45,7 @@ mod terminal;
 pub mod terminal_recovery_dto;
 pub mod todo;
 pub mod usage_stats;
+pub mod workflow;
 mod workspace;
 pub mod workspace_snapshot;
 pub mod wsl;
@@ -106,8 +107,8 @@ pub use history::{
 pub use launch_profile::{
     LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
     LaunchProfileMcpPolicy, LaunchProfilePreviewRequest, LaunchProfileResolution,
-    LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, ResolvedMcpServer,
-    ResolvedSkill, SharedMcpUrls, SkillCompatibility,
+    LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, McpDelivery,
+    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};

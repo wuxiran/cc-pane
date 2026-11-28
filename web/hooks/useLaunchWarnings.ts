@@ -3,6 +3,20 @@ import { toastErr, toastWarn } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { listenWebviewIfTauri } from "@/services/runtime";
 import { usePanesStore } from "@/stores/usePanesStore";
+import { recoverFromDeadResume } from "./deadResumeRecovery";
+
+/**
+ * 能证明「resume 目标本身已不存在」的错误特征（后端 `wait_resume_diag` 的
+ * matched_pattern）。只认这两条明确语义——`error` / `not found in` 之类的宽特征
+ * 也可能是网络或配置错误，那种情况下原对话还在，撤掉 resume id 会让下次重启
+ * 丢失对话，宁可再失败一次。
+ */
+const RESUME_TARGET_MISSING_PATTERNS = new Set(["no conversation found", "session not found"]);
+
+export function isResumeTargetMissing(matchedPattern?: string): boolean {
+  return Boolean(matchedPattern && RESUME_TARGET_MISSING_PATTERNS.has(matchedPattern.toLowerCase()));
+}
+
 
 /**
  * 后端 `terminal-launch-warning` 事件的载荷（见 cc-panes-core constants::events）。
@@ -92,6 +106,23 @@ export function useLaunchWarnings(): void {
                 }),
               );
             } else if (payload.kind === "resumeLaunchFailed") {
+              if (
+                payload.sessionId
+                && payload.resumeId
+                && isResumeTargetMissing(payload.matchedPattern)
+              ) {
+                // 撤掉死 id 并原位自动新建（防循环见 deadResumeRecovery）。
+                const outcome = recoverFromDeadResume(payload.sessionId, payload.resumeId);
+                if (outcome !== "stopped") {
+                  toastWarn(
+                    t(outcome === "relaunched" ? "resumeTargetMissingRelaunched" : "resumeTargetMissing", {
+                      ns: "panes",
+                      cli: payload.cliTool ?? "",
+                    }),
+                  );
+                }
+                return;
+              }
               toastErr(
                 t("resumeLaunchFailed", {
                   ns: "panes",

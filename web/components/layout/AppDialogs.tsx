@@ -7,6 +7,7 @@ import JournalPanel from "@/components/JournalPanel";
 import LocalHistoryPanel from "@/components/LocalHistoryPanel";
 import ConflictResolveDialog from "@/components/git/ConflictResolveDialog";
 import SessionCleanerPanel from "@/components/SessionCleanerPanel";
+import SessionRelocationDialog from "@/components/sidebar/SessionRelocationDialog";
 import TodoPanel from "@/components/TodoPanel";
 import PlansPanel from "@/components/PlansPanel";
 import SelfChatPanel from "@/components/SelfChatPanel";
@@ -114,6 +115,7 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles, onOpen
         onOpenChange={(open) => open ? useDialogStore.getState().openSessionCleaner(sessionCleanerProjectPath) : useDialogStore.getState().closeSessionCleaner()}
         projectPath={sessionCleanerProjectPath}
       />
+      <SessionRelocationDialog />
       <TodoPanel
         open={todoOpen}
         onOpenChange={(open) => open ? useDialogStore.getState().openTodo(todoScope, todoScopeRef) : useDialogStore.getState().closeTodo()}

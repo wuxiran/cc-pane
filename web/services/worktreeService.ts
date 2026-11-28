@@ -7,6 +7,19 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
+/** `.ccpanes/worktree.json` 应用后的 setup 计划（与 Rust `WorktreeSetupPlan` 对齐） */
+export interface WorktreeSetupPlan {
+  projectPath: string;
+  worktreePath: string;
+  setup: string[];
+  commandLine: string;
+  configHash: string;
+  alwaysAllowed: boolean;
+  copiedFiles: string[];
+  sparseApplied: boolean;
+  warnings: string[];
+}
+
 /**
  * Worktree 服务 - 管理 Git Worktree
  */
@@ -52,6 +65,23 @@ export const worktreeService = {
         branch: branch ?? null,
         ...launchOptions,
       }),
+    );
+  },
+
+  /**
+   * 新 worktree 建好后：应用 copyFiles / sparseCheckout，返回 setup 计划（不执行命令）。
+   * Web 模式没有对应路由，直接返回 null（不做 setup）。
+   */
+  async prepareSetup(worktreePath: string): Promise<WorktreeSetupPlan | null> {
+    return invokeOrApi<WorktreeSetupPlan | null>("prepare_worktree_setup", { worktreePath }, () =>
+      Promise.resolve(null),
+    );
+  },
+
+  /** 记「始终允许」：按 项目 + 配置 hash */
+  async approveSetup(projectPath: string, configHash: string): Promise<void> {
+    return invokeOrApi<void>("approve_worktree_setup", { projectPath, configHash }, () =>
+      Promise.reject(new Error("Worktree setup approval requires the desktop app")),
     );
   },
 

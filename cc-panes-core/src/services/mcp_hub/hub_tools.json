@@ -1,0 +1,27 @@
+[
+  {
+    "name": "search_tools",
+    "description": "Search tools of the shared MCP servers behind this hub. Returns name, server, summary and inputSchema. Call one with call_tool.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "Keywords; empty lists all" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Default 10" }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "call_tool",
+    "description": "Call a tool found by search_tools on its server.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "server": { "type": "string" },
+        "tool": { "type": "string" },
+        "arguments": { "type": "object" }
+      },
+      "required": ["server", "tool"]
+    }
+  }
+]

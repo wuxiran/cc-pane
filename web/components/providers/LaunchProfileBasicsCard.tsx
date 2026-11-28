@@ -1,6 +1,15 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
 import type { LaunchProfileDraft, Provider } from "@/types";
@@ -13,6 +22,8 @@ import PiProfileOptions from "./PiProfileOptions";
 import LaunchProfileAccountField from "./LaunchProfileAccountField";
 import LaunchProfileCredentialField from "./LaunchProfileCredentialField";
 import { providerModelDropdownOptions } from "./providerModelOptions";
+import { useMagpieCatalog } from "./magpieLive";
+import { magpieLiveOptions } from "./magpieLiveOptions";
 
 type ProviderModel = NonNullable<Provider["models"]>[number];
 
@@ -52,6 +63,14 @@ export default function LaunchProfileBasicsCard({
   // 无 YOLO」约束，但 Provider 字段不跟 Pi 家族的 managed 特化文案。
   const localWslOnlyTool = isLocalWslOnlyCliTool(activeTool);
   const yoloSupported = !localWslOnlyTool;
+  // 供应商指向本机 Magpie 网关时：实时列出它的路由组和模型，不必先导入。Magpie 不在线就没有这一组。
+  const selectedProvider = providerOptions.find((provider) => provider.id === draft.providerId);
+  const magpieCatalog = useMagpieCatalog(
+    activeTool === "claude" || activeTool === "codex" ? selectedProvider : null,
+  );
+  const magpieOptions = magpieLiveOptions(magpieCatalog, selectedProviderModels, draft.modelId);
+  const hasMagpieOptions = magpieOptions.groups.length + magpieOptions.models.length > 0;
+  const isMagpieLiveId = (id: string) => magpieOptions.ids.has(id);
 
   /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。
    * 优先用 `contextSize` 字符串（`"1m"` / `"500k"` 等，会拼到 ANTHROPIC_MODEL 后缀），
@@ -139,7 +158,7 @@ export default function LaunchProfileBasicsCard({
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label={t("fieldModel")}>
           <Select
-            disabled={providerDisabled || !draft.providerId || selectedProviderModels.length === 0}
+            disabled={providerDisabled || !draft.providerId || (selectedProviderModels.length === 0 && !hasMagpieOptions)}
             value={draft.modelId ?? SELECT_NONE}
             onValueChange={(value) => setDraft((current) => ({ ...current, modelId: value === SELECT_NONE ? null : value }))}
           >
@@ -154,7 +173,7 @@ export default function LaunchProfileBasicsCard({
                     })
                   : t("nativeCliDefaultModel")}
               </SelectItem>
-              {draft.modelId && !selectedProviderModels.some((model) => model.id === draft.modelId) && (
+              {draft.modelId && !selectedProviderModels.some((model) => model.id === draft.modelId) && !isMagpieLiveId(draft.modelId) && (
                 <SelectItem value={draft.modelId}>{t("missingProviderModel", { model: draft.modelId })}</SelectItem>
               )}
               {providerModelDropdownOptions(selectedProviderModels, draft.modelId).map((model) => (
@@ -164,6 +183,28 @@ export default function LaunchProfileBasicsCard({
                     : providerModelOptionLabel(model)}
                 </SelectItem>
               ))}
+              {magpieOptions.groups.length > 0 && (
+                <SelectGroup data-testid="magpie-live-groups">
+                  <SelectSeparator />
+                  <SelectLabel>{t("magpieLive.groups")}</SelectLabel>
+                  {magpieOptions.groups.map((entry) => (
+                    <SelectItem key={entry.id} value={entry.id}>
+                      {entry.label ? `${entry.label} (${entry.id})` : entry.id}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {magpieOptions.models.length > 0 && (
+                <SelectGroup data-testid="magpie-live-models">
+                  <SelectSeparator />
+                  <SelectLabel>{t("magpieLive.models")}</SelectLabel>
+                  {magpieOptions.models.map((entry) => (
+                    <SelectItem key={entry.id} value={entry.id}>
+                      {entry.label ? `${entry.label} (${entry.id})` : entry.id}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
         </Field>

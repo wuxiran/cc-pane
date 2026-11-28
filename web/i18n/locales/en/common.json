@@ -141,6 +141,7 @@
   "rateLimit.sourceAt": "Reported by Codex in this session's log at {{time}}. Limits are per account; usage from other sessions or devices shows up after this session's next request.",
   "statusbar.ccchanShow": "Show cc-chan",
   "statusbar.ccchanHide": "Hide cc-chan",
+  "statusbar.keepAwake": "Agents working; system sleep is prevented",
   "statusbar.more": "More tools",
   "statusbar.customize": "Customize status bar (checked items stay visible)",
   "statusbar.item.webLock": "Web Lock",
@@ -197,5 +198,17 @@
     "passwordPlaceholder": "Password",
     "submitting": "Signing in...",
     "unlock": "Unlock"
-  }
+  },
+  "magpieRoute.title": "Magpie route",
+  "magpieRoute.switched": "switched {{n}}×",
+  "magpieRoute.switchedHint": "{{n}} account or model switch(es) seen in this session, fallbacks within a turn included",
+  "magpieRoute.asked": "Asked model",
+  "magpieRoute.group": "Routing group",
+  "magpieRoute.rule": "Rule #{{n}}",
+  "magpieRoute.current": "Current member",
+  "magpieRoute.served": "Served by",
+  "magpieRoute.tries": "Tries",
+  "magpieRoute.inFlight": "Turn in progress",
+  "magpieRoute.done": "Turn finished · {{status}}",
+  "magpieRoute.ttft": "first token {{ms}} ms"
 }

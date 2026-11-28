@@ -172,6 +172,19 @@
   "ccpanesMcpDesc": "Injects CC-Panes session, dispatch, and orchestration tools (core surface). Admin work goes through cc-panes-ctl.",
   "sharedMcpService": "Shared MCP services",
   "sharedMcpServiceDesc": "Reuse configured MCP from the shared library.",
+  "mcpDelivery": {
+    "label": "Delivery",
+    "direct": "Direct",
+    "hub": "Hub",
+    "desc": "Direct: one entry per shared MCP server. Hub: a single ccpanes-hub entry; agents use search_tools / call_tool on demand. Claude Code already loads tools on demand natively, so CLIs without lazy loading (Codex, etc.) gain more.",
+    "fallbackLine": "Falls back to direct: {{reason}}",
+    "limitLine": "With Hub: {{reason}}",
+    "fallback": {
+      "cli": "this CLI can't use the hub (local Claude Code / Codex only for now); servers are injected one by one.",
+      "runtime": "WSL / SSH sessions skip the hub and get servers one by one.",
+      "sse": "SSE remote servers bypass the hub and are injected on their own."
+    }
+  },
   "sharedMcpSelection": "Shared MCP selection",
   "sharedMcpEmpty": "The shared library is empty. Add or import via “Manage shared MCP”.",
   "skillDisabledHint": "This profile won't inject CC-Panes built-in Skills, profile Skills, or workspace project Skills.",
@@ -629,5 +642,17 @@
       "PURITY_DISABLED": "Channel purity checks are off: turn them on in Settings → Privacy"
     },
     "openDetails": "Show channel purity details"
+  },
+  "magpieQuota": {
+    "title": "Magpie quotas",
+    "unlimited": "unlimited",
+    "resetsAt": "resets {{time}}",
+    "lastMark": "(last served)",
+    "readFailed": "read failed",
+    "more": "{{n}} more in Magpie"
+  },
+  "magpieLive": {
+    "groups": "Magpie routing groups (live)",
+    "models": "Magpie models (live)"
   }
 }

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "@/components/ui/toast";
 import {
   Folder, FolderX, Trash2, Pencil, Clock, Globe,
-  FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone,
+  FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone, History,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
@@ -414,6 +414,17 @@ export default function ProjectListItem({
               </>
             )}
           </>
+        )}
+        {/* 迁移历史会话：要读写本机 ~/.claude、~/.codex，仅桌面端的本机项目 */}
+        {!isSsh && isTauriRuntime() && (
+          <ContextMenuItem
+            onClick={() => useDialogStore.getState().openSessionRelocation(
+              // 路径已失效：它就是旧路径；否则当前路径是新路径，旧路径由用户填
+              isMissing ? { oldPath: project.path, newPath: "" } : { oldPath: "", newPath: project.path },
+            )}
+          >
+            <History /> {t("relocateSessions")}
+          </ContextMenuItem>
         )}
         <ContextMenuItem onClick={() => onSetProjectAlias(workspace, project)}>
           <Pencil /> {t("setAlias")}

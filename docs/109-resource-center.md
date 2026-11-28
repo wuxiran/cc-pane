@@ -19,7 +19,7 @@
 
 ## A. 资源库 = 用户技能目录
 
-资源库就是现有 `<data>/skills/user/<id>/`（`InstalledUserSkill`）。注入方式不变：按启动档 `user:<id>` 选中后内联进会话提示词。`skill.json` 新增可选字段 `provenance`（`#[serde(default)]`，旧文件照常加载）：
+资源库就是现有 `<data>/skills/user/<id>/`（`InstalledUserSkill`）。启动档 `user:<id>` 选中后优先原生挂载，挂不了的才内联进会话提示词（见 C2）。`skill.json` 新增可选字段 `provenance`（`#[serde(default)]`，旧文件照常加载）：
 
 ```ts
 type SkillSourceKind = "github" | "git" | "folder" | "imported" | "unknown";
@@ -116,6 +116,18 @@ interface SkillImportResult { imported: string[]; failed: { key: string; error: 
 - **「选中」按模式算，对象是内置根目录里实际存在的全部技能**（不止界面上那 8 个）：core 模式 = 全部减去 `disabledSkillIds` 里的 `builtin:*`（没关任何一个时挂原目录，与以前一致）；custom 模式 = 只挂 `enabledSkillIds` 里的 `builtin:*`（白名单，与 `<allowed-skills>` 提示词一致，界面上不能单独勾选的其余内置技能在 custom 模式下不再挂载）。没有启动档时挂原目录。
 - **「清空」实际是按原选择原地重建**：每个子集目录里记有所选名字（`.ccpanes-builtin-set`），重新物化后先删再按同名重建，路径不变，daemon 里跨重启存活的会话不会丢挂载；所选技能已下架的子集只删不建。调用点在 `src-tauri/src/services/bundled_skills.rs`（物化之后）。
 - 子集物化失败时退回挂整个内置目录并记告警。
+
+## C2. 资源库技能原生挂载
+
+启动档选中的 `user:<id>` 与内置技能走同一条挂载路：`library_skill_sets::library_mount_dir` 把它们物化成 Claude 插件根 `<data>/skills/library-sets/<sha256(选择)[..16]>/`（`.claude-plugin/plugin.json`，插件名 `ccpanes-library`；`skills/<id>/` Unix 符号链接到库目录，Windows 复制并把 SKILL.md 大小与修改时间算进 hash），追加进 `skill_mount_paths`。于是 Claude / Cursor 走 `--plugin-dir`，Codex 链接进项目 `.agents/skills`，其余消费挂载的 adapter 同理。物化复用 `builtin_skill_sets` 的 `set_dir_name` / `materialize_into` / `link_or_copy_dir`，同一选择复用同一目录。
+
+挂上的技能 CLI 只把 name + description 放进上下文、正文按需读取，`session_skill_prompt_for_profile_with_mounted` 不再内联它们（`<allowed-skills>` 名单不变）。回退（内联，与以前一致）：
+
+- **规则只有一处**：`library_skills_mountable` = 本机运行且 adapter 真正消费挂载（`InjectionProfile::skill_mounts_consumed`）。WSL / SSH、`SkillMount::None` 的 CLI（如 jcode）、Pi RPC 链路整组内联。
+- 单个技能的 SKILL.md 缺 frontmatter `name` 或 `description`（CLI 认不出）时只把它内联。
+- 物化失败打 warn，整组内联：宁可多占上下文，不能让会话丢技能。
+
+测量（`cargo test -p cc-panes-core --lib library_mount_prompt_bytes -- --nocapture`，20 个约 2 KB 的技能）：core 模式提示词 44,359 → 0 字节，custom 模式 47,234 → 2,873 字节（剩 `<allowed-skills>` 名单）；CLI 原生列出 name + description 约 2.6 KB。
 
 ## D. 前端
 

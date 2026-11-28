@@ -3,7 +3,7 @@
 // 从 TerminalTabContent.tsx 抽出（行数棘轮）：三者只消费 leaf 级数据，
 // 与 pane 树渲染无耦合。
 import { useMemo, useState } from "react";
-import { CircleAlert, RotateCcw, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TerminalLaunchError, TerminalPaneNode } from "@/types";
 import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
@@ -68,6 +68,60 @@ export function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntr
               </div>
             ))
           : t("restoreLogPending")}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 恢复进行中的进度条（未出问题时）：默认只显示一行当前阶段，点开才看完整日志。
+ *
+ * 旧实现是叠在终端左上角的整块日志面，底色用了半透明的 `--app-hover`——冷重放的
+ * 旧输出就写在终端顶部，两层文字互相透出、重叠，且一次恢复要刷十几行流水账。
+ * 诊断细节已全量写进应用日志（[layout-restore]），这里只给阶段标签（docs/46 §2），
+ * 停在终端右下角、用不透明的弹层底色，不盖住顶部的回放内容。出问题时由
+ * BlockedRestorePanel / LaunchErrorPanel 接管并默认展开日志。
+ */
+export function RestoreProgressChip({ entries }: { entries: TerminalRestoreLogEntry[] }) {
+  const { t } = useTranslation("panes");
+  const [expanded, setExpanded] = useState(false);
+  const latest = entries.length > 0 ? entries[entries.length - 1] : null;
+  const latestText = latest ? formatRestoreLogEntry(latest, t).text : t("restoreLogPending");
+  return (
+    <div
+      className="absolute bottom-3 right-3 z-[1] flex w-[min(28rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-lg"
+      style={{
+        background: "var(--app-overlay)",
+        border: "1px solid var(--app-border)",
+        boxShadow: "var(--sh-md)",
+      }}
+    >
+      {expanded ? <RestoreLogSurface entries={entries} /> : null}
+      <div
+        className={`flex min-w-0 items-center gap-2 px-3 py-1.5${expanded ? " border-t border-[var(--app-border)]" : ""}`}
+      >
+        <Terminal className="size-3.5 shrink-0" style={{ color: "var(--app-text-tertiary)" }} aria-hidden="true" />
+        <span className="shrink-0 text-[length:var(--text-caption)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+          {t("restoreLogTitle")}
+        </span>
+        <span
+          role="status"
+          aria-live="polite"
+          className="min-w-0 flex-1 truncate text-[length:var(--text-caption)]"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          {latestText}
+        </span>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? t("restoreLogCollapse") : t("restoreLogExpand")}
+          onClick={() => setExpanded((value) => !value)}
+          className="shrink-0 rounded p-0.5 hover:bg-[var(--app-hover)]"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          {expanded ? <ChevronDown className="size-3.5" aria-hidden="true" /> : <ChevronUp className="size-3.5" aria-hidden="true" />}
+        </button>
       </div>
     </div>
   );

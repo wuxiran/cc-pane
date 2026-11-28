@@ -589,6 +589,11 @@ pub struct TerminalSettings {
     /// 关掉后所有会话与 CC-Panes 自身平级竞争，一个 `cargo build` 足以拖卡整机。
     #[serde(default = "default_true")]
     pub lower_session_priority: bool,
+    /// agent 工作时阻止系统空闲休眠（显示器照常熄屏），全部空闲约 60 秒后释放。
+    ///
+    /// 功能性开关，默认开启。daemon 每轮轮询时重读 config.toml，改动无需重启。
+    #[serde(default = "default_true")]
+    pub keep_awake_while_working: bool,
     /// 会话 CPU 相对权重（1..=9，中性 5）。None / 5 表示不设。
     ///
     /// 刻意默认不设：目标是防失控，不是给正常工作设天花板。
@@ -1412,6 +1417,7 @@ impl Default for TerminalSettings {
             snapshot_apply_kill_enabled: false,
             auto_adopt_daemon_sessions: true,
             lower_session_priority: true,
+            keep_awake_while_working: true,
             session_cpu_weight: None,
             split_shortcut_passthrough: false,
             inline_images_enabled: false,
@@ -2063,6 +2069,14 @@ mod tests {
 
         assert!(settings.lower_session_priority, "默认应降优先级");
         assert_eq!(settings.session_cpu_weight, None);
+    }
+
+    #[test]
+    fn keep_awake_defaults_on_for_legacy_config() {
+        let settings: TerminalSettings = toml::from_str("fontSize = 14\nfontFamily = \"Consolas\"\ncursorStyle = \"block\"\ncursorBlink = false\nscrollback = 20000\n")
+            .expect("legacy config without keepAwakeWhileWorking must still parse");
+        assert!(settings.keep_awake_while_working);
+        assert!(TerminalSettings::default().keep_awake_while_working);
     }
 
     #[test]

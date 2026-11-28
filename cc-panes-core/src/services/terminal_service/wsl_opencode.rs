@@ -110,6 +110,7 @@ pub(super) fn wsl_opencode_context(
             .collect(),
         shared_mcp_stdio: Default::default(),
         shared_mcp_remote: Default::default(),
+        hub_covered_mcp_servers: Vec::new(),
         allowed_mcp_server_ids: Vec::new(),
         // guest 里的 OpenCode 配置宿主侧读不到，无从知道该禁用哪些名字
         disable_unlisted_mcp_servers: false,

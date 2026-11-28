@@ -8,7 +8,7 @@ import {
   userSkillId,
 } from "@/components/providers/launchProfileHelpers";
 import { nextToggleBuiltinSkill, nextToggleServer } from "@/components/providers/launchProfileSkillPolicy";
-import { remoteMcpSupported } from "@/lib/cliInjectionRules";
+import { hubDeliverySupported, remoteMcpSupported } from "@/lib/cliInjectionRules";
 import { injectionProfileFor } from "@/stores/useCliInjectionProfilesStore";
 import type { LaunchProfile, LaunchProfileDraft } from "@/types";
 import type { SharedMcpRemote, SharedMcpServerStatus } from "@/types/shared-mcp";
@@ -55,6 +55,15 @@ export function remoteUnsupportedByProfile(profile: Pick<LaunchProfile, "targetT
   return profile.targetTools.every(
     (tool) => !remoteMcpSupported(injectionProfileFor(tool), remote.transport, headers, null),
   );
+}
+
+/**
+ * 这个启动档选了 Hub，但它面向的每个 CLI 都不能用 Hub（规则同后端 `hub_delivery_supported`），
+ * 启动时会回退直连（docs/113）。没指定 CLI 的启动档可能用到 Claude / Codex，不算回退。
+ */
+export function hubFallsBackForProfile(profile: Pick<LaunchProfile, "targetTools">): boolean {
+  if (profile.targetTools.length === 0) return false;
+  return profile.targetTools.every((tool) => !hubDeliverySupported(injectionProfileFor(tool), null));
 }
 
 export function toggleMcpResource(draft: LaunchProfileDraft, resource: ProfileMcpResource): LaunchProfileDraft {

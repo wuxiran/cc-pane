@@ -61,11 +61,44 @@ impl TodoService {
             created_at: now.clone(),
             updated_at: now,
             subtasks: vec![],
+            issue_url: req
+                .issue_url
+                .map(|url| url.trim().to_string())
+                .filter(|url| !url.is_empty()),
+            issue_number: req.issue_number,
         };
 
         self.repo.insert(&todo)?;
         self.repo.add_activity(&todo.id, "created", None)?;
         Ok(todo)
+    }
+
+    /// 按 issue 链接幂等创建：已导入过就返回已有任务和 `true`。
+    pub fn create_or_get_issue_todo(&self, req: CreateTodoRequest) -> AppResult<(TodoItem, bool)> {
+        let url = req
+            .issue_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .ok_or_else(|| AppError::from("issueUrl is required"))?
+            .to_string();
+        if let Some(existing) = self.find_by_issue_url(&url)? {
+            return Ok((existing, true));
+        }
+        Ok((self.create_todo(req)?, false))
+    }
+
+    /// 按 issue 链接查已导入的 Todo id。
+    pub fn issue_todo_id(&self, issue_url: &str) -> AppResult<Option<String>> {
+        Ok(self.repo.find_id_by_issue_url(issue_url)?)
+    }
+
+    /// 按 issue 链接查已导入的 Todo。
+    pub fn find_by_issue_url(&self, issue_url: &str) -> AppResult<Option<TodoItem>> {
+        match self.repo.find_id_by_issue_url(issue_url)? {
+            Some(id) => Ok(self.repo.get(&id)?),
+            None => Ok(None),
+        }
     }
 
     /// 获取 Todo
@@ -190,6 +223,8 @@ impl TodoService {
             reminder_at: next_reminder,
             recurrence: Some(recurrence.to_string()),
             todo_type: Some(old.todo_type.clone()),
+            // issue 链接是去重键，下一轮重复实例不继承。
+            ..Default::default()
         };
 
         self.create_todo(req)

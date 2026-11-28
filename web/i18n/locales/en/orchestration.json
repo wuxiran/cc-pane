@@ -174,5 +174,16 @@
     "title": "No matching tasks",
     "description": "Try another status or filter",
     "clear": "Clear filters"
+  },
+  "workflow": {
+    "stages": "Workflow stages",
+    "approve": "Approve",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "waiting_approval": "Waiting for approval",
+      "done": "Done",
+      "failed": "Failed"
+    }
   }
 }
