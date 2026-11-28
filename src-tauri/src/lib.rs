@@ -39,6 +39,7 @@ use commands::{
     adopt_terminal_session,
     apply_fork_changes,
     ask_bot,
+    approve_worktree_setup,
     batch_update_todo_status,
     begin_cli_turn_checkpoint,
     browser_back,
@@ -85,6 +86,7 @@ use commands::{
     clear_terminal_sessions,
     clear_terminal_task_queue,
     close_layout_switcher_window,
+    close_port_preview,
     close_window,
     compress_history,
     compute_text_diff,
@@ -368,6 +370,7 @@ use commands::{
     list_pi_rpc_sessions,
     // Plan 命令
     list_plans,
+    list_port_previews,
     list_project_quick_commands,
     list_project_skill_roots,
     list_project_skills,
@@ -407,6 +410,7 @@ use commands::{
     open_in_codex,
     open_layout_switcher_window,
     open_path_in_explorer,
+    open_port_preview,
     open_settings_window,
     open_web_access,
     orchestrator_rotation_impact,
@@ -414,6 +418,7 @@ use commands::{
     prepare_chat_fork,
     prepare_claude_relaunch,
     prepare_session_context,
+    prepare_worktree_setup,
     preview_external_providers,
     preview_launch_profile_native_config,
     preview_launch_profile_resolution,
@@ -662,15 +667,15 @@ use services::{
     HistoryWatchManager, JournalService, LaunchHistoryService, LaunchProfileService,
     LayoutSnapshotService, McpConfigService, McpMarketService, MemoryService, NotificationService,
     OrchestratorService, PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService,
-    ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
+    PortPreviewService, ProcessMonitorService, ProjectCliHooksService, ProjectContextService,
+    ProjectService, ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillLibraryService,
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
     SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
     TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
     UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    WorktreeService, WorktreeSetupService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1896,6 +1901,9 @@ pub fn run() {
     let project_context_service = Arc::new(ProjectContextService::new());
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
+    let worktree_setup_service = Arc::new(WorktreeSetupService::new(
+        app_paths.worktree_setup_approvals_path(),
+    ));
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     match workspace_service.migrate_project_identities() {
         Ok(report) if report.workspaces_updated > 0 => info!(
@@ -2040,6 +2048,9 @@ pub fn run() {
         ssh_machine_service.clone(),
         terminal_service.ssh_connection_service(),
     ));
+    let port_preview_service = Arc::new(PortPreviewService::with_ssh(
+        terminal_service.ssh_connection_service(),
+    ));
     let remote_session_router = Arc::new(
         cc_panes_core::services::remote_terminal::RemoteSessionRouter::new(
             app_paths
@@ -2178,6 +2189,8 @@ pub fn run() {
         .manage(project_context_service)
         .manage(journal_service)
         .manage(worktree_service)
+        .manage(worktree_setup_service)
+        .manage(port_preview_service)
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
@@ -2656,6 +2669,25 @@ pub fn run() {
                             );
                         },
                     );
+                    // 会话结束回收它的端口预览隧道（docs/116 §B）。
+                    for event_name in [
+                        cc_panes_core::constants::events::TERMINAL_EXIT,
+                        cc_panes_core::constants::events::SESSION_KILLED,
+                    ] {
+                        let preview_service = app.state::<Arc<PortPreviewService>>().inner().clone();
+                        let preview_app = app_handle.clone();
+                        app.listen(event_name, move |event| {
+                            if let Ok(payload) =
+                                serde_json::from_str::<TerminalLifecycleEventPayload>(event.payload())
+                            {
+                                commands::release_port_previews_for_session(
+                                    &preview_app,
+                                    preview_service.clone(),
+                                    payload.session_id,
+                                );
+                            }
+                        });
+                    }
                     let killed_service = tb_svc.inner().clone();
                     app.listen(
                         cc_panes_core::constants::events::SESSION_KILLED,
@@ -3536,6 +3568,12 @@ pub fn run() {
             list_task_verification, run_task_verification,
             fork_chat_worktree,
             remove_worktree,
+            prepare_worktree_setup,
+            approve_worktree_setup,
+            // 远程端口本机预览（docs/116 §B）
+            open_port_preview,
+            list_port_previews,
+            close_port_preview,
             // Workspace 命令
             list_workspaces,
             create_workspace,

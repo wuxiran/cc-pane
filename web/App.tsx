@@ -38,6 +38,7 @@ import { useQuickTerminalSessionSync } from "@/hooks/useQuickTerminalSessionSync
 import { usePipeEventListener } from "@/hooks/usePipeEventListener";
 import { useChatScreenshotAttachments } from "@/hooks/useChatScreenshotAttachments";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
+import WorktreeSetupDialog from "@/components/worktree/WorktreeSetupDialog";
 import { useDensityStore } from "@/stores/useDensityStore";
 import { startPerformanceSampling } from "@/services/performanceService";
 import { loadCliInjectionProfiles } from "@/stores/useCliInjectionProfilesStore";
@@ -159,6 +160,8 @@ function MainApp() {
       {/* 全局唯一启动器弹窗（产物走 pendingLaunch，由上面的 useOpenTerminal 消费） */}
       <LauncherDialog />
       <AutomationsDialog />
+      {/* worktree 建好后执行 .ccpanes/worktree.json 的 setup 前的确认（docs/116） */}
+      <WorktreeSetupDialog />
     </>
   );
 }

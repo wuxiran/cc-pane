@@ -101,6 +101,7 @@ mod ssh_handshake;
 pub mod ssh_machine_probe;
 mod ssh_machine_service;
 pub mod ssh_port_forward;
+pub mod port_preview_service;
 mod ssh_proxy_bridge;
 mod ssh_relay;
 mod ssh_terminal_service;
@@ -123,6 +124,7 @@ mod workspace_projects_manifest;
 mod workspace_service;
 mod workspace_skill_service;
 mod worktree_service;
+pub mod worktree_setup;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
@@ -225,6 +227,7 @@ pub use shared_mcp_service::{AgentMcpServer, SharedMcpService};
 pub use skill_library_service::SkillLibraryService;
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;
+pub use port_preview_service::{PortPreviewService, PortPreviewTunnel};
 pub use ssh_connection_service::SshConnectionService;
 pub use ssh_credential_service::SshCredentialService;
 pub use ssh_file_service::SshFileService;
@@ -270,3 +273,4 @@ pub use workspace_skill_service::{
     WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
 };
 pub use worktree_service::{WorktreeInfo, WorktreeService};
+pub use worktree_setup::{WorktreeSetupPlan, WorktreeSetupService};

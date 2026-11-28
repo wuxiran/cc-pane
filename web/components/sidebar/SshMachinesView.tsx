@@ -21,6 +21,7 @@ import { checkSshConnectivity } from "@/services/sshMachineService";
 import SshPasswordDialog from "@/components/ssh/SshPasswordDialog";
 import SshMachineDialog from "./SshMachineDialog";
 import MachineItem from "./SshMachineItem";
+import PortPreviewList from "./PortPreviewList";
 import SshMachineFilterRow from "./SshMachineFilterRow";
 import {
   AUTO_PROBE_CONCURRENCY,
@@ -461,6 +462,7 @@ export default function SshMachinesView({
             )}
           </div>
         )}
+        <PortPreviewList />
         {devices?.footer}
       </div>
 

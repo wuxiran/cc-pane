@@ -95,7 +95,7 @@ export type {
   GitRepoInfo,
   GitRepoState,
 } from "./gitService";
-export type { WorktreeInfo } from "./worktreeService";
+export type { WorktreeInfo, WorktreeSetupPlan } from "./worktreeService";
 export type { PlanEntry } from "./planService";
 export { filesystemService } from "./filesystemService";
 export { sshFileService } from "./sshFileService";

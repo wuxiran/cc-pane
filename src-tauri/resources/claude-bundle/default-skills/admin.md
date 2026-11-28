@@ -29,6 +29,7 @@ description: Manage {{app_name}} itself via cc-panes-ctl: workspaces, launch pro
 |---|---|
 | 看工作空间 / 项目（core 里也有） | `list_workspaces` `get_workspace` `list_projects` |
 | 新建工作空间、加项目 | `create_workspace(name, path?)` `add_project_to_workspace(workspaceName, projectPath)` |
+| 建 git worktree（按 `.ccpanes/worktree.json` 拷文件；setup 仅已批准时执行） | `create_worktree(projectPath, name, branch?, baseRef?, workspaceName?)` |
 | 一个目录里一堆 repo 批量导入 | `scan_directory(path)` → 确认 → `create_workspace` + 循环 `add_project_to_workspace` |
 | 归档 / 恢复（可逆，UI 才能永久删） | `set_workspace_archived(workspaceName, archived)` `set_workspace_project_archived(workspaceName, projectId, archived)` |
 | 工作空间路径填错 | `update_workspace_path(workspaceName, path)` |

@@ -448,5 +448,13 @@
   "githubImportFailed": "Import failed: {{error}}",
   "githubMergeConfirmTitle": "Merge pull request?",
   "githubMergeConfirmDesc": "An agent wants to merge PR #{{number}} \"{{title}}\" ({{head}} → {{base}}, {{method}}). Merging cannot be undone.\n\n{{url}}",
-  "githubMergeConfirmAction": "Merge"
+  "githubMergeConfirmAction": "Merge",
+  "worktreeSetup": {
+    "title": "Run worktree setup commands?",
+    "description": "This repository's .ccpanes/worktree.json asks to run the following commands in the new worktree. They will run in a new terminal tab.",
+    "copied": "Copied from the main tree: {{files}}",
+    "skip": "Skip",
+    "runOnce": "Run once",
+    "alwaysAllow": "Always allow"
+  }
 }
