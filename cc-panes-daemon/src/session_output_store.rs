@@ -12,7 +12,7 @@ use std::sync::{Arc, Weak};
 
 use cc_panes_core::services::{write_session_checkpoint, write_session_output, TerminalService};
 use cc_panes_core::utils::AppPaths;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 struct PersistWork {
     session_id: String,
@@ -91,6 +91,14 @@ impl OutputSink {
         let Some(service) = self.service.upgrade() else {
             return;
         };
+        // resume 失败退出（如 Claude `No conversation found`）：这段输出只是报错，
+        // 落盘的话下次重启会被当成 "Session restored" 原样冷重放。连同可能残留的
+        // 旧文件一起清掉，下次恢复直接新建。
+        if service.is_cold_replay_suppressed(session_id) {
+            debug!(session_id, "skipped persisting output of failed resume");
+            discard_cold_replay_output(&self.app_paths, session_id);
+            return;
+        }
         // 0 = 整个缓冲区。会话不存在（已过 dead_buffers 保留期）时返回 Err，属正常路径。
         match service.get_session_output(session_id, 0) {
             Ok(output) => self.write(session_id, &output.lines),
@@ -121,5 +129,34 @@ impl OutputSink {
         if let Err(error) = write_session_output(&self.app_paths, session_id, lines) {
             warn!(session_id, error, "failed to persist session output");
         }
+    }
+}
+
+/// 删掉某会话的冷重放 `.output`（不存在属正常路径）。
+fn discard_cold_replay_output(app_paths: &AppPaths, session_id: &str) {
+    let path = app_paths.session_output_path(session_id);
+    match std::fs::remove_file(&path) {
+        Ok(()) => info!(session_id, "discarded cold-replay output of failed resume"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => warn!(session_id, %error, "failed to discard cold-replay output"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discard_cold_replay_output_removes_existing_file_and_tolerates_missing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app_paths = AppPaths::new(Some(dir.path().to_string_lossy().to_string()));
+        write_session_output(&app_paths, "failed", &["No conversation found".to_string()])
+            .expect("write output");
+        assert!(app_paths.session_output_path("failed").exists());
+
+        discard_cold_replay_output(&app_paths, "failed");
+        assert!(!app_paths.session_output_path("failed").exists());
+        // 再删一次（文件已不在）不应报错。
+        discard_cold_replay_output(&app_paths, "failed");
     }
 }
