@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod library_mount_tests;
 mod mutations;
 
 use crate::models::launch_profile::{
@@ -18,7 +20,7 @@ use crate::utils::error::AppError;
 use crate::utils::{AppResult, LaunchRuntime};
 use anyhow::{Context, Result};
 use cc_cli_adapters::CliToolRegistry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -445,6 +447,30 @@ impl LaunchProfileService {
         &self,
         profile: Option<&LaunchProfile>,
     ) -> Option<String> {
+        self.session_skill_prompt_for_profile_with_mounted(profile, &BTreeSet::new())
+    }
+
+    /// 本次会话选中的资源库技能（`user:<id>`），供原生挂载物化（`library_skill_sets`）。
+    /// 与内联的口径一致：技能关闭或 target 不是 session 时为空。
+    pub fn session_library_skills(&self, profile: Option<&LaunchProfile>) -> Vec<UserSkillContent> {
+        match profile {
+            Some(profile)
+                if profile.skill_policy.mode != LaunchProfileSkillMode::Disabled
+                    && profile.skill_policy.target == "session" =>
+            {
+                self.selected_user_skill_contents(profile)
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// 同 [`Self::session_skill_prompt_for_profile`]，但 `mounted_user_ids` 里的资源库技能已经
+    /// 原生挂载（CLI 按需加载正文），不再内联。
+    pub fn session_skill_prompt_for_profile_with_mounted(
+        &self,
+        profile: Option<&LaunchProfile>,
+        mounted_user_ids: &BTreeSet<String>,
+    ) -> Option<String> {
         let profile = profile?;
         if profile.skill_policy.mode == LaunchProfileSkillMode::Disabled
             || profile.skill_policy.target != "session"
@@ -453,7 +479,11 @@ impl LaunchProfileService {
         }
 
         let profile_skills = Self::selected_profile_skills(profile);
-        let user_skills = self.selected_user_skill_contents(profile);
+        let user_skills: Vec<_> = self
+            .selected_user_skill_contents(profile)
+            .into_iter()
+            .filter(|user_skill| !mounted_user_ids.contains(&user_skill.skill.id))
+            .collect();
         let allowed_skills = self.allowed_skill_entries(profile);
         if profile_skills.is_empty() && user_skills.is_empty() && allowed_skills.is_empty() {
             return None;
