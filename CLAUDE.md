@@ -459,5 +459,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/98-ccpanes-dir-plan.md` | **`.ccpanes` 三层职责规划**（已评审）：`~/.cc-panes` 机器层 / `workspaces/<name>` 工作空间默认层 / `<project>/.ccpanes` 只放值得提交的仓库意图，机器缓存全进 `.ccpanes/.cache/`（自带 `.gitignore`）；所有路径经 `utils::project_dirs`；第一批已落地，第二批 = MCP/快捷命令/Automations/Cursor Bridge 转 workspace-first |
 | `docs/97-skill-market.md` | **技能市场 + 项目/工作空间技能管理**：全屏市场页聚合三源（自维护精选清单 `include_str!` 基线 + anthropics/skills 自动发现 + skills.sh 联网搜索），目录型技能安装（GitHub tree → jsDelivr 镜像回退，staging 后 rename，300 文件/30MB 硬限）；项目「Skill 管理」按五个 CLI 根目录分组管 `SKILL.md`；**工作空间技能**是插件形态目录按会话挂载（与 builtin 同机制），市场默认装进当前工作空间——对项目与用户 CLI 主目录零写入 |
 | `docs/112-github-delivery.md` | **GitHub 交付链（一）**：agent 经本机 `gh` 看 PR / 开 PR / 读失败 CI 日志 / 重跑 / 合并（前端确认 + 锁 head 提交）+ Issue 导入 Todo（V47 `issue_url` 去重）——不存 token，没装没登录入口隐藏 |
+| `docs/113-mcp-hub.md` | **MCP Hub（`ccpanes-hub`）**：共享 MCP 的统一入口——启动档 `mcpPolicy.delivery` 直连/Hub 二选一（与 mode 正交），Hub 只暴露 `search_tools` / `call_tool`；与 docs/103（ccpanes 自身 `/mcp` 精简）分层、与 Claude 原生 tool search 的关系；资源库 Hub 卡片；不支持的组合（WSL/SSH、非 Claude/Codex、sse）按注入描述自动回退直连，前后端同源 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

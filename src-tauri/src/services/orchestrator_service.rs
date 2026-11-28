@@ -2670,6 +2670,22 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
         Default::default(),
     );
 
+    // docs/113：共享 MCP 聚合入口。与资源库 Hub 卡片共用 app 管理的那一份（缓存一致）。
+    let hub = state
+        .app_handle
+        .try_state::<Arc<cc_panes_core::services::McpHubService>>()
+        .map(|hub| hub.inner().clone())
+        .unwrap_or_else(|| {
+            Arc::new(cc_panes_core::services::McpHubService::new(
+                state.shared_mcp_service.clone(),
+            ))
+        });
+    let mcp_hub_service = StreamableHttpService::new(
+        move || Ok(super::mcp_hub_handler::McpHubHandler::new(hub.clone())),
+        Arc::new(LocalSessionManager::default()),
+        Default::default(),
+    );
+
     // M2: MCP 路由通过 auth middleware 校验 Bearer token
     Router::new()
         .route("/api/launch-task", post(handle_launch_task))
@@ -2718,6 +2734,7 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
         )
         .nest_service("/mcp", mcp_service)
         .nest_service("/mcp-full", mcp_full_service)
+        .nest_service(cc_panes_core::services::mcp_hub::HUB_PATH, mcp_hub_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))
         .layer(middleware::from_fn_with_state(
             state.clone(),

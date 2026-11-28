@@ -6,6 +6,8 @@ import type { LaunchEffort, PiLaunchOptions } from "./terminal";
 import type { WorkspaceLaunchEnvironment } from "./workspace";
 
 export type LaunchProfileMcpMode = "default" | "custom" | "disabled";
+/** 共享 MCP 的投递方式（docs/113），与 mode 正交：mode 管「给哪些」，delivery 管「怎么给」。 */
+export type McpDelivery = "direct" | "hub";
 export type LaunchProfileSkillMode = "core" | "custom" | "disabled";
 export type LaunchProviderSelection = "inherit" | "explicit" | "none";
 export type LaunchProfileRuntime = WorkspaceLaunchEnvironment | null;
@@ -23,6 +25,8 @@ export interface LaunchProfileMcpPolicy {
   disabledServerIds: string[];
   includeCcpanesMcp: boolean;
   includeSharedMcp: boolean;
+  /** 不支持 hub 的组合（WSL / SSH / 其余 CLI / sse 服务器）自动回退直连，见 `hubDeliverySupported`。 */
+  delivery: McpDelivery;
 }
 
 export interface LaunchProfileSkillPolicy {
@@ -167,6 +171,7 @@ export function defaultLaunchProfileDraft(provider?: Provider | null): LaunchPro
       disabledServerIds: [],
       includeCcpanesMcp: true,
       includeSharedMcp: true,
+      delivery: "direct",
     },
     skillPolicy: {
       mode: "core",

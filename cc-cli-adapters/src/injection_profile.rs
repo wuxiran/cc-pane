@@ -113,6 +113,10 @@ pub struct McpInjection {
     pub isolation: McpIsolation,
     /// ccpanes 调用能否带上**本会话**的 launchId（共享文件里的 id 会被并发会话覆盖，不算）。
     pub launch_identity: bool,
+    /// 共享 MCP 能否改为只投递一条 `ccpanes-hub`（docs/113）。要求 adapter 会把用户自己
+    /// 配置里与 hub 覆盖的服务器同名的条目去重；否则同一组工具会和 hub 并排出现两次。
+    #[serde(default)]
+    pub hub: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +168,7 @@ impl McpInjection {
             remote_headers: false,
             isolation: McpIsolation::None,
             launch_identity: false,
+            hub: false,
         }
     }
 
@@ -196,6 +201,7 @@ pub fn project_file_mcp(
         remote_headers: true,
         isolation: McpIsolation::DeclareOnly,
         launch_identity,
+        hub: false,
     }
 }
 
@@ -299,6 +305,13 @@ impl InjectionProfile {
         }
         !has_headers || self.mcp.remote_headers
     }
+
+    /// 这次启动能否用 hub 投递共享 MCP（docs/113）：CLI 声明了 `mcp.hub`，且是本机运行时。
+    /// WSL / SSH 走另一条注入路径（主机改写 / 无 orchestrator），一律回退直连。
+    /// 前端 `hubDeliverySupported`（web/lib/cliInjectionRules.ts）同口径，两处同步改。
+    pub fn hub_delivery_supported(&self, runtime: &str) -> bool {
+        self.mcp.shared && self.mcp.hub && self.runtime(runtime).is_none()
+    }
 }
 
 #[cfg(test)]
@@ -320,6 +333,20 @@ mod tests {
             "web/lib/cliInjectionProfiles.json is stale; replace it with:\n{}",
             serde_json::to_string_pretty(&actual).unwrap()
         );
+    }
+
+    /// docs/113：只有本机的 Claude / Codex 能用 hub 投递（它们对用户自己配置的同名条目去重）。
+    #[test]
+    fn hub_delivery_rule_reads_profile() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        let profile = |id: &str| registry.get(id).unwrap().injection_profile();
+        assert!(profile("claude").hub_delivery_supported("local"));
+        assert!(profile("codex").hub_delivery_supported("local"));
+        assert!(!profile("claude").hub_delivery_supported("wsl"));
+        assert!(!profile("codex").hub_delivery_supported("ssh"));
+        for other in ["gemini", "opencode", "pi", "jcode", "cursor"] {
+            assert!(!profile(other).hub_delivery_supported("local"), "{other}");
+        }
     }
 
     #[test]

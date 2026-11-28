@@ -54,6 +54,7 @@ pub mod library_space_service;
 pub mod login_account;
 pub mod magpie_live;
 pub mod mcp_config_service;
+pub mod mcp_hub;
 mod memory_service;
 pub mod native_config;
 pub mod opencode_session_service;
@@ -173,6 +174,7 @@ pub use mcp_config_service::{
     effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
     McpServerConfig,
 };
+pub use mcp_hub::McpHubService;
 pub use memory_service::MemoryService;
 pub use pi_rpc_service::{
     PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,

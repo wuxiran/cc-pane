@@ -141,3 +141,49 @@ describe("LaunchProfileMcpCard 新增", () => {
     expect(pending).not.toHaveTextContent("context7");
   });
 });
+
+describe("LaunchProfileMcpCard 投递方式（docs/113）", () => {
+  const hubTab = () => screen.getByRole("tab", { name: String(i18n.t("providers:mcpDelivery.hub" as never)) });
+
+  beforeEach(() => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    useSharedMcpStore.setState({ servers: [] });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("Claude / Codex 可选 Hub，并说明 Claude 已原生按需加载", () => {
+    renderCard("codex", {});
+    expect(hubTab()).not.toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-note")).toHaveTextContent("Codex");
+    expect(screen.queryByTestId("mcp-delivery-fallback-cli")).not.toBeInTheDocument();
+  });
+
+  it("不支持的 CLI 置灰 Hub 并说明回退直连", () => {
+    renderCard("gemini", {});
+    expect(hubTab()).toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-fallback-cli")).toBeInTheDocument();
+  });
+
+  it("已选 Hub 的启动档在不支持的 CLI 下仍显示选中，并标明回退", () => {
+    renderCard("gemini", { delivery: "hub" });
+    expect(hubTab()).not.toBeDisabled();
+    expect(screen.getByTestId("mcp-delivery-fallback-cli")).toHaveTextContent(
+      String(i18n.t("providers:mcpDelivery.fallbackLine" as never, { reason: "" } as never)).trim(),
+    );
+  });
+
+  it("有 SSE 远程服务器时说明它不经 Hub", () => {
+    useSharedMcpStore.setState({
+      servers: [{ name: "legacy", config: { shared: true, remote: { url: "https://x/sse", transport: "sse", headers: {} } }, status: "running" } as unknown as SharedMcpServerInfo],
+    });
+    renderCard("claude", {});
+    expect(screen.getByTestId("mcp-delivery-fallback-sse")).toBeInTheDocument();
+  });
+
+  it("MCP 全关时不显示投递方式", () => {
+    renderCard("claude", { mode: "disabled" });
+    expect(screen.queryByTestId("mcp-delivery-note")).not.toBeInTheDocument();
+  });
+});

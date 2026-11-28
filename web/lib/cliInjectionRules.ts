@@ -27,6 +27,23 @@ export function remoteMcpSupported(
   return !hasHeaders || profile.mcp.remoteHeaders;
 }
 
+/**
+ * 这次启动能否用 hub 投递共享 MCP。与 `InjectionProfile::hub_delivery_supported` 一致：
+ * CLI 声明了 `mcp.hub` 且是本机运行时；WSL / SSH 一律回退直连（docs/113）。
+ */
+export function hubDeliverySupported(
+  profile: InjectionProfile | null | undefined,
+  runtime: string | null | undefined,
+): boolean {
+  if (!profile || !profile.mcp.shared || !profile.mcp.hub) return false;
+  return runtime !== "wsl" && runtime !== "ssh";
+}
+
+/** hub 能否代转这台共享服务器：本地桥与 http 远程可以，sse 远程照旧直连（后端 `hub_can_route`）。 */
+export function hubCanRoute(remote: { transport: string } | null | undefined): boolean {
+  return !remote || remote.transport.toLowerCase() === "http";
+}
+
 /** 这个 CLI 自己会读的外部技能来源（启动档里的 Claude / Codex / Plugin 技能开关）。 */
 export function nativeSkillSources(profile: InjectionProfile | null | undefined): NativeSkillSource[] {
   return profile?.skills.nativeSources ?? [];

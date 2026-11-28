@@ -3,10 +3,11 @@ use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, CreateSessionRequest, JobMemoryWarning, LaunchProfile, LaunchProfileMcpMode,
-    LaunchProfileSkillMode, LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus,
-    SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
-    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    LaunchProfileSkillMode, LaunchProviderSelection, McpDelivery, PolicyOutcome,
+    ResourcePolicyStatus, SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome,
+    TerminalBufferMode, TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry,
+    TerminalOutput, TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot,
+    WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -281,6 +282,20 @@ fn workspace_skill_session_prompt(
     }
     prompt.push_str("</ccpanes-workspace-skills>");
     Some(prompt)
+}
+
+/// 本次启动是否把共享 MCP 收成一条 `ccpanes-hub`（docs/113）。启动档选了 hub 投递、MCP 没全关，
+/// 且 CLI 描述声明能用 hub、运行时是本机（`InjectionProfile::hub_delivery_supported`）；
+/// 任一不满足就回退直连——与前端 `hubDeliverySupported` 同口径。
+fn launch_uses_mcp_hub(
+    profile: Option<&LaunchProfile>,
+    injection_profile: &cc_cli_adapters::InjectionProfile,
+    runtime_kind: &str,
+) -> bool {
+    profile.is_some_and(|profile| {
+        profile.mcp_policy.delivery == McpDelivery::Hub
+            && profile.mcp_policy.mode != LaunchProfileMcpMode::Disabled
+    }) && injection_profile.hub_delivery_supported(runtime_kind)
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -2483,6 +2498,7 @@ impl TerminalService {
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
             shared_mcp_remote: Default::default(),
+            hub_covered_mcp_servers: Vec::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
@@ -3875,6 +3891,38 @@ impl TerminalService {
                     }
                 }
 
+                // docs/113：启动档选了 hub 投递且这次组合支持时，把共享 MCP 收成一条 ccpanes-hub
+                let hub_injection = launch_uses_mcp_hub(
+                    resolved_profile.as_ref(),
+                    &injection_profile,
+                    runtime_kind,
+                )
+                .then(|| {
+                    let info = orchestrator_info_for_launch.as_ref()?;
+                    crate::services::mcp_hub::apply_hub_injection(
+                        &effective_shared_mcp_urls,
+                        &shared_mcp_config,
+                        info.port,
+                        &info.token,
+                    )
+                })
+                .flatten();
+                let (shared_mcp_urls, hub_covered_mcp_servers) = match hub_injection {
+                    Some(hub) => {
+                        info!(
+                            session_id = %session_id,
+                            covered = ?hub.covered,
+                            "create_session: shared MCP served through ccpanes-hub"
+                        );
+                        (hub.urls, hub.covered)
+                    }
+                    None => (effective_shared_mcp_urls, Vec::new()),
+                };
+                let mut shared_mcp_stdio = shared_mcp_stdio;
+                let mut shared_mcp_remote = shared_mcp_remote;
+                shared_mcp_stdio.retain(|name, _| shared_mcp_urls.contains_key(name));
+                shared_mcp_remote.retain(|name, _| shared_mcp_urls.contains_key(name));
+
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
@@ -3900,9 +3948,10 @@ impl TerminalService {
                         .map(|i| i.token.clone()),
                     launch_id: launch_id.map(|s| s.to_string()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
-                    shared_mcp_urls: effective_shared_mcp_urls,
+                    shared_mcp_urls,
                     shared_mcp_stdio,
                     shared_mcp_remote,
+                    hub_covered_mcp_servers,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
                     skill_mount_paths: skill_mount_paths_for_profile(
@@ -8633,6 +8682,52 @@ mod tests {
                 false,
             )
             .is_empty());
+    }
+
+    /// docs/113：hub 投递只在启动档选了 hub、MCP 没全关、CLI 描述支持且运行时为本机时生效。
+    #[test]
+    fn mcp_hub_applies_only_for_hub_delivery_on_supported_combinations() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let profiles = LaunchProfileService::new(temp_dir.path().join("launch-profiles.json"));
+        let make = |name: &str, mode, delivery| {
+            profiles
+                .create_profile(crate::models::launch_profile::LaunchProfileDraft {
+                    name: Some(name.to_string()),
+                    alias: None,
+                    description: None,
+                    provider_id: None,
+                    provider_account_id: None,
+                    model_id: None,
+                    adapter_options: HashMap::new(),
+                    target_tools: vec![],
+                    target_runtime: None,
+                    yolo_mode: false,
+                    mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
+                        mode,
+                        delivery,
+                        ..Default::default()
+                    },
+                    skill_policy: Default::default(),
+                    native_overrides: Default::default(),
+                    is_default: false,
+                })
+                .expect("create profile")
+        };
+        let hub = make("hub", LaunchProfileMcpMode::Default, McpDelivery::Hub);
+        let direct = make("direct", LaunchProfileMcpMode::Default, McpDelivery::Direct);
+        let off = make("off", LaunchProfileMcpMode::Disabled, McpDelivery::Hub);
+        let registry = cc_cli_adapters::CliToolRegistry::with_builtin_adapters();
+        let claude = registry.injection_profile("claude");
+        let codex = registry.injection_profile("codex");
+        let gemini = registry.injection_profile("gemini");
+
+        assert!(launch_uses_mcp_hub(Some(&hub), &claude, "local"));
+        assert!(launch_uses_mcp_hub(Some(&hub), &codex, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &claude, "wsl"));
+        assert!(!launch_uses_mcp_hub(Some(&hub), &gemini, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&direct), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(Some(&off), &claude, "local"));
+        assert!(!launch_uses_mcp_hub(None, &claude, "local"));
     }
 
     #[test]

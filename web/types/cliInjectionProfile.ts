@@ -22,6 +22,8 @@ export interface InjectionProfile {
     remoteHeaders: boolean;
     isolation: McpIsolation;
     launchIdentity: boolean;
+    /** 共享 MCP 能否只投递一条 ccpanes-hub（docs/113） */
+    hub: boolean;
   };
   skills: {
     mount: SkillMount;

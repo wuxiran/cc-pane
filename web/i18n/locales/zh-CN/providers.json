@@ -172,6 +172,19 @@
   "ccpanesMcpDesc": "注入 CC-Panes 自身的会话、派发与编排能力（core 面）。管理台操作走 cc-panes-ctl。",
   "sharedMcpService": "共享 MCP 服务",
   "sharedMcpServiceDesc": "从共享服务库复用已配置的 MCP。",
+  "mcpDelivery": {
+    "label": "投递方式",
+    "direct": "直连",
+    "hub": "Hub",
+    "desc": "直连：每台共享 MCP 各注入一条。Hub：只注入一条 ccpanes-hub，agent 用 search_tools / call_tool 按需取用。Claude Code 已原生按需加载工具，Codex 等没有原生延迟加载的 CLI 收益更大。",
+    "fallbackLine": "回退直连：{{reason}}",
+    "limitLine": "选 Hub 时：{{reason}}",
+    "fallback": {
+      "cli": "这个 CLI 不支持 Hub（目前只有本机 Claude Code / Codex），会照旧逐个注入。",
+      "runtime": "WSL / SSH 会话不走 Hub，会照旧逐个注入。",
+      "sse": "SSE 类型的远程 MCP 不经 Hub，仍单独注入。"
+    }
+  },
   "sharedMcpSelection": "共享 MCP 选择",
   "sharedMcpEmpty": "共享服务库为空，可以通过“管理共享 MCP”新增或导入。",
   "skillDisabledHint": "当前配置不会注入 CC-Panes 内置 Skill、运行配置 Skill 或工作空间项目 Skill。",

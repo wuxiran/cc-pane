@@ -1414,6 +1414,21 @@
     "failed": "Failed: {{error}}",
     "actionFailed": "Failed: {{error}}"
   },
+  "mcpHubCard": {
+    "title": "MCP Hub",
+    "badge": "ccpanes-hub",
+    "intro": "One entry point: launch profiles set to Hub delivery give sessions a single ccpanes-hub entry, which reaches the servers below on demand via search_tools / call_tool.",
+    "endpoint": "Endpoint {{endpoint}}",
+    "endpointDown": "Orchestrator isn't running; Hub sessions fall back to direct for now.",
+    "servers": "{{count}} servers behind it",
+    "tools": "{{count}} tools cached",
+    "toolsPending": "tool lists load on first search",
+    "direct": "Bypass the hub (SSE): {{names}}",
+    "stopped": "Not running: {{names}}",
+    "profiles": "Profiles using Hub: {{names}}",
+    "noProfiles": "No launch profile uses Hub delivery yet (switch it in a profile's MCP card).",
+    "fallsBack": "{{name}} (falls back to direct for its CLI)"
+  },
   "resourceLibrary": {
     "components": "Components",
     "componentsIntro": "Capabilities that ship with CC-Panes. Once enabled, WeChat appears on the MCP page and Feishu CLI skills go to the skill library; launch-profile toggles decide which sessions get them.",
