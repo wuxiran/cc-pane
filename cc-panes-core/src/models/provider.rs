@@ -447,6 +447,35 @@ pub struct Provider {
     /// 保存原文以保留用户格式；合并规则见 `services::native_config`。
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub native_overrides: std::collections::BTreeMap<String, String>,
+    /// 只读本地数据的提醒开关。缺省 = 全开；更新时不带它就沿用已存的值。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alerts: Option<ProviderAlerts>,
+}
+
+/// 供应商级提醒：只看本地会话日志和已有的纯度检测结果，不发请求、不改 CLI 环境。
+/// 只对 API key 账号生效；订阅登录账号永远不提醒。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAlerts {
+    /// 会话缓存命中率明显偏低时提醒（中转可能没转发缓存，按全价计费）。
+    #[serde(default = "default_alert_on")]
+    pub cache_low: bool,
+    /// 上次纯度检测发现提示词注入时提醒。
+    #[serde(default = "default_alert_on")]
+    pub injection: bool,
+}
+
+fn default_alert_on() -> bool {
+    true
+}
+
+impl Default for ProviderAlerts {
+    fn default() -> Self {
+        Self {
+            cache_low: true,
+            injection: true,
+        }
+    }
 }
 
 impl Provider {

@@ -670,6 +670,10 @@ impl ProviderService {
         if provider.source.is_none() {
             provider.source = config.providers[pos].source.clone();
         }
+        // 旧界面 / 别的入口不带提醒开关保存时，沿用已存的选择。
+        if provider.alerts.is_none() {
+            provider.alerts = config.providers[pos].alerts;
+        }
         let mut next = config.clone();
 
         if provider.is_default && !next.providers[pos].is_default {
@@ -1955,6 +1959,30 @@ mod tests {
         let stored = service.get_provider("a").unwrap();
         assert_eq!(stored.name, "renamed");
         assert_eq!(stored.source, Some(origin));
+    }
+
+    #[test]
+    fn provider_alerts_default_on_and_survive_updates_without_them() {
+        use crate::models::provider::ProviderAlerts;
+        let parsed: ProviderAlerts = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed, ProviderAlerts::default());
+        assert!(parsed.cache_low && parsed.injection);
+
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut a = make_provider("a", false);
+        a.alerts = Some(ProviderAlerts {
+            cache_low: false,
+            injection: true,
+        });
+        service.add_provider(a).unwrap();
+
+        // 不带提醒开关的保存沿用已存的选择
+        let mut renamed = make_provider("a", false);
+        renamed.name = "renamed".to_string();
+        service.update_provider(renamed).unwrap();
+        let alerts = service.get_provider("a").unwrap().alerts.unwrap();
+        assert!(!alerts.cache_low && alerts.injection);
     }
 
     #[test]

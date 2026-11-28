@@ -29,6 +29,7 @@ import {
   type FormState,
 } from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
+import ProviderAlertsField, { providerTypeHasAlerts } from "./ProviderAlertsField";
 import CodexWireApiField from "./CodexWireApiField";
 import { ProviderNativeOverrideSection } from "./NativeOverrideEditor";
 import EndpointsField from "./accounts/EndpointsField";
@@ -340,6 +341,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
             )}
 
             {form.providerType === "open_ai" && <CodexWireApiField value={form.codexWireApi} onChange={(codexWireApi) => updateForm(withPrimaryMoved({ codexWireApi }))} />}
+            {providerTypeHasAlerts(form.providerType) && <ProviderAlertsField value={form.alerts} onChange={(alerts) => updateForm({ alerts })} />}
             {shouldShowField("region") && (
               <FormField label={t("region")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
                 {({ id }) => (

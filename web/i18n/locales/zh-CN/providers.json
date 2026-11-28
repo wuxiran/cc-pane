@@ -654,5 +654,13 @@
   "magpieLive": {
     "groups": "Magpie 路由组（实时）",
     "models": "Magpie 模型（实时）"
+  },
+  "alerts": {
+    "title": "提醒",
+    "cacheLow": "缓存命中率偏低",
+    "cacheLowDesc": "会话累计超过 10 万提示 token 后，缓存读取不到三成时在状态栏提醒：中转可能没转发缓存，按全价计费。",
+    "injection": "提示词注入",
+    "injectionDesc": "这条供应商上次的纯度检测发现注入时，在状态栏提醒。",
+    "note": "只读本机的会话日志和已有的检测结果，不发请求；只对 API key 账号生效，订阅登录账号不提醒。"
   }
 }
