@@ -571,7 +571,7 @@ export const terminalService = {
       void usageStatsService.recordInputChars(sessionId, charCount).catch((error) => {
         console.warn("Failed to record terminal input chars:", error);
       });
-      recordTerminalInputActivity(sessionId);
+      recordTerminalInputActivity(sessionId, data);
     }
   },
 
