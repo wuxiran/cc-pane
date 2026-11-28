@@ -2,13 +2,15 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toastWarn } from "@/lib/feedback";
 import { listenWebviewIfTauri } from "@/services/runtime";
-import { useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
+import { isResumeTargetMissing, useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
 
 vi.mock("@/lib/feedback", () => ({ toastWarn: vi.fn(), toastErr: vi.fn() }));
 const markTerminalLaunchFailed = vi.hoisted(() => vi.fn());
 vi.mock("@/stores/usePanesStore", () => ({
   usePanesStore: { getState: () => ({ markTerminalLaunchFailed }) },
 }));
+const recoverFromDeadResume = vi.hoisted(() => vi.fn());
+vi.mock("./deadResumeRecovery", () => ({ recoverFromDeadResume }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts ?? {})}`,
@@ -113,6 +115,55 @@ describe("useLaunchWarnings", () => {
     expect(msg).toContain("nativeCliMissing");
     expect(msg).toContain("npm i -g @anthropic-ai/claude-code");
     expect(toastWarn).not.toHaveBeenCalled();
+  });
+
+  // 实测（dev 日志）：Claude 发号后用户没说话就关了，会话档案从未落盘；之后每次重启都
+  // `--resume` 同一个死 id，报 "No conversation found" 后退出，失败输出再被冷重放——永久循环。
+  describe("resumeLaunchFailed：resume 目标已不存在", () => {
+    const deadId = "4b27b0d6-9fbf-40df-b000-9daa1cb9842e";
+    const fire = async (matchedPattern: string) => {
+      const { handler } = await mount();
+      handler({
+        payload: {
+          kind: "resumeLaunchFailed",
+          sessionId: "pty-dead",
+          resumeId: deadId,
+          cliTool: "claude",
+          exitCode: 1,
+          matchedPattern,
+        },
+      });
+    };
+
+    it("目标缺失时交给自愈流程，自动新建后给一条提示", async () => {
+      recoverFromDeadResume.mockReturnValue("relaunched");
+      await fire("no conversation found");
+      expect(recoverFromDeadResume).toHaveBeenCalledWith("pty-dead", deadId);
+      expect(vi.mocked(toastWarn).mock.calls[0][0]).toContain("resumeTargetMissingRelaunched");
+    });
+
+    it("自愈已停下（错误面板接管）时不再弹提示", async () => {
+      const { toastErr } = await import("@/lib/feedback");
+      recoverFromDeadResume.mockReturnValue("stopped");
+      await fire("no conversation found");
+      expect(toastWarn).not.toHaveBeenCalled();
+      expect(toastErr).not.toHaveBeenCalled();
+    });
+
+    it("宽特征（error 等）不撤 resume id，只提示", async () => {
+      const { toastErr } = await import("@/lib/feedback");
+      await fire("error");
+      expect(recoverFromDeadResume).not.toHaveBeenCalled();
+      expect(vi.mocked(toastErr).mock.calls[0][0]).toContain("resumeLaunchFailed");
+    });
+
+    it("isResumeTargetMissing 只认明确的目标缺失特征", () => {
+      expect(isResumeTargetMissing("no conversation found")).toBe(true);
+      expect(isResumeTargetMissing("session not found")).toBe(true);
+      expect(isResumeTargetMissing("not found in")).toBe(false);
+      expect(isResumeTargetMissing("error")).toBe(false);
+      expect(isResumeTargetMissing(undefined)).toBe(false);
+    });
   });
 
   it("其他 kind 不触发 toast", async () => {

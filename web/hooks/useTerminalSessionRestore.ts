@@ -14,6 +14,7 @@ import type {
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { writeTerminalRestoreLog as writeRestoreLog } from "@/stores/useTerminalRestoreLogStore";
+import { recordAdoptionSnapshot } from "@/lib/adoptionSnapshotReuse";
 import { verifyIdentity, type IdentityLeafFacts } from "./terminalIdentityVerification";
 export { runBackgroundLayoutRestore } from "./backgroundLayoutRestore";
 
@@ -151,6 +152,8 @@ export async function reconcileTerminalSessions(
   }
 
   useTerminalStatusStore.getState().replaceLiveStatuses(snapshot.sessions);
+  // 记下快照，供各标签「旧会话还活着吗」复用（世代/时效校验见 adoptionSnapshotReuse）。
+  recordAdoptionSnapshot(snapshot);
   const liveIds = new Set(
     snapshot.sessions
       .filter((status) => status.status !== "exited")
@@ -205,6 +208,24 @@ export async function reconcileTerminalSessions(
       });
     }
     report.blocked = blockPendingLeaves("reconciliation-failed");
+    return report;
+  }
+
+  if (liveIds.size === 0) {
+    // 快照完整且没有存活会话：候选 = 存活 ∩ 锚点匹配，必然为空，读本地会话档案
+    // （常见几十条）只是空转，还会在日志里多刷三行。结果与走完整流程逐项一致——
+    // 每个待恢复 leaf 解除阻断、交给新建路径；身份核对的各道门只作用于候选，
+    // 这里没有候选，不涉及放行任何会话。
+    for (const leaf of leaves) {
+      if (leaf.leaf.sessionId) continue;
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.no-live-sessions");
+      usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, undefined);
+    }
+    void sessionRestoreService.prune(
+      snapshot.daemonGeneration,
+      snapshot.capturedAtMs,
+      [],
+    ).catch((error) => console.warn("[SessionAdopt] stale row prune failed:", error));
     return report;
   }
 
