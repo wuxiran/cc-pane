@@ -64,6 +64,26 @@ export interface UseTerminalDeferredRestoreParams {
   killSessionOnUnmounted: (sessionId: string) => void;
 }
 
+/**
+ * 激活兜底是否要补建 PTY：布局在前台、还没有会话、init 路径没接手，且确实被推迟过
+ * （init 走了 defer 分支，或曾隐藏挂载的恢复标签）。
+ */
+export function needsActivationRestore(input: {
+  layoutActive?: boolean;
+  hasSession: boolean;
+  launchStarted: boolean;
+  deferred: boolean;
+  everHidden: boolean;
+  restoring?: boolean;
+}): boolean {
+  return (
+    (input.layoutActive ?? true)
+    && !input.hasSession
+    && !input.launchStarted
+    && (input.deferred || (input.everHidden && input.restoring === true))
+  );
+}
+
 /** Refit on activation and create deferred PTYs for restored tabs. */
 export function useTerminalDeferredRestore({
   props,
@@ -119,15 +139,19 @@ export function useTerminalDeferredRestore({
     // robust hand-off signal (set purely from layoutActive) so this fires even if the
     // init effect did not reach its defer branch; `restoreLaunchStartedRef` + the live
     // session check prevent double-launching a tab the init effect already owns.
-    const needsDeferredRestore =
-      (props.layoutActive ?? true) &&
-      !currentSessionIdRef.current &&
-      !restoreLaunchStartedRef.current &&
-      (deferredRestoreRef.current || (everHiddenRef.current && props.restoring === true));
-    if (!currentSessionIdRef.current && (everHiddenRef.current || deferredRestoreRef.current || props.restoring)) {
-      logRestoreEvent("activation.effect", { needsDeferredRestore });
-    }
+    const needsDeferredRestore = needsActivationRestore({
+      layoutActive: props.layoutActive,
+      hasSession: Boolean(currentSessionIdRef.current),
+      launchStarted: restoreLaunchStartedRef.current,
+      deferred: deferredRestoreRef.current,
+      everHidden: everHiddenRef.current,
+      restoring: props.restoring,
+    });
     if (needsDeferredRestore) {
+      // 只在真要补做恢复时进恢复日志：此前每次 effect 重跑（挂载、StrictMode 双挂载、
+      // xterm 就绪）都记一条「标签切到前台」，一次普通恢复刷 2–3 条且都判 false。
+      // 每次重跑的取证仍在上面的 active.effect debugLog 里。
+      logRestoreEvent("activation.effect", { needsDeferredRestore });
       if (!props.projectPath || !terminalReady) return;
       const term = terminalInstanceRef.current;
       if (!term) return;
